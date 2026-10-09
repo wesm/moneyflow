@@ -38,7 +38,8 @@ export interface Column {
   minWidth?: 760
 }
 
-const METRIC_WIDTH = '6.5rem'
+/** Metric columns narrow below 760 px (app.css), so Net still fits at 641 px. */
+const METRIC_WIDTH = 'var(--mf-metric-width)'
 const SELECT: Column = {
   key: 'select',
   label: 'Select all matching',
@@ -163,9 +164,39 @@ export function cellClass(column: Column): string {
   return column.align === 'end' ? 'mf-table__cell mf-table__cell--end' : 'mf-table__cell'
 }
 
-/** The columns that fit a viewport `width` px wide: a column with a `minWidth` drops out below it. */
-export function columnsAtWidth(columns: Column[], width: number): Column[] {
-  return columns.filter((column) => column.minWidth === undefined || width >= column.minWidth)
+/** The media query that shows the columns with a `minWidth` of 760. */
+export const WIDE_COLUMNS_QUERY = '(min-width: 760px)'
+
+/** The columns that fit: a column with a `minWidth` drops out unless the viewport is `wide`. */
+export function columnsAtWidth(columns: Column[], wide: boolean): Column[] {
+  return columns.filter((column) => column.minWidth === undefined || wide)
+}
+
+/** Phone rows' cells in reading order. A phone header shows two of them, so cells are numbered. */
+const COMPACT_ORDERS = {
+  detail: ['select', 'merchant', 'amount', 'date', 'category', 'account', 'flags', 'actions'],
+  aggregate: ['select', 'name', 'net', 'count', 'in', 'out', 'actions'],
+  time: ['select', 'period', 'net', 'count', 'in', 'out', 'actions'],
+} as const satisfies Record<string, readonly ColumnKey[]>
+
+export type CompactLayout = keyof typeof COMPACT_ORDERS
+
+/** The phone row layout of the projection's rows. */
+export function compactLayout(projection: ViewProjection): CompactLayout {
+  if (projection.detail_rows) return 'detail'
+  return (projection.view.sub_grouping ?? projection.view.grouping) === 'time'
+    ? 'time'
+    : 'aggregate'
+}
+
+/** The `aria-colindex` of a phone row's cell, so each value is announced under its header. */
+export function compactColumnIndex(layout: CompactLayout, key: ColumnKey): number {
+  return (COMPACT_ORDERS[layout] as readonly ColumnKey[]).indexOf(key) + 1
+}
+
+/** The `aria-colcount` of a grid of phone rows. */
+export function compactColumnCount(layout: CompactLayout): number {
+  return COMPACT_ORDERS[layout].length
 }
 
 /** The columns of the projection's view. Only the server's sort fields stay sortable. */

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { columnsAtWidth, columnsFor } from './columns'
+import {
+  columnsAtWidth,
+  columnsFor,
+  compactColumnCount,
+  compactColumnIndex,
+  compactLayout,
+} from './columns'
 import type { ViewProjection } from '../api/client'
 import { testProjection } from '../../test/projection'
 
@@ -178,15 +184,29 @@ describe('columnsFor', () => {
 
 describe('columnsAtWidth', () => {
   const merchants = () => columnsFor(grouped({ grouping: 'merchant' }))
-  const at = (width: number) => columnsAtWidth(merchants(), width).map((column) => column.key)
+  const at = (wide: boolean) => columnsAtWidth(merchants(), wide).map((column) => column.key)
 
   it('drops Context below 760 px and keeps every other column', () => {
-    expect(at(759)).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
-    expect(at(641)).toEqual(at(759))
+    expect(at(false)).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
   })
 
   it('keeps Context from 760 px', () => {
-    expect(at(760)).toEqual(keys(grouped({ grouping: 'merchant' })))
-    expect(at(1440)).toEqual(at(760))
+    expect(at(true)).toEqual(keys(grouped({ grouping: 'merchant' })))
+  })
+})
+
+describe('compactColumnIndex', () => {
+  it('numbers each phone layout from the selection box to the trailing button', () => {
+    expect(compactColumnIndex('detail', 'select')).toBe(1)
+    expect(compactColumnIndex('detail', 'amount')).toBe(3)
+    expect(compactColumnIndex('detail', 'actions')).toBe(compactColumnCount('detail'))
+    expect(compactColumnIndex('aggregate', 'net')).toBe(3)
+    expect(compactColumnIndex('time', 'period')).toBe(2)
+  })
+
+  it('picks the layout from the rows the projection holds', () => {
+    expect(compactLayout(detail())).toBe('detail')
+    expect(compactLayout(grouped({ grouping: 'category' }))).toBe('aggregate')
+    expect(compactLayout(grouped({ grouping: 'time' }))).toBe('time')
   })
 })

@@ -39,6 +39,8 @@ describe('RowFlags', () => {
     render(RowFlags, { row: row({ amazon_match: match('medium') }), oninformation })
     const strong = screen.getByRole('button', { name: 'Amazon match: Example Product, medium' })
     expect(strong.textContent?.trim()).toBe('✓')
+    // The grid is one Tab stop; i and Enter reach Info from the keyboard.
+    expect(strong.getAttribute('tabindex')).toBe('-1')
     await fireEvent.click(strong)
     expect(oninformation).toHaveBeenCalledWith('row-0')
     cleanup()

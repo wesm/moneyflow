@@ -1,17 +1,20 @@
 <script lang="ts">
   import { EmptyState } from '@kenn-io/kit-ui'
-  import { innerWidth } from 'svelte/reactivity/window'
+  import { MediaQuery } from 'svelte/reactivity'
 
-  import AggregateRow from './AggregateRow.svelte'
-  import CompactAggregateRow from './CompactAggregateRow.svelte'
-  import CompactDetailRow from './CompactDetailRow.svelte'
-  import DetailRow from './DetailRow.svelte'
   import GridHeader from './GridHeader.svelte'
-  import TimeRow from './TimeRow.svelte'
+  import GridRow from './GridRow.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import type { components } from '../../lib/api/schema'
   import { incomeDivider } from '../../lib/table/cells'
-  import { columnsAtWidth, columnsFor, type SortField } from '../../lib/table/columns'
+  import {
+    columnsAtWidth,
+    columnsFor,
+    compactColumnCount,
+    compactLayout,
+    WIDE_COLUMNS_QUERY,
+    type SortField,
+  } from '../../lib/table/columns'
   import { GridScroll } from '../../lib/table/grid-scroll.svelte'
   import { rowHeight } from '../../lib/table/layout'
   import {
@@ -38,8 +41,8 @@
     viewport?: number
     onmove: (delta: -1 | 1) => void
     onhome: () => void
-    /** A row click moves the cursor; the grid keeps focus. */
-    oncursor: (index: number) => void
+    /** A row click moves the cursor; the grid keeps focus. Settles once the cursor moved. */
+    oncursor: (index: number) => Promise<void>
     /** A click on a row's selection box. */
     ontoggle: (identity: string, kind: RowKind) => void
     ontoggleall: () => void
@@ -76,7 +79,9 @@
   }: Props = $props()
   let grid = $state<HTMLDivElement>()
   const height = $derived(rowHeight(compact))
-  const columns = $derived(columnsAtWidth(columnsFor(projection), innerWidth.current ?? Infinity))
+  const wide = new MediaQuery(WIDE_COLUMNS_QUERY)
+  const columns = $derived(columnsAtWidth(columnsFor(projection), wide.current))
+  const layout = $derived(compact ? compactLayout(projection) : undefined)
   const cellColumns = $derived(columns.filter((column) => column.key !== 'select'))
   const trackSizes = $derived(columns.map((column) => column.width).join(' '))
   const dimension = $derived(projection.view.sub_grouping ?? projection.view.grouping)
@@ -109,17 +114,19 @@
     set scrollTop(next) {
       scrollTop = next
     },
-    oncursor: (index) => oncursor(index),
+    oncursor: (index) => void oncursor(index),
     get onshow() {
       return onshow
     },
   })
 
   function keydown(event: KeyboardEvent): void {
+    if (!['ArrowUp', 'k', 'ArrowDown', 'j', 'Home'].includes(event.key)) return
+    // A row button keeps focus after its sheet closes; the grid takes it back, as its keys expect.
+    if (event.target !== grid) grid?.focus({ preventScroll: true })
     if (event.key === 'ArrowUp' || event.key === 'k') onmove(-1)
     else if (event.key === 'ArrowDown' || event.key === 'j') onmove(1)
-    else if (event.key === 'Home') onhome()
-    else return
+    else onhome()
     scroll.keyed()
     event.preventDefault()
     event.stopPropagation()
@@ -137,14 +144,16 @@
     if (!target) return
     if (compact) tap(target.row, compactTapAction(kind, target.column), event)
     else if (target.column === 'select') ontoggle(target.row.identity, kind)
-    else oncursor(target.row.index)
+    else void oncursor(target.row.index)
   }
 
   /** A tap on a compact row: toggle, drill, or move the cursor there and open Info or actions. */
   function tap(row: TableRow, action: ReturnType<typeof compactTapAction>, event: MouseEvent) {
     if (action === 'toggle') return ontoggle(row.identity, kind)
-    if (action === 'drill') return onactivate(row.identity, kind)
-    oncursor(row.index)
+    // On the tapped row first, so Back returns there.
+    if (action === 'drill')
+      return void oncursor(row.index).then(() => onactivate(row.identity, kind))
+    void oncursor(row.index)
     const opener = event.target instanceof Element && event.target.closest('button')
     if (action === 'information') oninformation(row.identity)
     else if ('merchant' in row && opener) onactions(row, opener)
@@ -176,6 +185,7 @@
     role="grid"
     aria-label="Financial results"
     aria-rowcount={projection.total_rows + 1}
+    aria-colcount={layout && compactColumnCount(layout)}
     aria-activedescendant={activeID ? `moneyflow-row-${activeID}` : undefined}
     tabindex="0"
     bind:this={grid}
@@ -189,7 +199,7 @@
   >
     <GridHeader
       {columns}
-      {compact}
+      compact={layout}
       view={projection.view}
       allSelected={projection.selection_count > 0 &&
         projection.selection_count === projection.total_rows}
@@ -199,43 +209,16 @@
     <div class="mf-table__spacer" style:height={`${scroll.pads.top}px`} aria-hidden="true"></div>
     {#each scroll.slots as { index, row } (index)}
       {#if row}
-        {@const divider = dividers ? incomeDivider(windows, index) : null}
-        <div
-          id={`moneyflow-row-${row.identity}`}
-          class={[
-            'mf-table__row',
-            {
-              'mf-table__row--active': row.index === cursorIndex,
-              'mf-table__row--selected': row.flags.selected,
-              'mf-table__row--hidden': row.flags.hidden,
-              'mf-table__row--divided': divider !== null,
-              'mf-table__row--deleted': 'staged' in row && row.staged?.deleted === true,
-            },
-          ]}
-          role="row"
-          aria-rowindex={row.index + 2}
-          aria-selected={row.flags.selected}
-          data-index={row.index}
-        >
-          <div class="mf-table__cell mf-table__cell--select" role="gridcell" data-column="select">
-            <!-- kit-ui-check-ignore: kit Checkbox lacks tabindex (upstream candidate) -->
-            <span class={['mf-check', row.flags.selected && 'mf-check--on']} aria-hidden="true"
-            ></span>
-          </div>
-          {#if compact}
-            {#if 'merchant' in row}
-              <CompactDetailRow {row} {oninformation} />
-            {:else}
-              <CompactAggregateRow {row} {divider} />
-            {/if}
-          {:else if 'merchant' in row}
-            <DetailRow {row} columns={cellColumns} {oninformation} {onedit} />
-          {:else if row.dimension === 'time'}
-            <TimeRow {row} columns={cellColumns} {divider} />
-          {:else}
-            <AggregateRow {row} columns={cellColumns} {dimension} {divider} />
-          {/if}
-        </div>
+        <GridRow
+          {row}
+          active={row.index === cursorIndex}
+          divider={dividers ? incomeDivider(windows, index) : null}
+          {layout}
+          columns={cellColumns}
+          {dimension}
+          {oninformation}
+          {onedit}
+        />
       {:else}
         <div
           class="mf-table__row mf-table__row--placeholder"

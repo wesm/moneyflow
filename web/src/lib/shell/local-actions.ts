@@ -44,9 +44,9 @@ export function focusedRow(
  * Moves the cursor from a pointer or a grid key. These never pass through the shortcut manager,
  * so the move clears the status notice here, as every next action does.
  */
-export function moveCursor(move: () => Promise<void>): void {
+export function moveCursor(move: () => Promise<void>): Promise<void> {
   status.clear()
-  void move()
+  return move()
 }
 
 /** Runs `work` after queued view transitions, once the shell has drawn their result. */

@@ -116,7 +116,7 @@ describe('row actions', () => {
   afterEach(() => document.body.replaceChildren())
   const row = { identity: 'row-7', kind: 'transaction' } as const
 
-  it('h hides the cursor row and the sheet hides a given row through the same handler', async () => {
+  it('h hides the cursor row and the sheet hides a given row with the same handler', async () => {
     const { context } = setup(1)
     localActions(context)['edit.hide']()
     await vi.waitFor(() => expect(context.controller.editing.submit).toHaveBeenCalledTimes(1))

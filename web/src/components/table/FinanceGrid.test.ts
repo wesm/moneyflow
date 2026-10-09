@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import FinanceGrid from './FinanceGrid.svelte'
 import type { ViewProjection } from '../../lib/api/client'
@@ -8,7 +8,7 @@ import { testAggregateRow, testMoney, testProjection } from '../../test/projecti
 const callbacks = () => ({
   onmove: vi.fn(),
   onhome: vi.fn(),
-  oncursor: vi.fn(),
+  oncursor: vi.fn(() => Promise.resolve()),
   ontoggle: vi.fn(),
   ontoggleall: vi.fn(),
   onactivate: vi.fn(),
@@ -48,6 +48,23 @@ const headers = () =>
   screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())
 const cell = (row: HTMLElement, key: string) =>
   row.querySelector<HTMLElement>(`[role="gridcell"][data-column="${key}"]`)
+
+/** Matches `(min-width: 760px)` while `wide` is true, as the window would. */
+let wide = true
+const matchMedia = window.matchMedia
+beforeEach(() => {
+  wide = true
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: (query: string) => ({
+      ...matchMedia(query),
+      matches: query === '(min-width: 760px)' && wide,
+    }),
+  })
+})
+afterEach(() =>
+  Object.defineProperty(window, 'matchMedia', { configurable: true, value: matchMedia }),
+)
 
 describe('FinanceGrid', () => {
   afterEach(cleanup)
@@ -539,16 +556,84 @@ describe('FinanceGrid', () => {
     })
   })
 
-  it('drops Context below 760 px', () => {
-    const width = window.innerWidth
-    window.innerWidth = 700
-    try {
+  describe('compact rows: headers, taps, and keys', () => {
+    /** Each gridcell's column key with its `aria-colindex`. */
+    const columnIndexes = (element: HTMLElement, role: string) =>
+      Object.fromEntries(
+        within(element)
+          .getAllByRole(role)
+          .map((node) => [node.dataset['column'], node.getAttribute('aria-colindex')]),
+      )
+
+    it('numbers the compact cells so each value has its own header', () => {
+      for (const [projection, sorted] of [
+        [grouped(), 'net'],
+        [testProjection({ view: detailView }), 'date'],
+      ] as const) {
+        render(FinanceGrid, { projection, cursorIndex: 0, compact: true, ...callbacks() })
+        const grid = screen.getByRole('grid', { name: 'Financial results' })
+        const row = screen.getByRole('row', { name: /Example Merchant/ })
+        const cells = columnIndexes(row, 'gridcell')
+        const headers = columnIndexes(grid.querySelector('.mf-table__header')!, 'columnheader')
+        expect(headers).toEqual({ select: '1', [sorted]: cells[sorted] })
+        const indexes = Object.values(cells).map(Number)
+        expect(indexes).toEqual(indexes.map((_, position) => position + 1))
+        expect(grid.getAttribute('aria-colcount')).toBe(String(indexes.length))
+        cleanup()
+      }
+    })
+
+    it('leaves desktop cells in document order without column numbers', () => {
       render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: false, ...callbacks() })
-      const keys = screen.getAllByRole('columnheader').map((header) => header.dataset['column'])
-      expect(keys).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
-    } finally {
-      window.innerWidth = width
-    }
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      expect(grid.querySelector('[aria-colindex]')).toBeNull()
+      expect(grid.hasAttribute('aria-colcount')).toBe(false)
+    })
+
+    it('moves the cursor to a tapped group before drilling, so Back returns to it', async () => {
+      const events = callbacks()
+      const rows = [testAggregateRow(), testAggregateRow({ index: 1, identity: 'agg-1' })]
+      render(FinanceGrid, {
+        projection: grouped({
+          aggregate_rows: rows,
+          total_rows: 2,
+          window: { offset: 0, limit: 200, count: 2 },
+        }),
+        cursorIndex: 0,
+        compact: true,
+        ...events,
+      })
+      const second = document.querySelector<HTMLElement>('[role="row"][aria-rowindex="3"]')!
+      await fireEvent.click(cell(second, 'net')!)
+      await vi.waitFor(() => expect(events.onactivate).toHaveBeenCalledWith('agg-1', 'aggregate'))
+      expect(events.oncursor).toHaveBeenCalledWith(1)
+      const [moved] = events.oncursor.mock.invocationCallOrder
+      const [drilled] = events.onactivate.mock.invocationCallOrder
+      expect(moved).toBeLessThan(drilled!)
+    })
+
+    it('takes focus back from a row button before a grid key moves the cursor', async () => {
+      const events = callbacks()
+      render(FinanceGrid, {
+        projection: testProjection({ view: detailView }),
+        cursorIndex: 0,
+        compact: true,
+        ...events,
+      })
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      const more = screen.getByRole('button', { name: 'Actions for Example Merchant' })
+      more.focus()
+      await fireEvent.keyDown(more, { key: 'j' })
+      expect(events.onmove).toHaveBeenCalledWith(1)
+      expect(document.activeElement).toBe(grid)
+    })
+  })
+
+  it('drops Context below 760 px', () => {
+    wide = false
+    render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: false, ...callbacks() })
+    const keys = screen.getAllByRole('columnheader').map((header) => header.dataset['column'])
+    expect(keys).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
   })
 
   describe('scrolling through every row of the result', () => {
@@ -662,7 +747,7 @@ describe('FinanceGrid', () => {
       expect(events.oncursor).toHaveBeenCalledWith(310)
     })
 
-    it('waits for the window of rows scrolled past the arriving one before moving the cursor', async () => {
+    it('asks for the next window when the user scrolled past the arriving one', async () => {
       vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
       const events = { ...callbacks(), onshow: vi.fn() }
       const view = render(FinanceGrid, {

@@ -844,6 +844,8 @@ input {
   overflow: auto;
 }
 .mf-table {
+  /* Narrower below 760 px, so Net still fits beside the icon rail at 641 px. */
+  --mf-metric-width: 5.75rem;
   /* As wide as its columns' minimums, so the focus ring and rows span a table that scrolls. */
   min-width: min-content;
   margin-top: var(--space-2);
@@ -852,6 +854,11 @@ input {
   grid-template-columns: var(--mf-columns);
   align-content: start;
   font-size: var(--font-size-sm);
+}
+@media (min-width: 760px) {
+  .mf-table {
+    --mf-metric-width: 6.5rem;
+  }
 }
 .mf-table:focus-visible {
   /* Neutral and outside the rows, so the blue left rule still marks only the cursor row. */
@@ -1178,7 +1185,7 @@ input {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  overflow: hidden;
+  overflow-x: clip;
   color: var(--text-secondary);
   font-size: var(--font-size-xs);
   white-space: nowrap;
@@ -1199,8 +1206,15 @@ input {
 .mf-compact__button {
   display: flex;
 }
-.mf-table__row--hidden > .mf-compact {
+/* The flags cell keeps full strength, so its Hidden tag reads clearly, as on desktop rows. */
+.mf-table__row--hidden .mf-compact [role='gridcell']:not([data-column='flags']) {
   opacity: var(--opacity-disabled);
+}
+/* A 44 px tap target that keeps the meta line's height; the line clips only sideways. */
+.mf-table--compact .mf-flags__match .kit-icon-button {
+  min-width: 44px;
+  min-height: 44px;
+  margin-block: -14px;
 }
 .mf-table__row--deleted .mf-compact [role='gridcell']:not([data-column='flags']) {
   text-decoration: line-through;
@@ -1232,10 +1246,12 @@ input {
   font-size: var(--font-size-xs);
 }
 /* In the scroll flow after the table, so the last row scrolls clear of it. The negative bottom
-   reaches past the workspace's focus-ring padding to its edge. */
+   reaches past the workspace's focus-ring padding to its edge. As wide as the workspace and
+   pinned to its left, so it stays put while a wide table scrolls sideways at 641–899 px. */
 .mf-selection-bar {
   position: sticky;
   bottom: calc(-1 * var(--space-2));
+  left: 0;
   z-index: 2;
   display: flex;
   flex-wrap: wrap;

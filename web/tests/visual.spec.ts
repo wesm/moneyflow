@@ -188,6 +188,37 @@ test('hover keeps the cursor and selection tints; hidden rows keep ☐ and flags
   expect(await opacity('date')).toBeLessThan(1)
 })
 
+test('a hidden phone row dims everything but its flags', async ({ page, server }) => {
+  await page.setViewportSize(viewports[2])
+  // The demo hides a few late-month Noodle House visits early in 2026.
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-01-01&to=2026-03-31&v=1')
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  await page.keyboard.press('d')
+  await expect(grid.locator('[data-column="merchant"]').first()).toBeVisible()
+  await page.keyboard.press('/')
+  await page.getByRole('searchbox', { name: 'Search transactions' }).fill('noodle')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
+  await page.keyboard.press('Enter')
+  const hidden = grid.locator('.mf-table__row--hidden').first()
+  await expect(hidden).toBeVisible()
+  // The opacity a cell shows with, including any dimmed wrapper inside the row.
+  const shown = (key: string) =>
+    cell(hidden, key).evaluate((element) => {
+      let opacity = 1
+      for (
+        let node: Element | null = element;
+        node && node.role !== 'row';
+        node = node.parentElement
+      )
+        opacity *= Number(getComputedStyle(node).opacity)
+      return opacity
+    })
+  expect(await shown('flags')).toBe(1)
+  for (const key of ['merchant', 'amount', 'date', 'category', 'account']) {
+    expect(await shown(key), key).toBeLessThan(1)
+  }
+})
+
 for (const theme of themes) {
   test(`chart drawer ${theme} narrow visual contract`, async ({ page, server }) => {
     await page.setViewportSize({ width: 390, height: 844 })

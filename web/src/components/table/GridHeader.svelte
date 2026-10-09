@@ -2,7 +2,14 @@
   import { IconButton } from '@kenn-io/kit-ui'
 
   import type { ViewProjection } from '../../lib/api/client'
-  import { cellClass, type Column, type ColumnKey, type SortField } from '../../lib/table/columns'
+  import {
+    cellClass,
+    compactColumnIndex,
+    type Column,
+    type ColumnKey,
+    type CompactLayout,
+    type SortField,
+  } from '../../lib/table/columns'
   import { outOfTabOrder } from '../../lib/table/pointer'
 
   interface Props {
@@ -10,8 +17,8 @@
     view: ViewProjection['view']
     /** Every matching row is selected, so the header box shows checked. */
     allSelected: boolean
-    /** Phone rows: the header keeps only select-all and the current sort field. */
-    compact: boolean
+    /** Phone rows' layout: the header keeps only select-all and the current sort field. */
+    compact: CompactLayout | undefined
     onsort: (field: SortField) => void
     ontoggleall: () => void
   }
@@ -35,8 +42,10 @@
   {#each shown as column (column.key)}
     {@const sort = sortState(column)}
     {@const field = column.sortField}
-    <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->
-    <div class={cellClass(column)} role="columnheader" data-column={column.key} aria-sort={sort}>
+    <!-- prettier-ignore -->
+    <div class={cellClass(column)} role="columnheader" data-column={column.key}
+      aria-colindex={compact && compactColumnIndex(compact, column.key)}
+      aria-sort={sort /* kit-ui-check-ignore: virtual ARIA grid cannot hold header cells */}>
       {#if column.key === 'select'}
         <span class="mf-table__select-all" {@attach outOfTabOrder}>
           <IconButton size="sm" ariaLabel={column.label} onclick={ontoggleall}>

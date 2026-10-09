@@ -2,6 +2,7 @@
   import { Chip, IconButton, StatusDot } from '@kenn-io/kit-ui'
 
   import type { components } from '../../lib/api/schema'
+  import { outOfTabOrder } from '../../lib/table/pointer'
 
   interface Props {
     row: components['schemas']['DetailRow']
@@ -28,13 +29,15 @@
     <Chip size="xs" tone="muted" uppercase={false}>Hidden</Chip>
   {/if}
   {#if match}
-    <IconButton
-      size="sm"
-      ariaLabel={`Amazon match: ${match.first_product}, ${match.confidence}`}
-      onclick={(event) => {
-        event.stopPropagation()
-        oninformation?.(row.identity)
-      }}>{strong ? '✓' : '~'}</IconButton
-    >
+    <span class="mf-flags__match" {@attach outOfTabOrder}>
+      <IconButton
+        size="sm"
+        ariaLabel={`Amazon match: ${match.first_product}, ${match.confidence}`}
+        onclick={(event) => {
+          event.stopPropagation()
+          oninformation?.(row.identity)
+        }}>{strong ? '✓' : '~'}</IconButton
+      >
+    </span>
   {/if}
 </span>

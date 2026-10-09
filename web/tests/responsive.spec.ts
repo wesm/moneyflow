@@ -1,4 +1,4 @@
-import type { Locator, Page } from '@playwright/test'
+import type { Locator, Page, Route } from '@playwright/test'
 
 import { activeRow, cell, expect, openMoneyflow, test } from './fixtures'
 
@@ -461,6 +461,81 @@ test.describe('phone rows by touch', () => {
   })
 })
 
+test.describe('phone rows: drilling, keys, and the sheet', () => {
+  test.use({ hasTouch: true, viewport: phone })
+
+  test('Back after a tap drill returns the cursor to the tapped group', async ({
+    page,
+    server,
+  }) => {
+    await openMoneyflow(page, server)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const third = grid.locator('[role="row"][aria-rowindex="4"]')
+    const name = await cell(third, 'name').innerText()
+    await cell(third, 'net').tap()
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(name)
+    await page.goBack()
+    await expect(cell(await activeRow(page), 'name')).toHaveText(name)
+  })
+
+  test('Enter drills a group and opens Info on a transaction', async ({ page, server }) => {
+    await openMoneyflow(page, server)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const name = await cell(await activeRow(page), 'name').innerText()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(name)
+    await expect(cell(grid.locator('[role="row"][aria-rowindex="2"]'), 'merchant')).toBeVisible()
+    await page.keyboard.press('Enter')
+    const information = page.getByRole('dialog', { name: 'Transaction information' })
+    await expect(information).toContainText(name)
+  })
+
+  test('the ⋯ sheet closes when the window grows past the phone width', async ({
+    page,
+    server,
+  }) => {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const first = grid.locator('[role="row"][aria-rowindex="2"]')
+    const merchant = await cell(first, 'merchant').innerText()
+    await cell(first, 'actions').getByRole('button').tap()
+    const sheet = page.getByRole('dialog', { name: merchant })
+    await expect(sheet).toBeVisible()
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await expect(sheet).toBeHidden()
+    await expect(grid).toBeFocused()
+  })
+
+  test('an Amazon match mark is a 44 px target out of the Tab order', async ({ page, server }) => {
+    // The demo household has no Amazon matches, so every transaction row gets one here.
+    const withMatches = async (route: Route) => {
+      const response = await route.fetch()
+      const body = (await response.json()) as { detail_rows?: Record<string, unknown>[] | null }
+      for (const row of body.detail_rows ?? []) {
+        row['amazon_match'] = {
+          class: 'exact_order',
+          confidence: 'high',
+          first_product: 'Example Product',
+          total_matches: 1,
+        }
+      }
+      await route.fulfill({ response, json: body })
+    }
+    await page.route('**/api/v1/profiles/*/view', withMatches)
+    await page.route('**/api/v1/profiles/*/view/transition', withMatches)
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const mark = grid.getByRole('button', { name: 'Amazon match: Example Product, high' }).first()
+    await expect(mark).toBeVisible()
+    await expect(mark).toHaveAttribute('tabindex', '-1')
+    await expectCompactRows(page)
+    await mark.tap()
+    await expect(page.getByRole('dialog', { name: 'Transaction information' })).toBeVisible()
+  })
+})
+
 test.describe('phone row actions with a selection', () => {
   test.use({ hasTouch: true, viewport: phone })
 
@@ -496,11 +571,11 @@ test.describe('phone row actions with a selection', () => {
   })
 })
 
-test('641–899 px: Context drops below 760 px and the table scrolls under sticky ☐ and Name', async ({
+test('641–899 px: Net fits, and a wide table scrolls under sticky ☐, Name, and the bar', async ({
   page,
   server,
 }) => {
-  await page.setViewportSize({ width: 700, height: 800 })
+  await page.setViewportSize({ width: 641, height: 800 })
   await openMoneyflow(page, server)
   const grid = page.getByRole('grid', { name: 'Financial results' })
   const workspace = page.locator('.mf-workspace')
@@ -526,6 +601,19 @@ test('641–899 px: Context drops below 760 px and the table scrolls under stick
   await expect.poll(async () => (await boxes()).context).toBeLessThan(before.context - overflow + 1)
   const after = await boxes()
   expect(after).toMatchObject({ select: before.select, name: before.name, header: before.header })
+
+  // The selection bar stays put too, inside the workspace.
+  await page.keyboard.press('Space')
+  const bar = page.getByRole('region', { name: 'Selection' })
+  await expect(bar).toBeVisible()
+  const pinned = (await bar.boundingBox())!
+  await workspace.evaluate((node) => (node.scrollLeft = 0))
+  await expect.poll(async () => (await bar.boundingBox())!.x).toBe(pinned.x)
+  expect(pinned.x).toBeGreaterThanOrEqual(shown.x - 1)
+  expect(pinned.x + pinned.width).toBeLessThanOrEqual(
+    (await workspace.boundingBox())!.x + (await workspace.boundingBox())!.width + 1,
+  )
+  await page.keyboard.press('Escape')
 
   // The header stays on top of the rows while the table scrolls down.
   const scrollport = (await workspace.boundingBox())!
