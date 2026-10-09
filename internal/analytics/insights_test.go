@@ -259,15 +259,15 @@ func TestInsightsSearchMatchesReplaceTheExpressionWithoutNarrowingBounds(t *test
 	query.Search = "product name only the caller can match"
 	result, err := ComputeInsights(transactions, InsightsSpec{
 		Query: query, Today: rangeDate(t, "2026-09-01"), Summary: true,
-		SearchMatches: map[string]struct{}{"match": {}},
+		SearchMatches: map[string]struct{}{"match": {}, "pay": {}},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, rangeDate(t, "2026-01-01"), result.Ranges.Context[0].Start,
 		"All starts at the currency's first transaction, not the first match")
 	kpis := result.Summary.KPIs
-	assert.Equal(t, 1, kpis.Scope.Count)
-	assert.Equal(t, int64(-1234), kpis.Scope.Net)
-	assert.Nil(t, kpis.SavingsRateTenths, "a search hides the savings rate")
+	assert.Equal(t, 2, kpis.Scope.Count)
+	assert.Equal(t, int64(88766), kpis.Scope.Net)
+	assert.Nil(t, kpis.SavingsRateTenths, "a search hides the savings rate even with income")
 }
 
 func insightsQuery(t *testing.T, groupBy domain.Dimension, from, to string) domain.QuerySpec {
