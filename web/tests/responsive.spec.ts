@@ -114,13 +114,13 @@ test('the sidebar groups by its entries and the rail names them in tooltips', as
   const nav = page.getByRole('navigation', { name: 'Workspace' })
   const categories = nav.getByRole('button', { name: 'Categories', exact: true })
   await categories.click()
-  await expect(grid.getByRole('columnheader').nth(1)).toHaveText('Category')
+  await expect(grid.locator('[role="columnheader"][data-column="name"]')).toHaveText('Category')
   await expect(categories).toHaveAttribute('aria-current', 'page')
   await expect(grid).toBeFocused()
 
   await nav.getByRole('button', { name: 'Groups', exact: true }).focus()
   await page.keyboard.press('Enter')
-  await expect(grid.getByRole('columnheader').nth(1)).toHaveText('Group')
+  await expect(grid.locator('[role="columnheader"][data-column="name"]')).toHaveText('Group')
 
   await page.setViewportSize({ width: 1024, height: 768 })
   await expect(page.getByRole('separator', { name: 'Resize sidebar' })).toHaveCount(0)

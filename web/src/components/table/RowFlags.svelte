@@ -30,7 +30,6 @@
   {#if match}
     <IconButton
       size="sm"
-      class="mf-flags__match"
       ariaLabel={`Amazon match: ${match.first_product}, ${match.confidence}`}
       onclick={(event) => {
         event.stopPropagation()

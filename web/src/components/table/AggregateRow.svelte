@@ -9,11 +9,13 @@
     row: components['schemas']['AggregateRow']
     /** The row's columns after the selection column. */
     columns: Column[]
+    /** Names the group this row starts when Net changes sign; see `incomeDivider`. */
+    divider?: 'Income' | 'Spending' | null
     /** The dimension the rows group by, which decides the Context cell. */
     dimension: string
   }
 
-  let { row, columns, dimension }: Props = $props()
+  let { row, columns, dimension, divider = null }: Props = $props()
   const share = $derived(shareCell(row))
   const spending = $derived(row.total.minor.startsWith('-'))
 </script>
@@ -24,6 +26,7 @@
       <span class="mf-table__name">
         <span class="mf-table__text">{row.label}</span>
         {#if row.flags.pending}<StatusDot status="stale" label="Pending edits" />{/if}
+        {#if divider}<span class="mf-table__divider" aria-hidden="true">{divider}</span>{/if}
       </span>
     {:else if column.key === 'context'}
       <span class="mf-table__muted">{contextCell(row, dimension)}</span>

@@ -19,8 +19,9 @@
 
 <div class="mf-table__header" role="row">
   {#each columns as column (column.key)}
+    {@const sort = sortState(column)}
     <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->
-    <div class={cellClass(column)} role="columnheader" aria-sort={sortState(column)}>
+    <div class={cellClass(column)} role="columnheader" data-column={column.key} aria-sort={sort}>
       {#if unlabelled.has(column.key)}
         <span class="kit-sr-only">{column.label}</span>
       {:else}

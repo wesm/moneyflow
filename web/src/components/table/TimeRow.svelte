@@ -9,9 +9,11 @@
     row: components['schemas']['AggregateRow']
     /** The row's columns after the selection column. */
     columns: Column[]
+    /** Names the group this row starts when Net changes sign; see `incomeDivider`. */
+    divider?: 'Income' | 'Spending' | null
   }
 
-  let { row, columns }: Props = $props()
+  let { row, columns, divider = null }: Props = $props()
   const bar = $derived(netBar(row.net_ratio))
 </script>
 
@@ -21,6 +23,7 @@
       <span class="mf-table__name">
         <span class="mf-table__text">{row.label}</span>
         {#if row.flags.pending}<StatusDot status="stale" label="Pending edits" />{/if}
+        {#if divider}<span class="mf-table__divider" aria-hidden="true">{divider}</span>{/if}
       </span>
     {:else if column.key === 'count'}
       {row.count}

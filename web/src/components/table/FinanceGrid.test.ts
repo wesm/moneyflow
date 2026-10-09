@@ -99,6 +99,8 @@ describe('FinanceGrid', () => {
       .getAllByRole('gridcell')
       .map((gridcell) => gridcell.dataset['column'])
     expect(keys).toEqual(['select', 'name', 'context', 'count', 'in', 'out', 'net', 'share'])
+    const headerKeys = screen.getAllByRole('columnheader').map((header) => header.dataset['column'])
+    expect(headerKeys).toEqual(keys)
   })
 
   it('shows the grouped columns and names the sub-grouped dimension', async () => {
@@ -249,8 +251,9 @@ describe('FinanceGrid', () => {
     })
     expect(screen.getAllByRole('row')).toHaveLength(3)
     const income = screen.getByRole('row', { name: /Example Employer/ })
-    const divider = income.querySelector('.mf-table__divider')
+    const divider = cell(income, 'name')?.querySelector('.mf-table__divider')
     expect(divider?.textContent).toBe('Income')
+    expect(income.classList.contains('mf-table__row--divided')).toBe(true)
     expect(divider?.getAttribute('aria-hidden')).toBe('true')
     expect(
       screen.getByRole('row', { name: /Example Merchant/ }).querySelector('.mf-table__divider'),
@@ -316,6 +319,7 @@ describe('FinanceGrid', () => {
     const renamed = screen.getByRole('row', { name: /Renamed Merchant/ })
     expect(cell(renamed, 'merchant')?.querySelector('s')?.textContent).toBe('Example Merchant')
     expect(cell(renamed, 'category')?.textContent).toContain('Other Category')
+    expect(cell(renamed, 'category')?.querySelector('s')?.textContent).toBe('Example Category')
     expect(renamed.classList.contains('mf-table__row--deleted')).toBe(false)
     const deleted = screen.getByRole('row', { name: /Deleted Merchant/ })
     expect(deleted.classList.contains('mf-table__row--deleted')).toBe(true)

@@ -1,5 +1,5 @@
 import type { ViewProjection } from '../api/client'
-import { drillFrames } from '../shell/drills'
+import { drillFrames, type DrillFrame } from '../shell/drills'
 
 /** Column keys. Every gridcell carries its key as `data-column`; `trend` and `vs_prior` arrive
  * with the insights client in PR 6. */
@@ -100,19 +100,24 @@ function timeColumns(): Column[] {
   ]
 }
 
-/** The TUI narrows the first drilled column, by merchant, category, account precedence. */
-function narrowedColumn(projection: ViewProjection): { key: ColumnKey; width: string } | null {
+/** The first drilled dimension, by the TUI's merchant, category, account precedence. */
+function narrowedFrame(projection: ViewProjection): DrillFrame | undefined {
   const frames = drillFrames(projection)
   for (const dimension of NARROWED_DIMENSIONS) {
     const frame = frames.find((candidate) => candidate.dimension === dimension)
-    if (frame) return { key: dimension, width: `${Math.min(30, [...frame.label].length + 2)}ch` }
+    if (frame) return frame
   }
-  return null
+  return undefined
+}
+
+/** Fits the drilled label, as the TUI does, without cutting off the column's own header. */
+function narrowedWidth(frame: DrillFrame, header: string): string {
+  return `${Math.min(30, Math.max([...frame.label].length, header.length) + 2)}ch`
 }
 
 function transactionColumns(projection: ViewProjection): Column[] {
   const amazon = projection.profile_kind === 'amazon'
-  const narrowed = narrowedColumn(projection)
+  const narrowed = narrowedFrame(projection)
   const columns: Column[] = [
     SELECT,
     { key: 'date', label: 'Date', sortField: 'date', align: 'start', width: '6rem' },
@@ -141,7 +146,9 @@ function transactionColumns(projection: ViewProjection): Column[] {
     { key: 'flags', label: 'Flags', align: 'start', width: '6.5rem' },
   ]
   return columns.map((column) =>
-    column.key === narrowed?.key ? { ...column, width: narrowed.width } : column,
+    narrowed && column.key === narrowed.dimension
+      ? { ...column, width: narrowedWidth(narrowed, column.label) }
+      : column,
   )
 }
 

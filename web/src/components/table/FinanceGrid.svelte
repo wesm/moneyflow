@@ -128,6 +128,7 @@
             'mf-table__row--active': row.index === cursorIndex,
             'mf-table__row--selected': row.flags.selected,
             'mf-table__row--hidden': row.flags.hidden,
+            'mf-table__row--divided': divider !== null,
             'mf-table__row--deleted': 'staged' in row && row.staged?.deleted === true,
           },
         ]}
@@ -142,9 +143,6 @@
           if (event.key === ' ') ontoggle(row.identity, kind)
         }}
       >
-        {#if divider}
-          <span class="mf-table__divider" aria-hidden="true"><span>{divider}</span></span>
-        {/if}
         <div class="mf-table__cell mf-table__cell--select" role="gridcell" data-column="select">
           <!-- kit-ui-check-ignore: kit Checkbox lacks tabindex (upstream candidate) -->
           <span class={['mf-check', row.flags.selected && 'mf-check--on']} aria-hidden="true"
@@ -153,9 +151,9 @@
         {#if 'merchant' in row}
           <DetailRow {row} columns={cellColumns} {oninformation} />
         {:else if row.dimension === 'time'}
-          <TimeRow {row} columns={cellColumns} />
+          <TimeRow {row} columns={cellColumns} {divider} />
         {:else}
-          <AggregateRow {row} columns={cellColumns} {dimension} />
+          <AggregateRow {row} columns={cellColumns} {dimension} {divider} />
         {/if}
       </div>
     {/each}

@@ -829,8 +829,9 @@ input {
   font-size: var(--font-size-sm);
 }
 .mf-table:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: -2px;
+  /* Neutral and outside the rows, so the blue left rule still marks only the cursor row. */
+  outline: 2px solid var(--text-muted);
+  outline-offset: 1px;
 }
 .mf-table__header,
 .mf-table__row {
@@ -872,39 +873,32 @@ input {
 .mf-table__row {
   position: relative;
 }
-.mf-table__row:hover {
-  background: var(--bg-surface-hover);
+.mf-table__row:where(:hover) {
+  background-color: var(--bg-surface-hover);
 }
 .mf-table__row--active {
-  background: var(--mf-cursor);
+  background-color: var(--mf-cursor);
   box-shadow: inset 3px 0 var(--mf-focus);
 }
 .mf-table__row--selected {
-  background: var(--mf-selected);
+  background-color: var(--mf-selected);
 }
-.mf-table__row--hidden {
+.mf-table__row--hidden > .mf-table__cell:not([data-column='flags'], [data-column='select']) {
   opacity: var(--opacity-disabled);
 }
-.mf-table__divider {
-  position: absolute;
-  top: -1px;
-  right: 0;
-  left: 0;
-  height: 0;
-  border-top: 1px solid var(--text-muted);
-  pointer-events: none;
+.mf-table__row--divided {
+  background-image: linear-gradient(var(--text-muted), var(--text-muted));
+  background-size: 100% 1px;
+  background-repeat: no-repeat;
 }
-.mf-table__divider span {
-  position: absolute;
-  top: -0.5rem;
-  left: var(--space-3);
-  padding: 0 var(--space-2);
-  background: var(--bg-primary);
+.mf-table__divider {
+  flex: none;
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
-  line-height: 1rem;
+  font-size: var(--font-size-2xs);
+  line-height: 1;
   letter-spacing: var(--letter-spacing-label);
   text-transform: uppercase;
+  pointer-events: none;
 }
 .mf-check {
   display: block;

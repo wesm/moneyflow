@@ -164,5 +164,14 @@ describe('columnsFor', () => {
     expect(widthOf(both, 'merchant')).toBe('30ch')
     expect(widthOf(both, 'category')).not.toBe('11ch')
     expect(keys(both)).toEqual(keys(detail()))
+
+    const short = drilled([{ dimension: 'account', label: 'Card' }])
+    expect(widthOf(short, 'account')).toBe('9ch')
+    const amazon = detail({
+      profile_kind: 'amazon',
+      canonical_query: 'v=1&drill=account',
+      breadcrumbs: [{ dimension: 'account', label: 'A1' }],
+    })
+    expect(widthOf(amazon, 'account')).toBe('7ch')
   })
 })
