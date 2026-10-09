@@ -169,7 +169,7 @@ test('@smoke filtered merchant editing preserves committed data until the provid
   })
 })
 
-test('@smoke a delayed row selection keeps focus in the category editor', async ({
+test('@smoke c waits for a delayed row selection, then edits it in a focused editor', async ({
   page,
 }, info) => {
   await withScenarioServer(info.outputPath('scenario'), async (server) => {
@@ -188,14 +188,16 @@ test('@smoke a delayed row selection keeps focus in the category editor', async 
       await september(page, server)
       await page.keyboard.press('c')
       const edit = page.getByRole('dialog', { name: 'Change category' })
+      // The editor waits for the selection, so it cannot edit the view before the selection.
+      await expect(edit).toHaveCount(0)
+      releaseSelection()
+      await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
       const filter = edit.getByRole('searchbox', { name: 'Filter categories' })
+      await expect(filter).toBeFocused()
       await filter.fill('Heal')
       await expect(
         edit.getByRole('combobox', { name: 'Category: Health', exact: true }),
       ).toBeVisible()
-      await expect(filter).toBeFocused()
-      releaseSelection()
-      await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
       await expect(filter).toBeFocused()
       await page.keyboard.press('Enter')
       await expect(edit).not.toBeVisible()

@@ -82,7 +82,8 @@ export interface ViewController {
   moveHome(): Promise<void>
   /**
    * Loads the aligned window holding row `index` when scrolling shows it, without a history
-   * entry. If that window does not hold the cursor, the cursor moves to `index`.
+   * entry. If that window does not hold the cursor, the cursor moves to `index`. A row of the
+   * loaded window withdraws a window still loading.
    */
   showIndex(index: number): Promise<void>
   apply(action: TransitionAction): Promise<boolean>
@@ -539,7 +540,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     if (!projection || !Number.isSafeInteger(index)) return
     if (index < 0 || index >= projection.total_rows) return
     const offset = alignedOffset(index)
-    if (offset === projection.window.offset) return
+    // A row of the loaded window: the user scrolled back, so a window on its way is not needed.
+    if (offset === projection.window.offset) return void showing?.abort.abort()
     if (showing?.offset === offset && !showing.superseded()) {
       showing.index = index
       return
@@ -557,7 +559,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       index,
       abort: new AbortController(),
       superseded: () =>
-        projection !== current || generation !== requestGeneration || cursorIndex !== requestCursor,
+        request.abort.signal.aborted ||
+        projection !== current ||
+        generation !== requestGeneration ||
+        cursorIndex !== requestCursor,
     }
     showing = request
     try {

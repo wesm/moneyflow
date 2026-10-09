@@ -3,7 +3,7 @@
   import MenuIcon from '@lucide/svelte/icons/menu'
   import SearchIcon from '@lucide/svelte/icons/search'
   import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal'
-  import { onDestroy, tick } from 'svelte'
+  import { onDestroy, tick, untrack } from 'svelte'
 
   import Breadcrumbs from './Breadcrumbs.svelte'
   import BreakDownBy from './BreakDownBy.svelte'
@@ -49,6 +49,22 @@
   /** Keeps a search being typed when the window crosses the phone width and the field changes. */
   const searchCarry = new SearchCarry()
   onDestroy(() => searchCarry.destroy())
+  let wasCompact = untrack(() => compact)
+
+  // Narrowing past the phone width replaces a focused desktop field with the phone row's field,
+  // which starts hidden. Open it so the user keeps typing where they were. Runs before the swap,
+  // while the desktop field still has focus.
+  $effect.pre(() => {
+    const now = compact
+    untrack(() => {
+      const typing = now && !wasCompact && search?.hasFocus()
+      wasCompact = now
+      if (!typing) return
+      searchShown = true
+      searchFromIcon = false
+      void tick().then(() => search?.focus(false))
+    })
+  })
 
   /** Focuses the search field, for the `/` key; at phone width it reveals the field first. */
   export async function focusSearch(): Promise<void> {

@@ -36,10 +36,16 @@
 
   const applied = $derived(controller.projection?.view.search ?? '')
 
-  /** Focuses the field and selects its text, for the `/` key. */
-  export function focus(): void {
+  /** Focuses the field and selects its text, for the `/` key; or keeps typing at its end. */
+  export function focus(select = true): void {
     inputEl?.focus()
-    inputEl?.select()
+    if (select) inputEl?.select()
+    else inputEl?.setSelectionRange(inputEl.value.length, inputEl.value.length)
+  }
+
+  /** Whether the field has focus. */
+  export function hasFocus(): boolean {
+    return wrapper?.contains(document.activeElement) ?? false
   }
 
   function begin(): SearchCoordinator {

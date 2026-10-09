@@ -177,13 +177,14 @@ const netRatioScale = 10000
 
 // decorateNetRatios sets each windowed Time row's net ratio. The largest |Net| comes from the
 // whole result, so a row's bar keeps its size when the window moves. Amounts of different
-// currencies or scales are never compared; each partition has its own maximum.
+// currencies or scales are never compared; each partition has its own maximum. Every row of
+// a result has the same dimension, and only a Time result has net ratios.
 func decorateNetRatios(window []WebAggregateRow, all []domain.AggregateRow) {
+	if len(all) == 0 || all[0].Dimension != domain.DimensionTime {
+		return
+	}
 	maxima := make(map[moneyPartition]*big.Int)
 	for _, row := range all {
-		if row.Dimension != domain.DimensionTime {
-			return
-		}
 		partition := moneyPartition{currency: row.Total.Currency, scale: row.Total.Scale}
 		absolute := new(big.Int).Abs(big.NewInt(row.Total.Minor))
 		if current := maxima[partition]; current == nil || absolute.Cmp(current) > 0 {

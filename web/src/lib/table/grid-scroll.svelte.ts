@@ -86,7 +86,7 @@ export class GridScroll {
     $effect(() => this.#showScrolledRows())
   }
 
-  /** A key moved the cursor, so the next cursor move is the user's and is revealed. */
+  /** A grid key moves the cursor, so the next cursor move is the user's and is revealed. */
   keyed(): void {
     this.#shown = undefined
   }
@@ -103,9 +103,12 @@ export class GridScroll {
       this.#lastQuery = query
       if (newView) this.#shown = undefined
       if (index !== this.#shown) return this.#reveal(index)
-      // A window that arrived after more scrolling moves the cursor on to the row now on top.
+      // A window that arrived after more scrolling moves the cursor on to the row now on top,
+      // once that row is loaded. Until then the next window is asked for instead.
       this.#shown = undefined
-      if (index !== this.range.first) this.#source.oncursor(this.range.first)
+      const { first, last } = this.range
+      const onScreen = index >= first && index <= last
+      if (!onScreen && loadedRow([this.#projection], first)) this.#source.oncursor(first)
     })
   }
 
@@ -134,12 +137,16 @@ export class GridScroll {
   }
 
   // One request per frame, for the latest first row, once scrolling leaves the cursor's window.
+  // Scrolling back to the cursor asks for its own row, which withdraws a request on its way.
   #showScrolledRows(): (() => void) | undefined {
-    const index = rowToShow(this.range, this.#cursor, this.#projection.window)
+    const { first, last } = this.range
+    const cursor = this.#cursor
+    const back = this.#shown !== undefined && cursor >= first && cursor <= last
+    const index = back ? cursor : rowToShow(this.range, cursor, this.#projection.window)
     const onshow = this.#source.onshow
     if (!onshow || index === undefined) return undefined
     const frame = requestAnimationFrame(() => {
-      this.#shown = index
+      this.#shown = back ? undefined : index
       onshow(index)
     })
     return () => cancelAnimationFrame(frame)

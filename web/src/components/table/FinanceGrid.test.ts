@@ -662,6 +662,123 @@ describe('FinanceGrid', () => {
       expect(events.oncursor).toHaveBeenCalledWith(310)
     })
 
+    it('waits for the window of rows scrolled past the arriving one before moving the cursor', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scrollTop: 0,
+        viewport: 630,
+        ...events,
+      })
+      await view.rerender({ scrollTop: 300 * 30 })
+      vi.advanceTimersToNextFrame()
+      expect(events.onshow).toHaveBeenLastCalledWith(300)
+      // The user scrolls past the window on its way before it arrives.
+      await view.rerender({ scrollTop: 410 * 30 })
+      await view.rerender({ projection: loaded(200), cursorIndex: 300 })
+      vi.advanceTimersToNextFrame()
+
+      expect(events.oncursor).not.toHaveBeenCalled()
+      expect(events.onshow).toHaveBeenLastCalledWith(410)
+    })
+
+    it('leaves the cursor alone when the arriving window shows it', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scrollTop: 0,
+        viewport: 630,
+        ...events,
+      })
+      await view.rerender({ scrollTop: 300 * 30 })
+      vi.advanceTimersToNextFrame()
+      await view.rerender({ scrollTop: 295 * 30 })
+      await view.rerender({ projection: loaded(200), cursorIndex: 300 })
+
+      expect(events.oncursor).not.toHaveBeenCalled()
+    })
+
+    it('withdraws the window it asked for when the user scrolls back to the cursor', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      // Rows 40 to 59 show, with the cursor on row 50.
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 50,
+        compact: false,
+        scrollTop: 40 * 30,
+        viewport: 630,
+        ...events,
+      })
+      await view.rerender({ scrollTop: 300 * 30 })
+      vi.advanceTimersToNextFrame()
+      expect(events.onshow).toHaveBeenLastCalledWith(300)
+      await view.rerender({ scrollTop: 40 * 30 })
+      vi.advanceTimersToNextFrame()
+
+      // A row of the loaded window: the controller drops the request still on its way.
+      expect(events.onshow).toHaveBeenLastCalledWith(50)
+      expect(events.oncursor).not.toHaveBeenCalled()
+    })
+
+    it('still follows a scroll when a key the grid ignores is pressed meanwhile', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      const scroller = { scrollTop: 0 } as HTMLElement
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scroller,
+        scrollTop: 0,
+        viewport: 630,
+        ...events,
+      })
+      await view.rerender({ scrollTop: 300 * 30 })
+      vi.advanceTimersToNextFrame()
+      await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), {
+        key: 'Shift',
+      })
+      await view.rerender({ scrollTop: 310 * 30 })
+      await view.rerender({ projection: loaded(200), cursorIndex: 300 })
+
+      expect(scroller.scrollTop).toBe(0)
+      expect(events.oncursor).toHaveBeenCalledWith(310)
+    })
+
+    it('stays in the window k moved the cursor into at its top edge', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      const scroller = { scrollTop: 200 * 30 } as HTMLElement
+      // Rows 200 to 219 show, with the cursor on the first of them.
+      const view = render(FinanceGrid, {
+        projection: loaded(200),
+        cursorIndex: 200,
+        compact: false,
+        scroller,
+        scrollTop: 200 * 30,
+        viewport: 630,
+        ...events,
+      })
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      await fireEvent.keyDown(grid, { key: 'k' })
+      expect(events.onmove).toHaveBeenCalledWith(-1)
+      await view.rerender({ projection: loaded(0), cursorIndex: 199 })
+      vi.advanceTimersToNextFrame()
+
+      expect(scroller.scrollTop).toBe(199 * 30)
+      expect(rowAt(199)).not.toBeNull()
+      expect(grid.getAttribute('aria-activedescendant')).toBe('moneyflow-row-row-199')
+      expect(events.onshow).not.toHaveBeenCalled()
+      expect(events.oncursor).not.toHaveBeenCalled()
+    })
+
     it('stays in the window a key moved the cursor into at its bottom edge', async () => {
       vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
       const events = { ...callbacks(), onshow: vi.fn() }

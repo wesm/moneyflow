@@ -50,7 +50,7 @@
     onsort: (field: SortField) => void
     /** A compact transaction row's ⋯ button, which focus returns to after the sheet. */
     onactions: (row: components['schemas']['DetailRow'], opener: HTMLElement) => void
-    /** Scrolling showed rows outside the loaded window, from the first fully visible row. */
+    /** Asks for the window holding the first fully visible row, or the cursor row to withdraw. */
     onshow?: (index: number) => void
   }
 
@@ -116,11 +116,11 @@
   })
 
   function keydown(event: KeyboardEvent): void {
-    scroll.keyed()
     if (event.key === 'ArrowUp' || event.key === 'k') onmove(-1)
     else if (event.key === 'ArrowDown' || event.key === 'j') onmove(1)
     else if (event.key === 'Home') onhome()
     else return
+    scroll.keyed()
     event.preventDefault()
     event.stopPropagation()
   }

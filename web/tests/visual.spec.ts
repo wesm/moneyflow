@@ -174,8 +174,10 @@ test('hover keeps the cursor and selection tints; hidden rows keep ☐ and flags
   expect(await tint(row(3))).toBe(await themeColor(page, '--bg-surface-hover'))
 
   await page.keyboard.press('d')
+  await expect(grid.getByRole('columnheader', { name: 'Date' })).toBeVisible()
   await page.keyboard.press('/')
   await page.getByRole('searchbox', { name: 'Search transactions' }).fill('noodle')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
   await page.keyboard.press('Enter')
   const hidden = grid.locator('.mf-table__row--hidden').first()
   await expect(hidden).toBeVisible()

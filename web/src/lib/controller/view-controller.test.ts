@@ -714,6 +714,27 @@ describe('browser view controller', () => {
       expect(controller.cursorIndex).toBe(262)
     })
 
+    it('withdraws a scrolled-to window when asked for a row of the loaded one', async () => {
+      let release!: (value: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          if (body.window.offset === 0) return projection('v=1', 0, 450)
+          return await new Promise<ViewProjection>((resolve) => (release = resolve))
+        }),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      await controller.moveCursorTo(50)
+
+      const shown = controller.showIndex(250)
+      await controller.showIndex(40)
+      release(projection('v=1', 200, 450))
+      await shown
+
+      expect(controller.projection?.window.offset).toBe(0)
+      expect(controller.cursorIndex).toBe(50)
+    })
+
     it('keeps a newer transition’s view when the scrolled-to window arrives late', async () => {
       let release!: (value: ViewProjection) => void
       const client = clientWith({
