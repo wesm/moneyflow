@@ -70,7 +70,7 @@ func (service *Service) PreviewMerchantEdit(ctx context.Context, request Mutatio
 	}
 	if request.Input.Scope == EditScopeEntity {
 		state := request.State.Current
-		if err := service.countOutsideView(ctx, snapshot.Revision, state, ids, transactions, &result); err != nil {
+		if err := service.countOutsideView(ctx, state, ids, transactions, &result); err != nil {
 			return MerchantEditPreview{}, err
 		}
 	}
@@ -80,10 +80,10 @@ func (service *Service) PreviewMerchantEdit(ctx context.Context, request Mutatio
 // countOutsideView records which affected transactions the opening view hides, judged by
 // committed values as the table shows them. Currencies come from the effective transactions.
 func (service *Service) countOutsideView(
-	ctx context.Context, revision uint64, state AnalyticalState, ids []domain.EntityID,
+	ctx context.Context, state AnalyticalState, ids []domain.EntityID,
 	effective []domain.Transaction, preview *MerchantEditPreview,
 ) error {
-	inView, err := service.committedViewMembers(ctx, revision, state)
+	inView, err := service.committedViewMembers(ctx, preview.Revision, state)
 	if err != nil {
 		return err
 	}
