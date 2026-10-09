@@ -74,6 +74,8 @@ test('session expiry enters reconnect without losing analytical URL or cursor st
     await page.goto(`${server.url}p/${profileID}/?group=category&v=1`)
     const grid = page.getByRole('grid', { name: 'Financial results' })
     await expect(grid).toBeFocused()
+    // The first load then switches to the busiest currency; read the URL after it settles.
+    await expect(page).toHaveURL(/[?&]cur=/)
     await page.keyboard.press('j')
     const activeBefore = await grid.getAttribute('aria-activedescendant')
     expect(activeBefore).toBeTruthy()
