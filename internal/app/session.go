@@ -211,13 +211,25 @@ func (session *Session) SetSearch(search string) {
 }
 
 // SetFilters validates and defensively copies all independent filters. It clears the
-// selection and applies the filters to back history, so Back keeps them.
+// selection and applies the filters to back history, so Back keeps them. A new date range
+// is a period change, so it also removes time drill-downs.
 func (session *Session) SetFilters(filters Filters) error {
 	if err := validateDateRange(filters.DateRange); err != nil {
 		return err
 	}
+	periodChanged := !equalDateRanges(session.DateRange, filters.DateRange)
 	session.applyFilters(filters)
+	if periodChanged {
+		session.dropTimeDrilldowns()
+	}
 	return nil
+}
+
+func equalDateRanges(left *domain.DateRange, right *domain.DateRange) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func validateDateRange(dateRange *domain.DateRange) error {

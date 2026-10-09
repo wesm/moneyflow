@@ -410,14 +410,16 @@ func TestTransitionViewSearchAndFiltersClearSelection(t *testing.T) {
 		{"filters", TransitionRequest{Action: ActionApplyFilters, Filters: &filters}, 4},
 	} {
 		for _, selectAll := range []bool{false, true} {
-			selection, err := service.ToggleSelection(
-				state.Current, EmptySelection(), IdentityTransaction, "txn-000",
-			)
-			require.NoError(t, err)
+			var selection SelectionValue
+			var err error
 			if selectAll {
 				selection, err = service.ToggleAllSelection(state.Current, EmptySelection())
-				require.NoError(t, err)
+			} else {
+				selection, err = service.ToggleSelection(
+					state.Current, EmptySelection(), IdentityTransaction, "txn-000",
+				)
 			}
+			require.NoError(t, err)
 
 			_, nextSelection, projection, err := service.TransitionView(
 				state, selection, test.transition, WindowRequest{},

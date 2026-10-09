@@ -98,8 +98,12 @@ func TestMatrixTopLevelGroupingClearsDrillAndSelection(t *testing.T) {
 	want.sort = sortSpec(domain.SortFieldCategory, domain.SortDirectionAsc)
 	want.selected = 0
 	assert.Equal(t, want, columnsOf(session))
-	before := session.ViewState()
 	_, ok := session.Back()
+	require.True(t, ok)
+	assert.Empty(t, session.Search, "Esc clears the top-level search after a grouping change")
+	assert.Equal(t, domain.DimensionCategory, session.Dimension)
+	before := session.ViewState()
+	_, ok = session.Back()
 	assert.False(t, ok, "Esc does not return from a top-level grouping")
 	assert.Equal(t, before, session.ViewState())
 }
@@ -418,4 +422,83 @@ func TestEscapeStep6DoesNothingAtTopLevel(t *testing.T) {
 
 	assert.False(t, ok)
 	assert.Equal(t, before, session.ViewState())
+}
+
+func TestMatrixFiltersWithNewDateRangeFollowPeriodChange(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "example")
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	require.True(t, session.JumpToTime(ViewPosition{}))
+	march := domain.Period{Granularity: domain.TimeGranularityMonth, Year: 2024, Month: 3}
+	drillMatrixRow(t, &session, matrixTimeRow(march))
+	session.ToggleTransactionSelection("txn-1")
+	want := columnsOf(session)
+	custom := matrixRange(t, "2024-01-10", "2024-02-20")
+
+	require.NoError(t, session.SetFilters(Filters{
+		DateRange: custom, ShowHidden: true, ShowTransfers: true,
+	}))
+
+	want.drilldowns = want.drilldowns[:1]
+	want.dateRange = custom
+	want.showHidden = true
+	want.selected = 0
+	assert.Equal(t, want, columnsOf(session))
+	for _, frame := range session.ViewState().Returns {
+		assert.Equal(t, custom, frame.State.DateRange, "back history uses the new period")
+		for _, drilldown := range frame.State.Drilldowns {
+			assert.NotEqual(t, domain.DimensionTime, drilldown.Dimension)
+		}
+	}
+}
+
+func TestMatrixFiltersWithSameDateRangeKeepTimeDrill(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "example")
+	march := domain.Period{Granularity: domain.TimeGranularityMonth, Year: 2024, Month: 3}
+	require.True(t, session.JumpToTime(ViewPosition{}))
+	drillMatrixRow(t, &session, matrixTimeRow(march))
+	want := columnsOf(session)
+
+	require.NoError(t, session.SetFilters(Filters{
+		DateRange: cloneDateRange(session.DateRange), ShowHidden: true, ShowTransfers: true,
+	}))
+
+	want.showHidden = true
+	assert.Equal(t, want, columnsOf(session))
+}
+
+func TestMatrixShiftPeriodPrefersCalendarRangeOverTimeDrill(t *testing.T) {
+	t.Parallel()
+	session := NewSession()
+	require.NoError(t, session.SetTimeRange(matrixRange(t, "2024-01-01", "2024-12-31")))
+	session.Dimension = domain.DimensionTime
+	march := domain.Period{Granularity: domain.TimeGranularityMonth, Year: 2024, Month: 3}
+	drillMatrixRow(t, &session, matrixTimeRow(march))
+
+	changed, err := session.ShiftPeriod(-1)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	assert.Equal(t, matrixRange(t, "2023-01-01", "2023-12-31"), session.DateRange)
+	assert.Empty(t, session.Drilldowns)
+}
+
+func TestEscapeKeepsClearedSearchWhenUndoingSubGrouping(t *testing.T) {
+	t.Parallel()
+	session := NewSession()
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	session.SetSearch("grocer")
+	session.CycleSubGrouping()
+
+	_, ok := session.Back()
+	require.True(t, ok)
+	require.Empty(t, session.Search, "Esc clears the search applied at this drill level first")
+	require.NotNil(t, session.SubGrouping)
+	_, ok = session.Back()
+
+	require.True(t, ok)
+	assert.Nil(t, session.SubGrouping)
+	assert.Empty(t, session.Search, "undoing the sub-grouping does not restore the cleared search")
+	assert.Len(t, session.Drilldowns, 1)
 }

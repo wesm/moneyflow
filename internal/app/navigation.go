@@ -130,7 +130,10 @@ func (session *Session) ShiftPeriod(delta int) (bool, error) {
 	if err != nil {
 		return false, nil
 	}
-	return true, session.SetTimeRange(&dateRange)
+	if err := session.SetTimeRange(&dateRange); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ClearPeriod selects all time and removes time drill-downs. It reports false when the
@@ -147,6 +150,10 @@ func (session *Session) applyTimeRange(dateRange *domain.DateRange) {
 	session.applyFilters(Filters{
 		DateRange: dateRange, ShowHidden: session.ShowHidden, ShowTransfers: session.ShowTransfers,
 	})
+	session.dropTimeDrilldowns()
+}
+
+func (session *Session) dropTimeDrilldowns() {
 	session.Drilldowns = removeTimeDrilldowns(session.Drilldowns, session.searchAnchor)
 	for index := range session.history {
 		snapshot := &session.history[index].snapshot
@@ -183,7 +190,7 @@ func removeTimeDrilldowns(drilldowns []domain.Drilldown, searchAnchor *navigatio
 	return drilldowns
 }
 
-// Back clears the selection first, then the search applied at this level, then the
+// Back clears the selection first, then the search applied at this drill level, then the
 // sub-grouping, then returns to the parent. It reports false at the top level with
 // nothing to undo.
 func (session *Session) Back() (ViewPosition, bool) {
@@ -191,9 +198,8 @@ func (session *Session) Back() (ViewPosition, bool) {
 		session.clearSelections()
 		return ViewPosition{}, true
 	}
-	if session.Search != "" && session.searchAnchor != nil && markersEqual(session.marker(), *session.searchAnchor) {
-		session.Search = ""
-		session.searchAnchor = nil
+	if session.Search != "" && session.searchAtThisLevel() {
+		session.clearSearchAtThisLevel()
 		return ViewPosition{}, true
 	}
 	if session.SubGrouping != nil {
@@ -269,6 +275,33 @@ func ShiftCalendarPeriod(anchor time.Time, resolution domain.TimeGranularity, de
 	return time.Date(year, month, min(day, lastDay), 0, 0, 0, 0, time.UTC)
 }
 
+// searchAtThisLevel matches a search anchor by drill depth and result mode, so a grouping
+// or sub-grouping change keeps the level. Mode keeps the all-transactions view separate
+// from the top-level grouping it was opened from.
+func (session *Session) searchAtThisLevel() bool {
+	anchor := session.searchAnchor
+	return anchor != nil && anchor.drilldownSize == len(session.Drilldowns) &&
+		anchor.mode == session.Mode
+}
+
+// clearSearchAtThisLevel also clears the search from back history at the same drill
+// level, so undoing a sub-grouping does not bring the cleared search back.
+func (session *Session) clearSearchAtThisLevel() {
+	depth := len(session.Drilldowns)
+	session.Search = ""
+	session.searchAnchor = nil
+	for index := len(session.history) - 1; index >= 0; index-- {
+		snapshot := &session.history[index].snapshot
+		if len(snapshot.drilldowns) != depth || snapshot.mode != session.Mode {
+			return
+		}
+		if snapshot.searchAnchor != nil && snapshot.searchAnchor.drilldownSize == depth {
+			snapshot.search = ""
+			snapshot.searchAnchor = nil
+		}
+	}
+}
+
 func (session *Session) availableSubGroupings() []domain.Dimension {
 	used := make(map[domain.Dimension]struct{}, len(session.Drilldowns))
 	for _, drilldown := range session.Drilldowns {
@@ -305,14 +338,4 @@ func sortForDetailTransition(dimension domain.Dimension, current domain.SortSpec
 	default:
 		return amountDescending()
 	}
-}
-
-func markersEqual(left navigationMarker, right navigationMarker) bool {
-	if left.mode != right.mode || left.dimension != right.dimension || left.drilldownSize != right.drilldownSize {
-		return false
-	}
-	if left.subGrouping == nil || right.subGrouping == nil {
-		return left.subGrouping == nil && right.subGrouping == nil
-	}
-	return *left.subGrouping == *right.subGrouping
 }

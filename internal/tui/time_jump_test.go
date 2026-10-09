@@ -166,7 +166,7 @@ func TestTimeJumpFromRootDetailRestoresList(t *testing.T) {
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnd})
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	before := model.session.Clone()
-	identity := model.rowIdentity(model.cursor)
+	cursor := model.cursor
 	scroll := model.scroll
 	require.Positive(t, scroll)
 	count := model.result.FilteredCount
@@ -185,9 +185,14 @@ func TestTimeJumpFromRootDetailRestoresList(t *testing.T) {
 	assert.Empty(t, model.session.SelectedTransactionIDs)
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
 
+	assert.Empty(t, model.session.Search, "Esc first clears the search applied at this level")
+	require.NotNil(t, model.session.SubGrouping)
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
+
 	require.NotEmpty(t, model.result.DetailRows)
-	assert.Equal(t, before.QuerySpec(), model.session.QuerySpec())
+	model.session.SetSearch(before.Search)
+	assert.Equal(t, before.QuerySpec(), model.session.QuerySpec(), "only the search was cleared")
 	assert.Empty(t, model.session.SelectedTransactionIDs, "Esc does not restore the selection")
-	assert.Equal(t, identity, model.rowIdentity(model.cursor))
+	assert.Equal(t, cursor, model.cursor)
 	assert.Equal(t, scroll, model.scroll)
 }
