@@ -802,6 +802,36 @@ describe('browser view controller', () => {
       expect(controller.projection?.canonical_query).toBe('v=1&sort=amount')
     })
 
+    it('keeps the live window’s neighbors when an older prefetch lands late', async () => {
+      const held = new Map<number, (value: ViewProjection) => void>()
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          const offset = body.window.offset
+          if (offset === 200 || offset === 1000) {
+            return await new Promise<ViewProjection>((resolve) =>
+              held.set(offset, (value) => resolve(value)),
+            )
+          }
+          return projection('v=1', offset, 1200)
+        }),
+      })
+      const controller = controllerFor(client)
+      await controller.hydrate()
+      await vi.waitFor(() => expect(held.has(200)).toBe(true))
+
+      await controller.showIndex(900)
+      await vi.waitFor(() => expect(held.has(1000)).toBe(true))
+      held.get(1000)!(projection('v=1', 1000, 1200))
+      await vi.waitFor(() =>
+        expect(controller.neighbors.map((loaded) => loaded.window.offset)).toContain(1000),
+      )
+      held.get(200)!(projection('v=1', 200, 1200))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(controller.projection?.window.offset).toBe(800)
+      expect(controller.neighbors.map((loaded) => loaded.window.offset)).toContain(1000)
+    })
+
     it('exposes the cached windows next to the loaded one', async () => {
       const client = clientWith({
         view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),

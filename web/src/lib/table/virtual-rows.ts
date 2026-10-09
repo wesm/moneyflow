@@ -15,3 +15,19 @@ export function loadedRow(windows: readonly ViewProjection[], index: number): Ta
   }
   return undefined
 }
+
+/**
+ * The row whose window the table asks for: the first fully visible row, while it lies outside
+ * the loaded window and the cursor row is not fully visible. A cursor on screen keeps its window,
+ * so a key or click that moves it into another window is not undone.
+ */
+export function rowToShow(
+  range: { first: number; last: number },
+  cursor: number,
+  loaded: { offset: number; limit: number },
+): number | undefined {
+  const { first, last } = range
+  if (last < first || (cursor >= first && cursor <= last)) return undefined
+  if (first >= loaded.offset && first < loaded.offset + loaded.limit) return undefined
+  return first
+}

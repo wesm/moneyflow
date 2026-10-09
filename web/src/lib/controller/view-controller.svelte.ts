@@ -739,11 +739,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
           )
             return
           cache.store(next)
+          // Scrolling may have moved the loaded window since this prefetch started.
           cache.retainAdjacent(
             current.canonical_query,
             current.selection,
             current.revision,
-            current.window.offset,
+            projection.window.offset,
           )
           cacheChanges += 1
         })

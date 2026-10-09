@@ -11,7 +11,7 @@
   import { columnsFor, type SortField } from '../../lib/table/columns'
   import { revealScrollTop, rowHeight, visibleRange } from '../../lib/table/layout'
   import { doubleClickAction, pointerHit, type RowKind } from '../../lib/table/pointer'
-  import { loadedRow } from '../../lib/table/virtual-rows'
+  import { loadedRow, rowToShow } from '../../lib/table/virtual-rows'
 
   interface Props {
     /** The loaded window of the result. */
@@ -70,18 +70,17 @@
   const cellColumns = $derived(columns.filter((column) => column.key !== 'select'))
   const trackSizes = $derived(columns.map((column) => column.width).join(' '))
   const dimension = $derived(projection.view.sub_grouping ?? projection.view.grouping)
-  const total = $derived(projection.total_rows)
   const windows = $derived([projection, ...neighbors])
   const kind: RowKind = $derived(projection.detail_rows ? 'transaction' : 'aggregate')
   const dividers = $derived(projection.view.sort_field === 'amount' && kind === 'aggregate')
-  // How far the scroller's top is below the grid's top. The sticky header covers the first row
-  // height of the viewport, so this is also the rows' scroll offset below the header.
+  // The scroller's top below the grid's top: the rows' offset under the sticky header. offsetTop
+  // is read, not tracked, so content above the grid that resizes does not rerun this.
   const listTop = $derived(scrollTop - (grid?.offsetTop ?? 0))
   const slice = $derived(
     virtualSlice({
       scrollTop: listTop,
       viewport,
-      count: total,
+      count: projection.total_rows,
       overscan: 5,
       fixedHeight: height,
       heightOf: () => height,
@@ -93,7 +92,7 @@
       return { index, row: loadedRow(windows, index) }
     }),
   )
-  const first = $derived(visibleRange(listTop, viewport - height, height, total).first)
+  const range = $derived(visibleRange(listTop, viewport - height, height, projection.total_rows))
   const activeID = $derived(loadedRow(windows, cursorIndex)?.identity)
   // Effects that read this rerun only when the cursor moves, not on every prop update.
   const cursor = $derived(cursorIndex)
@@ -104,16 +103,17 @@
     const index = cursor
     if (!grid) return
     untrack(() => {
-      if (index === shown) shown = undefined
-      else reveal(index)
+      if (index !== shown) return reveal(index)
+      // A window that arrived after more scrolling moves the cursor on to the row now on top.
+      shown = undefined
+      if (index !== range.first) oncursor(range.first)
     })
   })
 
-  // One request per frame, for the latest first row, while scrolling shows unloaded rows.
+  // One request per frame, for the latest first row, once scrolling leaves the cursor's window.
   $effect(() => {
-    const index = first
-    const { offset, limit } = projection.window
-    if (!onshow || total === 0 || (index >= offset && index < offset + limit)) return
+    const index = rowToShow(range, cursor, projection.window)
+    if (!onshow || index === undefined) return
     const frame = requestAnimationFrame(() => {
       shown = index
       onshow(index)
@@ -166,7 +166,7 @@
   }
 </script>
 
-{#if total === 0}
+{#if projection.total_rows === 0}
   <EmptyState
     title="No transactions"
     description="Change the current refinements to see results."

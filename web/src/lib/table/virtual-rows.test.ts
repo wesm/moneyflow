@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { revealScrollTop, visibleRange } from './layout'
-import { loadedRow } from './virtual-rows'
+import { loadedRow, rowToShow } from './virtual-rows'
 import { testAggregateRow, testProjection } from '../../test/projection'
 
 describe('visibleRange', () => {
@@ -76,5 +76,26 @@ describe('loadedRow', () => {
     expect(loadedRow(windows, 199)).toBeUndefined()
     expect(loadedRow(windows, 400)).toBeUndefined()
     expect(loadedRow(windows, -1)).toBeUndefined()
+  })
+})
+
+describe('rowToShow', () => {
+  const loaded = { offset: 0, limit: 200 }
+
+  it('asks for the first visible row once scrolling leaves the window and the cursor', () => {
+    expect(rowToShow({ first: 300, last: 319 }, 5, loaded)).toBe(300)
+  })
+
+  it('asks for nothing while the first visible row is in the loaded window', () => {
+    expect(rowToShow({ first: 150, last: 169 }, 5, loaded)).toBeUndefined()
+  })
+
+  it('keeps the window of a cursor that shows on screen', () => {
+    expect(rowToShow({ first: 181, last: 200 }, 200, { offset: 200, limit: 200 })).toBeUndefined()
+    expect(rowToShow({ first: 300, last: 319 }, 319, loaded)).toBeUndefined()
+  })
+
+  it('asks for nothing without rows', () => {
+    expect(rowToShow({ first: 0, last: -1 }, 0, { offset: 200, limit: 200 })).toBeUndefined()
   })
 })

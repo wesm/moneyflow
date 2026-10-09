@@ -83,3 +83,19 @@ test('the mouse wheel reaches the last row of a long result and j moves from the
   await expect.poll(() => activeRowIndex(page)).toBe(2)
   await expect.poll(async () => (await scrollState(page)).top).toBe(0)
 })
+
+test('j moves down across the edge of the 200 loaded rows', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  await expect(grid(page).getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  // Show rows near the end of the first 200, then put the cursor on row 199.
+  await workspace(page).evaluate((scroller) => (scroller.scrollTop = 185 * 30))
+  const edge = grid(page).locator('[role="row"][aria-rowindex="201"]')
+  await edge.locator('[data-column="date"]').click()
+  await expect.poll(() => activeRowIndex(page)).toBe(201)
+
+  for (let step = 1; step <= 3; step++) {
+    await page.keyboard.press('j')
+    await expect.poll(() => activeRowIndex(page)).toBe(201 + step)
+  }
+})

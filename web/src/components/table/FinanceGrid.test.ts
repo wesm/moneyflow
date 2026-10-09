@@ -559,8 +559,51 @@ describe('FinanceGrid', () => {
 
       expect(rowAt(330)).not.toBeNull()
       expect(rowAt(300)).toBeNull()
+      // The cursor moves on to the row now first on screen, without scrolling back.
+      expect(events.oncursor).toHaveBeenCalledWith(310)
+    })
+
+    it('stays in the window a key moved the cursor into at its bottom edge', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      // Rows 180 to 199 show, with the cursor on the last of them.
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 199,
+        compact: false,
+        scrollTop: 180 * 30,
+        viewport: 630,
+        ...events,
+      })
       const grid = screen.getByRole('grid', { name: 'Financial results' })
-      expect(grid.getAttribute('aria-activedescendant')).toBe('moneyflow-row-row-300')
+      await fireEvent.keyDown(grid, { key: 'j' })
+      expect(events.onmove).toHaveBeenCalledWith(1)
+      await view.rerender({ projection: loaded(200), cursorIndex: 200 })
+      vi.advanceTimersToNextFrame()
+
+      expect(rowAt(200)).not.toBeNull()
+      expect(events.onshow).not.toHaveBeenCalled()
+    })
+
+    it('keeps the cursor on a clicked row from a cached neighboring window', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        neighbors: [loaded(200)],
+        cursorIndex: 195,
+        compact: false,
+        scrollTop: 195 * 30,
+        viewport: 630,
+        ...events,
+      })
+      await fireEvent.click(cell(rowAt(205)!, 'date')!)
+      expect(events.oncursor).toHaveBeenCalledWith(205)
+      await view.rerender({ projection: loaded(200), neighbors: [loaded(0)], cursorIndex: 205 })
+      vi.advanceTimersToNextFrame()
+
+      expect(events.onshow).not.toHaveBeenCalled()
+      expect(events.oncursor).toHaveBeenCalledTimes(1)
     })
   })
 
