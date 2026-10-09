@@ -186,9 +186,7 @@ func TestSelectionAllBasePreservesDefiningResultAcrossQueryChanges(t *testing.T)
 
 	narrow := state.Clone()
 	narrow.Search = "^Merchant 000$"
-	narrow.SearchAnchor = &NavigationScope{
-		Mode: domain.ResultModeDetail, Dimension: domain.DimensionMerchant,
-	}
+	narrow.SearchAnchor = &NavigationScope{Mode: domain.ResultModeDetail}
 	snapshot, err := service.ResolveSelection(narrow, selected)
 	require.NoError(t, err)
 	assert.Len(t, snapshot.IDs, 120)

@@ -52,6 +52,13 @@ type TransitionDateRange struct {
 	End   string `json:"end" format:"date"`
 }
 
+// TransitionPeriod sets the view's period. Both bounds make an inclusive range; neither
+// means all time.
+type TransitionPeriod struct {
+	Start *string `json:"start,omitempty" format:"date"`
+	End   *string `json:"end,omitempty" format:"date"`
+}
+
 // TransitionFilters contains staged predicates accepted by filters.apply.
 type TransitionFilters struct {
 	DateRange     *TransitionDateRange `json:"date_range,omitempty"`
@@ -67,6 +74,10 @@ type TransitionBody struct {
 	Target    *TransitionTarget  `json:"target,omitempty"`
 	Search    *string            `json:"search,omitempty" maxLength:"2048"`
 	Filters   *TransitionFilters `json:"filters,omitempty"`
+	Dimension *string            `json:"dimension,omitempty"`
+	Currency  *CurrencyScope     `json:"currency,omitempty"`
+	SortField *string            `json:"sort_field,omitempty"`
+	Period    *TransitionPeriod  `json:"period,omitempty"`
 	Window    Window             `json:"window"`
 }
 

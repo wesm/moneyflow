@@ -1583,10 +1583,14 @@ export interface components {
     }
     TransitionBody: {
       action: string
+      currency?: components['schemas']['CurrencyScope']
+      dimension?: string
       filters?: components['schemas']['TransitionFilters']
+      period?: components['schemas']['TransitionPeriod']
       query: string
       search?: string
       selection?: string
+      sort_field?: string
       target?: components['schemas']['TransitionTarget']
       window: components['schemas']['Window']
     }
@@ -1600,6 +1604,12 @@ export interface components {
       date_range?: components['schemas']['TransitionDateRange']
       show_hidden: boolean
       show_transfers: boolean
+    }
+    TransitionPeriod: {
+      /** Format: date */
+      end?: string
+      /** Format: date */
+      start?: string
     }
     TransitionTarget: {
       identity: string

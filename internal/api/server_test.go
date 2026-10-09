@@ -630,3 +630,154 @@ func mustDate(t testing.TB, value string) domain.Date {
 	require.NoError(t, err)
 	return date
 }
+
+func directNavigationServer(t testing.TB) *Server {
+	t.Helper()
+	groceries := apiTransactionWith(t, "groceries", func(*domain.Transaction) {})
+	rent := apiTransactionWith(t, "rent", func(transaction *domain.Transaction) {
+		transaction.Merchant = domain.EntityRef{ID: "merchant-landlord", Name: "Example Landlord"}
+		transaction.Category = domain.CategoryRef{
+			ID: "category-rent", Name: "Example Rent", GroupID: "group-example", Group: "Example Group",
+		}
+		transaction.Amount.Minor = -90000
+		transaction.Date = mustDate(t, "2024-03-10")
+	})
+	euro := apiTransactionWith(t, "eur", func(transaction *domain.Transaction) {
+		transaction.Amount = domain.Money{Minor: -700, Currency: "EUR", Scale: 2}
+	})
+	service, err := app.NewService([]domain.Transaction{groceries, rent, euro})
+	require.NoError(t, err)
+	return newAPITestServerForService(t, service)
+}
+
+func transitionFrom(
+	t testing.TB, server *Server, query string, body TransitionBody,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	body.Query = query
+	body.Window = Window{Limit: 200}
+	return requestJSON(t, server, "/api/v1/view/transition", body)
+}
+
+func decodeProjection(t testing.TB, response *httptest.ResponseRecorder) Projection {
+	t.Helper()
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var projection Projection
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &projection))
+	return projection
+}
+
+func TestServerAppliesDirectNavigationActions(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	category, count := "category", "count"
+
+	grouped := decodeProjection(t, transitionFrom(t, server, "v=1", TransitionBody{
+		Action: app.ActionSetGrouping, Dimension: &category,
+	}))
+	assert.Equal(t, "category", grouped.View.Grouping)
+
+	sorted := decodeProjection(t, transitionFrom(t, server, "v=1", TransitionBody{
+		Action: app.ActionSetSort, SortField: &count,
+	}))
+	assert.Equal(t, "count", sorted.View.SortField)
+
+	scoped := decodeProjection(t, transitionFrom(t, server, "v=1", TransitionBody{
+		Action: app.ActionSetCurrency, Currency: &CurrencyScope{Currency: "EUR", Scale: 2},
+	}))
+	assert.Equal(t, &CurrencyScope{Currency: "EUR", Scale: 2}, scoped.View.Currency)
+
+	start, end := "2024-03-01", "2024-03-31"
+	period := decodeProjection(t, transitionFrom(t, server, "v=1", TransitionBody{
+		Action: app.ActionSetPeriod, Period: &TransitionPeriod{Start: &start, End: &end},
+	}))
+	require.NotNil(t, period.Filters.DateRange)
+	assert.Equal(t, ActiveDateRange{From: start, To: end}, *period.Filters.DateRange)
+
+	all := decodeProjection(t, transitionFrom(t, server, period.CanonicalQuery, TransitionBody{
+		Action: app.ActionSetPeriod, Period: &TransitionPeriod{},
+	}))
+	assert.Nil(t, all.Filters.DateRange, "an empty period shows all time")
+}
+
+func TestServerSetsSubGroupingBelowADrill(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	top := decodeProjection(t, transitionFrom(t, server, "v=1", TransitionBody{
+		Action: app.ActionDrill,
+		Target: &TransitionTarget{
+			Kind: app.IdentityAggregate, Identity: firstAggregateIdentity(t, server),
+		},
+	}))
+	category := "category"
+
+	nested := decodeProjection(t, transitionFrom(t, server, top.CanonicalQuery, TransitionBody{
+		Action: app.ActionSetSubGrouping, Dimension: &category,
+	}))
+	assert.Equal(t, "category", nested.View.SubGrouping)
+}
+
+func TestServerRejectsMismatchedNavigationArguments(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	category, bogus := "category", "bogus"
+	start, malformed := "2024-03-01", "0000-01-01"
+	currency := &CurrencyScope{Currency: "USD", Scale: 2}
+	tests := []struct {
+		name string
+		body TransitionBody
+		code string
+	}{
+		{"dimension on cycle", TransitionBody{
+			Action: app.ActionCycleGrouping, Dimension: &category,
+		}, "invalid_web_request"},
+		{"grouping without dimension", TransitionBody{Action: app.ActionSetGrouping},
+			"invalid_web_request"},
+		{"currency with grouping", TransitionBody{
+			Action: app.ActionSetGrouping, Dimension: &category, Currency: currency,
+		}, "invalid_web_request"},
+		{"currency without currency", TransitionBody{Action: app.ActionSetCurrency},
+			"invalid_web_request"},
+		{"sort field on currency", TransitionBody{
+			Action: app.ActionSetCurrency, Currency: currency, SortField: &category,
+		}, "invalid_web_request"},
+		{"period on sort", TransitionBody{
+			Action: app.ActionSetSort, SortField: &category, Period: &TransitionPeriod{},
+		}, "invalid_web_request"},
+		{"period missing", TransitionBody{Action: app.ActionSetPeriod}, "invalid_web_request"},
+		{"unknown dimension", TransitionBody{
+			Action: app.ActionSetGrouping, Dimension: &bogus,
+		}, "invalid_web_request"},
+		{"unknown sort field", TransitionBody{
+			Action: app.ActionSetSort, SortField: &bogus,
+		}, "invalid_web_request"},
+		{"period with one bound", TransitionBody{
+			Action: app.ActionSetPeriod, Period: &TransitionPeriod{Start: &start},
+		}, "invalid_view_state"},
+		{"period with unparsable date", TransitionBody{
+			Action: app.ActionSetPeriod, Period: &TransitionPeriod{Start: &start, End: &malformed},
+		}, "invalid_view_state"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := transitionFrom(t, server, "v=1", test.body)
+			require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+			var problem Problem
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+			assert.Equal(t, test.code, problem.Code)
+		})
+	}
+}
+
+func firstAggregateIdentity(t testing.TB, server *Server) string {
+	t.Helper()
+	response := requestJSON(t, server, "/api/v1/view", ViewBody{
+		Query: "v=1", Window: Window{Limit: 200},
+	})
+	projection := decodeProjection(t, response)
+	require.NotEmpty(t, projection.AggregateRows)
+	return projection.AggregateRows[0].Identity
+}

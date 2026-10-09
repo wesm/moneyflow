@@ -39,10 +39,18 @@ func TestViewQueryCanonicalExamples(t *testing.T) {
 		}), want: "from=2024-01-01&hidden=0&to=2024-12-31&transfers=1&v=1"},
 		{name: "search anchor", state: withState(func(state *app.AnalyticalState) {
 			state.Search = "café 東京"
-			state.SearchAnchor = &app.NavigationScope{
-				Mode: domain.ResultModeAggregate, Dimension: domain.DimensionMerchant,
-			}
-		}), want: "q=caf%C3%A9+%E6%9D%B1%E4%BA%AC&search-at=aggregate%3Amerchant%3A_%3A0&v=1"},
+			state.SearchAnchor = &app.NavigationScope{Mode: domain.ResultModeAggregate}
+		}), want: "q=caf%C3%A9+%E6%9D%B1%E4%BA%AC&search-at=aggregate%3A0&v=1"},
+		{name: "search anchor at depth", state: withState(func(state *app.AnalyticalState) {
+			state.Mode = domain.ResultModeDetail
+			state.Sort = domain.SortSpec{Field: domain.SortFieldDate, Direction: domain.SortDirectionDesc}
+			state.Drilldowns = []domain.Drilldown{{
+				Dimension: domain.DimensionMerchant, Key: "merchant-grocer", Currency: "USD", Scale: 2,
+			}}
+			state.Search = "milk"
+			state.SearchAnchor = &app.NavigationScope{Mode: domain.ResultModeDetail, DrilldownSize: 1}
+		}), want: "drill=merchant%3AUSD%3A2%3Amerchant-grocer&mode=detail&q=milk" +
+			"&search-at=detail%3A1&v=1"},
 		{name: "drill key with colon", state: withState(func(state *app.AnalyticalState) {
 			state.Mode = domain.ResultModeDetail
 			state.Sort = domain.SortSpec{Field: domain.SortFieldDate, Direction: domain.SortDirectionDesc}
@@ -126,9 +134,10 @@ func TestViewQueryRoundTripsDefaultReturnFrame(t *testing.T) {
 	state.Current.Drilldowns = []domain.Drilldown{{
 		Dimension: domain.DimensionMerchant, Currency: "USD", Scale: 2, Key: "merchant-grocer",
 	}}
-	state.Returns = []app.ReturnFrame{{
-		Kind: app.ReturnNavigation, State: app.DefaultViewState().Current,
-	}}
+	parent := app.DefaultViewState().Current
+	parent.Search = "milk"
+	parent.SearchAnchor = &app.NavigationScope{Mode: domain.ResultModeAggregate}
+	state.Returns = []app.ReturnFrame{{Kind: app.ReturnNavigation, State: parent}}
 
 	encoded, err := EncodeViewQuery(state)
 	require.NoError(t, err)
@@ -144,27 +153,32 @@ func TestViewQueryRejectsMalformedInput(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]string{
-		"leading question":    "?v=1",
-		"unknown":             "missing=1",
-		"version":             "v=2",
-		"duplicate scalar":    "v=1&v=1",
-		"invalid percent":     "q=%zz",
-		"invalid mode":        "mode=missing",
-		"invalid boolean":     "hidden=true",
-		"one date bound":      "from=2024-01-01",
-		"invalid date":        "from=2024-01-01&to=2024-02-31",
-		"invalid sort":        "sort=date%3Aup",
-		"incompatible sort":   "sort=date%3Adesc",
-		"duplicate drill":     "drill=merchant%3Aa&drill=merchant%3Ab",
-		"invalid period":      "drill=time%3Amonth%3A2024-13",
-		"search no anchor":    "q=grocer",
-		"anchor no search":    "search-at=aggregate%3Amerchant%3A_%3A0",
-		"recursive return":    returnQuery(t, "navigation:return=navigation%253Av%253D1"),
-		"invalid return kind": returnQuery(t, "missing:group=category"),
-		"label field":         "drill=merchant%3A",
-		"currency no scale":   "cur=USD&v=1",
-		"currency lowercase":  "cur=usd%3A2&v=1",
-		"currency bad scale":  "cur=USD%3A02&v=1",
+		"leading question":     "?v=1",
+		"unknown":              "missing=1",
+		"version":              "v=2",
+		"duplicate scalar":     "v=1&v=1",
+		"invalid percent":      "q=%zz",
+		"invalid mode":         "mode=missing",
+		"invalid boolean":      "hidden=true",
+		"one date bound":       "from=2024-01-01",
+		"invalid date":         "from=2024-01-01&to=2024-02-31",
+		"invalid sort":         "sort=date%3Aup",
+		"incompatible sort":    "sort=date%3Adesc",
+		"duplicate drill":      "drill=merchant%3Aa&drill=merchant%3Ab",
+		"invalid period":       "drill=time%3Amonth%3A2024-13",
+		"search no anchor":     "q=grocer",
+		"anchor no search":     "search-at=aggregate%3A0",
+		"anchor four parts":    "q=grocer&search-at=aggregate%3Amerchant%3A_%3A0&v=1",
+		"anchor bad mode":      "q=grocer&search-at=missing%3A0&v=1",
+		"anchor bad depth":     "q=grocer&search-at=aggregate%3Ax&v=1",
+		"anchor deep":          "q=grocer&search-at=aggregate%3A9&v=1",
+		"anchor non canonical": "q=grocer&search-at=aggregate%3A01&v=1",
+		"recursive return":     returnQuery(t, "navigation:return=navigation%253Av%253D1"),
+		"invalid return kind":  returnQuery(t, "missing:group=category"),
+		"label field":          "drill=merchant%3A",
+		"currency no scale":    "cur=USD&v=1",
+		"currency lowercase":   "cur=usd%3A2&v=1",
+		"currency bad scale":   "cur=USD%3A02&v=1",
 		"currency vs drill": "cur=EUR%3A2&drill=merchant%3AUSD%3A2%3Am" +
 			"&mode=detail&sort=date%3Adesc&v=1",
 		"time with currency": "cur=USD%3A2&time=month&v=1",
@@ -199,9 +213,7 @@ func TestViewQueryBounds(t *testing.T) {
 
 	state := withState(func(current *app.AnalyticalState) {
 		current.Search = strings.Repeat("a", MaxSearchBytes)
-		current.SearchAnchor = &app.NavigationScope{
-			Mode: domain.ResultModeAggregate, Dimension: domain.DimensionMerchant,
-		}
+		current.SearchAnchor = &app.NavigationScope{Mode: domain.ResultModeAggregate}
 	})
 	_, err := EncodeViewQuery(state)
 	require.NoError(t, err)
@@ -301,7 +313,7 @@ func TestViewQueryRoundTripProperty(t *testing.T) {
 func FuzzViewQuery(f *testing.F) {
 	f.Add("")
 	f.Add("v=1")
-	f.Add("q=grocer&search-at=aggregate%3Amerchant%3A_%3A0")
+	f.Add("q=grocer&search-at=aggregate%3A0")
 	f.Add("drill=time%3Aday%3A2024-02-29&group=time&mode=detail")
 	f.Add("cur=USD%3A2&v=1")
 	f.Fuzz(func(t *testing.T, query string) {

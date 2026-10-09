@@ -365,7 +365,7 @@ func TestMutationFailureNeverEchoesTargetLabelsOrQueryText(t *testing.T) {
 	initial := projectPersistentView(t, server)
 	response := requestProtectedJSON(t, server, "/api/v1/mutations", MutationBody{
 		Version: MutationSchemaVersion, ExpectedRevision: initial.Revision,
-		Query:     "q=private-query-text&search-at=aggregate%3Amerchant%3A_%3A0&v=1",
+		Query:     "q=private-query-text&search-at=aggregate%3A0&v=1",
 		Selection: initial.Selection,
 		Action:    app.ActionEditMerchant,
 		Target: &TransitionTarget{

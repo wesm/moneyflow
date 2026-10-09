@@ -2342,8 +2342,14 @@ components:
       properties:
         action:
           type: string
+        currency:
+          $ref: "#/components/schemas/CurrencyScope"
+        dimension:
+          type: string
         filters:
           $ref: "#/components/schemas/TransitionFilters"
+        period:
+          $ref: "#/components/schemas/TransitionPeriod"
         query:
           maxLength: 65536
           type: string
@@ -2352,6 +2358,8 @@ components:
           type: string
         selection:
           maxLength: 1468006
+          type: string
+        sort_field:
           type: string
         target:
           $ref: "#/components/schemas/TransitionTarget"
@@ -2387,6 +2395,16 @@ components:
       required:
         - show_hidden
         - show_transfers
+      type: object
+    TransitionPeriod:
+      additionalProperties: false
+      properties:
+        end:
+          format: date
+          type: string
+        start:
+          format: date
+          type: string
       type: object
     TransitionTarget:
       additionalProperties: false
