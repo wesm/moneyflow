@@ -10,8 +10,7 @@
   import { incomeDivider } from '../../lib/table/cells'
   import { columnsFor, type SortField } from '../../lib/table/columns'
   import { rowHeight } from '../../lib/table/layout'
-
-  type RowKind = 'transaction' | 'aggregate'
+  import { doubleClickAction, pointerHit, type RowKind } from '../../lib/table/pointer'
 
   interface Props {
     projection: ViewProjection
@@ -20,13 +19,16 @@
     compact: boolean
     onmove: (delta: -1 | 1) => void
     onhome: () => void
-    oncursor?: (index: number) => void
+    /** A row click moves the cursor; the grid keeps focus. */
+    oncursor: (index: number) => void
+    /** A click on a row's selection box. */
     ontoggle: (identity: string, kind: RowKind) => void
-    ontoggleall?: () => void
+    ontoggleall: () => void
+    /** Drills into a grouped row. */
     onactivate: (identity: string, kind: RowKind) => void
-    oninformation?: (identity: string) => void
-    onedit?: (identity: string, field: 'merchant' | 'category') => void
-    onsort?: (field: SortField) => void
+    oninformation: (identity: string) => void
+    onedit: (identity: string, field: 'merchant' | 'category') => void
+    onsort: (field: SortField) => void
     onshow?: (index: number) => void
   }
 
@@ -36,9 +38,13 @@
     compact,
     onmove,
     onhome,
+    oncursor,
     ontoggle,
+    ontoggleall,
     onactivate,
     oninformation,
+    onedit,
+    onsort,
   }: Props = $props()
   let grid = $state<HTMLDivElement>()
   let scrollTop = $state(0)
@@ -90,9 +96,30 @@
     event.stopPropagation()
   }
 
-  function activate(identity: string): void {
-    if (kind === 'transaction') oninformation?.(identity)
-    else onactivate(identity, 'aggregate')
+  /** The loaded row a pointer event landed on, with the column key of its cell. */
+  function hit(event: MouseEvent) {
+    const target = pointerHit(event.target)
+    const row = target && rows.find((candidate) => candidate.index === target.index)
+    return row && target ? { row, column: target.column } : undefined
+  }
+
+  function click(event: MouseEvent): void {
+    const target = hit(event)
+    if (!target) return
+    if (target.column === 'select') ontoggle(target.row.identity, kind)
+    else oncursor(target.row.index)
+  }
+
+  function doubleClick(event: MouseEvent): void {
+    // A button's own click already acted; its double-click must not act again.
+    if (event.target instanceof Element && event.target.closest('button')) return
+    const target = hit(event)
+    if (!target) return
+    const identity = target.row.identity
+    const action = doubleClickAction(kind, target.column)
+    if (action === 'drill') onactivate(identity, kind)
+    else if (action === 'information') oninformation(identity)
+    else if (action) onedit(identity, action)
   }
 </script>
 
@@ -113,10 +140,12 @@
     tabindex="0"
     bind:this={grid}
     onkeydown={keydown}
+    onclick={click}
+    ondblclick={doubleClick}
     onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
     bind:clientHeight={viewport}
   >
-    <GridHeader {columns} view={projection.view} />
+    <GridHeader {columns} view={projection.view} {onsort} {ontoggleall} />
     <div class="mf-table__spacer" style:height={`${slice.topPad}px`} aria-hidden="true"></div>
     {#each visible as row, offset (row.identity)}
       {@const divider = dividers ? incomeDivider(aggregates, slice.start + offset) : null}
@@ -133,15 +162,9 @@
           },
         ]}
         role="row"
-        tabindex="-1"
         aria-rowindex={row.index + 2}
         aria-selected={row.flags.selected}
-        ondblclick={() => activate(row.identity)}
-        onclick={() => ontoggle(row.identity, kind)}
-        onkeydown={(event) => {
-          if (event.key === 'Enter') activate(row.identity)
-          if (event.key === ' ') ontoggle(row.identity, kind)
-        }}
+        data-index={row.index}
       >
         <div class="mf-table__cell mf-table__cell--select" role="gridcell" data-column="select">
           <!-- kit-ui-check-ignore: kit Checkbox lacks tabindex (upstream candidate) -->
@@ -149,7 +172,7 @@
           ></span>
         </div>
         {#if 'merchant' in row}
-          <DetailRow {row} columns={cellColumns} {oninformation} />
+          <DetailRow {row} columns={cellColumns} {oninformation} {onedit} />
         {:else if row.dimension === 'time'}
           <TimeRow {row} columns={cellColumns} {divider} />
         {:else}

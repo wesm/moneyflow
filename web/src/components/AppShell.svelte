@@ -19,23 +19,20 @@
     type Dimension,
     type LocalAction,
   } from '../lib/shortcuts'
-  import type { ViewController } from '../lib/controller/view-controller.svelte'
+  import type { TransitionAction, ViewController } from '../lib/controller/view-controller.svelte'
   import { ChartState } from '../lib/shell/chart-state.svelte'
   import { keyHints } from '../lib/shell/key-hints'
   import {
     confirmDirectDelete,
     focusedRow,
     localActions,
-    openTransactionInformation,
-    type FocusedRow,
     type LocalActionContext,
   } from '../lib/shell/local-actions'
   import { SIDEBAR_FULL_QUERY } from '../lib/shell/layout'
   import type { NavRun } from '../lib/shell/nav-items'
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
-  import type { Period } from '../lib/shell/period'
-  import { connectionState, writeProgress } from '../lib/shell/status'
+  import { connectionState, writeProgress } from '../lib/shell/status.svelte'
   interface Props {
     controller: ViewController
     onreconnect?: (() => void) | undefined
@@ -72,9 +69,8 @@
   const row = () => focusedRow(projection, controller.cursorIndex)
   async function apply(action: string, dimension?: Dimension): Promise<void> {
     const focused = action === 'view.drill' || action === 'selection.toggle' ? row() : undefined
-    if (focused) return target(action, focused.identity, focused.kind)
-    await controller.apply({ action, ...(dimension === undefined ? {} : { dimension }) })
-    focusGrid()
+    if (focused) return send({ action, target: focused })
+    await send({ action, ...(dimension === undefined ? {} : { dimension }) })
   }
   function run(entry: NavRun): void {
     if (entry.kind === 'local') local(entry.action)
@@ -90,18 +86,14 @@
     const run = () => apply(action, dimension)
     transitionTail = transitionTail.then(run, run)
   }
-  async function target(action: string, identity: string, kind: FocusedRow['kind']): Promise<void> {
-    await controller.apply({ action, target: { identity, kind } })
+  async function send(request: TransitionAction): Promise<void> {
+    await controller.apply(request)
     focusGrid()
   }
   function focusGrid(): void {
     // A table request can finish after the user has opened a dialog.
     if (overlays.current !== undefined || charts.dialogOpen) return
     grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
-  }
-  async function setPeriod(period: Period): Promise<void> {
-    await controller.apply({ action: 'time.set-period', period })
-    focusGrid()
   }
   $effect(() => {
     if (compact.current) return
@@ -166,7 +158,8 @@
       {projection}
       cursorIndex={controller.cursorIndex}
       oncursor={(index) => void controller.moveCursorTo(index)}
-      ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
+      ondrill={(identity) =>
+        void send({ action: 'view.drill', target: { identity, kind: 'aggregate' } })}
     />
   {/snippet}
   <div class="app-shell">
@@ -209,13 +202,7 @@
           >
             <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
             <div class="app-shell__table" bind:this={grid}>
-              <WorkspaceBody
-                {controller}
-                {projection}
-                ontarget={(action, identity, kind) => void target(action, identity, kind)}
-                oninformation={(identity) => void openTransactionInformation(actions, identity)}
-                onperiod={(period) => void setPeriod(period)}
-              />
+              <WorkspaceBody {projection} {actions} onapply={(request) => void send(request)} />
             </div>
             {#if charts.aside}
               <aside aria-label="Visualizations">
@@ -242,7 +229,6 @@
     {controller}
     {projection}
     {overlays}
-    row={row()}
     onconfirmdelete={() => void confirmDirectDelete(actions)}
     {onreconnect}
   />

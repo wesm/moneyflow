@@ -2,25 +2,31 @@
   import FinanceGrid from '../table/FinanceGrid.svelte'
   import EmptyScope from './EmptyScope.svelte'
   import type { ViewProjection } from '../../lib/api/client'
-  import type { ViewController } from '../../lib/controller/view-controller.svelte'
-  import type { FocusedRow } from '../../lib/shell/local-actions'
-  import { emptyScope, type Period } from '../../lib/shell/period'
+  import type { TransitionAction } from '../../lib/controller/view-controller.svelte'
+  import {
+    openEditor,
+    openTransactionInformation,
+    type LocalActionContext,
+  } from '../../lib/shell/local-actions'
+  import { emptyScope } from '../../lib/shell/period'
 
   interface Props {
-    controller: ViewController
     projection: ViewProjection
-    /** Sends a row action such as a drill or a selection toggle. */
-    ontarget: (action: string, identity: string, kind: FocusedRow['kind']) => void
-    oninformation: (identity: string) => void
-    onperiod: (period: Period) => void
+    actions: LocalActionContext
+    /** Applies a view transition from the table, then returns focus to it. */
+    onapply: (request: TransitionAction) => void
   }
 
-  let { controller, projection, ontarget, oninformation, onperiod }: Props = $props()
+  let { projection, actions, onapply }: Props = $props()
+  const controller = $derived(actions.controller)
   const empty = $derived(emptyScope(projection))
 </script>
 
 {#if empty}
-  <EmptyScope scope={empty} onjump={() => onperiod(empty.jump)} />
+  <EmptyScope
+    scope={empty}
+    onjump={() => onapply({ action: 'time.set-period', period: empty.jump })}
+  />
 {:else}
   <FinanceGrid
     {projection}
@@ -28,8 +34,13 @@
     compact={false}
     onmove={(delta) => void controller.moveCursor(delta)}
     onhome={() => void controller.moveHome()}
-    onactivate={(identity, kind) => ontarget('view.drill', identity, kind)}
-    ontoggle={(identity, kind) => ontarget('selection.toggle', identity, kind)}
-    {oninformation}
+    oncursor={(index) => void controller.moveCursorTo(index)}
+    ontoggle={(identity, kind) =>
+      onapply({ action: 'selection.toggle', target: { identity, kind } })}
+    ontoggleall={() => onapply({ action: 'selection.toggle-all' })}
+    onactivate={(identity, kind) => onapply({ action: 'view.drill', target: { identity, kind } })}
+    oninformation={(identity) => void openTransactionInformation(actions, identity)}
+    onedit={(identity, field) => openEditor(actions, field, { identity, kind: 'transaction' })}
+    onsort={(field) => onapply({ action: 'sort.set', sort_field: field })}
   />
 {/if}

@@ -1,6 +1,7 @@
 import { tick, untrack } from 'svelte'
 
 import type { TransactionInformationResponse } from '../api/client'
+import type { FocusedRow } from './local-actions'
 
 export type Overlay =
   | 'help'
@@ -34,6 +35,8 @@ export interface OverlayHost {
  */
 export class OverlayState {
   current = $state<Overlay | undefined>()
+  /** The row the merchant or category editor edits. */
+  editTarget = $state<FocusedRow | undefined>()
   deleteTarget = $state<{ identity: string; kind: 'transaction' } | undefined>()
   deleteCount = $state(0)
   information = $state<TransactionInformationResponse | undefined>()
@@ -68,6 +71,7 @@ export class OverlayState {
     this.current = undefined
     this.#popScope?.()
     this.#popScope = undefined
+    this.editTarget = undefined
     this.deleteTarget = undefined
     this.deleteCount = 0
     this.information = undefined

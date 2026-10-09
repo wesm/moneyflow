@@ -22,3 +22,32 @@ export function writeProgress(status: ProviderWriteStatus | undefined): WritePro
   if (!status?.phase) return undefined
   return { completed: status.completed, total: status.total }
 }
+
+/** How long the status line shows a notice. */
+const NOTICE_MS = 4000
+
+/**
+ * The status line's notice slot: one short message, such as why a key did nothing. A new notice
+ * replaces the last; each clears after 4 seconds or on the next shortcut.
+ */
+class StatusNotice {
+  notice = $state('')
+  #timer: ReturnType<typeof setTimeout> | undefined
+
+  notify(text: string): void {
+    this.#show(text)
+    this.#timer = setTimeout(() => this.#show(''), NOTICE_MS)
+  }
+
+  clear(): void {
+    this.#show('')
+  }
+
+  #show(text: string): void {
+    clearTimeout(this.#timer)
+    this.#timer = undefined
+    this.notice = text
+  }
+}
+
+export const status = new StatusNotice()

@@ -38,7 +38,12 @@ export interface Column {
 }
 
 const METRIC_WIDTH = '6.5rem'
-const SELECT: Column = { key: 'select', label: 'Selection', align: 'start', width: '2rem' }
+const SELECT: Column = {
+  key: 'select',
+  label: 'Select all matching',
+  align: 'start',
+  width: '2rem',
+}
 const NARROWED_DIMENSIONS = ['merchant', 'category', 'account'] as const
 
 function metric(key: ColumnKey, label: string, sortField?: SortField): Column {

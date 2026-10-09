@@ -11,8 +11,9 @@ test('desktop and medium layouts preserve table primacy and chart linkage', asyn
   const visualizations = page.getByRole('complementary', { name: 'Visualizations' })
   await expect(grid).toBeVisible()
   await expect(visualizations).toBeVisible()
+  // The selection header holds only the "Select all matching" box.
   await expect(grid.getByRole('columnheader')).toHaveText([
-    'Selection',
+    '',
     'Merchant',
     'Top category',
     'Count',

@@ -53,6 +53,31 @@ for (const colorScheme of ['light', 'dark'] as const) {
 }
 
 for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} selected rows and a hovered pencil pass axe`, async ({ page, server }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openMoneyflow(page, server)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await cell(grid.locator('[role="row"][aria-rowindex="3"]'), 'select').click()
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
+    await expectNoAxeViolations(page)
+
+    // The detail chart rail scrolls with no focusable content; PR 6 replaces it.
+    await page.getByRole('switch', { name: 'Charts' }).uncheck()
+    await grid.focus()
+    await page.keyboard.press('d')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('Space')
+    const hovered = grid.locator('[role="row"][aria-rowindex="4"]')
+    await hovered.hover()
+    await expect(
+      cell(hovered, 'merchant').getByRole('button', { name: 'Edit merchant' }),
+    ).toBeVisible()
+    await expectNoAxeViolations(page)
+  })
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
   test(`the ${colorScheme} icon rail view has no automated accessibility violations`, async ({
     page,
     server,

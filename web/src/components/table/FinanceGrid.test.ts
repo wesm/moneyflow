@@ -8,9 +8,13 @@ import { testAggregateRow, testMoney, testProjection } from '../../test/projecti
 const callbacks = () => ({
   onmove: vi.fn(),
   onhome: vi.fn(),
+  oncursor: vi.fn(),
   ontoggle: vi.fn(),
+  ontoggleall: vi.fn(),
   onactivate: vi.fn(),
   oninformation: vi.fn(),
+  onedit: vi.fn(),
+  onsort: vi.fn(),
 })
 
 const detailView: ViewProjection['view'] = {
@@ -38,6 +42,7 @@ function grouped(overrides: Partial<ViewProjection> = {}): ViewProjection {
   })
 }
 
+/** Header text; the selection header holds only the "Select all matching" box. */
 const headers = () =>
   screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())
 const cell = (row: HTMLElement, key: string) =>
@@ -46,7 +51,7 @@ const cell = (row: HTMLElement, key: string) =>
 describe('FinanceGrid', () => {
   afterEach(cleanup)
 
-  it('renders transaction rows with today’s pointer behavior', async () => {
+  it('renders transaction rows and moves through them with keys', async () => {
     const events = callbacks()
     render(FinanceGrid, {
       projection: testProjection({ view: detailView }),
@@ -60,15 +65,7 @@ describe('FinanceGrid', () => {
     expect(row.getAttribute('aria-selected')).toBe('true')
     expect(row.getAttribute('aria-rowindex')).toBe('2')
     expect(row.id).toBe('moneyflow-row-row-0')
-    expect(headers()).toEqual([
-      'Selection',
-      'Date',
-      'Merchant',
-      'Category',
-      'Account',
-      'Amount',
-      'Flags',
-    ])
+    expect(headers()).toEqual(['', 'Date', 'Merchant', 'Category', 'Account', 'Amount', 'Flags'])
     expect(cell(row, 'amount')?.textContent?.trim()).toBe('-$12.34')
     expect(cell(row, 'merchant')?.textContent?.trim()).toBe('Example Merchant')
     expect(screen.getByRole('columnheader', { name: 'Date' }).getAttribute('aria-sort')).toBe(
@@ -83,11 +80,98 @@ describe('FinanceGrid', () => {
     expect(events.onhome).toHaveBeenCalled()
     await fireEvent.keyDown(grid, { key: 'End' })
     expect(events.onmove).toHaveBeenCalledTimes(1)
-    await fireEvent.doubleClick(row)
+  })
+
+  it('moves the cursor on a row click and toggles selection only from the box', async () => {
+    const events = callbacks()
+    render(FinanceGrid, {
+      projection: grouped({
+        total_rows: 2,
+        window: { offset: 0, limit: 200, count: 2 },
+        aggregate_rows: [
+          testAggregateRow(),
+          testAggregateRow({ index: 1, identity: 'agg-1', label: 'Other Merchant' }),
+        ],
+      }),
+      cursorIndex: 0,
+      compact: false,
+      ...events,
+    })
+    const row = screen.getByRole('row', { name: /Other Merchant/ })
+    await fireEvent.click(cell(row, 'net')!)
+    expect(events.oncursor).toHaveBeenCalledWith(1)
+    expect(events.ontoggle).not.toHaveBeenCalled()
+    await fireEvent.click(cell(row, 'select')!)
+    expect(events.ontoggle).toHaveBeenCalledWith('agg-1', 'aggregate')
+    expect(events.oncursor).toHaveBeenCalledTimes(1)
+    await fireEvent.click(screen.getByRole('button', { name: 'Select all matching' }))
+    expect(events.ontoggleall).toHaveBeenCalledTimes(1)
+    expect(events.oncursor).toHaveBeenCalledTimes(1)
+  })
+
+  it('double-clicks a grouped row to drill from any cell but the box', async () => {
+    const events = callbacks()
+    render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: false, ...events })
+    const row = screen.getByRole('row', { name: /Example Merchant/ })
+    await fireEvent.doubleClick(cell(row, 'select')!)
     expect(events.onactivate).not.toHaveBeenCalled()
+    await fireEvent.doubleClick(cell(row, 'count')!)
+    expect(events.onactivate).toHaveBeenCalledWith('agg-0', 'aggregate')
+  })
+
+  it('double-clicks Merchant or Category to edit and elsewhere to open Info', async () => {
+    const events = callbacks()
+    render(FinanceGrid, {
+      projection: testProjection({ view: detailView }),
+      cursorIndex: 0,
+      compact: false,
+      ...events,
+    })
+    const row = screen.getByRole('row', { name: /Example Merchant/ })
+    await fireEvent.doubleClick(cell(row, 'merchant')!)
+    expect(events.onedit).toHaveBeenLastCalledWith('row-0', 'merchant')
+    await fireEvent.doubleClick(cell(row, 'category')!)
+    expect(events.onedit).toHaveBeenLastCalledWith('row-0', 'category')
+    expect(events.oninformation).not.toHaveBeenCalled()
+    await fireEvent.doubleClick(cell(row, 'date')!)
     expect(events.oninformation).toHaveBeenCalledWith('row-0')
-    await fireEvent.click(row)
-    expect(events.ontoggle).toHaveBeenCalledWith('row-0', 'transaction')
+    expect(events.onactivate).not.toHaveBeenCalled()
+    expect(events.ontoggle).not.toHaveBeenCalled()
+  })
+
+  it('edits Merchant and Category from pencil buttons outside the Tab order', async () => {
+    const events = callbacks()
+    render(FinanceGrid, {
+      projection: testProjection({ view: detailView }),
+      cursorIndex: 0,
+      compact: false,
+      ...events,
+    })
+    const row = screen.getByRole('row', { name: /Example Merchant/ })
+    const merchant = within(cell(row, 'merchant')!).getByRole('button', { name: 'Edit merchant' })
+    const category = within(cell(row, 'category')!).getByRole('button', { name: 'Edit category' })
+    expect(merchant.getAttribute('tabindex')).toBe('-1')
+    expect(category.getAttribute('tabindex')).toBe('-1')
+    await fireEvent.click(merchant)
+    expect(events.onedit).toHaveBeenLastCalledWith('row-0', 'merchant')
+    await fireEvent.click(category)
+    expect(events.onedit).toHaveBeenLastCalledWith('row-0', 'category')
+    expect(events.oninformation).not.toHaveBeenCalled()
+  })
+
+  it('sorts from the server’s sortable headers only', async () => {
+    const events = callbacks()
+    render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: false, ...events })
+    await fireEvent.click(screen.getByRole('button', { name: 'Count' }))
+    expect(events.onsort).toHaveBeenLastCalledWith('count')
+    await fireEvent.click(screen.getByRole('button', { name: 'Net' }))
+    expect(events.onsort).toHaveBeenLastCalledWith('amount')
+    expect(screen.getByRole('button', { name: 'Count' }).getAttribute('tabindex')).toBe('-1')
+    for (const name of ['In', 'Out', 'Share', 'Top category']) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+      expect(screen.getByRole('columnheader', { name }).hasAttribute('aria-sort')).toBe(false)
+    }
+    expect(events.oncursor).not.toHaveBeenCalled()
   })
 
   it('gives every gridcell its column key and sizes rows from one height', () => {
@@ -120,7 +204,7 @@ describe('FinanceGrid', () => {
       ...events,
     })
     expect(headers()).toEqual([
-      'Selection',
+      '',
       'Merchant',
       'Top category',
       'Count',
@@ -138,8 +222,6 @@ describe('FinanceGrid', () => {
     expect(cell(row, 'out')?.textContent?.trim()).toBe('-5.00')
     expect(cell(row, 'net')?.textContent?.trim()).toBe('-2.00')
     expect(cell(row, 'share')?.textContent?.trim()).toBe('6.2%')
-    await fireEvent.doubleClick(row)
-    expect(events.onactivate).toHaveBeenCalledWith('agg-0', 'aggregate')
 
     await view.rerender({
       projection: grouped({
@@ -204,7 +286,7 @@ describe('FinanceGrid', () => {
       ...callbacks(),
     })
     expect(headers()).toEqual([
-      'Selection',
+      '',
       'Period',
       'Count',
       'In',

@@ -31,8 +31,9 @@ test('@smoke Amazon import preserves committed edits through reimport and reload
     const grid = page.getByRole('grid', { name: 'Financial results' })
     await expect(grid).toBeFocused()
     await page.keyboard.press('d')
+    // The selection header holds only the "Select all matching" box.
     await expect(grid.getByRole('columnheader')).toHaveText([
-      'Selection',
+      '',
       'Date',
       'Product',
       'Category',

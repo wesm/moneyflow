@@ -202,6 +202,61 @@ test('time, sort, and exact selection refinements remain keyboard driven', async
   await expect(page).not.toHaveURL(/[?&]drill=time/)
 })
 
+test('a row click moves the cursor and only the box toggles selection', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const third = grid.locator('[role="row"][aria-rowindex="4"]')
+  await cell(third, 'net').click()
+  await expect(grid).toHaveAttribute('aria-activedescendant', (await third.getAttribute('id'))!)
+  await expect(grid).toBeFocused()
+  await expect(third).toHaveAttribute('aria-selected', 'false')
+
+  const fifth = grid.locator('[role="row"][aria-rowindex="6"]')
+  await cell(fifth, 'select').click()
+  await expect(fifth).toHaveAttribute('aria-selected', 'true')
+  await expect(grid).toHaveAttribute('aria-activedescendant', (await third.getAttribute('id'))!)
+  await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
+  await expect(grid).toBeFocused()
+
+  await page.getByRole('button', { name: 'Select all matching' }).click()
+  await expect(third).toHaveAttribute('aria-selected', 'true')
+  await expect(grid).toBeFocused()
+
+  const merchant = await cell(fifth, 'name').innerText()
+  await cell(fifth, 'count').dblclick()
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Merchants', `› ${merchant}`])
+})
+
+test('header clicks sort by the server fields and keep the selection', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('Space')
+  await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
+  const count = header(page, 'Count')
+  await count.getByRole('button', { name: 'Count' }).click()
+  await expect(count).toHaveAttribute('aria-sort', 'descending')
+  await count.getByRole('button', { name: 'Count' }).click()
+  await expect(count).toHaveAttribute('aria-sort', 'ascending')
+  await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+  await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
+  for (const name of ['In', 'Out', 'Share']) {
+    await expect(header(page, name).getByRole('button')).toHaveCount(0)
+    await expect(header(page, name)).not.toHaveAttribute('aria-sort')
+  }
+})
+
+test('x in a grouped view explains why it cannot delete', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const notice = page.getByRole('status', { name: 'Notice' })
+  await page.keyboard.press('x')
+  await expect(notice).toHaveText('Open the group to delete its transactions.')
+  await expect(page.getByRole('dialog', { name: 'Confirm deletion' })).toHaveCount(0)
+  await page.keyboard.press('j')
+  await expect(notice).toHaveText('')
+})
+
 test('search previews, commits, cancels, and reports invalid regular expressions', async ({
   page,
   server,

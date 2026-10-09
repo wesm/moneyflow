@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { status } from './shell/status.svelte'
 import { createMoneyflowShortcuts, handleMoneyflowKeydown, validateCapabilities } from './shortcuts'
 
 const capabilities = [
@@ -189,6 +190,40 @@ describe('Moneyflow browser shortcuts', () => {
     expect(shortcuts.manager.handleKeydown(keyboard('h'))).toBe(true)
     expect(handlers.local).toHaveBeenCalledWith('edit.hide')
     expect(shortcuts.manager.handleKeydown(keyboard('m'))).toBe(false)
+  })
+
+  it('explains an unavailable delete with x and clears the notice on the next shortcut', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const reason = 'Open the group to delete its transactions.'
+    const shortcuts = createMoneyflowShortcuts(
+      capabilities.map((capability) =>
+        capability.id === 'transaction.delete' || capability.id === 'transaction.toggle-hidden'
+          ? { ...capability, available: false, reason }
+          : capability,
+      ),
+      handlers,
+    )
+    try {
+      expect(shortcuts.manager.handleKeydown(keyboard('x'))).toBe(true)
+      expect(status.notice).toBe(reason)
+      expect(handlers.local).not.toHaveBeenCalled()
+      expect(shortcuts.manager.handleKeydown(keyboard('h'))).toBe(false)
+      expect(status.notice).toBe(reason)
+      expect(shortcuts.manager.handleKeydown(keyboard('j'))).toBe(true)
+      expect(status.notice).toBe('')
+    } finally {
+      status.clear()
+      shortcuts.destroy()
+    }
+  })
+
+  it('confirms deletion with x while delete is available', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    expect(shortcuts.manager.handleKeydown(keyboard('x'))).toBe(true)
+    expect(handlers.local).toHaveBeenCalledWith('edit.delete')
+    expect(status.notice).toBe('')
+    shortcuts.destroy()
   })
 })
 

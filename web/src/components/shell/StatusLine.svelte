@@ -2,7 +2,7 @@
   import { Button, KbdBadge, StatusBar, StatusDot } from '@kenn-io/kit-ui'
 
   import type { KeyHint } from '../../lib/shell/key-hints'
-  import type { Connection } from '../../lib/shell/status'
+  import { status, type Connection } from '../../lib/shell/status.svelte'
 
   /** Requests shorter than this never flash "Updating…". */
   const updatingDelayMs = 300
@@ -24,6 +24,8 @@
   let { hints, connection, revision, pending, compact = false, onretry }: Props = $props()
   let slow = $state(false)
   const shown = $derived(connection === 'updating' && !slow ? 'connected' : connection)
+  /** A notice takes the hint area until it clears. */
+  const noticed = $derived(status.notice !== '')
 
   $effect(() => {
     if (connection !== 'updating') return
@@ -46,9 +48,11 @@
   <StatusBar>
     {#snippet left()}
       <span class="mf-status-line__hints">
-        {#if compact}
+        <span class="mf-status-line__notice" role="status" aria-label="Notice">{status.notice}</span
+        >
+        {#if compact && !noticed}
           {#if pending}{@render pendingStatus()}{/if}
-        {:else}
+        {:else if !noticed}
           {#each hints as hint (hint.key)}
             <span class="mf-status-line__hint"><KbdBadge keys={[hint.key]} />{hint.label}</span>
           {/each}

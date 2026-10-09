@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFile, readdir, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { cell } from './fixtures'
 import { withScenarioServer, type ScenarioServer } from '../scripts/scenario-server'
 
 test.describe.configure({ retries: 0 })
@@ -48,10 +49,10 @@ async function september(page: Page, server: ScenarioServer, showHidden = false)
     await expect(page).toHaveURL(/[?&]hidden=0/)
     await page.keyboard.press('Escape')
   }
-  await page
+  const shop = page
     .getByRole('row')
     .filter({ has: page.getByRole('gridcell', { name: 'Example Shop', exact: true }) })
-    .click()
+  await cell(shop, 'select').click()
 }
 
 test('@smoke a narrow empty search view keeps Clear search reachable', async ({ page }, info) => {

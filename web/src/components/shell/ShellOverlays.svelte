@@ -18,29 +18,29 @@
     controller: ViewController
     projection: ViewProjection
     overlays: OverlayState
-    row: { identity: string; kind: 'transaction' | 'aggregate' } | undefined
     onconfirmdelete: () => void
     onreconnect?: (() => void) | undefined
   }
 
-  let { controller, projection, overlays, row, onconfirmdelete, onreconnect }: Props = $props()
+  let { controller, projection, overlays, onconfirmdelete, onreconnect }: Props = $props()
   const overlay = $derived(overlays.current)
   const information = $derived(overlays.information)
+  const target = $derived(overlays.editTarget)
   const onclose = () => overlays.close()
   const onwrite = () => overlays.open('write')
 </script>
 
 {#if overlay === 'help'}
   <HelpDialog capabilities={projection.capabilities ?? []} {onclose} />
-{:else if overlay === 'merchant' && row}
+{:else if overlay === 'merchant' && target}
   <MerchantDialog
     controller={controller.editing}
-    target={row}
+    {target}
     hasSelection={projection.selection_count > 0}
     {onclose}
   />
-{:else if overlay === 'category' && row}
-  <CategoryDialog controller={controller.editing} target={row} {onclose} />
+{:else if overlay === 'category' && target}
+  <CategoryDialog controller={controller.editing} {target} {onclose} />
 {:else if overlay === 'categories'}
   <CategoryManager controller={controller.editing} {onclose} />
 {:else if overlay === 'groups'}

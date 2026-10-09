@@ -14,7 +14,7 @@
     type NavItem,
     type NavRun,
   } from '../../lib/shell/nav-items'
-  import type { WriteProgress } from '../../lib/shell/status'
+  import type { WriteProgress } from '../../lib/shell/status.svelte'
 
   interface Props {
     projection: ViewProjection

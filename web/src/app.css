@@ -679,6 +679,17 @@ input {
   flex-wrap: wrap;
   overflow: hidden;
 }
+.mf-status-line__notice {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* An empty live region stays in the accessibility tree but out of the hints' flex gaps. */
+.mf-status-line__notice:empty {
+  position: absolute;
+}
 .mf-status-line__pending {
   min-width: 0;
   overflow: hidden;
@@ -922,6 +933,48 @@ input {
   border: solid var(--bg-surface);
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
+}
+/* Header sort buttons read as the header text; the active direction shows after the label. */
+.mf-table__sort {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.mf-table__sort:hover {
+  color: var(--text-primary);
+}
+/* kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells */
+[aria-sort='ascending'] > .mf-table__sort::after {
+  content: ' ↑' / '';
+}
+/* kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells */
+[aria-sort='descending'] > .mf-table__sort::after {
+  content: ' ↓' / '';
+}
+.mf-table__select-all {
+  display: flex;
+  margin-left: calc(-1 * var(--space-2));
+}
+.mf-table__editable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.mf-table__pencil {
+  display: flex;
+  flex: none;
+  visibility: hidden;
+}
+.mf-table__row:hover .mf-table__pencil,
+.mf-table__row--active .mf-table__pencil {
+  visibility: visible;
 }
 .mf-table__name {
   display: flex;

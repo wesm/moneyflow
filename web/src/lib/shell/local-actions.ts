@@ -46,13 +46,21 @@ export async function openTransactionInformation(
   context.overlays.open('information')
 }
 
+/** Opens the merchant or category editor for `target`, such as the cursor or a pointed row. */
+export function openEditor(
+  context: LocalActionContext,
+  field: 'merchant' | 'category',
+  target: FocusedRow | undefined,
+): void {
+  if (!target) return
+  context.overlays.editTarget = target
+  context.overlays.open(field)
+}
+
 /** Maps each browser-only shortcut to its handler. */
 export function localActions(context: LocalActionContext): Record<LocalAction, () => void> {
   const { controller, overlays } = context
   const row = () => focusedRow(controller.projection, controller.cursorIndex)
-  const openWithRow = (overlay: 'merchant' | 'category') => () => {
-    if (row()) overlays.open(overlay)
-  }
   return {
     'cursor.up': () => void controller.moveCursor(-1),
     'cursor.down': () => void controller.moveCursor(1),
@@ -60,8 +68,8 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
     'overlay.search': () => context.focusSearch(),
     'overlay.filters': () => context.openFilters(),
     'overlay.help': () => overlays.open('help'),
-    'edit.merchant': openWithRow('merchant'),
-    'edit.category': openWithRow('category'),
+    'edit.merchant': () => openEditor(context, 'merchant', row()),
+    'edit.category': () => openEditor(context, 'category', row()),
     'manage.categories': () => overlays.open('categories'),
     'manage.groups': () => overlays.open('groups'),
     'edit.review': () =>

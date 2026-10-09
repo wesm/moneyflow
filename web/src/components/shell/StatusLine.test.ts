@@ -1,7 +1,9 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import StatusLine from './StatusLine.svelte'
+import { status } from '../../lib/shell/status.svelte'
 
 const hints = [
   { key: '↵', label: 'Open' },
@@ -72,5 +74,20 @@ describe('StatusLine', () => {
     expect(screen.getByRole('status', { name: 'Pending profile changes' }).textContent).toBe(
       '2 pending edits · 5 transactions',
     )
+  })
+
+  it('shows a notice in a polite live region in place of the key hints', async () => {
+    render(StatusLine, props())
+    const region = screen.getByRole('status', { name: 'Notice' })
+    expect(region.textContent?.trim()).toBe('')
+    expect(screen.getByText('Open')).not.toBeNull()
+    status.notify('Open the group to delete its transactions.')
+    await tick()
+    expect(region.textContent?.trim()).toBe('Open the group to delete its transactions.')
+    expect(screen.queryByText('Open')).toBeNull()
+    status.clear()
+    await tick()
+    expect(region.textContent?.trim()).toBe('')
+    expect(screen.getByText('Open')).not.toBeNull()
   })
 })

@@ -36,7 +36,7 @@ for quick paths to this month, last month, and other periods.
 | Space / `Ctrl+A` | Select a row / toggle result selection |
 | `m` / `c` | Edit merchant / category |
 | `h` | Toggle report visibility |
-| `x` | Confirm and stage deletion in detail view |
+| `x` | Confirm and stage deletion in detail view; in grouped browser views, explains why it cannot delete |
 | `C` / `G` | Manage categories / groups |
 | `u` / `U` | Undo / redo |
 | `w` | Review pending changes |

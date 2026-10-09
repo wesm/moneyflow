@@ -97,6 +97,49 @@ test('a staged rename shows inline in gold while the grouped Net stays committed
   }
 })
 
+test('the hover pencil and double-click open editors for the pointed row', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const cursorPencil = cell(await activeRow(page), 'merchant').getByRole('button', {
+      name: 'Edit merchant',
+    })
+    await expect(cursorPencil).toBeVisible()
+
+    const third = grid.locator('[role="row"][aria-rowindex="4"]')
+    const pencil = cell(third, 'merchant').getByRole('button', { name: 'Edit merchant' })
+    await expect(pencil).toBeHidden()
+    await third.hover()
+    await expect(pencil).toBeVisible()
+    await pencil.click()
+    const merchant = page.getByRole('dialog', { name: 'Edit merchant' })
+    await expect(merchant).toBeVisible()
+    const name = page.getByLabel('Merchant name')
+    await name.fill('Pointer Merchant')
+    await expect(page.getByRole('button', { name: 'Save pending change' })).toBeEnabled()
+    await name.press('Enter')
+    await expect(merchant).toBeHidden()
+    await expect(grid).toBeFocused()
+    await expect(cell(third, 'merchant').locator('.mf-staged')).toContainText('→ Pointer Merchant')
+
+    const fifth = grid.locator('[role="row"][aria-rowindex="6"]')
+    await cell(fifth, 'category').dblclick()
+    await expect(page.getByRole('dialog', { name: 'Change category' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(grid).toBeFocused()
+    await cell(fifth, 'date').dblclick()
+    await expect(page.getByRole('dialog', { name: 'Transaction information' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(grid).toBeFocused()
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(0)
+  } finally {
+    await server.stop()
+  }
+})
+
 test('bulk merchant edit clears a selection resolved beyond browser presentation state', async ({
   page,
 }) => {
