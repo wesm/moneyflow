@@ -66,11 +66,10 @@
     focusSearch: () => void commandBar?.focusSearch(),
     openFilters: () => void commandBar?.openFilters(),
   }
-  const localActionTable = localActions(actions)
-  const local = (action: LocalAction) => localActionTable[action]()
+  const local = (action: LocalAction) => localActions(actions)[action]()
   const row = () => focusedRow(projection, controller.cursorIndex)
-  async function apply(action: string, dimension?: Dimension): Promise<void> {
-    const focused = action === 'view.drill' || action === 'selection.toggle' ? row() : undefined
+  async function apply(action: string, dimension?: Dimension, toggled?: ReturnType<typeof row>) {
+    const focused = action === 'view.drill' ? row() : toggled
     if (action === 'view.drill' && focused?.kind === 'transaction')
       return void openTransactionInformation(actions, focused.identity)
     if (focused) return send({ action, target: focused })
@@ -94,8 +93,11 @@
     status.clear()
     transitionTail = transitionTail.then(work, work)
   }
-  const queueApply = (action: string, dimension?: Dimension) =>
-    queue(() => apply(action, dimension))
+  /** Space toggles the row the cursor is on when pressed, not when its turn comes. */
+  function queueApply(action: string, dimension?: Dimension): void {
+    const toggled = action === 'selection.toggle' ? row() : undefined
+    queue(() => apply(action, dimension, toggled))
+  }
   const queueSend = (request: TransitionAction) => queue(() => send(request))
   async function send(request: TransitionAction): Promise<void> {
     await controller.apply(request)

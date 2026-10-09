@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test'
 
-import { expect, openMoneyflow, test } from './fixtures'
+import { cell, expect, openMoneyflow, test } from './fixtures'
 
 test.skip(({ browserName }) => browserName !== 'chromium', 'Layout contracts are Chromium-only.')
 
@@ -141,6 +141,50 @@ for (const viewport of viewports) {
     }
   }
 }
+
+/** The computed color of a theme custom property, such as `--mf-cursor`. */
+async function themeColor(page: Page, property: string): Promise<string> {
+  return await page.evaluate((name) => {
+    const probe = document.createElement('div')
+    probe.style.backgroundColor = `var(${name})`
+    document.body.append(probe)
+    const color = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    return color
+  }, property)
+}
+
+test('hover keeps the cursor and selection tints; hidden rows keep ☐ and flags bright', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const row = (index: number) => grid.locator(`[role="row"][aria-rowindex="${index}"]`)
+  const tint = (locator: Locator) =>
+    locator.evaluate((element) => getComputedStyle(element).backgroundColor)
+  await cell(row(4), 'select').click()
+  await expect(row(4)).toHaveAttribute('aria-selected', 'true')
+
+  await cell(row(2), 'count').hover()
+  expect(await tint(row(2))).toBe(await themeColor(page, '--mf-cursor'))
+  await cell(row(4), 'count').hover()
+  expect(await tint(row(4))).toBe(await themeColor(page, '--mf-selected'))
+  await cell(row(3), 'count').hover()
+  expect(await tint(row(3))).toBe(await themeColor(page, '--bg-surface-hover'))
+
+  await page.keyboard.press('d')
+  await page.keyboard.press('/')
+  await page.getByRole('searchbox', { name: 'Search transactions' }).fill('noodle')
+  await page.keyboard.press('Enter')
+  const hidden = grid.locator('.mf-table__row--hidden').first()
+  await expect(hidden).toBeVisible()
+  const opacity = (key: string) =>
+    cell(hidden, key).evaluate((element) => Number(getComputedStyle(element).opacity))
+  expect(await opacity('select')).toBe(1)
+  expect(await opacity('flags')).toBe(1)
+  expect(await opacity('date')).toBeLessThan(1)
+})
 
 for (const theme of themes) {
   test(`chart drawer ${theme} narrow visual contract`, async ({ page, server }) => {

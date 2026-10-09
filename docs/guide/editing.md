@@ -35,8 +35,10 @@ bar spans the bottom of the screen with larger buttons.
 
 **Unreleased:** On a phone, a transaction row's ⋯ button opens a sheet with **Merchant**,
 **Category**, **Hide**, **Delete**, and **Info** for that transaction. They do what `m`, `c`,
-`h`, `x`, and `i` do on the cursor row. An item that cannot run shows its reason under it. Esc
-or closing an editor opened from the sheet returns focus to the ⋯ button.
+`h`, `x`, and `i` do on the cursor row. An item that cannot run shows its reason under it.
+While a selection exists, the four edits are disabled because they would edit the selection;
+use the selection bar, or clear the selection to edit one transaction. **Info** stays available.
+Esc or closing an editor opened from the sheet returns focus to the ⋯ button.
 
 **Unreleased:** In the merchant editor, Enter uses the highlighted suggestion. To use a new name that also
 matches existing merchants, select the `Create` option below the matches.

@@ -145,7 +145,9 @@ describe('selectionButtons', () => {
 describe('rowActionButtons', () => {
   it('offers the edits and Info for one row, with the keys that run them on the cursor row', () => {
     const ids = [...editIDs, 'transaction.show-info']
-    const buttons = rowActionButtons(projection({ capabilities: testCapabilities(ids) }))
+    const buttons = rowActionButtons(
+      projection({ selection_count: 0, capabilities: testCapabilities(ids) }),
+    )
     expect(buttons).toEqual([
       { action: 'edit.merchant', label: 'Merchant', key: 'm' },
       { action: 'edit.category', label: 'Category', key: 'c' },
@@ -161,11 +163,28 @@ describe('rowActionButtons', () => {
     const capabilities = testCapabilities(ids, ['transaction.delete']).map((capability) =>
       capability.available ? capability : { ...capability, reason },
     )
-    const buttons = rowActionButtons(projection({ capabilities }))
+    const buttons = rowActionButtons(projection({ selection_count: 0, capabilities }))
     expect(buttons.map((button) => button.reason)).toEqual([
       undefined,
       undefined,
       undefined,
+      reason,
+      undefined,
+    ])
+  })
+
+  it('disables the edits while a selection exists, since they would edit the selection', () => {
+    const reason = 'Deleting is not available here.'
+    const ids = [...editIDs, 'transaction.show-info']
+    const capabilities = testCapabilities(ids, ['transaction.delete']).map((capability) =>
+      capability.available ? capability : { ...capability, reason },
+    )
+    const buttons = rowActionButtons(projection({ selection_count: 1, capabilities }))
+    const selected = 'Clear the selection to edit one transaction'
+    expect(buttons.map((button) => button.reason)).toEqual([
+      selected,
+      selected,
+      selected,
       reason,
       undefined,
     ])

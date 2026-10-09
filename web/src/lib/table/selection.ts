@@ -99,7 +99,16 @@ export function selectionButtons(projection: ViewProjection): SelectionButton[] 
   return [...buttons, { action: 'clear', label: 'Clear', key: 'Esc' }]
 }
 
-/** The row actions sheet's items: the edits, then Info. */
+/**
+ * The row actions sheet's items: the edits, then Info. While a selection exists the edits would
+ * change the selection instead of the sheet's row, so they leave that to the selection bar.
+ */
 export function rowActionButtons(projection: ViewProjection): RowActionButton[] {
-  return actionButtons<RowActionButton['action']>(projection, [...edits, info])
+  const buttons = actionButtons<RowActionButton['action']>(projection, [...edits, info])
+  if (projection.selection_count === 0) return buttons
+  return buttons.map((button) =>
+    button.action === 'transaction.info'
+      ? button
+      : { ...button, reason: button.reason ?? 'Clear the selection to edit one transaction' },
+  )
 }

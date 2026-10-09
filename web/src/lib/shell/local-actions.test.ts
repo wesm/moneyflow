@@ -1,3 +1,4 @@
+import { tick } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -58,16 +59,40 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
 describe('editor actions', () => {
   afterEach(() => document.body.replaceChildren())
 
-  it('m and c open the editor for the cursor row', () => {
+  it('m and c open the editor for the cursor row', async () => {
     const { context, overlays } = setup(1)
     localActions(context)['edit.category']()
-    expect(overlays.current).toBe('category')
+    await vi.waitFor(() => expect(overlays.current).toBe('category'))
     expect(overlays.editTarget).toEqual({ identity: 'agg-1', kind: 'aggregate' })
     overlays.close()
     expect(overlays.editTarget).toBeUndefined()
     localActions(context)['edit.merchant']()
-    expect(overlays.current).toBe('merchant')
+    await vi.waitFor(() => expect(overlays.current).toBe('merchant'))
     expect(overlays.editTarget).toEqual({ identity: 'agg-1', kind: 'aggregate' })
+  })
+
+  it('waits for queued transitions before an edit reads the cursor row', async () => {
+    const { context, overlays } = setup(0)
+    let settle = () => {}
+    const transitions = new Promise<void>((resolve) => (settle = resolve))
+    context.afterTransitions = () => transitions
+    const actions = localActions(context)
+    actions['edit.hide']()
+    actions['edit.merchant']()
+    await tick()
+    expect(context.controller.editing.submit).not.toHaveBeenCalled()
+    expect(overlays.current).toBeUndefined()
+
+    // The queued transition moved the cursor, as a toggle's new window can.
+    ;(context.controller as { cursorIndex: number }).cursorIndex = 1
+    settle()
+    const target = { identity: 'agg-1', kind: 'aggregate' }
+    await vi.waitFor(() => expect(overlays.editTarget).toEqual(target))
+    expect(context.controller.editing.submit).toHaveBeenCalledWith({
+      action: 'transaction.toggle-hidden',
+      input: {},
+      target,
+    })
   })
 
   it('opens the editor for a pointed row instead of the cursor row', () => {
@@ -77,9 +102,11 @@ describe('editor actions', () => {
     expect(overlays.editTarget).toEqual({ identity: 'row-7', kind: 'transaction' })
   })
 
-  it('opens no editor without a cursor row', () => {
+  it('opens no editor without a cursor row', async () => {
     const { context, overlays } = setup(5)
     localActions(context)['edit.merchant']()
+    await tick()
+    await tick()
     expect(overlays.current).toBeUndefined()
     expect(overlays.editTarget).toBeUndefined()
   })
@@ -89,9 +116,10 @@ describe('row actions', () => {
   afterEach(() => document.body.replaceChildren())
   const row = { identity: 'row-7', kind: 'transaction' } as const
 
-  it('h hides the cursor row and the sheet hides a given row through the same handler', () => {
+  it('h hides the cursor row and the sheet hides a given row through the same handler', async () => {
     const { context } = setup(1)
     localActions(context)['edit.hide']()
+    await vi.waitFor(() => expect(context.controller.editing.submit).toHaveBeenCalledTimes(1))
     hideRow(context, row)
     expect(context.controller.editing.submit).toHaveBeenNthCalledWith(1, {
       action: 'transaction.toggle-hidden',
@@ -126,7 +154,7 @@ describe('runRowAction', () => {
     return { context, overlays }
   }
 
-  it('opens the editors and the delete confirmation for the sheet row', () => {
+  it('opens the editors and the delete confirmation for the sheet row', async () => {
     for (const [action, overlay] of [
       ['edit.merchant', 'merchant'],
       ['edit.category', 'category'],
@@ -134,14 +162,27 @@ describe('runRowAction', () => {
     ] as const) {
       const { context, overlays } = fromSheet()
       runRowAction(context, action, row)
-      expect(overlays.current).toBe(overlay)
+      await vi.waitFor(() => expect(overlays.current).toBe(overlay))
       expect(overlays.editTarget ?? overlays.deleteTarget).toEqual(row)
     }
   })
 
-  it('stages hiding the sheet row and closes the sheet', () => {
+  it('waits for queued transitions before an edit reads the projection', async () => {
+    const { context } = fromSheet()
+    let settle = () => {}
+    const transitions = new Promise<void>((resolve) => (settle = resolve))
+    context.afterTransitions = () => transitions
+    runRowAction(context, 'edit.hide', row)
+    await tick()
+    expect(context.controller.editing.submit).not.toHaveBeenCalled()
+    settle()
+    await vi.waitFor(() => expect(context.controller.editing.submit).toHaveBeenCalledTimes(1))
+  })
+
+  it('stages hiding the sheet row and closes the sheet', async () => {
     const { context, overlays } = fromSheet()
     runRowAction(context, 'edit.hide', row)
+    await vi.waitFor(() => expect(context.controller.editing.submit).toHaveBeenCalledTimes(1))
     expect(context.controller.editing.submit).toHaveBeenCalledWith({
       action: 'transaction.toggle-hidden',
       input: {},

@@ -330,6 +330,52 @@ test('two quick box clicks keep both rows selected', async ({ page, server }) =>
   await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
 })
 
+/** Holds every selection toggle response for 300 ms, so keys pressed meanwhile queue behind it. */
+async function slowToggles(page: Page): Promise<void> {
+  await page.route('**/view/transition', async (route) => {
+    if (route.request().postDataJSON().action === 'selection.toggle') {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
+    await route.continue()
+  })
+}
+
+test('Space, j, Space behind a slow toggle selects both rows the cursor was on', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await slowToggles(page)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const row = (index: number) => grid.locator(`[role="row"][aria-rowindex="${index}"]`)
+  await cell(row(6), 'select').click()
+  await page.keyboard.press('Space')
+  await page.keyboard.press('j')
+  await page.keyboard.press('Space')
+  for (const index of [2, 3, 6]) await expect(row(index)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('row', { selected: true })).toHaveCount(3)
+})
+
+test('h right after Space hides the selection that Space made', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  await expect(grid.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  const first = grid.locator('[role="row"][aria-rowindex="2"]')
+  const second = grid.locator('[role="row"][aria-rowindex="3"]')
+  await page.keyboard.press('Space')
+  await expect(first).toHaveAttribute('aria-selected', 'true')
+  await slowToggles(page)
+  await page.keyboard.press('j')
+  await page.keyboard.press('Space')
+  await page.keyboard.press('h')
+  await expect(cell(second, 'flags')).toContainText('Hidden')
+  await expect(cell(first, 'flags')).toContainText('Hidden')
+
+  await page.keyboard.press('u')
+  await expect(cell(second, 'flags')).not.toContainText('Hidden')
+})
+
 test('Enter opens Info on a transaction row and drills a grouped row', async ({ page, server }) => {
   await openMoneyflow(page, server)
   const grid = page.getByRole('grid', { name: 'Financial results' })

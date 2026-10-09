@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-import { expect, openMoneyflow, test } from './fixtures'
+import { activeRow, expect, openMoneyflow, test } from './fixtures'
 
 const grid = (page: Page) => page.getByRole('grid', { name: 'Financial results' })
 const workspace = (page: Page) => page.locator('.mf-workspace')
@@ -98,6 +98,24 @@ test('j moves down across the edge of the 200 loaded rows', async ({ page, serve
     await page.keyboard.press('j')
     await expect.poll(() => activeRowIndex(page)).toBe(201 + step)
   }
+})
+
+test('a header sort that keeps the cursor index brings the cursor row back', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  await expect(grid(page).getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  await workspace(page).evaluate((scroller) => (scroller.scrollTop = 100 * 30))
+  await expect.poll(() => firstVisibleRowIndex(page)).toBeGreaterThan(100)
+  await expect.poll(() => activeRowIndex(page)).toBe(-1)
+
+  const url = page.url()
+  await grid(page).getByRole('button', { name: 'Amount' }).click()
+  await expect(page).not.toHaveURL(url)
+  await expect.poll(() => activeRowIndex(page)).toBeGreaterThan(0)
+  await expect(await activeRow(page)).toBeInViewport({ ratio: 1 })
 })
 
 /** How far `row`'s bottom edge sits below the selection bar's top edge; at most 0 when clear. */

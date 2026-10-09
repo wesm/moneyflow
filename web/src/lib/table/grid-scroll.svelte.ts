@@ -37,8 +37,11 @@ export class GridScroll {
   #lastRowHeight: number | undefined
   readonly #projection = $derived.by(() => this.#source.windows[0]!)
   readonly #total = $derived(this.#projection.total_rows)
-  // Effects that read this rerun only when the cursor moves, not on every prop update.
+  // Effects that read these rerun only when the cursor moves or the view changes, not on every
+  // prop update such as a new window of the same view.
   readonly #cursor = $derived.by(() => this.#source.cursorIndex)
+  readonly #query = $derived.by(() => this.#projection.canonical_query)
+  #lastQuery: string | undefined
   // The scroller's top below the grid's top: the rows' offset under the sticky header. offsetTop
   // is read, not tracked, so content above the grid that resizes does not rerun this.
   readonly #listTop = $derived.by(
@@ -90,10 +93,15 @@ export class GridScroll {
 
   // The grid keeps focus while the cursor moves, so the browser never scrolls the active row
   // into view. Reveal it here, or aria-activedescendant would name a row that is not rendered.
+  // A new view, such as a sort, can keep the cursor's index; its row is revealed too.
   #followCursor(): void {
     const index = this.#cursor
+    const query = this.#query
     if (!this.#source.grid) return
     untrack(() => {
+      const newView = this.#lastQuery !== undefined && this.#lastQuery !== query
+      this.#lastQuery = query
+      if (newView) this.#shown = undefined
       if (index !== this.#shown) return this.#reveal(index)
       // A window that arrived after more scrolling moves the cursor on to the row now on top.
       this.#shown = undefined

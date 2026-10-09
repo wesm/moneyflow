@@ -16,7 +16,10 @@ export interface FocusedRow {
 export interface LocalActionContext {
   controller: ViewController
   overlays: OverlayState
-  /** Settles once queued view transitions finish, so `i` reads the row the cursor moved to. */
+  /**
+   * Settles once queued view transitions finish, so an edit or `i` reads the projection they
+   * leave: the selection a quick Space made and the row the cursor moved to.
+   */
   afterTransitions(): Promise<void>
   /** Opens Amazon order import, which the app shell owns. */
   importAmazon(): void
@@ -46,6 +49,14 @@ export function moveCursor(move: () => Promise<void>): void {
   void move()
 }
 
+/** Runs `work` after queued view transitions, once the shell has drawn their result. */
+function whenSettled(context: LocalActionContext, work: () => unknown): void {
+  void context.afterTransitions().then(async () => {
+    await tick()
+    await work()
+  })
+}
+
 /** Opens the information drawer for a transaction once the server returns its details. */
 export async function openTransactionInformation(
   context: LocalActionContext,
@@ -72,6 +83,7 @@ export function openEditor(
 export function localActions(context: LocalActionContext): Record<LocalAction, () => void> {
   const { controller, overlays } = context
   const row = () => focusedRow(controller.projection, controller.cursorIndex)
+  const later = (work: () => unknown) => () => whenSettled(context, work)
   return {
     'cursor.up': () => void controller.moveCursor(-1),
     'cursor.down': () => void controller.moveCursor(1),
@@ -79,8 +91,8 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
     'overlay.search': () => context.focusSearch(),
     'overlay.filters': () => context.openFilters(),
     'overlay.help': () => overlays.open('help'),
-    'edit.merchant': () => openEditor(context, 'merchant', row()),
-    'edit.category': () => openEditor(context, 'category', row()),
+    'edit.merchant': later(() => openEditor(context, 'merchant', row())),
+    'edit.category': later(() => openEditor(context, 'category', row())),
     'manage.categories': () => overlays.open('categories'),
     'manage.groups': () => overlays.open('groups'),
     'edit.review': () =>
@@ -97,34 +109,34 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
     },
     'edit.undo': () => void controller.editing.undo(),
     'edit.redo': () => void controller.editing.redo(),
-    'edit.hide': () => hideRow(context, row()),
-    'edit.delete': () => confirmDelete(context, row()),
-    'transaction.info': () =>
-      void context.afterTransitions().then(async () => {
-        await tick()
-        const target = row()
-        if (target?.kind === 'transaction')
-          await openTransactionInformation(context, target.identity)
-      }),
+    'edit.hide': later(() => hideRow(context, row())),
+    'edit.delete': later(() => confirmDelete(context, row())),
+    'transaction.info': later(async () => {
+      const target = row()
+      if (target?.kind === 'transaction') await openTransactionInformation(context, target.identity)
+    }),
   }
 }
 
 /**
- * Runs a row actions sheet item on `target` through the handler its key uses. An editor or the
- * delete confirmation replaces the sheet and returns focus to the sheet's opener when it closes.
+ * Runs a row actions sheet item on `target` through the handler its key uses, after queued view
+ * transitions as the key does. An editor or the delete confirmation replaces the sheet and
+ * returns focus to the sheet's opener when it closes.
  */
 export function runRowAction(
   context: LocalActionContext,
   action: RowActionButton['action'],
   target: FocusedRow,
 ): void {
-  if (action === 'edit.merchant') return openEditor(context, 'merchant', target)
-  if (action === 'edit.category') return openEditor(context, 'category', target)
-  if (action === 'edit.delete') return confirmDelete(context, target)
   if (action === 'transaction.info')
     return void openTransactionInformation(context, target.identity)
-  hideRow(context, target)
-  context.overlays.close()
+  if (action === 'edit.hide') context.overlays.close()
+  whenSettled(context, () => {
+    if (action === 'edit.merchant') openEditor(context, 'merchant', target)
+    else if (action === 'edit.category') openEditor(context, 'category', target)
+    else if (action === 'edit.delete') confirmDelete(context, target)
+    else hideRow(context, target)
+  })
 }
 
 /** Deletes the transaction the delete confirmation names, closing it once the edit is staged. */

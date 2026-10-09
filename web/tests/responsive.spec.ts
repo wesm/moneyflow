@@ -433,6 +433,41 @@ test.describe('phone rows by touch', () => {
   })
 })
 
+test.describe('phone row actions with a selection', () => {
+  test.use({ hasTouch: true, viewport: phone })
+
+  test('the ⋯ sheet leaves edits to the selection bar and still opens Info', async ({
+    page,
+    server,
+  }) => {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const selected = grid.locator('[role="row"][aria-rowindex="2"]')
+    const other = grid.locator('[role="row"][aria-rowindex="3"]')
+    await cell(selected, 'select').tap()
+    await expect(selected).toHaveAttribute('aria-selected', 'true')
+    const merchant = await cell(other, 'merchant').innerText()
+    const more = cell(other, 'actions').getByRole('button')
+    await more.tap()
+    const sheet = page.getByRole('dialog', { name: merchant })
+    for (const item of ['Merchant', 'Category', 'Hide', 'Delete']) {
+      await expect(sheet.getByRole('button', { name: item })).toBeDisabled()
+      await expect(sheet.getByRole('button', { name: item })).toHaveAccessibleDescription(
+        'Clear the selection to edit one transaction',
+      )
+    }
+    await sheet.getByRole('button', { name: 'Info' }).tap()
+    const information = page.getByRole('dialog', { name: 'Transaction information' })
+    await expect(information).toContainText(merchant)
+    await page.keyboard.press('Escape')
+    await expect(information).toBeHidden()
+    await expect(more).toBeFocused()
+    await expect(selected).toHaveAttribute('aria-selected', 'true')
+    await expect(other).toHaveAttribute('aria-selected', 'false')
+  })
+})
+
 test('641–899 px: Context drops below 760 px and the table scrolls under sticky ☐ and Name', async ({
   page,
   server,
