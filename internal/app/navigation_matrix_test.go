@@ -662,6 +662,26 @@ func TestMatrixFirstSetCurrencyClearsADrillInAnotherCurrency(t *testing.T) {
 	}
 }
 
+func TestMatrixFirstSetCurrencyClearsADrillWhoseReturnFrameIsInAnotherCurrency(t *testing.T) {
+	t.Parallel()
+	usdDrill := NewSession()
+	drillMatrixRow(t, &usdDrill, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	eurDrill := NewSession()
+	eurRow := matrixRow(domain.DimensionMerchant, "merchant-2")
+	eurRow.Total.Currency = "EUR"
+	drillMatrixRow(t, &eurDrill, eurRow)
+	state := usdDrill.ViewState()
+	state.Returns = []ReturnFrame{{Kind: ReturnNavigation, State: eurDrill.ViewState().Current}}
+	session, err := NewSessionFromViewState(state)
+	require.NoError(t, err)
+
+	require.NoError(t, session.SetCurrency(&domain.CurrencyScope{Currency: "USD", Scale: 2}))
+
+	assert.Empty(t, session.Drilldowns, "an EUR drill in Esc history is not stamped USD")
+	assert.Equal(t, domain.ResultModeAggregate, session.Mode)
+	assert.Empty(t, session.ViewState().Returns)
+}
+
 func TestMatrixSetCurrencyKeepsAllTransactionsView(t *testing.T) {
 	t.Parallel()
 	session := matrixSession(t, "")

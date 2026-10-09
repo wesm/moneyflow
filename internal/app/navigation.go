@@ -130,12 +130,7 @@ func (session *Session) SetCurrency(scope *domain.CurrencyScope) error {
 	if session.Currency != nil && *session.Currency == *scope {
 		return nil
 	}
-	if session.Currency == nil && session.drillPathIn(*scope) {
-		session.Currency = cloneCurrencyScope(scope)
-		for index := range session.history {
-			session.history[index].snapshot.currency = cloneCurrencyScope(scope)
-		}
-		session.clearSelections()
+	if session.adoptFirstCurrency(*scope) {
 		return nil
 	}
 	fromDetail := session.fromDetailView()
@@ -191,12 +186,32 @@ func defaultSortDirection(field domain.SortField) domain.SortDirection {
 	}
 }
 
-// drillPathIn reports whether the session has a drill path whose every frame is in scope.
-func (session *Session) drillPathIn(scope domain.CurrencyScope) bool {
-	if len(session.Drilldowns) == 0 {
+// adoptFirstCurrency sets the first currency of a session whose drill path and back history
+// all lie in scope, keeping them, and clears the selection. It reports false and changes
+// nothing when the session already has a currency, has no drill, or any frame is elsewhere.
+func (session *Session) adoptFirstCurrency(scope domain.CurrencyScope) bool {
+	if session.Currency != nil || len(session.Drilldowns) == 0 {
 		return false
 	}
-	for _, drilldown := range session.Drilldowns {
+	if !drillsIn(session.Drilldowns, scope) {
+		return false
+	}
+	for _, entry := range session.history {
+		if !drillsIn(entry.snapshot.drilldowns, scope) {
+			return false
+		}
+	}
+	session.Currency = cloneCurrencyScope(&scope)
+	for index := range session.history {
+		session.history[index].snapshot.currency = cloneCurrencyScope(&scope)
+	}
+	session.clearSelections()
+	return true
+}
+
+// drillsIn reports whether every drill-down is in scope's currency and scale.
+func drillsIn(drilldowns []domain.Drilldown, scope domain.CurrencyScope) bool {
+	for _, drilldown := range drilldowns {
 		if drilldown.Currency != scope.Currency || drilldown.Scale != scope.Scale {
 			return false
 		}
