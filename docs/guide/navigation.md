@@ -26,6 +26,10 @@ In the browser, a click on a row moves the cursor and a click on its box selects
 double-click opens a group, edits a transaction's Merchant or Category, or opens the
 transaction's information from any other cell.
 
+The browser table scrolls through every row of the result. It loads rows 200 at a time, and
+rows still loading show as blank bars. When scrolling reaches rows outside the loaded 200, the
+cursor moves to the first row fully on screen.
+
 ## Go back with Esc
 
 Each Esc press undoes one step, in this order:

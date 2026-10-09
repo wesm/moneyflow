@@ -21,27 +21,43 @@
   let { projection, actions, onapply }: Props = $props()
   const controller = $derived(actions.controller)
   const empty = $derived(emptyScope(projection))
+  let scroller = $state<HTMLDivElement>()
+  let scrollTop = $state(0)
+  let viewport = $state(520)
 </script>
 
-{#if empty}
-  <EmptyScope
-    scope={empty}
-    onjump={() => onapply({ action: 'time.set-period', period: empty.jump })}
-  />
-{:else}
-  <FinanceGrid
-    {projection}
-    cursorIndex={controller.cursorIndex}
-    compact={false}
-    onmove={(delta) => moveCursor(() => controller.moveCursor(delta))}
-    onhome={() => moveCursor(() => controller.moveHome())}
-    oncursor={(index) => moveCursor(() => controller.moveCursorTo(index))}
-    ontoggle={(identity, kind) =>
-      onapply({ action: 'selection.toggle', target: { identity, kind } })}
-    ontoggleall={() => onapply({ action: 'selection.toggle-all' })}
-    onactivate={(identity, kind) => onapply({ action: 'view.drill', target: { identity, kind } })}
-    oninformation={(identity) => void openTransactionInformation(actions, identity)}
-    onedit={(identity, field) => openEditor(actions, field, { identity, kind: 'transaction' })}
-    onsort={(field) => onapply({ action: 'sort.set', sort_field: field })}
-  />
-{/if}
+<!-- The workspace's one vertical scroll surface; the table header sticks to its top. -->
+<div
+  class="mf-workspace"
+  bind:this={scroller}
+  bind:clientHeight={viewport}
+  onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
+>
+  {#if empty}
+    <EmptyScope
+      scope={empty}
+      onjump={() => onapply({ action: 'time.set-period', period: empty.jump })}
+    />
+  {:else}
+    <FinanceGrid
+      {projection}
+      neighbors={controller.neighbors}
+      cursorIndex={controller.cursorIndex}
+      {scroller}
+      bind:scrollTop
+      {viewport}
+      compact={false}
+      onmove={(delta) => moveCursor(() => controller.moveCursor(delta))}
+      onhome={() => moveCursor(() => controller.moveHome())}
+      oncursor={(index) => moveCursor(() => controller.moveCursorTo(index))}
+      ontoggle={(identity, kind) =>
+        onapply({ action: 'selection.toggle', target: { identity, kind } })}
+      ontoggleall={() => onapply({ action: 'selection.toggle-all' })}
+      onactivate={(identity, kind) => onapply({ action: 'view.drill', target: { identity, kind } })}
+      oninformation={(identity) => void openTransactionInformation(actions, identity)}
+      onedit={(identity, field) => openEditor(actions, field, { identity, kind: 'transaction' })}
+      onsort={(field) => onapply({ action: 'sort.set', sort_field: field })}
+      onshow={(index) => void controller.showIndex(index)}
+    />
+  {/if}
+</div>

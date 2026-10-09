@@ -1,4 +1,6 @@
+import type { ViewProjection } from '../api/client'
 import type { components } from '../api/schema'
+import { loadedRow } from './virtual-rows'
 
 type Money = components['schemas']['Money']
 type AggregateRow = components['schemas']['AggregateRow']
@@ -53,16 +55,17 @@ export function netBar(ratio: number | undefined): { side: 'in' | 'out'; percent
 }
 
 /**
- * Names the group that starts at `index` when rows sorted by Net change sign. A zero Net row
- * belongs to neither group. The first loaded row has no neighbor to compare with.
+ * Names the group that starts at row `index` of the result when rows sorted by Net change sign.
+ * A zero Net row belongs to neither group. The row before a window's first row comes from the
+ * cached window before it; until that window loads, the edge draws no divider.
  */
 export function incomeDivider(
-  rows: readonly AggregateRow[],
+  windows: readonly ViewProjection[],
   index: number,
 ): 'Income' | 'Spending' | null {
-  const row = rows[index]
-  const previous = rows[index - 1]
-  if (!row || !previous) return null
+  const row = loadedRow(windows, index)
+  const previous = loadedRow(windows, index - 1)
+  if (!row || !previous || !('total' in row) || !('total' in previous)) return null
   const sign = moneySign(row.total)
   if (sign === 0 || sign === moneySign(previous.total)) return null
   return sign > 0 ? 'Income' : 'Spending'

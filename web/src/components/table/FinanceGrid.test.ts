@@ -452,6 +452,118 @@ describe('FinanceGrid', () => {
     expect(screen.getByText('No transactions')).not.toBeNull()
   })
 
+  describe('scrolling through every row of the result', () => {
+    afterEach(() => vi.useRealTimers())
+
+    /** One loaded window of the 450-row result, as the server sends it. */
+    function loaded(offset: number): ViewProjection {
+      const template = testProjection().detail_rows![0]!
+      const count = Math.min(200, 450 - offset)
+      return testProjection({
+        view: detailView,
+        total_rows: 450,
+        window: { offset, limit: 200, count },
+        detail_rows: Array.from({ length: count }, (_, position) => ({
+          ...template,
+          index: offset + position,
+          identity: `row-${offset + position}`,
+          flags: { ...template.flags, selected: false },
+        })),
+      })
+    }
+    const rowAt = (index: number) =>
+      document.querySelector<HTMLElement>(`[role="row"][aria-rowindex="${index + 2}"]`)
+    const placeholders = () => [
+      ...document.querySelectorAll<HTMLElement>('.mf-table__row--placeholder'),
+    ]
+
+    it('holds the whole result and draws placeholders for rows no loaded window has', () => {
+      // Rows 195 to 214 fill the viewport below the header.
+      render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 195,
+        compact: false,
+        scrollTop: 195 * 30,
+        viewport: 630,
+        ...callbacks(),
+      })
+      expect(rowAt(199)?.id).toBe('moneyflow-row-row-199')
+      expect(rowAt(200)).toBeNull()
+      const blanks = placeholders()
+      expect(blanks.length).toBeGreaterThan(0)
+      for (const blank of blanks) {
+        expect(blank.getAttribute('aria-hidden')).toBe('true')
+        expect(Number(blank.dataset['index'])).toBeGreaterThanOrEqual(200)
+      }
+      const rendered = document.querySelectorAll('.mf-table__row').length
+      expect(rendered).toBeLessThan(40)
+      const spacers = [...document.querySelectorAll<HTMLElement>('.mf-table__spacer')]
+      const spacerHeight = spacers.reduce((sum, spacer) => sum + parseFloat(spacer.style.height), 0)
+      expect(spacerHeight + rendered * 30).toBe(450 * 30)
+    })
+
+    it('draws rows from a cached neighboring window instead of placeholders', () => {
+      render(FinanceGrid, {
+        projection: loaded(0),
+        neighbors: [loaded(200)],
+        cursorIndex: 195,
+        compact: false,
+        scrollTop: 195 * 30,
+        viewport: 630,
+        ...callbacks(),
+      })
+      expect(rowAt(200)?.id).toBe('moneyflow-row-row-200')
+      expect(placeholders()).toEqual([])
+    })
+
+    it('asks once per frame for the window holding the first fully visible row', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scrollTop: 0,
+        viewport: 630,
+        ...events,
+      })
+      await view.rerender({ scrollTop: 150 * 30 })
+      vi.advanceTimersToNextFrame()
+      expect(events.onshow).not.toHaveBeenCalled()
+
+      await view.rerender({ scrollTop: 280 * 30 + 10 })
+      await view.rerender({ scrollTop: 300 * 30 + 10 })
+      expect(events.onshow).not.toHaveBeenCalled()
+      vi.advanceTimersToNextFrame()
+      expect(events.onshow).toHaveBeenCalledTimes(1)
+      expect(events.onshow).toHaveBeenCalledWith(301)
+    })
+
+    it('leaves the scroll position alone when a scrolled-to window moves the cursor', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scrollTop: 0,
+        viewport: 630,
+        ...events,
+      })
+      await view.rerender({ scrollTop: 300 * 30 })
+      vi.advanceTimersToNextFrame()
+      expect(events.onshow).toHaveBeenCalledWith(300)
+      // The user scrolls on before the window arrives, which then puts the cursor on row 300.
+      await view.rerender({ scrollTop: 310 * 30 })
+      await view.rerender({ projection: loaded(200), cursorIndex: 300 })
+
+      expect(rowAt(330)).not.toBeNull()
+      expect(rowAt(300)).toBeNull()
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      expect(grid.getAttribute('aria-activedescendant')).toBe('moneyflow-row-row-300')
+    })
+  })
+
   it('keeps the active descendant inside the rendered rows as the cursor moves', async () => {
     const template = testProjection().detail_rows![0]!
     const detail_rows = Array.from({ length: 100 }, (_, index) => ({

@@ -124,10 +124,9 @@ for (const viewport of viewports) {
             await expectFullyWithinViewport(page.getByRole('button', { name }), viewport)
           }
         } else {
-          await expectFullyWithinViewport(
-            page.getByRole('grid', { name: 'Financial results' }),
-            viewport,
-          )
+          // The grid is as tall as its result; the workspace that scrolls it must fit.
+          await expect(page.getByRole('grid', { name: 'Financial results' })).toBeVisible()
+          await expectFullyWithinViewport(page.locator('.mf-workspace'), viewport)
         }
       })
     }

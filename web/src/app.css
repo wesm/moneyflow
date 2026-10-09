@@ -830,9 +830,21 @@ input {
 }
 
 /* Table */
-.mf-table {
-  height: 100%;
+.mf-workspace {
+  /* The grid's offsetParent, so the grid knows where its rows sit in this scroller. */
+  position: relative;
+  box-sizing: border-box;
+  /*
+   * Room inside the scroller for the grid's focus ring, without moving the grid. The top room is
+   * the grid's margin, not padding: a sticky header stops below a scroller's padding.
+   */
+  height: calc(100% + 2 * var(--space-2));
+  margin: calc(-1 * var(--space-2));
+  padding: 0 var(--space-2) var(--space-2);
   overflow: auto;
+}
+.mf-table {
+  margin-top: var(--space-2);
   outline: none;
   display: grid;
   grid-template-columns: var(--mf-columns);
@@ -884,8 +896,16 @@ input {
 .mf-table__row {
   position: relative;
 }
-.mf-table__row:where(:hover) {
+.mf-table__row:where(:hover):not(.mf-table__row--placeholder) {
   background-color: var(--bg-surface-hover);
+}
+.mf-table__row--placeholder::after {
+  content: '';
+  grid-column: 2 / -1;
+  height: var(--space-2);
+  margin: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
 }
 .mf-table__row--active {
   background-color: var(--mf-cursor);

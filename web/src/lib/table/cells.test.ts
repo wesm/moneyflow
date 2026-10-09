@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { contextCell, incomeDivider, moneyCell, netBar, savingsCell, shareCell } from './cells'
-import { testAggregateRow, testMoney } from '../../test/projection'
+import type { ViewProjection } from '../api/client'
+import { testAggregateRow, testMoney, testProjection } from '../../test/projection'
 
 describe('moneyCell', () => {
   it('shows In and Out zeros as a dash', () => {
@@ -76,28 +77,45 @@ describe('netBar', () => {
 })
 
 describe('incomeDivider', () => {
-  const net = (minor: string) =>
-    testAggregateRow({ total: testMoney(minor, minor.startsWith('-') ? minor : `+${minor}`) })
+  const net = (minor: string, index = 0) =>
+    testAggregateRow({
+      index,
+      identity: `agg-${index}`,
+      total: testMoney(minor, minor.startsWith('-') ? minor : `+${minor}`),
+    })
+  /** A loaded window of rows sorted by Net, starting at `offset`. */
+  const loaded = (offset: number, minors: string[]) =>
+    testProjection({
+      detail_rows: null,
+      aggregate_rows: minors.map((minor, position) => net(minor, offset + position)),
+      total_rows: 400,
+      window: { offset, limit: 200, count: minors.length },
+    })
+  const dividers = (windows: ViewProjection[], indexes: number[]) =>
+    indexes.map((index) => incomeDivider(windows, index))
 
   it('marks where Spending starts when Net sorts descending', () => {
-    const rows = [net('500'), net('100'), net('0'), net('-100'), net('-900')]
-    expect(rows.map((_, index) => incomeDivider(rows, index))).toEqual([
-      null,
-      null,
-      null,
-      'Spending',
-      null,
-    ])
+    const windows = [loaded(0, ['500', '100', '0', '-100', '-900'])]
+    expect(dividers(windows, [0, 1, 2, 3, 4])).toEqual([null, null, null, 'Spending', null])
   })
 
   it('marks where Income starts when Net sorts ascending', () => {
-    const rows = [net('-900'), net('-100'), net('100'), net('500')]
-    expect(rows.map((_, index) => incomeDivider(rows, index))).toEqual([null, null, 'Income', null])
+    const windows = [loaded(0, ['-900', '-100', '100', '500'])]
+    expect(dividers(windows, [0, 1, 2, 3])).toEqual([null, null, 'Income', null])
   })
 
-  it('draws no divider on the first loaded row, whose neighbor is in another window', () => {
-    const rows = [net('100'), net('200')]
-    expect(incomeDivider(rows, 0)).toBeNull()
-    expect(incomeDivider([net('-100')], 0)).toBeNull()
+  it('draws no divider on the first row of the result', () => {
+    expect(incomeDivider([loaded(0, ['100', '200'])], 0)).toBeNull()
+  })
+
+  it('compares a window’s first row with the cached last row of the window before it', () => {
+    const before = loaded(0, [...Array<string>(199).fill('-500'), '-100'])
+    const current = loaded(200, ['100', '200'])
+    expect(incomeDivider([current, before], 200)).toBe('Income')
+    expect(incomeDivider([current, before], 201)).toBeNull()
+  })
+
+  it('draws no divider at a window edge until the window before it is loaded', () => {
+    expect(incomeDivider([loaded(200, ['100', '200'])], 200)).toBeNull()
   })
 })

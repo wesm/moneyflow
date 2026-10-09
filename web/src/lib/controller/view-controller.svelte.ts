@@ -33,6 +33,14 @@ export interface TransitionAction {
   depth?: TransitionBody['depth']
 }
 
+/** A window load for a row scrolling shows; `index` is the latest row asked for in it. */
+interface ShowRequest {
+  offset: number
+  index: number
+  abort: AbortController
+  superseded(): boolean
+}
+
 interface ReturnInProgress {
   sequence: number
   projection: ViewProjection
@@ -58,6 +66,8 @@ export interface ViewController {
   readonly announcement: string
   readonly cursorIdentity: string | undefined
   readonly cursorIndex: number
+  /** Cached windows of the current view next to the loaded one, so the table can draw them. */
+  readonly neighbors: readonly ViewProjection[]
   readonly problem: ControllerProblem | undefined
   readonly editing: EditingController
   readonly duplicates: DuplicateController
@@ -70,6 +80,11 @@ export interface ViewController {
   moveCursor(delta: -1 | 1): Promise<void>
   moveCursorTo(index: number): Promise<void>
   moveHome(): Promise<void>
+  /**
+   * Loads the aligned window holding row `index` when scrolling shows it, without a history
+   * entry. If that window does not hold the cursor, the cursor moves to `index`.
+   */
+  showIndex(index: number): Promise<void>
   apply(action: TransitionAction): Promise<boolean>
   /**
    * Makes later transitions wait for `work`, as they wait for an Esc return. `work` must not
@@ -128,6 +143,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let returning: ReturnInProgress | undefined
   let lateReturn: ReturnInProgress | undefined
   let barrier: Promise<unknown> = Promise.resolve()
+  let showing: ShowRequest | undefined
+  // Prefetch fills the cache without changing the projection; this tells the table to redraw.
+  let cacheChanges = $state(0)
   const prefetchRequests = new SvelteMap<string, AbortController>()
 
   const providerWrite = createProviderWriteController({
@@ -517,6 +535,56 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     )
   }
 
+  async function showIndex(index: number): Promise<void> {
+    if (!projection || !Number.isSafeInteger(index)) return
+    if (index < 0 || index >= projection.total_rows) return
+    const offset = alignedOffset(index)
+    if (offset === projection.window.offset) return
+    if (showing?.offset === offset && !showing.superseded()) {
+      showing.index = index
+      return
+    }
+    showing?.abort.abort()
+    showing = undefined
+    const current = projection
+    const cached = cache.get(current.canonical_query, current.selection, current.revision, offset)
+    if (cached) return showWindow(cached, index)
+    // A projection change or cursor move after this request starts is newer, so it wins.
+    const requestGeneration = generation
+    const requestCursor = cursorIndex
+    const request: ShowRequest = {
+      offset,
+      index,
+      abort: new AbortController(),
+      superseded: () =>
+        projection !== current || generation !== requestGeneration || cursorIndex !== requestCursor,
+    }
+    showing = request
+    try {
+      const next = await options.client.view(
+        viewBody(current.canonical_query, current.selection, offset),
+        request.abort.signal,
+      )
+      if (request.superseded()) return
+      problem = undefined
+      showWindow(next, request.index)
+    } catch (error) {
+      if (isAbort(error) || request.superseded()) return
+      lastRetry = () => showIndex(request.index)
+      setProblem(error)
+    } finally {
+      if (showing === request) showing = undefined
+    }
+  }
+
+  function showWindow(next: ViewProjection, index: number): void {
+    const { offset, count } = next.window
+    const holdsCursor = cursorIndex >= offset && cursorIndex < offset + count
+    setProjectionWindow(next, holdsCursor ? cursorIndex : index)
+    replaceOwnedHistory()
+    schedulePrefetch(next)
+  }
+
   async function requestProjection(
     request: () => Promise<ViewProjection>,
     onSuccess: (next: ViewProjection) => void | Promise<void>,
@@ -677,6 +745,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
             current.revision,
             current.window.offset,
           )
+          cacheChanges += 1
         })
         .catch(() => undefined)
         .finally(() => prefetchRequests.delete(key))
@@ -720,6 +789,14 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     get cursorIndex() {
       return cursorIndex
     },
+    get neighbors() {
+      void cacheChanges
+      if (!projection) return []
+      const { canonical_query, selection, revision, window } = projection
+      return [window.offset - windowSize, window.offset + windowSize].flatMap(
+        (offset) => cache.get(canonical_query, selection, revision, offset) ?? [],
+      )
+    },
     get problem() {
       return problem
     },
@@ -734,6 +811,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     moveCursor,
     moveCursorTo,
     moveHome,
+    showIndex,
     apply,
     hold,
     beginSearch,

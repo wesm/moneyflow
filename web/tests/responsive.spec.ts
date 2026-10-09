@@ -90,9 +90,10 @@ test('narrow resize preserves analytical URL and moves charts into a drawer', as
   const net = grid.getByRole('columnheader', { name: 'Net', exact: true })
   await net.scrollIntoViewIfNeeded()
   const netBox = (await net.boundingBox())!
-  const gridBox = (await grid.boundingBox())!
-  expect(netBox.x).toBeGreaterThanOrEqual(gridBox.x)
-  expect(netBox.x + netBox.width).toBeLessThanOrEqual(gridBox.x + gridBox.width + 1)
+  // The workspace scrolls the grid, so its box is the part of the table on screen.
+  const shownBox = (await page.locator('.mf-workspace').boundingBox())!
+  expect(netBox.x).toBeGreaterThanOrEqual(shownBox.x)
+  expect(netBox.x + netBox.width).toBeLessThanOrEqual(shownBox.x + shownBox.width + 1)
   expect(await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth)).toBe(
     true,
   )

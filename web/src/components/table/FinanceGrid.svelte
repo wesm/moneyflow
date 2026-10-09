@@ -9,14 +9,24 @@
   import type { ViewProjection } from '../../lib/api/client'
   import { incomeDivider } from '../../lib/table/cells'
   import { columnsFor, type SortField } from '../../lib/table/columns'
-  import { rowHeight } from '../../lib/table/layout'
+  import { revealScrollTop, rowHeight, visibleRange } from '../../lib/table/layout'
   import { doubleClickAction, pointerHit, type RowKind } from '../../lib/table/pointer'
+  import { loadedRow } from '../../lib/table/virtual-rows'
 
   interface Props {
+    /** The loaded window of the result. */
     projection: ViewProjection
+    /** Cached windows next to it; their rows draw instead of placeholders. */
+    neighbors?: readonly ViewProjection[]
     cursorIndex: number
     /** Two-line phone rows at 640 px and narrower. */
     compact: boolean
+    /** The workspace element that scrolls the grid. */
+    scroller?: HTMLElement | undefined
+    /** The scroller's `scrollTop`; the grid writes it to reveal the cursor row. */
+    scrollTop?: number
+    /** The scroller's visible height. */
+    viewport?: number
     onmove: (delta: -1 | 1) => void
     onhome: () => void
     /** A row click moves the cursor; the grid keeps focus. */
@@ -29,13 +39,18 @@
     oninformation: (identity: string) => void
     onedit: (identity: string, field: 'merchant' | 'category') => void
     onsort: (field: SortField) => void
+    /** Scrolling showed rows outside the loaded window, from the first fully visible row. */
     onshow?: (index: number) => void
   }
 
   let {
     projection,
+    neighbors = [],
     cursorIndex,
     compact,
+    scroller,
+    scrollTop = $bindable(0),
+    viewport = 520,
     onmove,
     onhome,
     oncursor,
@@ -45,49 +60,77 @@
     oninformation,
     onedit,
     onsort,
+    onshow,
   }: Props = $props()
   let grid = $state<HTMLDivElement>()
-  let scrollTop = $state(0)
-  let viewport = $state(520)
+  /** The row last passed to `onshow`. The cursor moving there follows the scroll, so stays. */
+  let shown: number | undefined
   const height = $derived(rowHeight(compact))
   const columns = $derived(columnsFor(projection))
   const cellColumns = $derived(columns.filter((column) => column.key !== 'select'))
   const trackSizes = $derived(columns.map((column) => column.width).join(' '))
   const dimension = $derived(projection.view.sub_grouping ?? projection.view.grouping)
-  const aggregates = $derived(projection.aggregate_rows ?? [])
-  const rows = $derived(projection.detail_rows ?? aggregates)
+  const total = $derived(projection.total_rows)
+  const windows = $derived([projection, ...neighbors])
   const kind: RowKind = $derived(projection.detail_rows ? 'transaction' : 'aggregate')
   const dividers = $derived(projection.view.sort_field === 'amount' && kind === 'aggregate')
+  // How far the scroller's top is below the grid's top. The sticky header covers the first row
+  // height of the viewport, so this is also the rows' scroll offset below the header.
+  const listTop = $derived(scrollTop - (grid?.offsetTop ?? 0))
   const slice = $derived(
     virtualSlice({
-      scrollTop,
+      scrollTop: listTop,
       viewport,
-      count: rows.length,
+      count: total,
       overscan: 5,
       fixedHeight: height,
       heightOf: () => height,
     }),
   )
-  const visible = $derived(rows.slice(slice.start, slice.end))
-  const activePosition = $derived(rows.findIndex((row) => row.index === cursorIndex))
-  const activeID = $derived(rows[activePosition]?.identity)
+  const slots = $derived(
+    Array.from({ length: slice.end - slice.start }, (_, offset) => {
+      const index = slice.start + offset
+      return { index, row: loadedRow(windows, index) }
+    }),
+  )
+  const first = $derived(visibleRange(listTop, viewport - height, height, total).first)
+  const activeID = $derived(loadedRow(windows, cursorIndex)?.identity)
+  // Effects that read this rerun only when the cursor moves, not on every prop update.
+  const cursor = $derived(cursorIndex)
 
   // The grid keeps focus while the cursor moves, so the browser never scrolls the active row
   // into view. Reveal it here, or aria-activedescendant would name a row that is not rendered.
   $effect(() => {
-    const top = activePosition * height
-    if (activePosition < 0 || !grid) return
-    const current = untrack(() => scrollTop)
-    const rowsViewport = untrack(() => viewport) - height
-    let next = current
-    if (top < current) next = top
-    else if (top + height > current + rowsViewport) next = top + height - rowsViewport
-    if (next === current) return
-    scrollTop = next
-    grid.scrollTop = next
+    const index = cursor
+    if (!grid) return
+    untrack(() => {
+      if (index === shown) shown = undefined
+      else reveal(index)
+    })
   })
 
+  // One request per frame, for the latest first row, while scrolling shows unloaded rows.
+  $effect(() => {
+    const index = first
+    const { offset, limit } = projection.window
+    if (!onshow || total === 0 || (index >= offset && index < offset + limit)) return
+    const frame = requestAnimationFrame(() => {
+      shown = index
+      onshow(index)
+    })
+    return () => cancelAnimationFrame(frame)
+  })
+
+  function reveal(index: number): void {
+    const gridTop = grid?.offsetTop ?? 0
+    const next = revealScrollTop(index, { scrollTop, viewport, rowHeight: height, gridTop })
+    if (next === scrollTop) return
+    scrollTop = next
+    if (scroller) scroller.scrollTop = next
+  }
+
   function keydown(event: KeyboardEvent): void {
+    shown = undefined
     if (event.key === 'ArrowUp' || event.key === 'k') onmove(-1)
     else if (event.key === 'ArrowDown' || event.key === 'j') onmove(1)
     else if (event.key === 'Home') onhome()
@@ -99,7 +142,7 @@
   /** The loaded row a pointer event landed on, with the column key of its cell. */
   function hit(event: MouseEvent) {
     const target = pointerHit(event.target)
-    const row = target && rows.find((candidate) => candidate.index === target.index)
+    const row = target && loadedRow(windows, target.index)
     return row && target ? { row, column: target.column } : undefined
   }
 
@@ -123,7 +166,7 @@
   }
 </script>
 
-{#if rows.length === 0}
+{#if total === 0}
   <EmptyState
     title="No transactions"
     description="Change the current refinements to see results."
@@ -146,8 +189,6 @@
       // The second press of a double-click would otherwise select a word of text.
       if (event.detail > 1) event.preventDefault()
     }}
-    onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
-    bind:clientHeight={viewport}
   >
     <GridHeader
       {columns}
@@ -158,42 +199,50 @@
       {ontoggleall}
     />
     <div class="mf-table__spacer" style:height={`${slice.topPad}px`} aria-hidden="true"></div>
-    {#each visible as row, offset (row.identity)}
-      {@const divider = dividers ? incomeDivider(aggregates, slice.start + offset) : null}
-      <div
-        id={`moneyflow-row-${row.identity}`}
-        class={[
-          'mf-table__row',
-          {
-            'mf-table__row--active': row.index === cursorIndex,
-            'mf-table__row--selected': row.flags.selected,
-            'mf-table__row--hidden': row.flags.hidden,
-            'mf-table__row--divided': divider !== null,
-            'mf-table__row--deleted': 'staged' in row && row.staged?.deleted === true,
-          },
-        ]}
-        role="row"
-        aria-rowindex={row.index + 2}
-        aria-selected={row.flags.selected}
-        data-index={row.index}
-      >
-        <div class="mf-table__cell mf-table__cell--select" role="gridcell" data-column="select">
-          <!-- kit-ui-check-ignore: kit Checkbox lacks tabindex (upstream candidate) -->
-          <span class={['mf-check', row.flags.selected && 'mf-check--on']} aria-hidden="true"
-          ></span>
+    {#each slots as { index, row } (index)}
+      {#if row}
+        {@const divider = dividers ? incomeDivider(windows, index) : null}
+        <div
+          id={`moneyflow-row-${row.identity}`}
+          class={[
+            'mf-table__row',
+            {
+              'mf-table__row--active': row.index === cursorIndex,
+              'mf-table__row--selected': row.flags.selected,
+              'mf-table__row--hidden': row.flags.hidden,
+              'mf-table__row--divided': divider !== null,
+              'mf-table__row--deleted': 'staged' in row && row.staged?.deleted === true,
+            },
+          ]}
+          role="row"
+          aria-rowindex={row.index + 2}
+          aria-selected={row.flags.selected}
+          data-index={row.index}
+        >
+          <div class="mf-table__cell mf-table__cell--select" role="gridcell" data-column="select">
+            <!-- kit-ui-check-ignore: kit Checkbox lacks tabindex (upstream candidate) -->
+            <span class={['mf-check', row.flags.selected && 'mf-check--on']} aria-hidden="true"
+            ></span>
+          </div>
+          {#if 'merchant' in row}
+            <DetailRow {row} columns={cellColumns} {oninformation} {onedit} />
+          {:else if row.dimension === 'time'}
+            <TimeRow {row} columns={cellColumns} {divider} />
+          {:else}
+            <AggregateRow {row} columns={cellColumns} {dimension} {divider} />
+          {/if}
         </div>
-        {#if 'merchant' in row}
-          <DetailRow {row} columns={cellColumns} {oninformation} {onedit} />
-        {:else if row.dimension === 'time'}
-          <TimeRow {row} columns={cellColumns} {divider} />
-        {:else}
-          <AggregateRow {row} columns={cellColumns} {dimension} {divider} />
-        {/if}
-      </div>
+      {:else}
+        <div
+          class="mf-table__row mf-table__row--placeholder"
+          aria-hidden="true"
+          data-index={index}
+        ></div>
+      {/if}
     {/each}
     <div
       class="mf-table__spacer"
-      style:height={`${Math.max(0, slice.totalHeight - slice.topPad - visible.length * height)}px`}
+      style:height={`${Math.max(0, slice.totalHeight - slice.topPad - slots.length * height)}px`}
       aria-hidden="true"
     ></div>
   </div>
