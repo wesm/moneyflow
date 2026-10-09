@@ -29,11 +29,11 @@ test('r refreshes through the protected base-path API without leaking provider s
 
     await expect(page.getByText('Provider refresh complete.')).toBeAttached()
     expect(fixture.refreshBodies).toHaveLength(1)
-    expect(fixture.refreshBodies[0]).toMatchObject({ manual: true, query: 'v=1' })
+    expect(fixture.refreshBodies[0]).toMatchObject({ manual: true, query: 'cur=USD%3A2&v=1' })
     const historyText = await page.evaluate(() => JSON.stringify(history.state))
     expect(historyText).not.toContain('opaque-confirmation')
     expect(historyText).not.toContain('imported_transactions')
-    expect(page.url()).toBe(`${server.url}?v=1`)
+    expect(page.url()).toBe(`${server.url}?cur=USD%3A2&v=1`)
   } finally {
     await server.stop()
   }
@@ -82,7 +82,7 @@ test('Escape cancels deletion confirmation and a later refresh fetches a new can
     await expect(dialog).toBeVisible()
     expect(fixture.refreshBodies).toHaveLength(2)
     expect(fixture.confirmBodies).toHaveLength(0)
-    expect(page.url()).toBe(`${server.url}?v=1`)
+    expect(page.url()).toBe(`${server.url}?cur=USD%3A2&v=1`)
   } finally {
     await server.stop()
   }
@@ -102,8 +102,12 @@ async function installProviderRoutes(page: Page, requireConfirmation: boolean) {
     capability: refreshCapability(),
   })
 
-  await page.route('**/api/v1/profiles/*/view', async (route) => {
+  const patchProjection = async (route: Route) => {
     const response = await route.fetch()
+    if (!response.ok()) {
+      await route.fulfill({ response })
+      return
+    }
     const body = (await response.json()) as Record<string, unknown>
     const capabilities = body.capabilities as Array<Record<string, unknown>>
     body.capabilities = capabilities.map((capability) =>
@@ -111,7 +115,9 @@ async function installProviderRoutes(page: Page, requireConfirmation: boolean) {
     )
     projection = body
     await route.fulfill({ response, json: body })
-  })
+  }
+  await page.route('**/api/v1/profiles/*/view', patchProjection)
+  await page.route('**/api/v1/profiles/*/view/transition', patchProjection)
   await page.route('**/api/v1/profiles/*/provider/status', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', json: status() })
   })

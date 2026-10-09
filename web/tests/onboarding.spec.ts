@@ -30,7 +30,7 @@ test('keyboard onboarding creates, connects, imports, and opens one profile', as
 
     await expect(page.getByText(/of 4 visible/)).toBeVisible()
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
-    await expect(page).toHaveURL(/\/moneyflow\/p\/profile_[a-z2-7]{26}\/(?:\?v=1)?$/)
+    await expect(page).toHaveURL(/\/moneyflow\/p\/profile_[a-z2-7]{26}\/\?cur=USD%3A2&v=1$/)
     await expect(page.getByRole('row', { name: /Example Merchant 4/ })).toBeVisible()
   } finally {
     await server.stop()
@@ -84,7 +84,7 @@ test('@smoke YNAB setup, category clear, w Enter, and refresh preserve committed
     await page.getByRole('button', { name: 'Continue with USD / 2' }).press('Enter')
 
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
-    await expect(page).toHaveURL(/\/moneyflow\/p\/profile_[a-z2-7]{26}\/(?:\?v=1)?$/)
+    await expect(page).toHaveURL(/\/moneyflow\/p\/profile_[a-z2-7]{26}\/\?cur=USD%3A2&v=1$/)
     await expect(page.getByRole('row', { name: /Example Payee/ })).toBeVisible()
     await expect(page).not.toHaveURL(/synthetic-token|vault-password/)
     const browserStorage = await page.evaluate(() => ({

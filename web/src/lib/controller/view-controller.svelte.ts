@@ -156,7 +156,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   async function hydrate(): Promise<void> {
     const query = currentQuery(browserLocation)
     const owned = ledger.read(browserHistory.state)
-    await requestProjection(
+    const loaded = await requestProjection(
       () =>
         options.client.view(
           viewBody(query, owned?.selection, alignedOffset(owned?.cursorIndex ?? 0)),
@@ -165,6 +165,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       (next) => accept(next, 'replace', owned),
       hydrate,
     )
+    const busiest = loaded && projection ? busiestCurrency(projection) : undefined
+    if (busiest) await transition({ action: 'view.set-currency', currency: busiest }, 'replace')
   }
 
   async function recheck(selection?: SelectionValue): Promise<ViewProjection | undefined> {
@@ -208,6 +210,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function apply(action: TransitionAction): Promise<boolean> {
+    return await transition(action)
+  }
+
+  async function transition(action: TransitionAction, historyMode?: 'replace'): Promise<boolean> {
     if (!projection) return false
     returning = undefined
     const prior = projection
@@ -234,7 +240,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
             returnTo(next)
             return
           }
-          accept(next, action.action.startsWith('selection.') ? 'replace' : 'push')
+          const selectionOnly = action.action.startsWith('selection.')
+          accept(next, historyMode ?? (selectionOnly ? 'replace' : 'push'))
         },
         async () => {
           await run()
@@ -670,6 +677,15 @@ function viewBody(query: string, selection: SelectionValue | undefined, offset: 
     ...(selection === undefined ? {} : { selection }),
     window: { offset, limit: windowSize },
   }
+}
+
+function busiestCurrency(next: ViewProjection): TransitionAction['currency'] {
+  if (next.view.currency) return undefined
+  let busiest: ViewProjection['currencies'][number] | undefined
+  for (const candidate of next.currencies) {
+    if (busiest === undefined || candidate.count > busiest.count) busiest = candidate
+  }
+  return busiest && { currency: busiest.currency, scale: busiest.scale }
 }
 
 function currentQuery(browserLocation: Pick<Location, 'search'>): string {

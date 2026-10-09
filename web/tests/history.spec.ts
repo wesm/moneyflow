@@ -77,7 +77,7 @@ test('direct invalid bookmarks fail safely and can reset', async ({ page, server
   ).toBeVisible()
   await page.getByRole('button', { name: 'Reset view' }).click()
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
-  await expect(page).toHaveURL(`${server.url}?v=1`)
+  await expect(page).toHaveURL(`${server.url}?cur=USD%3A2&v=1`)
 })
 
 test('Esc falls back to a Go-derived parent when owned history is unavailable', async ({

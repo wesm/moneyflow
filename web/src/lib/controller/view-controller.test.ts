@@ -33,6 +33,93 @@ describe('browser view controller', () => {
     expect((history.state as MoneyflowHistoryState).owner).toBe('moneyflow-web-v1')
   })
 
+  describe('first-load currency', () => {
+    const currencies = (counts: Array<[string, number]>) =>
+      counts.map(([currency, count]) => ({
+        currency,
+        scale: 2,
+        count,
+        first: '2024-01-01',
+        latest: '2024-12-31',
+      }))
+
+    it('opens in the currency with the most transactions and replaces the history entry', async () => {
+      const pushes = vi.spyOn(history, 'pushState')
+      pushes.mockClear()
+      const length = history.length
+      const client = clientWith({
+        view: vi.fn(async (body) => ({
+          ...projection('v=1', body.window.offset, 3),
+          currencies: currencies([
+            ['USD', 3],
+            ['EUR', 9],
+          ]),
+        })),
+        transition: vi.fn(async (body) => ({
+          ...projection('cur=EUR%3A2&v=1', body.window.offset, 3),
+          view: { ...projection('v=1', 0, 3).view, currency: { currency: 'EUR', scale: 2 } },
+        })),
+      })
+      const controller = controllerFor(client)
+
+      await controller.hydrate()
+
+      expect(client.transition).toHaveBeenCalledTimes(1)
+      expect(client.transition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'view.set-currency',
+          currency: { currency: 'EUR', scale: 2 },
+        }),
+        expect.any(AbortSignal),
+      )
+      expect(controller.projection?.canonical_query).toBe('cur=EUR%3A2&v=1')
+      expect(pushes).not.toHaveBeenCalled()
+      expect(history.length).toBe(length)
+      expect(window.location.search).toBe('?cur=EUR%3A2&v=1')
+    })
+
+    it('picks the first currency listed when counts tie', async () => {
+      const client = clientWith({
+        view: vi.fn(async (body) => ({
+          ...projection('v=1', body.window.offset, 3),
+          currencies: currencies([
+            ['USD', 4],
+            ['EUR', 4],
+          ]),
+        })),
+      })
+      await controllerFor(client).hydrate()
+
+      expect(client.transition).toHaveBeenCalledWith(
+        expect.objectContaining({ currency: { currency: 'USD', scale: 2 } }),
+        expect.any(AbortSignal),
+      )
+    })
+
+    it('sends nothing when the view already has a currency', async () => {
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          const result = projection('cur=EUR%3A2&v=1', body.window.offset, 3)
+          return {
+            ...result,
+            view: { ...result.view, currency: { currency: 'EUR', scale: 2 } },
+            currencies: currencies([['USD', 3]]),
+          }
+        }),
+      })
+      await controllerFor(client).hydrate()
+
+      expect(client.transition).not.toHaveBeenCalled()
+    })
+
+    it('sends nothing when the profile has no currencies', async () => {
+      const client = clientWith()
+      await controllerFor(client).hydrate()
+
+      expect(client.transition).not.toHaveBeenCalled()
+    })
+  })
+
   it('pushes analytical transitions and replaces selection-only transitions', async () => {
     const pushes = vi.spyOn(history, 'pushState')
     const replacements = vi.spyOn(history, 'replaceState')

@@ -120,7 +120,7 @@ test('time, sort, and exact selection refinements remain keyboard driven', async
     await page.keyboard.press('g')
     await expect(refinement(page)).toContainText(`Group: ${grouping}`)
   }
-  await expect(refinement(page)).toContainText('Years')
+  await expect(refinement(page)).toContainText('Months')
   const period = await (await activeRow(page)).getByRole('gridcell').first().innerText()
   await page.keyboard.press('Enter')
   await expect(refinement(page)).toContainText(`T: ${period}`)
