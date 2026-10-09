@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-import { activeRow, expect, openMoneyflow, test } from './fixtures'
+import { activeRow, cell, expect, openMoneyflow, test } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
 const breadcrumb = (page: Page) => page.getByRole('navigation', { name: 'Breadcrumb' })
@@ -85,7 +85,7 @@ test('cycles every grouping, account direct view, detail, drill, subgroup, and b
   await expect(breadcrumb(page)).toHaveText('Months')
   await page.keyboard.press('g')
   await expect(breadcrumb(page)).toHaveText('Merchants')
-  const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const merchant = await cell(await activeRow(page), 'name').innerText()
   await page.keyboard.press('Enter')
   await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Merchants', `› ${merchant}`])
   await expect(breadcrumb(page).getByRole('button', { name: 'Merchants' })).toBeVisible()
@@ -125,7 +125,7 @@ test('Break down by sub-groups a drill and returns to its transactions', async (
   server,
 }) => {
   await openMoneyflow(page, server)
-  const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const merchant = await cell(await activeRow(page), 'name').innerText()
   await page.keyboard.press('Enter')
   await expect(breakDownBy(page)).toBeVisible()
   const drillURL = page.url()
@@ -154,7 +154,7 @@ test('the root crumb of a month opened from Months returns to Months', async ({ 
   await expect(breadcrumb(page)).toHaveText('All transactions')
   await page.keyboard.press('5')
   await expect(breadcrumb(page)).toHaveText('Months')
-  const period = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const period = await cell(await activeRow(page), 'period').innerText()
   await page.keyboard.press('Enter')
   await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Time', `› ${period}`])
   await breadcrumb(page).getByRole('button', { name: 'Time' }).click()
@@ -168,7 +168,7 @@ test('time, sort, and exact selection refinements remain keyboard driven', async
 }) => {
   await openMoneyflow(page, server)
   await page.keyboard.press('s')
-  await expect(header(page, 'merchant')).toHaveAttribute('aria-sort', 'descending')
+  await expect(header(page, 'Merchant')).toHaveAttribute('aria-sort', 'descending')
   await page.keyboard.press('s')
   await expect(header(page, 'Count')).toHaveAttribute('aria-sort', 'descending')
   await page.keyboard.press('v')
@@ -188,7 +188,7 @@ test('time, sort, and exact selection refinements remain keyboard driven', async
     await page.keyboard.press('g')
     await expect(breadcrumb(page)).toHaveText(grouping)
   }
-  const period = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const period = await cell(await activeRow(page), 'period').innerText()
   await page.keyboard.press('Enter')
   await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Time', `› ${period}`])
   const unboundedURL = page.url()
@@ -222,7 +222,7 @@ test('search previews, commits, cancels, and reports invalid regular expressions
   await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
   expect(await page.evaluate(() => history.length)).toBe(initialLength + 1)
   const noodleRows = await grid.getAttribute('aria-rowcount')
-  const noodleRow = await (await activeRow(page)).innerText()
+  const noodleRow = (await (await activeRow(page)).textContent()) ?? ''
 
   await page.keyboard.press('/')
   await expect(search).toBeFocused()
@@ -261,11 +261,12 @@ test('the Filters chip shows and hides hidden transactions and keeps the period'
   await openMoneyflow(page, server)
   const trigger = page.getByRole('button', { name: 'Filters' })
   const hidden = page.getByRole('button', { name: 'Show hidden transactions' })
-  const noodleCount = page
-    .getByRole('row')
-    .filter({ has: page.getByRole('gridcell', { name: 'Noodle House', exact: true }) })
-    .getByRole('gridcell')
-    .nth(1)
+  const noodleCount = cell(
+    page
+      .getByRole('row')
+      .filter({ has: page.getByRole('gridcell', { name: 'Noodle House', exact: true }) }),
+    'count',
+  )
   await expect(noodleCount).toHaveText('144')
   await expect(trigger).toHaveText('Filters')
 

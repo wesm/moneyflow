@@ -4,8 +4,9 @@ Edits are staged locally first. Review their scope before committing.
 Pending edits, undo history, and redo history survive closing the application.
 
 **Unreleased:** Transaction tables, group totals, and filters keep showing committed data
-while edits are pending. A pending marker identifies affected rows. For Monarch and YNAB, the table
-updates after the provider-write batch completes successfully; local profiles update on commit.
+while edits are pending. A pending marker identifies affected rows; in the browser it is a gold
+dot. For Monarch and YNAB, the table updates after the provider-write batch completes
+successfully; local profiles update on commit.
 
 ## Choose the transactions
 

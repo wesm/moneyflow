@@ -69,5 +69,6 @@
   --mf-out-muted: color-mix(in srgb, var(--accent-red) 35%, var(--bg-surface));
   --mf-pending: var(--accent-amber);
   --mf-cursor: color-mix(in srgb, var(--accent-blue) 16%, transparent);
+  --mf-selected: color-mix(in srgb, var(--accent-blue) 30%, transparent);
   --mf-focus: var(--accent-blue);
 }

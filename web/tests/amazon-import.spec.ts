@@ -31,6 +31,15 @@ test('@smoke Amazon import preserves committed edits through reimport and reload
     const grid = page.getByRole('grid', { name: 'Financial results' })
     await expect(grid).toBeFocused()
     await page.keyboard.press('d')
+    await expect(grid.getByRole('columnheader')).toHaveText([
+      'Selection',
+      'Date',
+      'Product',
+      'Category',
+      'Order',
+      'Amount',
+      'Flags',
+    ])
     await page.keyboard.press('i')
     await expect(page.getByRole('dialog', { name: 'Transaction information' })).toContainText(
       'Example Product',

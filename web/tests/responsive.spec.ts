@@ -11,9 +11,18 @@ test('desktop and medium layouts preserve table primacy and chart linkage', asyn
   const visualizations = page.getByRole('complementary', { name: 'Visualizations' })
   await expect(grid).toBeVisible()
   await expect(visualizations).toBeVisible()
-  await expect(grid.getByRole('columnheader')).toHaveText(['merchant', 'Count', 'In', 'Out', 'Net'])
+  await expect(grid.getByRole('columnheader')).toHaveText([
+    'Selection',
+    'Merchant',
+    'Top category',
+    'Count',
+    'In',
+    'Out',
+    'Net',
+    'Share',
+  ])
   const amountHeaders = await Promise.all(
-    ['In', 'Out', 'Net'].map((name) =>
+    ['Count', 'In', 'Out', 'Net'].map((name) =>
       grid.getByRole('columnheader', { name, exact: true }).boundingBox(),
     ),
   )
@@ -73,7 +82,8 @@ test('narrow resize preserves analytical URL and moves charts into a drawer', as
   await expect(page).toHaveURL(analyticalURL)
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeVisible()
   await expect(page.getByRole('complementary', { name: 'Visualizations' })).toHaveCount(0)
-  expect(await page.locator('.finance-grid [role="row"]').count()).toBeGreaterThan(1)
+  const rows = page.getByRole('grid', { name: 'Financial results' }).getByRole('row')
+  expect(await rows.count()).toBeGreaterThan(1)
 
   const grid = page.getByRole('grid', { name: 'Financial results' })
   const net = grid.getByRole('columnheader', { name: 'Net', exact: true })
@@ -104,13 +114,13 @@ test('the sidebar groups by its entries and the rail names them in tooltips', as
   const nav = page.getByRole('navigation', { name: 'Workspace' })
   const categories = nav.getByRole('button', { name: 'Categories', exact: true })
   await categories.click()
-  await expect(grid.getByRole('columnheader').first()).toHaveText('category')
+  await expect(grid.getByRole('columnheader').nth(1)).toHaveText('Category')
   await expect(categories).toHaveAttribute('aria-current', 'page')
   await expect(grid).toBeFocused()
 
   await nav.getByRole('button', { name: 'Groups', exact: true }).focus()
   await page.keyboard.press('Enter')
-  await expect(grid.getByRole('columnheader').first()).toHaveText('group')
+  await expect(grid.getByRole('columnheader').nth(1)).toHaveText('Group')
 
   await page.setViewportSize({ width: 1024, height: 768 })
   await expect(page.getByRole('separator', { name: 'Resize sidebar' })).toHaveCount(0)

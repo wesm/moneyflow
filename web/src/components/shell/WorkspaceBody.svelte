@@ -1,5 +1,5 @@
 <script lang="ts">
-  import FinanceTable from '../FinanceTable.svelte'
+  import FinanceGrid from '../table/FinanceGrid.svelte'
   import EmptyScope from './EmptyScope.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import type { ViewController } from '../../lib/controller/view-controller.svelte'
@@ -22,13 +22,14 @@
 {#if empty}
   <EmptyScope scope={empty} onjump={() => onperiod(empty.jump)} />
 {:else}
-  <FinanceTable
+  <FinanceGrid
     {projection}
     cursorIndex={controller.cursorIndex}
+    compact={false}
     onmove={(delta) => void controller.moveCursor(delta)}
     onhome={() => void controller.moveHome()}
     onactivate={(identity, kind) => ontarget('view.drill', identity, kind)}
-    onselect={(identity, kind) => ontarget('selection.toggle', identity, kind)}
+    ontoggle={(identity, kind) => ontarget('selection.toggle', identity, kind)}
     {oninformation}
   />
 {/if}

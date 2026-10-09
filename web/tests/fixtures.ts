@@ -1,4 +1,4 @@
-import { test as base, expect, type Page } from '@playwright/test'
+import { test as base, expect, type Locator, type Page } from '@playwright/test'
 
 import { startE2EServer, type E2EServer } from '../scripts/e2e-server'
 
@@ -39,10 +39,15 @@ export async function activeRow(page: Page) {
   return page.locator(`[id=${JSON.stringify(activeID)}]`)
 }
 
+/** The gridcell in `row` for a column key from `web/src/lib/table/columns.ts`. */
+export function cell(row: Locator, key: string): Locator {
+  return row.locator(`[role="gridcell"][data-column="${key}"]`)
+}
+
 export async function activeAggregateCount(page: Page, rowIndex: number): Promise<number> {
   const row = await activeRow(page)
   await expect(row).toHaveAttribute('aria-rowindex', String(rowIndex))
-  const text = await row.getByRole('gridcell').nth(1).innerText()
+  const text = await cell(row, 'count').innerText()
   const count = Number(text.replace(/\D/g, ''))
   expect(Number.isSafeInteger(count) && count > 0, `Count cell "${text}"`).toBe(true)
   return count

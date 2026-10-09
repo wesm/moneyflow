@@ -1,0 +1,34 @@
+<script lang="ts">
+  import { Chip, IconButton, StatusDot } from '@kenn-io/kit-ui'
+
+  import type { components } from '../../lib/api/schema'
+
+  interface Props {
+    row: components['schemas']['DetailRow']
+    oninformation?: ((identity: string) => void) | undefined
+  }
+
+  let { row, oninformation }: Props = $props()
+  const match = $derived(row.amazon_match)
+  const strong = $derived(match?.confidence === 'high' || match?.confidence === 'medium')
+</script>
+
+<span class="mf-flags">
+  {#if row.flags.pending}
+    <StatusDot status="stale" label="Pending edits" />
+  {/if}
+  {#if row.flags.hidden}
+    <Chip size="xs" tone="muted" uppercase={false}>Hidden</Chip>
+  {/if}
+  {#if match}
+    <IconButton
+      size="sm"
+      class="mf-flags__match"
+      ariaLabel={`Amazon match: ${match.first_product}, ${match.confidence}`}
+      onclick={(event) => {
+        event.stopPropagation()
+        oninformation?.(row.identity)
+      }}>{strong ? '✓' : '~'}</IconButton
+    >
+  {/if}
+</span>

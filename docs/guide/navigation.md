@@ -9,6 +9,12 @@ In sums positive amounts; Out sums negative amounts; Net combines them. Amount s
 percentages use Net. Hidden transactions count toward the group but do not contribute amounts.
 At narrow terminal widths, the table omits Top Category to keep these amounts readable.
 
+The browser's grouped tables also show **Share**, the row's Net as a percent of all rows with
+the same sign of Net. Merchant tables add the top category and its percent; category tables
+add the group. The first column header names the current grouping, including a breakdown
+inside a group. When sorted by amount, a divider marks where Net changes between spending and
+income. The Time grouping shows a Net bar and the savings rate instead of Share.
+
 ## Move through results
 
 Use arrows or `j`/`k` to move. In the TUI, Page Up/Page Down move by a visible page;

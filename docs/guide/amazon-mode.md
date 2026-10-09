@@ -59,9 +59,11 @@ profiles must use the same currency and scale. Moneyflow reads imported order da
 matching does not call Amazon or change a bank transaction.
 
 In a finance profile, search for Amazon or drill into an Amazon-like merchant. When every
-visible row qualifies, an **Amazon** column shows matching products. Press `i` for order
-and item details. Product-name search also supplements ordinary transaction search for
-Amazon-like merchants.
+visible row qualifies, the TUI shows an **Amazon** column with matching products. The browser
+shows a match mark in the row's flags instead: `✓` for a high- or medium-confidence match and
+`~` for a likely one. Hover the mark to see the first product and the confidence; click it to
+open the transaction information. Press `i` for order and item details. Product-name search
+also supplements ordinary transaction search for Amazon-like merchants.
 
 Matching uses a seven-day date window and these passes, in order:
 

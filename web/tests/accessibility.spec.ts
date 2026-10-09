@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 
-import { activeRow, expect, openMoneyflow, test } from './fixtures'
+import { activeRow, cell, expect, openMoneyflow, test } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
 // kit CollapsibleSidebar renders its resize separator between the sidebar <aside> and the main
@@ -43,8 +43,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(page.locator('[aria-live="polite"]')).not.toHaveCount(0)
 
     const row = await activeRow(page)
-    const merchant = await row.getByRole('gridcell').first().innerText()
-    const total = await row.getByRole('gridcell').last().innerText()
+    const merchant = await cell(row, 'name').innerText()
+    const total = await cell(row, 'net').innerText()
     const mark = page
       .getByRole('complementary', { name: 'Visualizations' })
       .getByRole('button', { name: `${merchant}, ${total}`, exact: true })

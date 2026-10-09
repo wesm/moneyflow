@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-import { expect, openMoneyflow, test } from './fixtures'
+import { cell, expect, openMoneyflow, test } from './fixtures'
 
 const grid = (page: Page) => page.getByRole('grid', { name: 'Financial results' })
 const periodLabel = (page: Page) =>
@@ -13,7 +13,7 @@ async function rowCount(page: Page, merchant: string) {
   const row = page
     .getByRole('row')
     .filter({ has: page.getByRole('gridcell', { name: merchant, exact: true }) })
-  return row.getByRole('gridcell').nth(1)
+  return cell(row, 'count')
 }
 
 test('the Month segment and ‹ move the scope and the grid follows', async ({ page, server }) => {

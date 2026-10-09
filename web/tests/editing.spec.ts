@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { activeAggregateCount, activeRow, openMoneyflow } from './fixtures'
+import { activeAggregateCount, activeRow, cell, openMoneyflow } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
 test('every editing workflow starts from its TUI key and restores the table', async ({ page }) => {
@@ -38,7 +38,7 @@ test('every editing workflow starts from its TUI key and restores the table', as
 
     await page.keyboard.press('h')
     await expect(page.getByText(/2 pending/)).toBeVisible()
-    await expect(await activeRow(page)).toContainText('pending')
+    await expect((await activeRow(page)).getByLabel('Pending edits')).toBeVisible()
     await page.keyboard.press('u')
     await expect(page.getByText(/1 pending/)).toBeVisible()
     await expect(page.getByText(/1 redo/)).toBeVisible()
@@ -92,7 +92,7 @@ test('x stages count-only deletion and review keeps commit explicit', async ({ p
     await openMoneyflow(page, server)
     await page.keyboard.press('d')
     await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
-    const merchant = await (await activeRow(page)).getByRole('gridcell').nth(2).innerText()
+    const merchant = await cell(await activeRow(page), 'merchant').innerText()
     await page.keyboard.press('x')
     const confirmation = page.getByRole('dialog', { name: 'Confirm deletion' })
     await expect(confirmation).toContainText('Delete 1 transaction?')
