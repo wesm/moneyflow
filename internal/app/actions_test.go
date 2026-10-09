@@ -39,6 +39,7 @@ func TestActionRegistryMatchesReadOnlyContract(t *testing.T) {
 		{app.ActionClearTime, []string{"a"}, "a", "Clear time period selection", "Time", app.ScopeAnalytical, true, true},
 		{app.ActionPreviousPeriod, []string{"left"}, "←", "Previous time period (when drilled into time)", "Time", app.ScopeAnalytical, true, true},
 		{app.ActionNextPeriod, []string{"right"}, "→", "Next time period (when drilled into time)", "Time", app.ScopeAnalytical, true, true},
+		{app.ActionSetPeriod, nil, "", "Set the time period", "", app.ScopeAnalytical, true, true},
 		{app.ActionCycleSort, []string{"s"}, "s", "Toggle sort field (count/amount/date)", "Sorting", app.ScopeAnalytical, true, true},
 		{app.ActionReverseSort, []string{"v"}, "v", "Reverse sort direction", "Sorting", app.ScopeAnalytical, true, true},
 		{app.ActionSetSort, nil, "", "Sort by a column", "", app.ScopeAnalytical, true, true},

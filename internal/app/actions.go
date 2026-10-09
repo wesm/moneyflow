@@ -54,6 +54,8 @@ const (
 	ActionPreviousPeriod ActionID = "time.previous-period"
 	// ActionNextPeriod moves the active time period forward.
 	ActionNextPeriod ActionID = "time.next-period"
+	// ActionSetPeriod sets the view's period to one range or to all time.
+	ActionSetPeriod ActionID = "time.set-period"
 	// ActionCycleSort advances the active sort field.
 	ActionCycleSort ActionID = "sort.cycle"
 	// ActionReverseSort reverses the active sort direction.
@@ -134,6 +136,7 @@ var readOnlyActions = []ActionDefinition{
 	{ActionClearTime, []string{"a"}, "a", "Clear time period selection", "Time", ScopeAnalytical, true, true},
 	{ActionPreviousPeriod, []string{"left"}, "←", "Previous time period (when drilled into time)", "Time", ScopeAnalytical, true, true},
 	{ActionNextPeriod, []string{"right"}, "→", "Next time period (when drilled into time)", "Time", ScopeAnalytical, true, true},
+	{ActionSetPeriod, nil, "", "Set the time period", "", ScopeAnalytical, true, true},
 	{ActionCycleSort, []string{"s"}, "s", "Toggle sort field (count/amount/date)", "Sorting", ScopeAnalytical, true, true},
 	{ActionReverseSort, []string{"v"}, "v", "Reverse sort direction", "Sorting", ScopeAnalytical, true, true},
 	{ActionSetSort, nil, "", "Sort by a column", "", ScopeAnalytical, true, true},

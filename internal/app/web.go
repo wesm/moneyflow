@@ -77,6 +77,12 @@ type TransitionRequest struct {
 	Dimension *domain.Dimension
 	Currency  *domain.CurrencyScope
 	SortField *domain.SortField
+	Period    *PeriodTarget
+}
+
+// PeriodTarget sets the view's period. A nil Range means All.
+type PeriodTarget struct {
+	Range *domain.DateRange
 }
 
 // Window describes the returned row range.
@@ -114,6 +120,8 @@ type WebAggregateRow struct {
 	Index    int
 	Identity string
 	Row      domain.AggregateRow
+	// SavingsRateTenths is a Time row's Net ÷ In in tenths of a percent; nil unless In > 0.
+	SavingsRateTenths *int
 }
 
 // ChartMark contains renderer-neutral exact chart geometry for one aggregate row.
@@ -229,7 +237,7 @@ func (service *Service) projectViewLocked(
 			DateRange:  cloneDateRange(state.Current.DateRange),
 			ShowHidden: state.Current.ShowHidden, ShowTransfers: state.Current.ShowTransfers,
 		},
-		Actions: actions, TotalRows: resultRowCount(result),
+		Actions:    actions,
 		Statistics: append([]domain.CurrencyStats(nil), result.Statistics...),
 	}
 	service.mu.RLock()
@@ -241,22 +249,44 @@ func (service *Service) projectViewLocked(
 		}
 	}
 	service.mu.RUnlock()
-	projection.Window = windowResult(window, projection.TotalRows)
-	projection.DetailRows = detailWindow(result.DetailRows, projection.Window)
-	service.decorateStagedValues(projection.DetailRows)
-	if err = service.decorateAmazonMatchColumn(&projection, result.DetailRows); err != nil {
+	if err = service.projectRows(&projection, state.Current, result, window); err != nil {
 		return WebProjection{}, invalidWebRequest(err)
-	}
-	projection.AggregateRows = aggregateWindow(result.AggregateRows, projection.Window)
-	if result.DetailRows != nil {
-		projection.Chart.Summary = append([]domain.CurrencyStats(nil), result.Statistics...)
-	} else {
-		projection.Chart.Marks = chartMarks(projection.AggregateRows)
 	}
 	if projection.TotalRows == 0 {
 		projection.Status = "No transactions match the current view."
 	}
 	return projection, nil
+}
+
+// projectRows sets the row count, the row window, and the chart of a projection.
+func (service *Service) projectRows(
+	projection *WebProjection, state AnalyticalState,
+	result domain.QueryResult, window WindowRequest,
+) error {
+	var err error
+	result.AggregateRows, err = service.withTimeRows(
+		state, result.AggregateRows, projection.Currencies,
+	)
+	if err != nil {
+		return err
+	}
+	projection.TotalRows = resultRowCount(result)
+	projection.Window = windowResult(window, projection.TotalRows)
+	projection.DetailRows = detailWindow(result.DetailRows, projection.Window)
+	service.decorateStagedValues(projection.DetailRows)
+	if err = service.decorateAmazonMatchColumn(projection, result.DetailRows); err != nil {
+		return err
+	}
+	projection.AggregateRows = aggregateWindow(result.AggregateRows, projection.Window)
+	if err = decorateSavingsRates(projection.AggregateRows); err != nil {
+		return err
+	}
+	if result.DetailRows != nil {
+		projection.Chart.Summary = append([]domain.CurrencyStats(nil), result.Statistics...)
+	} else {
+		projection.Chart.Marks = chartMarks(projection.AggregateRows)
+	}
+	return nil
 }
 
 func (service *Service) decorateAmazonMatchColumn(
@@ -420,7 +450,7 @@ func (service *Service) transitionViewLocked(
 
 // transitionArguments records which optional TransitionRequest fields are set.
 type transitionArguments struct {
-	target, search, filters, dimension, currency, sortField bool
+	target, search, filters, dimension, currency, sortField, period bool
 }
 
 func argumentsOf(transition TransitionRequest) transitionArguments {
@@ -431,6 +461,7 @@ func argumentsOf(transition TransitionRequest) transitionArguments {
 		dimension: transition.Dimension != nil,
 		currency:  transition.Currency != nil,
 		sortField: transition.SortField != nil,
+		period:    transition.Period != nil,
 	}
 }
 
@@ -448,6 +479,8 @@ func requiredArguments(action ActionID) transitionArguments {
 		return transitionArguments{currency: true}
 	case ActionSetSort:
 		return transitionArguments{sortField: true}
+	case ActionSetPeriod:
+		return transitionArguments{period: true}
 	default:
 		return transitionArguments{}
 	}
@@ -510,14 +543,8 @@ func (service *Service) applyAnalyticalTransition(
 		if _, changed := session.Back(); !changed {
 			return noChangeWeb(errors.New("view has no parent"))
 		}
-	case ActionClearTime:
-		if !session.ClearPeriod() {
-			return noChangeWeb(errors.New("view has no active time period"))
-		}
-	case ActionPreviousPeriod:
-		return shiftWebPeriod(session, -1, "view has no previous time period")
-	case ActionNextPeriod:
-		return shiftWebPeriod(session, 1, "view has no next time period")
+	case ActionClearTime, ActionPreviousPeriod, ActionNextPeriod, ActionSetPeriod:
+		return service.applyPeriodTransition(session, transition)
 	case ActionCycleSort:
 		session.CycleSort()
 	case ActionReverseSort:
