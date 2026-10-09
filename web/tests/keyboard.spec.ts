@@ -257,6 +257,24 @@ test('x in a grouped view explains why it cannot delete', async ({ page, server 
   await expect(notice).toHaveText('')
 })
 
+test('Enter opens Info on a transaction row and drills a grouped row', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  await page.keyboard.press('Enter')
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveCount(2)
+  await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  const url = page.url()
+
+  await page.keyboard.press('Enter')
+  const information = page.getByRole('dialog', { name: 'Transaction information' })
+  await expect(information).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(information).toBeHidden()
+  await expect(grid).toBeFocused()
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveCount(2)
+  expect(page.url()).toBe(url)
+})
+
 test('search previews, commits, cancels, and reports invalid regular expressions', async ({
   page,
   server,

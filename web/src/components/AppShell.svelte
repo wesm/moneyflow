@@ -26,6 +26,7 @@
     confirmDirectDelete,
     focusedRow,
     localActions,
+    openTransactionInformation,
     type LocalActionContext,
   } from '../lib/shell/local-actions'
   import { SIDEBAR_FULL_QUERY } from '../lib/shell/layout'
@@ -69,6 +70,8 @@
   const row = () => focusedRow(projection, controller.cursorIndex)
   async function apply(action: string, dimension?: Dimension): Promise<void> {
     const focused = action === 'view.drill' || action === 'selection.toggle' ? row() : undefined
+    if (action === 'view.drill' && focused?.kind === 'transaction')
+      return void openTransactionInformation(actions, focused.identity)
     if (focused) return send({ action, target: focused })
     await send({ action, ...(dimension === undefined ? {} : { dimension }) })
   }
