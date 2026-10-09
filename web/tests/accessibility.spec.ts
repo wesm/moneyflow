@@ -52,13 +52,18 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
-test('the icon rail view has no automated accessibility violations', async ({ page, server }) => {
-  await page.setViewportSize({ width: 1024, height: 768 })
-  await page.addInitScript(() => localStorage.setItem('kit-ui-theme', 'dark'))
-  await openMoneyflow(page, server)
-  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible()
-  await expectNoAxeViolations(page)
-})
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`the ${colorScheme} icon rail view has no automated accessibility violations`, async ({
+    page,
+    server,
+  }) => {
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await openMoneyflow(page, server)
+    await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible()
+    await expectNoAxeViolations(page)
+  })
+}
 
 test('help overlay traps focus, passes axe, and restores the grid', async ({ page, server }) => {
   await page.addInitScript(() => localStorage.setItem('kit-ui-theme', 'dark'))
@@ -120,6 +125,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const sheet = page.getByRole('dialog', { name: 'View' })
     await expect(sheet.getByRole('radiogroup', { name: 'Break down by' })).toBeVisible()
     await expectNoAxeViolations(page)
+    await sheet.getByRole('button', { name: 'Filters' }).click()
+    await expect(page.getByRole('button', { name: 'Show transfers' })).toBeVisible()
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
     await page.keyboard.press('Escape')
     await expect(sheet).toBeHidden()
 

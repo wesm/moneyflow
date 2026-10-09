@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/sv
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import CommandSearch from './CommandSearch.svelte'
+import { SearchCarry } from '../../lib/shell/search-carry'
 import type { SearchPreview } from '../../lib/controller/search'
 import { testProjection } from '../../test/projection'
 
@@ -142,7 +143,7 @@ describe('CommandSearch', () => {
     expect(field().value).toBe('pizza')
   })
 
-  it('starts no new search for text typed during a held leave once the field lost focus', async () => {
+  it('starts no search for text typed in a held leave after the field lost focus', async () => {
     const controller = host()
     let release!: (outcome: SearchPreview) => void
     controller.previewSearch.mockImplementationOnce(
@@ -189,6 +190,36 @@ describe('CommandSearch', () => {
     await waitFor(() => expect(controller.restoreSearch).toHaveBeenCalledOnce())
     expect(controller.commitSearch).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByText('That search expression is invalid.')).toBeNull())
+  })
+
+  it('continues the search being typed in the field that replaces it', async () => {
+    const controller = host('noodle')
+    const carry = new SearchCarry()
+    const first = render(CommandSearch, { controller, ondone: vi.fn(), carry })
+    await fireEvent.input(field(), { target: { value: 'pizza' } })
+    await waitFor(() => expect(controller.previewSearch).toHaveBeenCalledWith('pizza'))
+    first.unmount()
+    expect(controller.restoreSearch).not.toHaveBeenCalled()
+
+    render(CommandSearch, { controller, ondone: vi.fn(), carry })
+    expect(field().value).toBe('pizza')
+    await fireEvent.keyDown(field(), { key: 'Escape' })
+
+    expect(controller.beginSearch).toHaveBeenCalledOnce()
+    expect(controller.restoreSearch).toHaveBeenCalledWith({ id: 'snapshot' })
+    expect(field().value).toBe('noodle')
+  })
+
+  it('ends a search left in the carry when its owner is destroyed', async () => {
+    const controller = host()
+    const carry = new SearchCarry()
+    const { unmount } = render(CommandSearch, { controller, ondone: vi.fn(), carry })
+    await fireEvent.input(field(), { target: { value: 'pizza' } })
+    unmount()
+    carry.destroy()
+    expect(carry.take()).toBeUndefined()
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(controller.previewSearch).not.toHaveBeenCalled()
   })
 
   it('focuses and selects the field for the / key', async () => {

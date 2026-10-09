@@ -15,6 +15,10 @@
     show_transfers: boolean
   }
 
+  // The server's defaults (internal/api/viewstate.go): a link names only filters changed from them.
+  const defaultShowHidden = true
+  const defaultShowTransfers = false
+
   let { projection, onapply }: Props = $props()
   let wrapper = $state<HTMLDivElement>()
   /** Toggles sent but not yet answered, so a quick second click builds on the first. */
@@ -23,21 +27,9 @@
   const shown = $derived<Toggles>(
     pending ?? { show_hidden: filters.show_hidden, show_transfers: filters.show_transfers },
   )
-
-  /**
-   * The server's link names only filters changed from their defaults (`hidden=0`,
-   * `transfers=1`), so each default is the opposite of a named filter's value.
-   */
-  const defaults = $derived.by<Toggles>(() => {
-    const query = new URLSearchParams(projection.canonical_query)
-    return {
-      show_hidden: query.has('hidden') ? !filters.show_hidden : filters.show_hidden,
-      show_transfers: query.has('transfers') ? !filters.show_transfers : filters.show_transfers,
-    }
-  })
   const changed = $derived(
-    Number(shown.show_hidden !== defaults.show_hidden) +
-      Number(shown.show_transfers !== defaults.show_transfers),
+    Number(shown.show_hidden !== defaultShowHidden) +
+      Number(shown.show_transfers !== defaultShowTransfers),
   )
 
   /**

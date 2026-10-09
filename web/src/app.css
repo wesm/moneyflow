@@ -294,6 +294,7 @@ input {
 
 .mf-period {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: var(--space-1);
 }
@@ -313,6 +314,9 @@ input {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium, 500);
   font-variant-numeric: tabular-nums;
+  /* A long custom range shrinks with an ellipsis; its title and name keep the full label. */
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -722,10 +726,12 @@ input {
 .mf-sheet .mf-sheet__body .kit-select-dropdown__option {
   min-height: 44px;
 }
+/* First in the Tab order, so it comes before the sidebar in the DOM and paints above it. */
 .mf-nav-drawer__close {
   position: absolute;
   top: var(--space-1);
   right: var(--space-2);
+  z-index: 1;
 }
 .mf-sheet__panel {
   box-sizing: border-box;
@@ -794,7 +800,8 @@ input {
   display: none;
 }
 .mf-view-sheet .kit-select-dropdown,
-.mf-view-sheet .kit-filter-dropdown {
+.mf-view-sheet .kit-filter-dropdown,
+.mf-view-sheet .kit-filter-dropdown .kit-filter-dropdown__btn {
   width: 100%;
 }
 .mf-view-sheet .mf-break-down {
@@ -1123,6 +1130,9 @@ input {
   .mf-charts-switch {
     min-height: 44px;
     padding-right: var(--space-3);
+  }
+  .mf-view-button-slot {
+    display: contents;
   }
   .mf-command-bar .kit-button.mf-view-button {
     min-height: 44px;

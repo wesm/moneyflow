@@ -32,6 +32,7 @@
   const range = $derived(projection.filters.date_range)
   const kind = $derived(scopeKind(range))
   const currency = $derived(activeCurrency(projection))
+  const label = $derived(periodLabel(range))
 
   function setPeriod(period: Period | undefined): void {
     onapply(period ? { action: 'time.set-period', period } : { action: 'time.clear-period' })
@@ -58,12 +59,12 @@
     aria-haspopup="dialog"
     aria-expanded={chooserOpen}
     aria-keyshortcuts="t"
-    title="Choose period · t"
+    title="{label} · Choose period · t"
     disabled={!currency}
     bind:this={labelButton}
     onclick={() => (chooserOpen ? onclose() : onchoose())}
   >
-    {periodLabel(range)}
+    {label}
   </button>
   <IconButton
     ariaLabel="Next period"

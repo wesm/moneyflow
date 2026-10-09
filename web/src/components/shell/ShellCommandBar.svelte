@@ -3,7 +3,7 @@
   import MenuIcon from '@lucide/svelte/icons/menu'
   import SearchIcon from '@lucide/svelte/icons/search'
   import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal'
-  import { tick } from 'svelte'
+  import { onDestroy, tick } from 'svelte'
 
   import Breadcrumbs from './Breadcrumbs.svelte'
   import BreakDownBy from './BreakDownBy.svelte'
@@ -22,13 +22,14 @@
   import type { ChartState } from '../../lib/shell/chart-state.svelte'
   import { drillFrames } from '../../lib/shell/drills'
   import type { OverlayState } from '../../lib/shell/overlay-state.svelte'
+  import { SearchCarry } from '../../lib/shell/search-carry'
 
   interface Props {
     controller: ViewController
     projection: ViewProjection
     overlays: OverlayState
     charts: ChartState
-    /** Phone width: two rows, with the view controls in the View sheet and search behind an icon. */
+    /** Phone width: two rows; the view controls move to the View sheet, search behind an icon. */
     compact: boolean
     /** Returns focus to the grid after a control moved the view. */
     onfocusgrid: () => void
@@ -43,6 +44,11 @@
   const searchVisible = $derived(searchShown || (projection.view.search ?? '') !== '')
   /** The search row opened from its icon, so closing it returns there instead of the grid. */
   let searchFromIcon = false
+  /** Whether the search row was open when the icon was pressed, before the press took focus. */
+  let shownAtPress = false
+  /** Keeps a search being typed when the window crosses the phone width and the field changes. */
+  const searchCarry = new SearchCarry()
+  onDestroy(() => searchCarry.destroy())
 
   /** Focuses the search field, for the `/` key; at phone width it reveals the field first. */
   export async function focusSearch(): Promise<void> {
@@ -74,6 +80,26 @@
   function revealSearch(): void {
     searchFromIcon = true
     void focusSearch()
+  }
+
+  // Pressing the icon moves focus out of the field, which folds the row before the click.
+  function notePress(node: HTMLElement) {
+    const press = () => (shownAtPress = searchShown)
+    node.addEventListener('pointerdown', press)
+    return () => node.removeEventListener('pointerdown', press)
+  }
+
+  function toggleSearch(): void {
+    const shown = shownAtPress || searchShown
+    shownAtPress = false
+    if (!shown) return revealSearch()
+    searchShown = false
+    searchFromIcon = false
+  }
+
+  // kit Button has no aria-haspopup prop; set it on its button.
+  function opensDialog(node: HTMLElement): void {
+    node.querySelector('button')?.setAttribute('aria-haspopup', 'dialog')
   }
 
   async function searchDone(): Promise<void> {
@@ -127,7 +153,12 @@
   />
 {/snippet}
 {#snippet searchField()}
-  <CommandSearch bind:this={search} {controller} ondone={() => void searchDone()} />
+  <CommandSearch
+    bind:this={search}
+    {controller}
+    carry={searchCarry}
+    ondone={() => void searchDone()}
+  />
 {/snippet}
 {#snippet chartsSwitch()}
   <Toggle
@@ -154,20 +185,22 @@
     {/snippet}
     {#snippet center()}
       {@render period()}
-      <Button
-        class="mf-view-button"
-        ariaExpanded={overlays.current === 'view'}
-        onclick={() => overlays.open('view')}
-      >
-        <SlidersHorizontalIcon size={14} aria-hidden="true" />View
-      </Button>
-      <span class="mf-search-toggle" bind:this={searchToggle}>
+      <span class="mf-view-button-slot" {@attach opensDialog}>
+        <Button
+          class="mf-view-button"
+          ariaExpanded={overlays.current === 'view'}
+          onclick={() => overlays.open('view')}
+        >
+          <SlidersHorizontalIcon size={14} aria-hidden="true" />View
+        </Button>
+      </span>
+      <span class="mf-search-toggle" bind:this={searchToggle} {@attach notePress}>
         <IconButton
           ariaLabel="Search"
           title="Search · /"
-          ariaExpanded={searchVisible}
+          ariaPressed={searchVisible}
           ariaControls="mf-command-search-row"
-          onclick={revealSearch}
+          onclick={toggleSearch}
         >
           <SearchIcon size={18} aria-hidden="true" />
         </IconButton>

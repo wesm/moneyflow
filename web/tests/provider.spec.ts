@@ -95,6 +95,27 @@ test('Escape cancels deletion confirmation and a later refresh fetches a new can
   }
 })
 
+test('a refresh confirmation started from the phone drawer closes the drawer', async ({ page }) => {
+  const server = await startE2EServer('/moneyflow/')
+  try {
+    await installProviderRoutes(page, true)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openMoneyflow(page, server)
+    await page.getByRole('button', { name: 'Open navigation' }).click()
+    const drawer = page.getByRole('dialog', { name: 'Navigation' })
+    await drawer.getByRole('button', { name: 'Refresh provider data' }).click()
+
+    const dialog = page.getByRole('dialog', { name: 'Confirm provider refresh' })
+    await expect(dialog).toBeVisible()
+    await expect(drawer).toBeHidden()
+    expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+  } finally {
+    await server.stop()
+  }
+})
+
 async function installProviderRoutes(page: Page, requireConfirmation: boolean) {
   let projection: Record<string, unknown> | undefined
   const refreshBodies: Record<string, unknown>[] = []

@@ -107,7 +107,7 @@
     if (compact.current) return
     if (charts.dialogOpen) charts.setDialog(false)
     const open = overlays.current
-    if (open === 'navigation' || open === 'view') overlays.close('keep')
+    if (open === 'navigation' || open === 'view') overlays.close()
   })
   $effect(() => {
     if (charts.checked) untrack(() => charts.rail.load())
@@ -125,6 +125,8 @@
   })
   $effect(() => {
     if (controller.provider.state.phase !== 'confirmation') return
+    // A refresh pressed in the phone drawer asks for confirmation; the drawer gives way to it.
+    if (untrack(() => overlays.current) === 'navigation') overlays.close('keep')
     const popScope = shortcuts?.manager.pushScope('provider-confirmation')
     return () => popScope?.()
   })
@@ -250,7 +252,10 @@
   >
     {@render navigation(fromDrawer)}
   </NavDrawer>
-  <ProviderConfirmation controller={controller.provider} />
+  <!-- After the drawer closes, so the drawer's focus return cannot pull focus out of it. -->
+  {#if overlays.current !== 'navigation'}
+    <ProviderConfirmation controller={controller.provider} />
+  {/if}
   <ChartDrawer open={compact.current && charts.dialogOpen} onclose={() => charts.setDialog(false)}>
     {@render chartRail()}
   </ChartDrawer>

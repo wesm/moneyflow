@@ -8,6 +8,7 @@
     type SearchHost,
   } from '../../lib/controller/search'
   import type { ViewController } from '../../lib/controller/view-controller.svelte'
+  import type { SearchCarry } from '../../lib/shell/search-carry'
 
   type SearchController = SearchHost<unknown> & Pick<ViewController, 'projection' | 'hold'>
 
@@ -15,16 +16,21 @@
     controller: SearchController
     /** Returns focus to the grid once a search is applied or cancelled. */
     ondone: () => void
+    /**
+     * Holds an unfinished search while the field is replaced, such as when the window crosses
+     * the phone width, so the next field continues it. Its owner ends a search left in it.
+     */
+    carry?: SearchCarry | undefined
   }
 
-  let { controller, ondone }: Props = $props()
+  let { controller, ondone, carry }: Props = $props()
   let wrapper = $state<HTMLDivElement>()
   // kit types `inputEl` without `| undefined`, so the binding below casts the unmounted field.
   let inputEl = $state<HTMLInputElement>()
   /** The text being typed; undefined while the field shows the applied search. */
   let draft = $state<string | undefined>()
   let error = $state('')
-  let session: { search: SearchCoordinator; unsubscribe: () => void } | undefined
+  let session: { search: SearchCoordinator; unsubscribe: () => void } | undefined = resume()
   /** A search that lost focus and is still being applied; new typing waits for it. */
   let leaving: Promise<void> | undefined
 
@@ -38,10 +44,21 @@
 
   function begin(): SearchCoordinator {
     if (session) return session.search
-    const search = createSearchCoordinator(controller, applied)
-    const unsubscribe = search.subscribe(() => (error = search.error))
-    session = { search, unsubscribe }
-    return search
+    session = attach(createSearchCoordinator(controller, applied))
+    return session.search
+  }
+
+  function attach(search: SearchCoordinator) {
+    return { search, unsubscribe: search.subscribe(() => (error = search.error)) }
+  }
+
+  /** Continues a search that an earlier field left in `carry`. */
+  function resume() {
+    const carried = carry?.take()
+    if (!carried) return undefined
+    draft = carried.draft
+    error = carried.search.error
+    return attach(carried.search)
   }
 
   /** Detaches the session from the field without restoring or applying it. */
@@ -122,7 +139,11 @@
     if (session) end()
   }
 
-  onDestroy(() => end())
+  onDestroy(() => {
+    const search = detach()
+    if (search && carry) carry.keep(search, draft)
+    else search?.destroy()
+  })
 </script>
 
 <svelte:window onpopstate={historyChanged} />

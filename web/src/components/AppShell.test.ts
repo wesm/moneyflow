@@ -298,7 +298,7 @@ describe('AppShell', () => {
     expect(pending[0]?.closest('footer')).not.toBeNull()
   })
 
-  it('opens the sidebar in a drawer below 640 px and returns focus to the menu button', async () => {
+  it('opens the sidebar in a drawer below 640 px and returns focus to the menu', async () => {
     onTestFinished(stubMedia((query) => query.includes('640px')))
     const frames = captureFrames()
     const controller = stubController()
@@ -402,9 +402,7 @@ describe('AppShell', () => {
     })
     const field = screen.getByRole('searchbox', { name: 'Search transactions' }) as HTMLInputElement
     expect(field.value).toBe('noodle')
-    expect(screen.getByRole('button', { name: 'Search' }).getAttribute('aria-expanded')).toBe(
-      'true',
-    )
+    expect(screen.getByRole('button', { name: 'Search' }).getAttribute('aria-pressed')).toBe('true')
   })
 
   it('reveals search from its icon and returns focus to the icon below 640 px', async () => {
@@ -417,7 +415,7 @@ describe('AppShell', () => {
     await fireEvent.click(icon)
     const field = await screen.findByRole('searchbox', { name: 'Search transactions' })
     expect(document.activeElement).toBe(field)
-    expect(icon.getAttribute('aria-expanded')).toBe('true')
+    expect(icon.getAttribute('aria-pressed')).toBe('true')
 
     await fireEvent.keyDown(field, { key: 'Escape' })
     await vi.waitFor(() => expect(document.activeElement).toBe(icon))

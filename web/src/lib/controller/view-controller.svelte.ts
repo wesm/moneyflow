@@ -238,10 +238,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function apply(action: TransitionAction): Promise<boolean> {
-    return await transition(action)
-  }
-
-  async function transition(action: TransitionAction): Promise<boolean> {
     await barrier
     return await transitionNow(action)
   }

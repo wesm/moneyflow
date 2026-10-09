@@ -33,8 +33,9 @@ earlier selection, and it keeps the current period and filters.
 The browser's command bar starts with a breadcrumb trail, such as
 `Merchants › Corner Grocery › by Category`. The first crumb names the view that the
 drill-downs started from: the grouping, with time grouping named by its unit (**Years**,
-**Months**, or **Days**), or **All transactions** for the `d` view. Each drill-down adds a
-crumb, and a breakdown adds "by" and its dimension.
+**Months**, or **Days**), or **All transactions** for the `d` view. When the saved view does
+not record the unit, the crumb reads **Time**. Each drill-down adds a crumb, and a breakdown
+adds "by" and its dimension.
 
 - Click an earlier crumb to return to that level in one step. It clears what pressing Esc
   repeatedly would clear on the way, and the browser's Back history stays one entry per view.
@@ -44,8 +45,8 @@ crumb, and a breakdown adds "by" and its dimension.
 
 On screens narrower than 640 px, the menu button opens the sidebar as a drawer. The
 period arrows stay in the command bar; **View** opens a sheet with the Day, Month, Year,
-and All choices, currency, filters, and Break down by. The search icon shows the search
-field, which stays open while a search applies.
+and All choices, currency, filters, and Break down by. The search icon shows or hides the
+search field, which stays open while a search applies.
 
 ## Choose a year, month, or day
 
@@ -83,7 +84,10 @@ resolution; `a` returns to all time and removes any period drill-down.
 Enter still opens a selected group and Esc returns to its summary.
 
 To browse grouped periods instead, use `Ctrl+t` in the TUI to jump to Time grouping. Press
-it again to cycle year, month, and day. The browser has no key for these units.
+it again to cycle year, month, and day. In the browser, press `5` or choose **Time** in the
+sidebar. The browser picks the unit from the period: a day or month lists days, and a year
+lists months. All time lists months, or years when your transactions span more than 60
+months. A custom range lists days up to 62 days, months up to 36 months, and years beyond.
 
 When you have drilled into a period and no single year, month, or day is selected, left and
 right select the period next to that drill-down. Every period change, whether from these
@@ -139,7 +143,9 @@ In the browser, the search field sits in the command bar. `/` focuses it, or cli
 - Enter applies the search and returns to the table. Moving focus out of the field also
   applies it; an invalid expression is dropped instead. Switching to another window leaves
   the search open.
-- The browser's Back button during a preview ends the search without applying it.
+- The browser's Back button during a preview ends the search without applying it. Forward
+  then works as it does on any page: it returns to the view you left, with the previewed
+  search.
 - Esc cancels the preview, restores the previous search, and returns to the table.
 - The field's clear button (×) previews the view without a search.
 - A search longer than 2,048 bytes is refused with a message.

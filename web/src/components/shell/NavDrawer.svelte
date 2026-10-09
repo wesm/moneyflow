@@ -30,7 +30,6 @@
       tabindex="-1"
       {@attach trapFocus}
     >
-      {@render children()}
       <IconButton
         ariaLabel="Close navigation"
         title="Close (Esc)"
@@ -39,6 +38,7 @@
       >
         <XIcon size={16} aria-hidden="true" />
       </IconButton>
+      {@render children()}
     </div>
   </div>
 {/if}
