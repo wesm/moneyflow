@@ -585,6 +585,39 @@ describe('FinanceGrid', () => {
       expect(events.onshow).not.toHaveBeenCalled()
     })
 
+    it('reveals the cursor row again when the viewport shrinks under it', async () => {
+      const scroller = { scrollTop: 0 } as HTMLElement
+      // Rows 0 to 19 show, with the cursor on the last of them.
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 19,
+        compact: false,
+        scroller,
+        scrollTop: 0,
+        viewport: 630,
+        ...callbacks(),
+      })
+      await view.rerender({ viewport: 600 })
+      expect(scroller.scrollTop).toBe(30)
+    })
+
+    it('leaves a scrolled-away cursor alone when the viewport shrinks', async () => {
+      const scroller = { scrollTop: 0 } as HTMLElement
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 19,
+        compact: false,
+        scroller,
+        scrollTop: 0,
+        viewport: 630,
+        ...callbacks(),
+      })
+      scroller.scrollTop = 100 * 30
+      await view.rerender({ scrollTop: 100 * 30 })
+      await view.rerender({ viewport: 600 })
+      expect(scroller.scrollTop).toBe(100 * 30)
+    })
+
     it('keeps the cursor on a clicked row from a cached neighboring window', async () => {
       vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
       const events = { ...callbacks(), onshow: vi.fn() }

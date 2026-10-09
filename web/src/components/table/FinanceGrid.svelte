@@ -11,7 +11,7 @@
   import { columnsFor, type SortField } from '../../lib/table/columns'
   import { revealScrollTop, rowHeight, visibleRange } from '../../lib/table/layout'
   import { doubleClickAction, pointerHit, type RowKind } from '../../lib/table/pointer'
-  import { loadedRow, rowToShow } from '../../lib/table/virtual-rows'
+  import { coveredCursor, loadedRow, rowToShow } from '../../lib/table/virtual-rows'
 
   interface Props {
     /** The loaded window of the result. */
@@ -92,7 +92,8 @@
       return { index, row: loadedRow(windows, index) }
     }),
   )
-  const range = $derived(visibleRange(listTop, viewport - height, height, projection.total_rows))
+  const total = $derived(projection.total_rows)
+  const range = $derived(visibleRange(listTop, viewport - height, height, total))
   const activeID = $derived(loadedRow(windows, cursorIndex)?.identity)
   // Effects that read this rerun only when the cursor moves, not on every prop update.
   const cursor = $derived(cursorIndex)
@@ -107,6 +108,18 @@
       // A window that arrived after more scrolling moves the cursor on to the row now on top.
       shown = undefined
       if (index !== range.first) oncursor(range.first)
+    })
+  })
+
+  // A shrinking viewport (the selection bar opens) reveals the cursor row it covered. Only the
+  // viewport is tracked, so scrolling the cursor row away does not pull it back.
+  let lastViewport: number | undefined
+  $effect(() => {
+    const next = viewport
+    untrack(() => {
+      const before = visibleRange(listTop, (lastViewport ?? next) - height, height, total)
+      lastViewport = next
+      if (coveredCursor(before, range, cursor)) reveal(cursor)
     })
   })
 

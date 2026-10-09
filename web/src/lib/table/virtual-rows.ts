@@ -31,3 +31,17 @@ export function rowToShow(
   if (first >= loaded.offset && first < loaded.offset + loaded.limit) return undefined
   return first
 }
+
+/**
+ * Whether the cursor row was fully visible in `before` but not in `after`, as when the viewport
+ * shrinks under it because the selection bar opens or grows.
+ */
+export function coveredCursor(
+  before: { first: number; last: number },
+  after: { first: number; last: number },
+  cursor: number,
+): boolean {
+  const inside = ({ first, last }: { first: number; last: number }) =>
+    cursor >= first && cursor <= last
+  return inside(before) && !inside(after)
+}

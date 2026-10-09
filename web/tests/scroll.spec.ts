@@ -129,3 +129,17 @@ test('the selection bar never covers the last row or the cursor row', async ({ p
   await expect(grid(page).locator(`[role="row"][aria-rowindex="${total + 1}"]`)).toBeVisible()
   expect(await overlap(page, total + 1)).toBeLessThanOrEqual(0.5)
 })
+
+test('the cursor row at the bottom stays whole when the selection bar opens', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  await expect(grid(page).getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  for (let step = 0; step < 30; step++) await page.keyboard.press('j')
+  await expect.poll(() => activeRowIndex(page)).toBe(32)
+  await page.keyboard.press('Space')
+  await expect(page.getByRole('region', { name: 'Selection' })).toBeVisible()
+  await expect.poll(() => overlap(page, 32)).toBeLessThanOrEqual(0.5)
+})

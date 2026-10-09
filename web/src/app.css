@@ -1085,7 +1085,6 @@ input {
   padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6);
   border-top: 1px solid var(--border-default);
   background: var(--bg-surface);
-  box-shadow: inset 3px 0 var(--mf-focus);
   font-size: var(--font-size-sm);
 }
 .mf-selection-bar__summary {

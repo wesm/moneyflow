@@ -278,3 +278,56 @@ test('the selection bar edits selected transactions as their keys do', async ({ 
     await server.stop()
   }
 })
+
+test('Clear goes back once per click and works again after a failed request', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    const backs: string[] = []
+    await page.route('**/view/transition', async (route) => {
+      if (route.request().postDataJSON().action !== 'view.back') return route.continue()
+      backs.push('view.back')
+      if (backs.length === 1) return route.abort()
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      await route.continue()
+    })
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('Space')
+    const bar = page.getByRole('region', { name: 'Selection' })
+    const clear = bar.getByRole('button', { name: 'Clear' })
+
+    await clear.click()
+    await expect.poll(() => backs.length).toBe(1)
+    await expect(bar).toBeVisible()
+
+    // A double click while the request runs sends one back, which only clears the selection.
+    await clear.dblclick()
+    await expect(bar).toBeHidden()
+    expect(backs).toHaveLength(2)
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
+test.describe('on a touch phone', () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } })
+
+  test('a tap on the disabled Delete shows why', async ({ page }) => {
+    const server = await startE2EServer()
+    try {
+      await openMoneyflow(page, server)
+      await cell(page.locator('[role="row"][aria-rowindex="2"]'), 'select').tap()
+      const bar = page.getByRole('region', { name: 'Selection' })
+      await expect(bar).toContainText('1 merchant · ')
+      const remove = page.getByRole('button', { name: 'Delete' })
+      await bar.locator('.kit-tooltip-trigger').filter({ has: remove }).tap()
+      await expect(page.getByRole('tooltip')).toHaveText(
+        'Open the group to delete its transactions.',
+      )
+    } finally {
+      await server.stop()
+    }
+  })
+})

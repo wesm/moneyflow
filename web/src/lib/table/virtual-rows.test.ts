@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { revealScrollTop, visibleRange } from './layout'
-import { loadedRow, rowToShow } from './virtual-rows'
+import { coveredCursor, loadedRow, rowToShow } from './virtual-rows'
 import { testAggregateRow, testProjection } from '../../test/projection'
 
 describe('visibleRange', () => {
@@ -97,5 +97,17 @@ describe('rowToShow', () => {
 
   it('asks for nothing without rows', () => {
     expect(rowToShow({ first: 0, last: -1 }, 0, { offset: 200, limit: 200 })).toBeUndefined()
+  })
+})
+
+describe('coveredCursor', () => {
+  it('reports a cursor row that a shrinking viewport stops showing', () => {
+    expect(coveredCursor({ first: 0, last: 19 }, { first: 0, last: 18 }, 19)).toBe(true)
+  })
+
+  it('ignores a cursor row that still shows or did not show before', () => {
+    expect(coveredCursor({ first: 0, last: 19 }, { first: 0, last: 18 }, 10)).toBe(false)
+    expect(coveredCursor({ first: 0, last: 19 }, { first: 0, last: 18 }, 40)).toBe(false)
+    expect(coveredCursor({ first: 0, last: -1 }, { first: 0, last: -1 }, 0)).toBe(false)
   })
 })

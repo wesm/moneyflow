@@ -33,15 +33,17 @@
   /** The bar covers the scroller's bottom, so the table counts only the rows above it. */
   const covered = $derived(selecting ? barHeight : 0)
   const local = $derived(localActions(actions))
-  /** The projection a Clear was sent from; another click on it must not also go back a level. */
-  let cleared: ViewProjection | undefined
+  /** A Clear is queued; another click must not also go back a level. */
+  let clearing = false
 
   /** Runs a selection bar button as its key does, then leaves focus on the table. */
   function select(action: SelectionButton['action']): void {
     if (action === 'clear') {
-      if (cleared === projection) return
-      cleared = projection
-      return onapply({ action: 'view.back' })
+      if (clearing) return
+      clearing = true
+      onapply({ action: 'view.back' })
+      const settle = () => (clearing = false)
+      return void actions.afterTransitions().then(settle, settle)
     }
     scroller?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
     status.clear()
