@@ -65,7 +65,7 @@ type GetInsightsInput struct {
 	AccountID  string `json:"account_id,omitempty" jsonschema:"account ID from transaction reads"`
 	Search     string `json:"search,omitempty" jsonschema:"case-insensitive regular expression"`
 
-	IncludeHidden    *bool    `json:"include_hidden,omitempty" jsonschema:"default true"`
+	IncludeHidden    *bool    `json:"include_hidden,omitempty" jsonschema:"default true; false removes hidden transactions from grouped views only"`
 	IncludeTransfers bool     `json:"include_transfers,omitempty" jsonschema:"default false"`
 	Keys             []string `json:"keys,omitempty" jsonschema:"at most 200 group_by row IDs"`
 	Summary          *bool    `json:"summary,omitempty" jsonschema:"default true"`

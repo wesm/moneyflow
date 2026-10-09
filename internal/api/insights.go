@@ -71,12 +71,13 @@ type InsightsChange struct {
 
 // InsightsTotals are exact totals for one range. Hidden transactions count but add no money.
 type InsightsTotals struct {
-	In           string `json:"in"`
-	Out          string `json:"out"`
-	Net          string `json:"net"`
-	Count        int    `json:"count"`
-	HiddenCount  int    `json:"hidden_count"`
-	PendingCount int    `json:"pending_count"`
+	In          string `json:"in"`
+	Out         string `json:"out"`
+	Net         string `json:"net"`
+	Count       int    `json:"count"`
+	HiddenCount int    `json:"hidden_count"`
+	// PendingCount counts transactions the bank still lists as pending, not pending edits.
+	PendingCount int `json:"pending_count"`
 }
 
 // InsightsKPIs feed the KPI strip.

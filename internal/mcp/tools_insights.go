@@ -75,12 +75,13 @@ type InsightsChangeDocument struct {
 
 // InsightsTotalsDocument holds exact totals for one range.
 type InsightsTotalsDocument struct {
-	In           Money `json:"in"`
-	Out          Money `json:"out"`
-	Net          Money `json:"net"`
-	Count        int   `json:"count"`
-	HiddenCount  int   `json:"hidden_count"`
-	PendingCount int   `json:"pending_count"`
+	In          Money `json:"in"`
+	Out         Money `json:"out"`
+	Net         Money `json:"net"`
+	Count       int   `json:"count"`
+	HiddenCount int   `json:"hidden_count"`
+	// PendingCount counts transactions the bank still lists as pending, not pending edits.
+	PendingCount int `json:"pending_count"`
 }
 
 // InsightsKPIsDocument holds the scope totals and their comparison.

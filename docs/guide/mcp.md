@@ -198,7 +198,7 @@ effective values with pending edits applied, so the two can differ until you com
 | `group_by` | `merchant`, `category`, `group`, `account`, or `time`. Omit it for a transaction view. |
 | `merchant_id`, `category_id`, `group_id`, `account_id` | Narrow the view to one entity each, like drilling into its row. |
 | `search` | The view's case-insensitive regular expression over merchant and category names, and product names in an Amazon profile. |
-| `include_hidden` | Include hidden transactions. Default `true`. |
+| `include_hidden` | With `group_by`, `false` leaves hidden transactions out of the grouped rows. Default `true`. A transaction view always lists and counts hidden transactions, and they never add money. |
 | `include_transfers` | Include the Transfers category group. Default `false`. |
 | `keys` | At most 200 row IDs of the `group_by` dimension to chart as series, counting repeats. Not allowed for `time` or a transaction view. |
 | `summary` | Include the view-wide charts. Default `true`. |
@@ -223,12 +223,18 @@ The result has the standard header and revision, plus `currency`, `scale`, `toda
 `ranges.context` lists the chart periods, and cash-flow and series values align with it. Each
 amount is a money object with `amount`, `amount_minor`, `currency`, and `scale`. Changes such as
 `net_change` and `vs_prior` are computed by the server; `percent_tenths` and `share_tenths` are
-tenths of a percent.
+tenths of a percent. `pending_count` counts transactions the bank still lists as pending. It does
+not count your pending edits, which insights never read.
+
+An ID filter that matches nothing, such as a merchant, category, group, or account ID that does not
+exist, is not an error. It returns zeros.
 
 Invalid input returns `invalid_operation` with a `detail` that starts with
 `The insights request is invalid:` and gives the reason, such as a regular-expression syntax
-error, a missing currency, or a grouping that repeats a filtered dimension. A profile with no
-transactions has no currency to chart and returns the same code.
+error, a currency and scale the profile does not have, or a grouping that repeats a filtered
+dimension. A profile with no transactions returns the same code when you give no `currency`,
+because there is no currency to default to. With an explicit `currency` and `scale`, it succeeds
+and returns zeros.
 
 ## Server-side export
 

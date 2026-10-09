@@ -45,6 +45,13 @@ onboarding flow, not a hidden import during recovery.
 application transitions as the TUI. One SPA serves the configured base path; profile application
 URLs and API routes use `/p/<profile-id>/`. Shared assets remain at the base path.
 
+Each view response is a projection with the rows, `currencies`, a `selection_summary` of the
+selected transactions per currency, and `staged` values on rows with pending edits. Aggregate rows
+carry `savings_rate_tenths`. A whole-merchant preview reports how many affected transactions
+the view hides, with `outside_view` and `outside_currencies`. Charts read from a separate
+operation, `POST /api/v1/profiles/{profile_id}/view/insights`. It takes the view's query and
+optional row identities and returns committed chart data from `Service.Insights`.
+
 The analytical URL is durable state: versioned view parameters, search, filters, drills, and return
 frames. Cursor/scroll and transient selection are not financial profile data. The server owns
 canonical transitions and validation; the browser history ledger is a navigation convenience,
