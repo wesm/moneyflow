@@ -3,7 +3,6 @@ package app_test
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -131,12 +130,30 @@ func timeRowIdentity(key string) string {
 	})
 }
 
+// profileOn returns the replay profile with every transaction on date.
+func profileOn(t *testing.T, date string) domain.CommittedProfile {
+	t.Helper()
+	day, err := domain.ParseDate(date)
+	require.NoError(t, err)
+	profile := replayProfile(t)
+	for index := range profile.Transactions {
+		profile.Transactions[index].Date = day
+	}
+	return profile
+}
+
 func TestSelectionsWithEmptyTimeRowsTargetTheirTransactions(t *testing.T) {
 	t.Parallel()
 
-	effective := effectiveForMutation(t, 5)
-	state := timeTargetState(t, "2026-01-01", "2026-12-31")
+	effective, err := app.Replay(domain.ProfileSnapshot{
+		Revision: 5, Committed: profileOn(t, "2025-08-14"),
+	})
+	require.NoError(t, err)
+	state := timeTargetState(t, "2025-01-01", "2025-12-31")
 	service := analyticsServiceForMutation(t, effective)
+	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	require.Len(t, projection.AggregateRows, 12, "a past year lists every month")
 	selection, err := service.ToggleAllSelection(state.Current, app.EmptySelection())
 	require.NoError(t, err)
 	selection, err = app.BindSelectionRevision(selection, 5)
@@ -154,7 +171,7 @@ func TestSelectionsWithEmptyTimeRowsTargetTheirTransactions(t *testing.T) {
 		"the mixed scope hides its visible member")
 
 	empty, err := service.ToggleSelection(
-		state.Current, app.EmptySelection(), app.IdentityAggregate, timeRowIdentity("2026-01"),
+		state.Current, app.EmptySelection(), app.IdentityAggregate, timeRowIdentity("2025-01"),
 	)
 	require.NoError(t, err)
 	request.Selection, err = app.BindSelectionRevision(empty, 5)
@@ -164,48 +181,41 @@ func TestSelectionsWithEmptyTimeRowsTargetTheirTransactions(t *testing.T) {
 	assert.ErrorContains(t, failure.Unwrap(), "no current transaction targets")
 }
 
-// TestEditTargetsUseTheServiceClock selects the last day of the real current month in a view
-// whose fixed clock is a year earlier, so the whole month is listed. Under the real clock the
-// month ends at today, so on any day but the month's last the selected row would not resolve.
+// TestEditTargetsUseTheServiceClock selects two days of January 2025 while the service is on
+// the system clock, then moves the service clock back to January 15. The projection now ends
+// at the 15th, so edit targets must not resolve the selected 20th either.
 func TestEditTargetsUseTheServiceClock(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
-	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	last := first.AddDate(0, 1, -1)
-	profile := replayProfile(t)
-	firstDate, err := domain.NewDate(first.Year(), first.Month(), first.Day())
-	require.NoError(t, err)
-	for index := range profile.Transactions {
-		profile.Transactions[index].Date = firstDate
-	}
 	service, err := app.NewProfileService(context.Background(), &memoryProfile{
-		snapshot: domain.ProfileSnapshot{Revision: 7, Committed: profile},
+		snapshot: domain.ProfileSnapshot{Revision: 7, Committed: profileOn(t, "2025-01-01")},
 	})
 	require.NoError(t, err)
-	service.SetClock(func() time.Time { return now.AddDate(-1, 0, 0) })
-	state := timeTargetState(t, first.Format(time.DateOnly), last.Format(time.DateOnly))
+	state := timeTargetState(t, "2025-01-01", "2025-01-31")
 	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
 	require.NoError(t, err)
-	rows := projection.AggregateRows
-	require.Len(t, rows, last.Day(), "the fixed clock lists the whole month")
+	require.Len(t, projection.AggregateRows, 31, "the system clock lists the whole month")
 	selection := app.EmptySelection()
-	for _, row := range []app.WebAggregateRow{rows[0], rows[len(rows)-1]} {
+	for _, key := range []string{"2025-01-01", "2025-01-20"} {
 		selection, err = service.ToggleSelection(
-			state.Current, selection, app.IdentityAggregate, row.Identity,
+			state.Current, selection, app.IdentityAggregate, timeRowIdentity(key),
 		)
-		require.NoError(t, err)
+		require.NoError(t, err, key)
 	}
 	selection, err = app.BindSelectionRevision(selection, projection.Revision)
 	require.NoError(t, err)
 
-	preview, err := service.PreviewMutation(context.Background(), app.MutationRequest{
+	service.SetClock(func() time.Time { return time.Date(2025, 1, 15, 12, 0, 0, 0, time.Local) })
+	projection, err = service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	assert.Len(t, projection.AggregateRows, 15, "the service clock ends the month at the 15th")
+	_, err = service.PreviewMutation(context.Background(), app.MutationRequest{
 		Action: app.ActionToggleHidden, ExpectedRevision: projection.Revision,
 		State: state, Selection: selection,
 	})
-	require.NoError(t, err, "the selected last day resolves under the service clock")
-	assert.Equal(t, 1, preview.AffectedCount, "the empty day adds nothing; one visible member")
-	assert.True(t, strings.HasSuffix(rows[len(rows)-1].Row.Key, last.Format("-01-02")))
+	failure := requireMutationCode(t, err, app.MutationInvalidTarget)
+	assert.ErrorContains(t, failure.Unwrap(), "selected aggregate does not resolve",
+		"the 20th is not a row under the service clock")
 }
 
 func TestResolveTargetsKeepsCommittedAggregateScopeAfterPendingMerge(t *testing.T) {
