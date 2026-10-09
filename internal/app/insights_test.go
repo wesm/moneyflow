@@ -49,6 +49,7 @@ func TestInsightsUseCommittedValuesWhileEditsArePending(t *testing.T) {
 	after, err := service.Insights(ctx, request)
 	require.NoError(t, err)
 	assert.Equal(t, before.Insights, after.Insights, "pending edits do not change insights")
+	assert.Equal(t, uint64(8), after.Revision, "the revision follows the pending edit")
 }
 
 func TestInsightsDeduplicateRequestedRows(t *testing.T) {
@@ -85,6 +86,12 @@ func TestInsightsRejectInvalidRequests(t *testing.T) {
 		"too many rows":     {State: insightsState(), Rows: tooMany},
 		"malformed row":     {State: insightsState(), Rows: []string{"merchant:9:merchant_a:2:USD"}},
 		"padded length":     {State: insightsState(), Rows: []string{"merchant:010:merchant_a:2:USD"}},
+		"empty row":         {State: insightsState(), Rows: []string{""}},
+		"no length":         {State: insightsState(), Rows: []string{"merchant:"}},
+		"no key":            {State: insightsState(), Rows: []string{"merchant:0:"}},
+		"negative length":   {State: insightsState(), Rows: []string{"merchant:-1:x:2:USD"}},
+		"signed length":     {State: insightsState(), Rows: []string{"merchant:+1:a:2:USD"}},
+		"text scale":        {State: insightsState(), Rows: []string{"merchant:1:a:two:USD"}},
 		"other dimension":   {State: insightsState(), Rows: []string{app.AggregateIdentity(category)}},
 		"other currency":    {State: insightsState(), Rows: []string{app.AggregateIdentity(euro)}},
 	}

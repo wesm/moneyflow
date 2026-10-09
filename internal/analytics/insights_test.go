@@ -246,6 +246,30 @@ func TestInsightsRejectsInvalidRequests(t *testing.T) {
 	}
 }
 
+func TestInsightsSearchMatchesReplaceTheExpressionWithoutNarrowingBounds(t *testing.T) {
+	t.Parallel()
+	transactions := []domain.Transaction{
+		insightsTransaction(t, "early", "2026-01-10", "-40.00", "Corner Grocery", "Groceries", "Food"),
+		insightsTransaction(t, "pay", "2026-08-01", "900.00", "Payroll", "Salary", "Income"),
+		insightsTransaction(
+			t, "match", "2026-08-20", "-12.34", "Online Megastore", "Shopping", "Shopping",
+		),
+	}
+	query := insightsQuery(t, domain.DimensionMerchant, "", "")
+	query.Search = "product name only the caller can match"
+	result, err := ComputeInsights(transactions, InsightsSpec{
+		Query: query, Today: rangeDate(t, "2026-09-01"), Summary: true,
+		SearchMatches: map[string]struct{}{"match": {}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, rangeDate(t, "2026-01-01"), result.Ranges.Context[0].Start,
+		"All starts at the currency's first transaction, not the first match")
+	kpis := result.Summary.KPIs
+	assert.Equal(t, 1, kpis.Scope.Count)
+	assert.Equal(t, int64(-1234), kpis.Scope.Net)
+	assert.Nil(t, kpis.SavingsRateTenths, "a search hides the savings rate")
+}
+
 func insightsQuery(t *testing.T, groupBy domain.Dimension, from, to string) domain.QuerySpec {
 	t.Helper()
 	query := domain.QuerySpec{

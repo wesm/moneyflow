@@ -29,6 +29,9 @@ type InsightsSpec struct {
 	// Keys are aggregate keys of the view's merchant, category, group, or account grouping.
 	Keys    []string
 	Summary bool
+	// SearchMatches, when non-nil, lists the IDs that satisfy Query.Search in place of the
+	// regular expression, for searches that also match Amazon product names.
+	SearchMatches map[string]struct{}
 }
 
 // InsightsTotals are exact totals for one range. Hidden transactions count but add no money.
@@ -143,6 +146,8 @@ type insightsPlan struct {
 	ranges   Ranges
 	first    domain.Date
 	latest   domain.Date
+	// calendar lists the heatmap days when the summary has a calendar.
+	calendar []PeriodRange
 }
 
 // ComputeInsights derives chart data in one pass over the view's transactions. Callers pass
@@ -152,7 +157,7 @@ func ComputeInsights(transactions []domain.Transaction, spec InsightsSpec) (Insi
 	if err != nil {
 		return Insights{}, err
 	}
-	filtered, err := filterTransactions(transactions, plan.base, false)
+	filtered, err := filterInsights(transactions, plan.base, spec.SearchMatches)
 	if err != nil {
 		return Insights{}, fmt.Errorf("insights: %w", err)
 	}
@@ -173,6 +178,28 @@ func ComputeInsights(transactions []domain.Transaction, spec InsightsSpec) (Insi
 		}
 	}
 	return result, nil
+}
+
+// filterInsights applies the view's filters. Search matches, when given, replace the search
+// expression; transactions outside them are dropped.
+func filterInsights(
+	transactions []domain.Transaction, base domain.QuerySpec, matches map[string]struct{},
+) ([]domain.Transaction, error) {
+	if matches == nil {
+		return filterTransactions(transactions, base, false)
+	}
+	base.Search = ""
+	filtered, err := filterTransactions(transactions, base, false)
+	if err != nil {
+		return nil, err
+	}
+	kept := filtered[:0]
+	for _, transaction := range filtered {
+		if _, ok := matches[transaction.ID]; ok {
+			kept = append(kept, transaction)
+		}
+	}
+	return kept, nil
 }
 
 func planInsights(transactions []domain.Transaction, spec InsightsSpec) (insightsPlan, error) {
@@ -198,14 +225,24 @@ func planInsights(transactions []domain.Transaction, spec InsightsSpec) (insight
 	}
 	plan.base = base
 	plan.first, plan.latest = currencyBounds(transactions, *spec.Query.Currency)
+	if err := plan.resolveRanges(scope, spec); err != nil {
+		return insightsPlan{}, fmt.Errorf("insights: %w", err)
+	}
+	return plan, nil
+}
+
+// resolveRanges derives the view's ranges and, for a summary, its calendar days.
+func (plan *insightsPlan) resolveRanges(scope *domain.DateRange, spec InsightsSpec) error {
+	var err error
 	plan.ranges, err = ResolveRanges(RangeInput{
 		Scope: scope, Today: spec.Today, First: plan.first, Latest: plan.latest,
 		TimeGrouping: plan.grouping == domain.DimensionTime,
 	})
-	if err != nil {
-		return insightsPlan{}, fmt.Errorf("insights: %w", err)
+	if err != nil || !spec.Summary {
+		return err
 	}
-	return plan, nil
+	plan.calendar, err = plan.calendarDays()
+	return err
 }
 
 func validateInsightsKeys(keys []string, grouping domain.Dimension) error {
@@ -283,7 +320,7 @@ func (plan insightsPlan) crossTabSpec(spec InsightsSpec) CrossTabSpec {
 		}
 	}
 	if spec.Summary {
-		frames[frameCalendar] = CrossTabFrameSpec{Periods: plan.calendarDays()}
+		frames[frameCalendar] = CrossTabFrameSpec{Periods: plan.calendar}
 	}
 	dimension, keys := plan.grouping, spec.Keys
 	if !series {
@@ -304,19 +341,19 @@ func (plan insightsPlan) scopeBounds() (domain.DateRange, bool) {
 }
 
 // calendarDays lists heatmap days for transaction views and Day scopes.
-func (plan insightsPlan) calendarDays() []PeriodRange {
+func (plan insightsPlan) calendarDays() ([]PeriodRange, error) {
 	heatmap := plan.ranges.Heatmap
 	if heatmap == nil || (plan.grouping != "" && plan.ranges.Kind != ScopeDay) {
-		return nil
+		return nil, nil
 	}
 	days, err := enumeratePeriods(
 		domain.DateRange{Start: heatmap.Start, End: heatmap.End},
 		domain.TimeGranularityDay, domain.Date{}, false,
 	)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("calendar days: %w", err)
 	}
-	return days
+	return days, nil
 }
 
 func buildSeries(keys []string, ranges Ranges, crossTab CrossTab) ([]InsightsSeries, error) {
@@ -363,7 +400,7 @@ func buildSummary(
 	summary := &InsightsSummary{
 		KPIs:     kpis,
 		Cashflow: cashflow(plan.ranges.Context, crossTab.Frames[frameContext].Totals),
-		Calendar: calendar(plan.calendarDays(), crossTab.Frames[frameCalendar].Totals),
+		Calendar: calendar(plan.calendar, crossTab.Frames[frameCalendar].Totals),
 	}
 	switch plan.grouping {
 	case "":

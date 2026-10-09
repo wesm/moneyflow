@@ -39,13 +39,19 @@ func TestInsights100KWith200KeysMeetsP95Budget(t *testing.T) {
 		keys[index] = fmt.Sprintf("merchant-%03d", index)
 	}
 	today := rangeDate(t, "2026-01-15")
-	scopes := map[string][2]string{"all": {}, "year": {"2025-01-01", "2025-12-31"}}
-	for name, scope := range scopes {
+	cases := map[string]struct {
+		scope  [2]string
+		search string
+	}{
+		"all":    {},
+		"year":   {scope: [2]string{"2025-01-01", "2025-12-31"}},
+		"search": {search: "merchant 1|merchant 2"},
+	}
+	for name, test := range cases {
 		t.Run(name, func(t *testing.T) {
-			spec := InsightsSpec{
-				Query: insightsQuery(t, domain.DimensionMerchant, scope[0], scope[1]),
-				Today: today, Keys: keys, Summary: true,
-			}
+			query := insightsQuery(t, domain.DimensionMerchant, test.scope[0], test.scope[1])
+			query.Search = test.search
+			spec := InsightsSpec{Query: query, Today: today, Keys: keys, Summary: true}
 			durations := make([]time.Duration, insightsPerformanceRuns)
 			for run := range durations {
 				start := time.Now()
