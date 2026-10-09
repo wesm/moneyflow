@@ -98,3 +98,98 @@ func TestMerchantPreviewRejectsEntitySourceRetiredByPendingMerge(t *testing.T) {
 	assertAppCode(t, err, app.AppInvalidTarget)
 	assert.Len(t, profile.snapshot.Journal, 1)
 }
+
+func TestMerchantPreviewCountsAffectedTransactionsOutsideTheView(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	profile.snapshot.Committed.Transactions = append(profile.snapshot.Committed.Transactions,
+		merchantARecord(t, "transaction_c", "2026-07-10", "USD"),
+		merchantARecord(t, "transaction_d", "2026-08-20", "EUR"),
+		merchantARecord(t, "transaction_e", "2026-07-05", "EUR"),
+		merchantARecord(t, "transaction_f", "2026-07-06", "EUR"),
+	)
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	session := app.NewSession()
+	session.DateRange = &domain.DateRange{
+		Start: mustDate(t, "2026-08-01"), End: mustDate(t, "2026-08-31"),
+	}
+	session.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+	rows, err := service.Query(session)
+	require.NoError(t, err)
+	request := app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: 5, State: session.ViewState(),
+		Target: &app.RowTarget{
+			Kind: app.IdentityAggregate, Identity: app.AggregateIdentity(rows.AggregateRows[0]),
+		},
+		Input: app.EditInput{Scope: app.EditScopeEntity},
+	}
+
+	preview, err := service.PreviewMerchantEdit(ctx, request)
+	require.NoError(t, err)
+	assert.Equal(t, 5, preview.AffectedTransactions)
+	assert.Equal(t, 4, preview.OutsideView)
+	assert.Equal(t, []domain.Currency{"EUR", "USD"}, preview.OutsideCurrencies)
+
+	request.Input.Scope = app.EditScopeTransactions
+	preview, err = service.PreviewMerchantEdit(ctx, request)
+	require.NoError(t, err)
+	assert.Zero(t, preview.OutsideView, "transaction scope only affects selected rows")
+	assert.Empty(t, preview.OutsideCurrencies)
+}
+
+func TestMerchantPreviewCountsHiddenTransactionsTheViewHides(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	hidden := merchantARecord(t, "transaction_c", "2026-08-14", "USD")
+	hidden.Hidden = true
+	profile.snapshot.Committed.Transactions = append(profile.snapshot.Committed.Transactions, hidden)
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	session := app.NewSession()
+	session.ShowHidden = false
+	rows, err := service.Query(session)
+	require.NoError(t, err)
+	request := app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: 5, State: session.ViewState(),
+		Target: &app.RowTarget{
+			Kind: app.IdentityAggregate, Identity: app.AggregateIdentity(rows.AggregateRows[0]),
+		},
+		Input: app.EditInput{Scope: app.EditScopeEntity},
+	}
+
+	preview, err := service.PreviewMerchantEdit(ctx, request)
+	require.NoError(t, err)
+	assert.Equal(t, 2, preview.AffectedTransactions)
+	assert.Equal(t, 1, preview.OutsideView)
+	assert.Equal(t, []domain.Currency{"USD"}, preview.OutsideCurrencies)
+
+	session.ShowHidden = true
+	request.State = session.ViewState()
+	preview, err = service.PreviewMerchantEdit(ctx, request)
+	require.NoError(t, err)
+	assert.Zero(t, preview.OutsideView)
+	assert.Empty(t, preview.OutsideCurrencies)
+}
+
+func merchantARecord(
+	t *testing.T, id, date string, currency domain.Currency,
+) domain.TransactionRecord {
+	t.Helper()
+	return domain.TransactionRecord{
+		ID: domain.EntityID(id), Provider: "fixture", ProviderID: id,
+		AccountID: "account_a", MerchantID: "merchant_a", CategoryID: "category_a",
+		Date: mustDate(t, date), Amount: domain.Money{Minor: -100, Currency: currency, Scale: 2},
+	}
+}
+
+func mustDate(t *testing.T, text string) domain.Date {
+	t.Helper()
+	date, err := domain.ParseDate(text)
+	require.NoError(t, err)
+	return date
+}

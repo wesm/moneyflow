@@ -6,6 +6,7 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/wesm/moneyflow/internal/analytics"
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
@@ -14,6 +15,10 @@ type MerchantEditPreview struct {
 	Revision             uint64
 	AffectedTransactions int
 	Transactions         []domain.Transaction
+	// OutsideView counts affected transactions whose committed values the opening view hides.
+	OutsideView int
+	// OutsideCurrencies lists, sorted and unique, the currencies of those transactions.
+	OutsideCurrencies []domain.Currency
 }
 
 // PreviewMerchantEdit resolves the same targets as an edit without appending an operation.
@@ -55,10 +60,74 @@ func (service *Service) PreviewMerchantEdit(ctx context.Context, request Mutatio
 		}
 	}
 	slices.SortFunc(preview, func(a, b domain.Transaction) int { return cmp.Compare(a.ID, b.ID) })
-	return MerchantEditPreview{
+	result := MerchantEditPreview{
 		Revision: snapshot.Revision, AffectedTransactions: len(ids),
 		Transactions: preview,
-	}, nil
+	}
+	if request.Input.Scope == EditScopeEntity {
+		state := request.State.Current
+		if err := service.countOutsideView(ctx, state, ids, transactions, &result); err != nil {
+			return MerchantEditPreview{}, err
+		}
+	}
+	return result, nil
+}
+
+// countOutsideView records which affected transactions the opening view hides, judged by
+// committed values as the table shows them. Currencies come from the effective transactions.
+func (service *Service) countOutsideView(
+	ctx context.Context, state AnalyticalState, ids []domain.EntityID,
+	effective []domain.Transaction, preview *MerchantEditPreview,
+) error {
+	inView, err := service.committedViewMembers(ctx, state)
+	if err != nil {
+		return err
+	}
+	affected := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		affected[string(id)] = struct{}{}
+	}
+	for _, transaction := range effective {
+		if _, isAffected := affected[transaction.ID]; !isAffected {
+			continue
+		}
+		if _, visible := inView[transaction.ID]; visible {
+			continue
+		}
+		preview.OutsideView++
+		preview.OutsideCurrencies = append(preview.OutsideCurrencies, transaction.Amount.Currency)
+	}
+	slices.Sort(preview.OutsideCurrencies)
+	preview.OutsideCurrencies = slices.Compact(preview.OutsideCurrencies)
+	return nil
+}
+
+// committedViewMembers returns the IDs of committed transactions that pass the view's filters.
+// For Amazon profiles a search also matches product names, as it does in the table.
+func (service *Service) committedViewMembers(
+	ctx context.Context, state AnalyticalState,
+) (map[string]struct{}, error) {
+	service.mu.RLock()
+	transactions := append([]domain.Transaction(nil), service.browseTransactionsLocked()...)
+	matcher := service.amazonMatcher
+	rawLabels := service.rawProviderMerchantLabelsLocked()
+	service.mu.RUnlock()
+	spec := analyticalQuerySpec(state)
+	var members []domain.Transaction
+	var err error
+	if matcher != nil && spec.Search != "" {
+		members, err = amazonProductSearch(ctx, transactions, spec, matcher, rawLabels)
+	} else {
+		members, err = analytics.Filter(transactions, spec)
+	}
+	if err != nil {
+		return nil, newAppError(AppInvalidOperation, service.Revision(), err)
+	}
+	inView := make(map[string]struct{}, len(members))
+	for _, transaction := range members {
+		inView[transaction.ID] = struct{}{}
+	}
+	return inView, nil
 }
 
 func (service *Service) readSnapshot(ctx context.Context) (EffectiveSnapshot, error) {
