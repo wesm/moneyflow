@@ -67,6 +67,7 @@ func ResolveTargets(
 	if err != nil {
 		return ResolvedTargets{}, mutationError(MutationInvalidOperation, err)
 	}
+	service.now = request.now
 	selection, err = service.resolveSelectionPayload(request.State.Current, payload)
 	if err != nil {
 		return ResolvedTargets{}, mutationError(MutationInvalidTarget, err)
@@ -217,6 +218,9 @@ func resolveSelectionTargets(
 			return ResolvedTargets{}, err
 		}
 	}
+	if err = requireTransactionTargets(resolved); err != nil {
+		return ResolvedTargets{}, err
+	}
 	canonicalizeResolvedTargets(&resolved)
 	return resolved, nil
 }
@@ -266,6 +270,9 @@ func resolveFocusedTarget(
 	if err = appendAggregateTargets(&resolved, profile, transactions, state, row); err != nil {
 		return ResolvedTargets{}, err
 	}
+	if err = requireTransactionTargets(resolved); err != nil {
+		return ResolvedTargets{}, err
+	}
 	canonicalizeResolvedTargets(&resolved)
 	return resolved, nil
 }
@@ -291,6 +298,8 @@ func aggregateRowsByIdentity(
 	return rows, nil
 }
 
+// appendAggregateTargets adds a row's transactions and entity. A row without transactions,
+// such as an empty Time period, adds nothing.
 func appendAggregateTargets(
 	resolved *ResolvedTargets,
 	profile domain.CommittedProfile,
@@ -298,6 +307,10 @@ func appendAggregateTargets(
 	state AnalyticalState,
 	row domain.AggregateRow,
 ) error {
+	filtered, err := aggregateTransactions(transactions, state, row)
+	if err != nil || len(filtered) == 0 {
+		return err
+	}
 	if row.Dimension != domain.DimensionTime {
 		if !activeDimensionEntity(profile, row.Dimension, domain.EntityID(row.Key)) {
 			return mutationError(
@@ -307,6 +320,29 @@ func appendAggregateTargets(
 		}
 		resolved.EntityIDs = append(resolved.EntityIDs, domain.EntityID(row.Key))
 	}
+	for _, transaction := range filtered {
+		resolved.TransactionIDs = append(
+			resolved.TransactionIDs,
+			domain.EntityID(transaction.ID),
+		)
+	}
+	return nil
+}
+
+// requireTransactionTargets rejects aggregate targets whose rows have no transactions.
+func requireTransactionTargets(resolved ResolvedTargets) error {
+	if len(resolved.TransactionIDs) == 0 {
+		return mutationError(
+			MutationInvalidTarget,
+			errors.New("aggregate has no current transaction targets"),
+		)
+	}
+	return nil
+}
+
+func aggregateTransactions(
+	transactions []domain.Transaction, state AnalyticalState, row domain.AggregateRow,
+) ([]domain.Transaction, error) {
 	query := analyticalQuerySpec(state)
 	period := row.Period
 	if period != nil {
@@ -322,21 +358,9 @@ func appendAggregateTargets(
 	})
 	filtered, err := analytics.Filter(transactions, query)
 	if err != nil {
-		return mutationError(MutationInvalidOperation, err)
+		return nil, mutationError(MutationInvalidOperation, err)
 	}
-	if len(filtered) == 0 {
-		return mutationError(
-			MutationInvalidTarget,
-			errors.New("aggregate has no current transaction targets"),
-		)
-	}
-	for _, transaction := range filtered {
-		resolved.TransactionIDs = append(
-			resolved.TransactionIDs,
-			domain.EntityID(transaction.ID),
-		)
-	}
-	return nil
+	return filtered, nil
 }
 
 func activeDimensionEntity(

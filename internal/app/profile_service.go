@@ -222,6 +222,7 @@ func (service *Service) Mutate(
 ) (MutationResult, error) {
 	service.interactions.Lock()
 	defer service.interactions.Unlock()
+	request.now = service.clock()
 	if _, err := service.refreshLocked(ctx); err != nil {
 		return MutationResult{}, err
 	}

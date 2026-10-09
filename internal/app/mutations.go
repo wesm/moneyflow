@@ -56,6 +56,9 @@ type MutationRequest struct {
 	Target         *RowTarget
 	Input          EditInput
 	Window         WindowRequest
+	// now is the owning service's clock, so edit targets list the same Time rows as the
+	// projection. Nil uses the system clock.
+	now func() time.Time
 }
 
 // ResolvedTargets are stable local identities fixed at operation-creation time.

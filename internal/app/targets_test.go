@@ -1,8 +1,11 @@
 package app_test
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,6 +105,107 @@ func TestResolveTargetsFindsTimeRowsAtTheDerivedGranularity(t *testing.T) {
 	})
 	require.NoError(t, err, "a month's Time rows are days, whatever granularity the URL had")
 	assert.Equal(t, []domain.EntityID{"transaction_a", "transaction_b"}, targets.TransactionIDs)
+}
+
+// timeTargetState is a USD Time view of dateRange; the URL leaves the granularity derived.
+func timeTargetState(t *testing.T, start, end string) app.ViewState {
+	t.Helper()
+	state := app.DefaultViewState()
+	state.Current.Dimension = domain.DimensionTime
+	state.Current.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+	state.Current.Sort = domain.SortSpec{
+		Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc,
+	}
+	startDate, err := domain.ParseDate(start)
+	require.NoError(t, err)
+	endDate, err := domain.ParseDate(end)
+	require.NoError(t, err)
+	state.Current.DateRange = &domain.DateRange{Start: startDate, End: endDate}
+	return state
+}
+
+func timeRowIdentity(key string) string {
+	return app.AggregateIdentity(domain.AggregateRow{
+		Dimension: domain.DimensionTime, Key: key,
+		Total: domain.Money{Currency: "USD", Scale: 2},
+	})
+}
+
+func TestSelectionsWithEmptyTimeRowsTargetTheirTransactions(t *testing.T) {
+	t.Parallel()
+
+	effective := effectiveForMutation(t, 5)
+	state := timeTargetState(t, "2026-01-01", "2026-12-31")
+	service := analyticsServiceForMutation(t, effective)
+	selection, err := service.ToggleAllSelection(state.Current, app.EmptySelection())
+	require.NoError(t, err)
+	selection, err = app.BindSelectionRevision(selection, 5)
+	require.NoError(t, err)
+	request := app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: 5, State: state, Selection: selection,
+	}
+
+	targets, err := app.ResolveTargets(effective, request)
+	require.NoError(t, err, "empty months contribute nothing")
+	assert.Equal(t, []domain.EntityID{"transaction_a", "transaction_b"}, targets.TransactionIDs)
+	plan, err := app.BuildHideMutation(effective, request, operationMetadata("operation_hide_year"))
+	require.NoError(t, err)
+	assert.Equal(t, []domain.EntityID{"transaction_a"}, plan.Operation.Targets,
+		"the mixed scope hides its visible member")
+
+	empty, err := service.ToggleSelection(
+		state.Current, app.EmptySelection(), app.IdentityAggregate, timeRowIdentity("2026-01"),
+	)
+	require.NoError(t, err)
+	request.Selection, err = app.BindSelectionRevision(empty, 5)
+	require.NoError(t, err)
+	_, err = app.ResolveTargets(effective, request)
+	failure := requireMutationCode(t, err, app.MutationInvalidTarget)
+	assert.ErrorContains(t, failure.Unwrap(), "no current transaction targets")
+}
+
+// TestEditTargetsUseTheServiceClock selects the last day of the real current month in a view
+// whose fixed clock is a year earlier, so the whole month is listed. Under the real clock the
+// month ends at today, so on any day but the month's last the selected row would not resolve.
+func TestEditTargetsUseTheServiceClock(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	last := first.AddDate(0, 1, -1)
+	profile := replayProfile(t)
+	firstDate, err := domain.NewDate(first.Year(), first.Month(), first.Day())
+	require.NoError(t, err)
+	for index := range profile.Transactions {
+		profile.Transactions[index].Date = firstDate
+	}
+	service, err := app.NewProfileService(context.Background(), &memoryProfile{
+		snapshot: domain.ProfileSnapshot{Revision: 7, Committed: profile},
+	})
+	require.NoError(t, err)
+	service.SetClock(func() time.Time { return now.AddDate(-1, 0, 0) })
+	state := timeTargetState(t, first.Format(time.DateOnly), last.Format(time.DateOnly))
+	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	rows := projection.AggregateRows
+	require.Len(t, rows, last.Day(), "the fixed clock lists the whole month")
+	selection := app.EmptySelection()
+	for _, row := range []app.WebAggregateRow{rows[0], rows[len(rows)-1]} {
+		selection, err = service.ToggleSelection(
+			state.Current, selection, app.IdentityAggregate, row.Identity,
+		)
+		require.NoError(t, err)
+	}
+	selection, err = app.BindSelectionRevision(selection, projection.Revision)
+	require.NoError(t, err)
+
+	preview, err := service.PreviewMutation(context.Background(), app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: projection.Revision,
+		State: state, Selection: selection,
+	})
+	require.NoError(t, err, "the selected last day resolves under the service clock")
+	assert.Equal(t, 1, preview.AffectedCount, "the empty day adds nothing; one visible member")
+	assert.True(t, strings.HasSuffix(rows[len(rows)-1].Row.Key, last.Format("-01-02")))
 }
 
 func TestResolveTargetsKeepsCommittedAggregateScopeAfterPendingMerge(t *testing.T) {

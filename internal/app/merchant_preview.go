@@ -27,6 +27,7 @@ type MerchantEditPreview struct {
 func (service *Service) PreviewMerchantEdit(ctx context.Context, request MutationRequest) (MerchantEditPreview, error) {
 	service.interactions.Lock()
 	defer service.interactions.Unlock()
+	request.now = service.clock()
 	snapshot, err := service.readSnapshotLocked(ctx)
 	if err != nil {
 		return MerchantEditPreview{}, err

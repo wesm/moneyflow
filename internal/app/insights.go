@@ -40,11 +40,16 @@ func (service *Service) SetClock(now func() time.Time) {
 	service.now = now
 }
 
+// clock returns the service clock; nil means the system clock.
+func (service *Service) clock() func() time.Time {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.now
+}
+
 // today returns the service clock's date.
 func (service *Service) today() (domain.Date, error) {
-	service.mu.RLock()
-	now := service.now
-	service.mu.RUnlock()
+	now := service.clock()
 	if now == nil {
 		now = time.Now
 	}
