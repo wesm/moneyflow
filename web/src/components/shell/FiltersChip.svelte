@@ -3,6 +3,7 @@
 
   import type { ViewProjection } from '../../lib/api/client'
   import type { TransitionAction } from '../../lib/controller/view-controller.svelte'
+  import { containMenuKeys } from '../../lib/shell/menu-keys'
 
   interface Props {
     projection: ViewProjection
@@ -87,7 +88,7 @@
   ])
 </script>
 
-<div class="mf-filters-chip" bind:this={wrapper}>
+<div class="mf-filters-chip" bind:this={wrapper} {@attach containMenuKeys}>
   <FilterDropdown
     label="Filters"
     title="Filters · f"

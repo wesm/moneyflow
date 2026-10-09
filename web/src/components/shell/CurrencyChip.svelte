@@ -2,6 +2,7 @@
   import { SelectDropdown } from '@kenn-io/kit-ui'
 
   import type { TransitionBody, ViewProjection } from '../../lib/api/client'
+  import { containMenuKeys } from '../../lib/shell/menu-keys'
 
   type CurrencyScope = NonNullable<TransitionBody['currency']>
 
@@ -32,5 +33,13 @@
 </script>
 
 {#if options.length > 1}
-  <SelectDropdown class="mf-currency-chip" title="Currency" {options} {value} onchange={choose} />
+  <div class="mf-currency-chip-keys" {@attach containMenuKeys}>
+    <SelectDropdown class="mf-currency-chip" title="Currency" {options} {value} onchange={choose} />
+  </div>
 {/if}
+
+<style>
+  .mf-currency-chip-keys {
+    display: contents;
+  }
+</style>

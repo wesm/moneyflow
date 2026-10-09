@@ -6,7 +6,7 @@
   import type { PendingSummary, ViewProjection } from '../../lib/api/client'
   import type { ProviderController } from '../../lib/controller/provider'
   import { navIcons } from '../../lib/shell/nav-icons'
-  import { availableCapabilities } from '../../lib/shell/capabilities'
+  import { availableCapabilities, unavailableReason } from '../../lib/shell/capabilities'
   import {
     ariaKeyshortcuts,
     hasProviderStatus,
@@ -35,7 +35,11 @@
   const reviewOffered = $derived(write !== undefined || (waiting && reviewAvailable))
   const pendingTip = $derived.by(() => {
     if (write) return `Write ${write.completed}/${write.total} · w`
-    return waiting ? 'Review pending changes · w' : 'No pending edits'
+    if (!waiting) return 'No pending edits'
+    if (!reviewAvailable) {
+      return `Review pending changes · ${unavailableReason(projection, 'changes.review')}`
+    }
+    return 'Review pending changes · w'
   })
 
   // kit IconButton has no aria-current or aria-keyshortcuts prop; set them on its button.
@@ -89,7 +93,7 @@
           <PenLineIcon size={16} aria-hidden="true" />
         </IconButton>
       </Tooltip>
-      {#if waiting}
+      {#if waiting && reviewOffered}
         <span class="mf-rail__count" aria-hidden="true">{pending.active_operations}</span>
       {/if}
     </li>

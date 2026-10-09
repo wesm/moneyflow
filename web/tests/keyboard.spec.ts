@@ -296,6 +296,43 @@ test('the Filters chip shows and hides hidden transactions and keeps the period'
   await expect(trigger).toHaveText('Filters 1')
 })
 
+test('keys pressed in an open Filters menu or Currency list stay in it', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const viewBefore = page.url()
+  const cursorBefore = await grid.getAttribute('aria-activedescendant')
+
+  await page.keyboard.press('f')
+  const filters = page.getByRole('button', { name: 'Filters' })
+  const transfers = page.getByRole('button', { name: 'Show transfers' })
+  await expect(transfers).toBeVisible()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('d')
+  await expect(transfers).toBeVisible()
+  await expect(page).toHaveURL(viewBefore)
+  await expect(grid).toHaveAttribute('aria-activedescendant', cursorBefore ?? '')
+  await page.keyboard.press('Escape')
+  await expect(transfers).toBeHidden()
+  await expect(filters).toBeFocused()
+
+  const currency = page.getByRole('combobox', { name: 'Currency: USD' })
+  await currency.click()
+  const list = page.getByRole('listbox')
+  await expect(list).toBeVisible()
+  await page.keyboard.press('d')
+  await page.keyboard.press('g')
+  await expect(list).toBeVisible()
+  await expect(page).toHaveURL(viewBefore)
+  await expect(breadcrumb(page)).toHaveText('Merchants')
+  await page.keyboard.press('Escape')
+  await expect(list).toBeHidden()
+  await expect(currency).toBeFocused()
+  await expect(grid).toHaveAttribute('aria-activedescendant', cursorBefore ?? '')
+})
+
 test('switching currency inside a drill returns to the top level in that currency', async ({
   page,
   server,

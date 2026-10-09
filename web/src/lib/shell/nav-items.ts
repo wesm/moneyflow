@@ -1,6 +1,7 @@
 import type { ViewProjection } from '../api/client'
 import type { Dimension, LocalAction } from '../shortcuts'
 import { availableCapabilities, unavailableReason } from './capabilities'
+import { drillFrames } from './drills'
 
 /** What a navigation entry does: the same handler its key reaches. */
 export type NavRun =
@@ -71,7 +72,7 @@ export function navItems(projection: ViewProjection): NavSections {
       run: spec.run,
     }
   }
-  const allTransactions = projection.view.mode === 'detail' && !isDrilled(projection)
+  const allTransactions = projection.view.mode === 'detail' && drillFrames(projection).length === 0
   const explore = groupings.map(({ dimension, label }, index) =>
     entry({
       id: dimension,
@@ -115,12 +116,4 @@ function maintenance(
   action: LocalAction,
 ): EntrySpec {
   return { id, label, key, capability, run: { kind: 'local', action } }
-}
-
-/**
- * Reports whether the current view sits inside a drill. The canonical query lists the current
- * view's drills as top-level `drill` parameters; return frames nest theirs inside `return`.
- */
-function isDrilled(projection: ViewProjection): boolean {
-  return new URLSearchParams(projection.canonical_query).has('drill')
 }

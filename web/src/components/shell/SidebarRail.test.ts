@@ -106,6 +106,21 @@ describe('SidebarRail', () => {
     expect((await screen.findByRole('tooltip')).textContent?.trim()).toBe('No pending edits')
   })
 
+  it('offers no review and no count when pending edits cannot be reviewed here', async () => {
+    const onreview = vi.fn()
+    const capabilities = testCapabilities(navCapabilityIDs, ['changes.review'])
+    render(SidebarRail, props({ onreview, projection: projection({ capabilities }) }))
+    const review = screen.getByRole('button', { name: 'Review pending changes' })
+    expect(review.getAttribute('aria-disabled')).toBe('true')
+    await fireEvent.click(review)
+    expect(onreview).not.toHaveBeenCalled()
+    expect(review.closest('li')?.querySelector('.mf-rail__count')).toBeNull()
+    await fireEvent.focusIn(review)
+    expect((await screen.findByRole('tooltip')).textContent?.trim()).toBe(
+      'Review pending changes · Not available in this view',
+    )
+  })
+
   it('shows write progress on the pending icon while a write runs', async () => {
     render(SidebarRail, props({ write: { completed: 2, total: 5 } }))
     const review = screen.getByRole('button', { name: 'Review pending changes' })
