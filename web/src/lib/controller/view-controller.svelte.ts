@@ -118,6 +118,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let recheckRequest: Promise<ViewProjection | undefined> | undefined
   let lastRevisionObservation = 0
   let returning: ReturnInProgress | undefined
+  let lateReturn: ReturnInProgress | undefined
   let barrier: Promise<unknown> = Promise.resolve()
   const prefetchRequests = new SvelteMap<string, AbortController>()
 
@@ -180,7 +181,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   function hold<T>(work: Promise<T>): Promise<T> {
-    barrier = work.catch(() => undefined)
+    const released = work.then(
+      () => undefined,
+      () => undefined,
+    )
+    barrier = Promise.all([barrier, released])
     return work
   }
 
@@ -238,6 +243,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     historyMode?: 'replace',
   ): Promise<boolean> {
     if (!projection) return false
+    lateReturn = undefined
     const prior = projection
     const body: TransitionBody = {
       query: prior.canonical_query,
@@ -283,8 +289,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const traversal = new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         if (returning?.projection !== next) return
+        lateReturn = returning
         returning = undefined
-        accept(next, 'replace')
+        accept(next, 'none')
         resolve()
       }, returnTimeoutMillis)
       returning = {
@@ -296,7 +303,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         },
       }
     })
-    barrier = traversal
+    barrier = Promise.all([barrier, traversal])
     browserHistory.go(delta)
     return traversal
   }
@@ -305,32 +312,22 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     returned: ReturnInProgress,
     owned: MoneyflowHistoryState,
   ): Promise<void> {
-    try {
-      const offset = alignedOffset(owned.cursorIndex)
-      if (offset === returned.projection.window.offset) {
-        generation += 1
-        activeRequest?.abort()
-        loading = false
-        accept(returned.projection, 'replace', owned)
-        return
-      }
-      const { canonical_query: query, selection } = returned.projection
-      await requestProjection(
-        async () =>
-          ensureVisibleWindow(await options.client.view(viewBody(query, selection, offset))),
-        (next) => accept(next, 'replace', owned),
-        () => installReturn(returned, owned),
-      )
-    } finally {
-      returned.settle()
+    generation += 1
+    activeRequest?.abort()
+    loading = false
+    accept(returned.projection, 'replace', owned)
+    returned.settle()
+    if (alignedOffset(owned.cursorIndex) !== returned.projection.window.offset) {
+      await moveToIndex(owned.cursorIndex)
     }
   }
 
   async function restore(event: PopStateEvent): Promise<void> {
     searchSnapshot = undefined
     const owned = ledger.record(event.state)
-    const returned = returning
+    const returned = returning ?? lateReturn
     returning = undefined
+    lateReturn = undefined
     if (returned && owned && returned.sequence === owned.sequence) {
       await installReturn(returned, owned)
       return
@@ -535,7 +532,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   function accept(
     next: ViewProjection,
-    historyMode: 'push' | 'replace',
+    historyMode: 'push' | 'replace' | 'none',
     restored?: MoneyflowHistoryState,
   ): void {
     cache.store(next)
@@ -556,6 +553,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
     problem = undefined
 
+    if (historyMode === 'none') {
+      schedulePrefetch(next)
+      return
+    }
     if (historyMode === 'push') sequence += 1
     const state = ownedState(next)
     const url = applicationURL(basePath, next.canonical_query)

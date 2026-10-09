@@ -236,21 +236,22 @@ describe('browser view controller', () => {
 
   it('returns to a breadcrumb level through owned history', async () => {
     const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
-    const controller = controllerFor(
-      clientWith({
-        transition: async (body) =>
-          projection(body.action === 'view.back-to' ? 'v=1' : `v=1&drill=${body.action}`, 0, 2),
-      }),
-    )
+    const client = clientWith({
+      transition: async (body) =>
+        projection(body.action === 'view.back-to' ? 'v=1' : `v=1&drill=${body.action}`, 0, 2),
+    })
+    const controller = controllerFor(client)
     await controller.hydrate()
     const top = history.state as MoneyflowHistoryState
     await controller.apply({ action: 'view.drill' })
     await controller.apply({ action: 'view.drill-again' })
     go.mockClear()
+    vi.mocked(client.view).mockClear()
 
     await traverse(controller, { action: 'view.back-to', depth: 0 }, top)
 
     expect(go).toHaveBeenCalledWith(-2)
+    expect(client.view).not.toHaveBeenCalled()
     expect(controller.projection?.canonical_query).toBe('v=1')
     expect((history.state as MoneyflowHistoryState).sequence).toBe(top.sequence)
   })
@@ -300,27 +301,58 @@ describe('browser view controller', () => {
     expect((history.state as MoneyflowHistoryState).sequence).toBe(0)
   })
 
-  it('falls back to replacing the entry when the history traversal never arrives', async () => {
-    vi.spyOn(history, 'go').mockImplementation(() => undefined)
-    const controller = controllerFor(
-      clientWith({
+  describe('a history traversal that does not arrive in time', () => {
+    async function timedOut() {
+      vi.spyOn(history, 'go').mockImplementation(() => undefined)
+      const client = clientWith({
         transition: async (body) =>
           projection(body.action === 'view.back' ? 'v=1' : 'v=1&group=category', 0, 2),
-      }),
-    )
-    await controller.hydrate()
-    await controller.apply({ action: 'view.cycle-grouping' })
+      })
+      const controller = controllerFor(client)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.cycle-grouping' })
+      const drill = history.state as MoneyflowHistoryState
+      vi.mocked(client.view).mockClear()
+      await expect(controller.apply({ action: 'view.back' })).resolves.toBe(true)
+      return { client, controller, parent, drill }
+    }
 
-    await expect(controller.apply({ action: 'view.back' })).resolves.toBe(true)
+    it('shows the parent without writing it over the drill entry', async () => {
+      const { controller, drill } = await timedOut()
 
-    expect(controller.projection?.canonical_query).toBe('v=1')
-    expect(window.location.search).toBe('?v=1')
-    expect(controller.loading).toBe(false)
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect(controller.loading).toBe(false)
+      expect(history.state).toEqual(drill)
+      expect(window.location.search).toBe('?v=1&group=category')
+    })
+
+    it('installs a late matching popstate without a request', async () => {
+      const { client, controller, parent } = await timedOut()
+
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+
+      expect(client.view).not.toHaveBeenCalled()
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect((history.state as MoneyflowHistoryState).sequence).toBe(parent.sequence)
+      expect(window.location.search).toBe('?v=1')
+    })
+
+    it('forgets the expected target once another popstate arrives', async () => {
+      const { client, controller, parent, drill } = await timedOut()
+
+      await controller.restore(new PopStateEvent('popstate', { state: drill }))
+      expect(client.view).toHaveBeenCalledTimes(1)
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+
+      expect(client.view).toHaveBeenCalledTimes(2)
+    })
   })
 
-  it('fetches the parent cursor window when the returned window differs', async () => {
+  it('installs the returned view at once, then fetches the parent cursor window', async () => {
     vi.spyOn(history, 'go').mockImplementation(() => undefined)
     const cleared = 'mfsel1.cleared' as SelectionValue
+    let release!: (value: ViewProjection) => void
     const client = clientWith({
       view: vi.fn(async (body) => projection('v=1', body.window.offset, 450, '0', cleared)),
       transition: vi.fn(async (body) =>
@@ -337,13 +369,30 @@ describe('browser view controller', () => {
     await controller.apply({ action: 'view.drill' })
     await controller.moveHome()
     vi.mocked(client.view).mockClear()
+    vi.mocked(client.view).mockImplementationOnce(
+      () => new Promise<ViewProjection>((resolve) => (release = resolve)),
+    )
 
-    await traverse(controller, { action: 'view.back' }, parent)
+    const go = vi.mocked(history.go)
+    const before = go.mock.calls.length
+    const done = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+    const restoring = controller.restore(new PopStateEvent('popstate', { state: parent }))
+    await done
 
+    expect(controller.projection?.canonical_query).toBe('v=1')
+    expect(controller.projection?.window.offset).toBe(0)
+    expect(controller.cursorIndex).toBe(250)
+    expect((history.state as MoneyflowHistoryState).query).toBe('v=1')
+    expect((history.state as MoneyflowHistoryState).sequence).toBe(parent.sequence)
     expect(client.view).toHaveBeenCalledTimes(1)
     expect(client.view).toHaveBeenCalledWith(
       expect.objectContaining({ selection: cleared, window: { offset: 200, limit: 200 } }),
+      expect.any(AbortSignal),
     )
+
+    release(projection('v=1', 200, 450, '0', cleared))
+    await restoring
     expect(controller.projection?.window.offset).toBe(200)
     expect(controller.cursorIndex).toBe(250)
     expect(controller.loading).toBe(false)
@@ -382,6 +431,76 @@ describe('browser view controller', () => {
       expect.any(AbortSignal),
     )
     expect(controller.projection?.canonical_query).toBe('cur=EUR%3A2&v=1&group=category')
+  })
+
+  it.each([
+    ['rejects', () => Promise.reject(new Error('network down'))],
+    ['is aborted', () => Promise.reject(new DOMException('aborted', 'AbortError'))],
+  ])('releases held keys when the first-load currency change %s', async (_label, fail) => {
+    const client = clientWith({
+      view: vi.fn(async (body) => ({
+        ...projection('v=1', body.window.offset, 3),
+        currencies: [
+          { currency: 'EUR', scale: 2, count: 3, first: '2024-01-01', latest: '2024-12-31' },
+        ],
+      })),
+      transition: vi
+        .fn()
+        .mockImplementationOnce(fail)
+        .mockImplementation(async (body) => projection(`${body.query}&group=category`, 0, 3)),
+    })
+    const controller = controllerFor(client)
+
+    const hydrating = controller.hydrate()
+    await vi.waitFor(() => expect(client.transition).toHaveBeenCalledTimes(1), { interval: 1 })
+    const key = controller.apply({ action: 'view.cycle-grouping' })
+    await hydrating
+
+    await expect(key).resolves.toBe(true)
+    expect(controller.projection?.canonical_query).toBe('v=1&group=category')
+  })
+
+  it('keeps a key behind both a pending return and a hydrate started during it', async () => {
+    vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    let withCurrency = false
+    const client = clientWith({
+      view: vi.fn(async (body) => ({
+        ...projection('v=1', body.window.offset, 3),
+        currencies: withCurrency
+          ? [{ currency: 'EUR', scale: 2, count: 3, first: '2024-01-01', latest: '2024-12-31' }]
+          : [],
+      })),
+      transition: vi.fn(async (body) => {
+        if (body.action === 'view.set-currency') return projection('cur=EUR%3A2&v=1', 0, 3)
+        return projection(body.action === 'view.back' ? 'v=1' : 'v=1&drill=x', 0, 3)
+      }),
+    })
+    const controller = controllerFor(client)
+    await controller.hydrate()
+    const parent = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill' })
+    vi.mocked(client.transition).mockClear()
+
+    const go = vi.mocked(history.go)
+    const before = go.mock.calls.length
+    const back = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+    withCurrency = true
+    await controller.hydrate()
+    const key = controller.apply({ action: 'view.cycle-grouping' })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(client.transition).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'view.cycle-grouping' }),
+      expect.anything(),
+    )
+
+    await controller.restore(new PopStateEvent('popstate', { state: parent }))
+    await Promise.all([back, key])
+
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ action: 'view.cycle-grouping', query: 'v=1' }),
+      expect.any(AbortSignal),
+    )
   })
 
   it('restores owned Back/Forward state including cursor and selection', async () => {
