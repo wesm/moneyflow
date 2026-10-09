@@ -69,9 +69,16 @@ test('@smoke a narrow empty search view keeps Clear search reachable', async ({ 
     expect(
       await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth),
     ).toBe(true)
+    const length = await page.evaluate(() => history.length)
     await clear.click()
-    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeVisible()
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await expect(grid).toBeVisible()
     await expect(page.getByText('No transactions', { exact: true })).not.toBeVisible()
+    await grid.click()
+    await expect(page).not.toHaveURL(/[?&]q=/)
+    await expect.poll(() => page.evaluate(() => history.length)).toBe(length + 1)
+    await page.goBack()
+    await expect(page).toHaveURL(/[?&]q=NoSuchSyntheticMerchant(?:&|$)/)
   })
 })
 

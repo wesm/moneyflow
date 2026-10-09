@@ -72,7 +72,7 @@
       {projection}
       onchange={(currency) => apply({ action: 'view.set-currency', currency })}
     />
-    <FiltersChip bind:this={filters} {projection} onapply={apply} />
+    <FiltersChip bind:this={filters} {projection} onapply={(action) => controller.apply(action)} />
     <CommandSearch bind:this={search} {controller} ondone={onfocusgrid} />
   {/snippet}
   {#snippet trailing()}

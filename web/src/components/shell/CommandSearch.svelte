@@ -19,18 +19,21 @@
 
   let { controller, ondone }: Props = $props()
   let wrapper = $state<HTMLDivElement>()
+  // kit types `inputEl` without `| undefined`, so the binding below casts the unmounted field.
+  let inputEl = $state<HTMLInputElement>()
   /** The text being typed; undefined while the field shows the applied search. */
   let draft = $state<string | undefined>()
   let error = $state('')
   let session: { search: SearchCoordinator; unsubscribe: () => void } | undefined
+  /** A search that lost focus and is still being applied; new typing waits for it. */
+  let leaving: Promise<void> | undefined
 
   const applied = $derived(controller.projection?.view.search ?? '')
 
   /** Focuses the field and selects its text, for the `/` key. */
   export function focus(): void {
-    const input = wrapper?.querySelector('input')
-    input?.focus()
-    input?.select()
+    inputEl?.focus()
+    inputEl?.select()
   }
 
   function begin(): SearchCoordinator {
@@ -41,20 +44,27 @@
     return search
   }
 
-  function end(): void {
+  /** Detaches the session from the field without restoring or applying it. */
+  function detach(): SearchCoordinator | undefined {
+    const search = session?.search
     session?.unsubscribe()
-    session?.search.destroy()
     session = undefined
+    return search
+  }
+
+  function end(): void {
+    detach()?.destroy()
     draft = undefined
     error = ''
   }
 
   function type(next: string): void {
     draft = next
-    begin().input(next)
+    if (!leaving) begin().input(next)
   }
 
   async function commit(): Promise<void> {
+    await leaving
     const search = session?.search
     if (search && !(await search.commit())) return
     end()
@@ -67,10 +77,20 @@
     ondone()
   }
 
-  /** Leaving the field keeps a valid preview as an applied search and drops an invalid one. */
-  async function leave(search: SearchCoordinator): Promise<void> {
+  /**
+   * Leaving the field keeps a valid preview as an applied search and drops an invalid one.
+   * Text typed meanwhile starts a new search once this one is settled.
+   */
+  async function leave(search: SearchCoordinator, typed: string | undefined): Promise<void> {
     if (!(await search.commit())) search.cancel()
-    if (session?.search === search) end()
+    search.destroy()
+    leaving = undefined
+    if (draft === typed) {
+      draft = undefined
+      error = ''
+    } else if (draft !== undefined) {
+      begin().input(draft)
+    }
   }
 
   function keydown(event: KeyboardEvent): void {
@@ -90,14 +110,25 @@
   function focusout(event: FocusEvent): void {
     const next = event.relatedTarget
     if (!session || (next instanceof Node && wrapper?.contains(next))) return
-    void controller.hold(leave(session.search))
+    // Switching windows blurs the field too; the search stays open for the user's return.
+    if (!document.hasFocus()) return
+    const search = detach()
+    if (search) leaving = controller.hold(leave(search, draft))
+  }
+
+  // Browser history replaced the view and dropped this search's starting point.
+  function historyChanged(): void {
+    if (session) end()
   }
 
   onDestroy(() => end())
 </script>
 
+<svelte:window onpopstate={historyChanged} />
+
 <div class="mf-command-search" bind:this={wrapper} onkeydowncapture={escape} onfocusout={focusout}>
   <SearchInput
+    bind:inputEl={() => inputEl as HTMLInputElement, (element) => (inputEl = element)}
     value={draft ?? applied}
     size="sm"
     keys={['/']}

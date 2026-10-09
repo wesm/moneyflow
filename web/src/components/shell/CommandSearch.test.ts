@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/sv
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import CommandSearch from './CommandSearch.svelte'
+import type { SearchPreview } from '../../lib/controller/search'
 import { testProjection } from '../../test/projection'
 
 function host(search = '', valid = true) {
@@ -11,7 +12,9 @@ function host(search = '', valid = true) {
     held,
     projection: testProjection({ view: { ...testProjection().view, search } }),
     beginSearch: vi.fn(() => snapshot),
-    previewSearch: vi.fn(async () => valid),
+    previewSearch: vi.fn<(search: string) => Promise<SearchPreview>>(async () =>
+      valid ? 'applied' : 'rejected',
+    ),
     commitSearch: vi.fn(),
     restoreSearch: vi.fn(),
     hold<T>(work: Promise<T>): Promise<T> {
@@ -98,15 +101,65 @@ describe('CommandSearch', () => {
   it('applies the preview when focus leaves the field, holding later transitions', async () => {
     const controller = host()
     render(CommandSearch, { controller, ondone: vi.fn() })
+    field().focus()
     await fireEvent.input(field(), { target: { value: 'noodle' } })
     await fireEvent.focusOut(field(), { relatedTarget: document.body })
     expect(controller.held).toHaveBeenCalledOnce()
     await waitFor(() => expect(controller.commitSearch).toHaveBeenCalledOnce())
   })
 
+  it('keeps the search open while the window itself loses focus', async () => {
+    const controller = host()
+    const focused = vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+    try {
+      render(CommandSearch, { controller, ondone: vi.fn() })
+      await fireEvent.input(field(), { target: { value: 'noodle' } })
+      await fireEvent.focusOut(field(), { relatedTarget: null })
+      expect(controller.held).not.toHaveBeenCalled()
+      expect(controller.commitSearch).not.toHaveBeenCalled()
+      expect(field().value).toBe('noodle')
+    } finally {
+      focused.mockRestore()
+    }
+  })
+
+  it('keeps text typed while the search that lost focus is still being applied', async () => {
+    const controller = host()
+    let release!: (outcome: SearchPreview) => void
+    controller.previewSearch.mockImplementationOnce(
+      () => new Promise<SearchPreview>((resolve) => (release = resolve)),
+    )
+    render(CommandSearch, { controller, ondone: vi.fn() })
+    field().focus()
+    await fireEvent.input(field(), { target: { value: 'noodle' } })
+    await fireEvent.focusOut(field(), { relatedTarget: document.body })
+    await waitFor(() => expect(controller.previewSearch).toHaveBeenCalledWith('noodle'))
+    await fireEvent.input(field(), { target: { value: 'pizza' } })
+    release('applied')
+    await waitFor(() => expect(controller.commitSearch).toHaveBeenCalledOnce())
+    await waitFor(() => expect(controller.previewSearch).toHaveBeenCalledWith('pizza'))
+    expect(controller.beginSearch).toHaveBeenCalledTimes(2)
+    expect(field().value).toBe('pizza')
+  })
+
+  it('ends a search without applying it when browser history changes the view', async () => {
+    const controller = host('noodle')
+    const ondone = vi.fn()
+    render(CommandSearch, { controller, ondone })
+    await fireEvent.input(field(), { target: { value: 'pizza' } })
+    await waitFor(() => expect(controller.previewSearch).toHaveBeenCalledWith('pizza'))
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    await waitFor(() => expect(field().value).toBe('noodle'))
+    await fireEvent.keyDown(field(), { key: 'Enter' })
+    await fireEvent.keyDown(field(), { key: 'Escape' })
+    expect(controller.commitSearch).not.toHaveBeenCalled()
+    expect(controller.restoreSearch).not.toHaveBeenCalled()
+  })
+
   it('drops an invalid search when focus leaves the field', async () => {
     const controller = host('', false)
     render(CommandSearch, { controller, ondone: vi.fn() })
+    field().focus()
     await fireEvent.input(field(), { target: { value: '[' } })
     await fireEvent.focusOut(field(), { relatedTarget: document.body })
     await waitFor(() => expect(controller.restoreSearch).toHaveBeenCalledOnce())

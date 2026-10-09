@@ -7,7 +7,8 @@ transactions or change provider import history.
   transfers. Choose **Apply** to use them.
 - **Browser:** `f` opens the command bar's **Filters** menu, or click it. It has
   **Show hidden transactions** and **Show transfers**, and each click applies at once and keeps
-  the period. Its badge counts the options that are on. Choose dates with the
+  the period. Hidden transactions are shown and transfers are not until you change them; the
+  badge counts the options changed from that default. Choose dates with the
   [period control](navigation.md#choose-a-period-in-the-browser). Esc or a click outside
   closes the menu.
 

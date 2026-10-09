@@ -52,7 +52,7 @@ test('keys 1 to 5 group by merchant, category, group, account, and time', async 
   server,
 }) => {
   await openMoneyflow(page, server)
-  const groupings = ['Merchants', 'Categories', 'Groups', 'Accounts', 'Time']
+  const groupings = ['Merchants', 'Categories', 'Groups', 'Accounts', 'Months']
   for (const [index, grouping] of groupings.entries()) {
     await page.keyboard.press(String(index + 1))
     await expect(breadcrumb(page)).toHaveText(grouping)
@@ -67,7 +67,7 @@ test('cycles every grouping, account direct view, detail, drill, subgroup, and b
   server,
 }) => {
   await openMoneyflow(page, server)
-  for (const grouping of ['Categories', 'Groups', 'Accounts', 'Time', 'Merchants']) {
+  for (const grouping of ['Categories', 'Groups', 'Accounts', 'Months', 'Merchants']) {
     await page.keyboard.press('g')
     await expect(breadcrumb(page)).toHaveText(grouping)
   }
@@ -82,7 +82,7 @@ test('cycles every grouping, account direct view, detail, drill, subgroup, and b
   await expect(page.getByRole('columnheader', { name: 'Count', exact: true })).toBeVisible()
 
   await page.keyboard.press('g')
-  await expect(breadcrumb(page)).toHaveText('Time')
+  await expect(breadcrumb(page)).toHaveText('Months')
   await page.keyboard.press('g')
   await expect(breadcrumb(page)).toHaveText('Merchants')
   const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
@@ -148,6 +148,20 @@ test('Break down by sub-groups a drill and returns to its transactions', async (
   expect(await page.evaluate(() => history.length)).toBe(initialLength + 1)
 })
 
+test('the root crumb of a month opened from Months returns to Months', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  await expect(breadcrumb(page)).toHaveText('All transactions')
+  await page.keyboard.press('5')
+  await expect(breadcrumb(page)).toHaveText('Months')
+  const period = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  await page.keyboard.press('Enter')
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Time', `› ${period}`])
+  await breadcrumb(page).getByRole('button', { name: 'Time' }).click()
+  await expect(breadcrumb(page)).toHaveText('Months')
+  await expect(page.getByRole('columnheader', { name: 'Count', exact: true })).toBeVisible()
+})
+
 test('time, sort, and exact selection refinements remain keyboard driven', async ({
   page,
   server,
@@ -170,7 +184,7 @@ test('time, sort, and exact selection refinements remain keyboard driven', async
       .first(),
   ).toHaveAttribute('aria-selected', 'true')
 
-  for (const grouping of ['Categories', 'Groups', 'Accounts', 'Time']) {
+  for (const grouping of ['Categories', 'Groups', 'Accounts', 'Months']) {
     await page.keyboard.press('g')
     await expect(breadcrumb(page)).toHaveText(grouping)
   }
@@ -207,6 +221,8 @@ test('search previews, commits, cancels, and reports invalid regular expressions
   await expect(search).toHaveValue('noodle')
   await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
   expect(await page.evaluate(() => history.length)).toBe(initialLength + 1)
+  const noodleRows = await grid.getAttribute('aria-rowcount')
+  const noodleRow = await (await activeRow(page)).innerText()
 
   await page.keyboard.press('/')
   await expect(search).toBeFocused()
@@ -218,6 +234,8 @@ test('search previews, commits, cancels, and reports invalid regular expressions
   await expect(search).toHaveValue('noodle')
   await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
   await expect(await activeRow(page)).toContainText('Noodle House')
+  await expect(grid).toHaveAttribute('aria-rowcount', noodleRows ?? '')
+  await expect(await activeRow(page)).toHaveText(noodleRow)
   expect(await page.evaluate(() => history.length)).toBe(initialLength + 1)
 
   await page.keyboard.press('/')
@@ -249,18 +267,19 @@ test('the Filters chip shows and hides hidden transactions and keeps the period'
     .getByRole('gridcell')
     .nth(1)
   await expect(noodleCount).toHaveText('144')
-  await expect(trigger).toHaveText('Filters 1')
+  await expect(trigger).toHaveText('Filters')
 
   await page.keyboard.press('f')
   await expect(trigger).toBeFocused()
   await hidden.click()
   await expect(page).toHaveURL(/[?&]hidden=0/)
   await expect(noodleCount).toHaveText('138')
-  await expect(trigger).toHaveText('Filters')
+  await expect(trigger).toHaveText('Filters 1')
   await expect(hidden).toBeVisible()
   await hidden.click()
   await expect(page).not.toHaveURL(/[?&]hidden=0/)
   await expect(noodleCount).toHaveText('144')
+  await expect(trigger).toHaveText('Filters')
   await page.keyboard.press('Escape')
   await expect(hidden).toBeHidden()
   await expect(trigger).toBeFocused()
@@ -274,7 +293,7 @@ test('the Filters chip shows and hides hidden transactions and keeps the period'
   await page.getByRole('button', { name: 'Show transfers' }).click()
   await expect(page).toHaveURL(/[?&]transfers=1/)
   await expect(page).toHaveURL(/[?&]from=2026-10-01&to=2026-10-31/)
-  await expect(trigger).toHaveText('Filters 2')
+  await expect(trigger).toHaveText('Filters 1')
 })
 
 test('switching currency inside a drill returns to the top level in that currency', async ({

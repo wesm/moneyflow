@@ -13,6 +13,7 @@ import { createEditingController, type EditingController } from './editing'
 import { createDuplicateController, type DuplicateController } from './duplicates'
 import { createExportController, type ExportController } from './export'
 import { OwnedHistoryLedger, type MoneyflowHistoryState } from './history'
+import type { SearchPreview } from './search'
 import { createProviderController, type ProviderController } from './provider'
 import { createProviderWriteController, type ProviderWriteController } from './provider-write'
 import { createReviewController, type ReviewController } from './review'
@@ -70,11 +71,16 @@ export interface ViewController {
   moveCursorTo(index: number): Promise<void>
   moveHome(): Promise<void>
   apply(action: TransitionAction): Promise<boolean>
-  /** Makes later transitions wait for `work`, as they wait for an Esc return. */
+  /**
+   * Makes later transitions wait for `work`, as they wait for an Esc return. `work` must not
+   * await `apply()` or another transition: that transition waits for `work`, so neither ends.
+   */
   hold<T>(work: Promise<T>): Promise<T>
   beginSearch(): SearchSnapshot
-  previewSearch(search: string): Promise<boolean>
+  previewSearch(search: string): Promise<SearchPreview>
+  /** Keeps the preview as a history entry; does nothing once history dropped `snapshot`. */
   commitSearch(snapshot: SearchSnapshot): void
+  /** Returns to the view before the search; does nothing once history dropped `snapshot`. */
   restoreSearch(snapshot: SearchSnapshot): void
   restore(event: PopStateEvent): Promise<void>
   retry(): Promise<void>
@@ -394,12 +400,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return searchSnapshot
   }
 
-  async function previewSearch(search: string): Promise<boolean> {
-    if (!projection) return false
+  async function previewSearch(search: string): Promise<SearchPreview> {
+    if (!projection) return 'superseded'
     const query = searchSnapshot?.projection.canonical_query ?? projection.canonical_query
     const selection = searchSnapshot?.projection.selection ?? projection.selection
     let accepted = false
-    await requestProjection(
+    const request = requestProjection(
       async () =>
         ensureVisibleWindow(
           await options.client.transition(
@@ -419,11 +425,14 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       },
       () => previewSearch(search).then(() => undefined),
     )
-    return accepted
+    const requestGeneration = generation
+    await request
+    if (accepted) return 'applied'
+    return requestGeneration === generation && problem ? 'rejected' : 'superseded'
   }
 
   function commitSearch(snapshot: SearchSnapshot): void {
-    if (!projection) return
+    if (!projection || snapshot !== searchSnapshot) return
     const accepted = projection
     browserHistory.replaceState(
       snapshot.history,
@@ -437,6 +446,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   function restoreSearch(snapshot: SearchSnapshot): void {
+    if (snapshot !== searchSnapshot) return
     generation += 1
     activeRequest?.abort()
     loading = false

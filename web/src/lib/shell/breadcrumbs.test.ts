@@ -64,7 +64,7 @@ describe('breadcrumbTrail', () => {
     ])
   })
 
-  it('ends a sub-grouped drill with the breakdown, so the frame returns to its transactions', () => {
+  it('ends a sub-grouped drill with the breakdown; the frame returns to its transactions', () => {
     const subGrouped = { ...depthOne, view: view({ mode: 'detail', sub_grouping: 'category' }) }
     expect(breadcrumbTrail(subGrouped)).toEqual([
       { label: 'Merchants', depth: 0, current: false },
@@ -73,16 +73,42 @@ describe('breadcrumbTrail', () => {
     ])
   })
 
-  it('labels a time drill with its period under Time', () => {
-    const time = testProjection({
-      canonical_query: `v=1&group=time&mode=detail&${timeDrill}`,
-      view: view({ mode: 'detail', grouping: 'time' }),
+  it('names time grouping by its unit at the top level', () => {
+    const months = testProjection({
+      canonical_query: 'v=1&group=time&time=month',
+      view: view({ mode: 'aggregate', grouping: 'time', time_granularity: 'month' }),
+      breadcrumbs: [{ dimension: 'time', label: 'Months' }],
+    })
+    expect(breadcrumbTrail(months)).toEqual([{ label: 'Months', current: true }])
+  })
+
+  it('names a time drill by its period and its root by the unit it returns to', () => {
+    const months = encodeURIComponent('navigation:group=time&time=month')
+    const drilled = testProjection({
+      canonical_query: `v=1&group=time&mode=detail&${timeDrill}&return=${months}`,
+      view: view({ mode: 'detail', grouping: 'time', time_granularity: 'day' }),
       breadcrumbs: [{ dimension: 'time', label: 'Sep 2026' }],
     })
-    expect(breadcrumbTrail(time)).toEqual([
-      { label: 'Time', depth: 0, current: false },
+    expect(breadcrumbTrail(drilled)).toEqual([
+      { label: 'Months', depth: 0, current: false },
       { label: 'Sep 2026', current: true },
     ])
+  })
+
+  it('names the root Time when the unit it returns to is not in the link', () => {
+    const scoped = encodeURIComponent('navigation:cur=USD%3A2&group=time')
+    const drilled = testProjection({
+      canonical_query: `v=1&cur=USD%3A2&group=time&mode=detail&${timeDrill}&return=${scoped}`,
+      view: view({ mode: 'detail', grouping: 'time', time_granularity: 'day' }),
+      breadcrumbs: [{ dimension: 'time', label: 'Sep 2026' }],
+    })
+    expect(breadcrumbTrail(drilled)[0]).toEqual({ label: 'Time', depth: 0, current: false })
+    const linked = testProjection({
+      canonical_query: `v=1&group=time&mode=detail&${timeDrill}`,
+      view: view({ mode: 'detail', grouping: 'time', time_granularity: 'day' }),
+      breadcrumbs: [{ dimension: 'time', label: 'Sep 2026' }],
+    })
+    expect(breadcrumbTrail(linked)[0]).toEqual({ label: 'Time', depth: 0, current: false })
   })
 
   it('breaks the d view down by time with All transactions as the root', () => {
@@ -95,6 +121,31 @@ describe('breadcrumbTrail', () => {
       { label: 'All transactions', depth: 0, current: false },
       { label: 'by Time', current: true },
     ])
+  })
+
+  it('names the root after the view a drill returns to, such as the d view', () => {
+    const detail = encodeURIComponent('subgroup:mode=detail')
+    const byTime = encodeURIComponent('navigation:mode=detail&subgroup=time')
+    const month = testProjection({
+      canonical_query: `v=1&mode=detail&${timeDrill}&return=${detail}&return=${byTime}`,
+      view: view({ mode: 'detail', grouping: 'merchant' }),
+      breadcrumbs: [{ dimension: 'time', label: 'Sep 2026' }],
+    })
+    expect(breadcrumbTrail(month)[0]).toEqual({
+      label: 'All transactions',
+      depth: 0,
+      current: false,
+    })
+  })
+
+  it('names the root after the grouping the drill was opened from', () => {
+    const categories = encodeURIComponent('navigation:group=category')
+    const drilled = testProjection({
+      canonical_query: `v=1&group=category&mode=detail&${categoryDrill}&return=${categories}`,
+      view: view({ mode: 'detail', grouping: 'category' }),
+      breadcrumbs: [{ dimension: 'category', label: 'Groceries' }],
+    })
+    expect(breadcrumbTrail(drilled)[0]).toEqual({ label: 'Categories', depth: 0, current: false })
   })
 })
 

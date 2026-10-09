@@ -31,9 +31,10 @@ earlier selection, and it keeps the current period and filters.
 ## Use the breadcrumb and Break down by in the browser
 
 The browser's command bar starts with a breadcrumb trail, such as
-`Merchants › Corner Grocery › by Category`. The first crumb names the grouping, or
-**All transactions** in the `d` view. Each drill-down adds a crumb, and a breakdown adds
-"by" and its dimension.
+`Merchants › Corner Grocery › by Category`. The first crumb names the view that the
+drill-downs started from: the grouping, with time grouping named by its unit (**Years**,
+**Months**, or **Days**), or **All transactions** for the `d` view. Each drill-down adds a
+crumb, and a breakdown adds "by" and its dimension.
 
 - Click an earlier crumb to return to that level in one step. It clears what pressing Esc
   repeatedly would clear on the way, and the browser's Back history stays one entry per view.
@@ -131,7 +132,9 @@ In the browser, the search field sits in the command bar. `/` focuses it, or cli
 
 - The table previews the results as you type.
 - Enter applies the search and returns to the table. Moving focus out of the field also
-  applies it; an invalid expression is dropped instead.
+  applies it; an invalid expression is dropped instead. Switching to another window leaves
+  the search open.
+- The browser's Back button during a preview ends the search without applying it.
 - Esc cancels the preview, restores the previous search, and returns to the table.
 - The field's clear button (×) previews the view without a search.
 - A search longer than 2,048 bytes is refused with a message.

@@ -699,8 +699,8 @@ describe('browser view controller', () => {
     pushes.mockClear()
     replacements.mockClear()
 
-    expect(await controller.previewSearch('coffee')).toBe(true)
-    expect(await controller.previewSearch('coffee shop')).toBe(true)
+    expect(await controller.previewSearch('coffee')).toBe('applied')
+    expect(await controller.previewSearch('coffee shop')).toBe('applied')
     expect(pushes).not.toHaveBeenCalled()
     expect(replacements).toHaveBeenCalledTimes(2)
     expect(vi.mocked(client.transition).mock.calls[1]?.[0].query).toBe('v=1')
@@ -745,6 +745,62 @@ describe('browser view controller', () => {
       'view.cycle-grouping',
     ])
     expect(controller.projection?.canonical_query).toBe('v=1&q=coffee&group=category')
+  })
+
+  it('ignores a search commit or restore after browser history drops its snapshot', async () => {
+    const client = clientWith({
+      view: vi.fn(async (body) => projection(body.query, body.window.offset, 3)),
+      transition: vi.fn(async (body) =>
+        projection(`v=1&q=${encodeURIComponent(body.search ?? '')}`, 0, 1),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    const snapshot = controller.beginSearch()
+    await controller.previewSearch('coffee')
+    const earlier = {
+      ...(history.state as MoneyflowHistoryState),
+      query: 'group=category&v=1',
+      sequence: 4,
+    }
+    await controller.restore(new PopStateEvent('popstate', { state: earlier }))
+    const pushes = vi.spyOn(history, 'pushState')
+    const replacements = vi.spyOn(history, 'replaceState')
+    pushes.mockClear()
+    replacements.mockClear()
+
+    controller.commitSearch(snapshot)
+    controller.restoreSearch(snapshot)
+
+    expect(pushes).not.toHaveBeenCalled()
+    expect(replacements).not.toHaveBeenCalled()
+    expect(controller.projection?.canonical_query).toBe('group=category&v=1')
+  })
+
+  it('tells a rejected search preview from one a newer request superseded', async () => {
+    let release!: (value: ViewProjection) => void
+    const transition = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        throw new MoneyflowProblem({
+          type: 'about:blank',
+          title: 'Bad Request',
+          status: 400,
+          detail: 'bad expression',
+          code: 'invalid_request',
+        })
+      })
+      .mockImplementationOnce(() => new Promise<ViewProjection>((resolve) => (release = resolve)))
+      .mockImplementation(async () => projection('v=1&q=b', 0, 1))
+    const controller = controllerFor(clientWith({ transition }), false)
+    await controller.hydrate()
+    controller.beginSearch()
+
+    expect(await controller.previewSearch('[')).toBe('rejected')
+    const slow = controller.previewSearch('a')
+    expect(await controller.previewSearch('b')).toBe('applied')
+    release(projection('v=1&q=a', 0, 1))
+    expect(await slow).toBe('superseded')
   })
 
   it('aborts an in-flight search preview when cancel restores its snapshot', async () => {

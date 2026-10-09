@@ -3,9 +3,15 @@ import { debounce } from '@kenn-io/kit-ui'
 const maxSearchBytes = 2048
 const previewDelay = 150
 
+/**
+ * How a preview ended: shown, refused by the server, or replaced by a newer request before
+ * its answer arrived.
+ */
+export type SearchPreview = 'applied' | 'rejected' | 'superseded'
+
 export interface SearchHost<Snapshot> {
   beginSearch(): Snapshot
-  previewSearch(search: string): Promise<boolean>
+  previewSearch(search: string): Promise<SearchPreview>
   commitSearch(snapshot: Snapshot): void
   restoreSearch(snapshot: Snapshot): void
 }
@@ -63,11 +69,11 @@ export function createSearchCoordinator<Snapshot>(
     const requestGeneration = ++generation
     pending = true
     notify()
-    const valid = await host.previewSearch(next)
+    const outcome = await host.previewSearch(next)
     if (closed || requestGeneration !== generation) return false
     pending = false
-    if (!valid) {
-      error = 'That search expression is invalid.'
+    if (outcome !== 'applied') {
+      if (outcome === 'rejected') error = 'That search expression is invalid.'
       notify()
       return false
     }

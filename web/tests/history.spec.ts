@@ -41,6 +41,29 @@ test('@smoke browser history, Esc, refresh, and selection retain server state', 
   await expect(page.getByRole('searchbox', { name: 'Search transactions' })).toHaveValue('noodle')
 })
 
+test('browser Back during a search preview does not apply the search later', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  const topURL = page.url()
+  await page.keyboard.press('Enter')
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveCount(2)
+  const length = await page.evaluate(() => history.length)
+  const search = page.getByRole('searchbox', { name: 'Search transactions' })
+  await search.click()
+  await search.pressSequentially('pizza')
+  await expect(page).toHaveURL(/[?&]q=pizza(?:&|$)/)
+
+  await page.evaluate(() => history.back())
+  await expect(page).toHaveURL(topURL)
+  await expect(search).toHaveValue('')
+  await page.getByRole('grid', { name: 'Financial results' }).click()
+  await expect(breadcrumb(page)).toHaveText('Merchants')
+  await expect(page).toHaveURL(topURL)
+  expect(await page.evaluate(() => history.length)).toBe(length)
+})
+
 test('Esc after a selection returns to the same entry, and Back and Forward land on views', async ({
   page,
   server,
