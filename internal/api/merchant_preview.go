@@ -17,7 +17,7 @@ type MerchantPreviewResponse struct {
 	// OutsideView counts affected transactions that the opening view hides.
 	OutsideView int `json:"outside_view"`
 	// OutsideCurrencies lists the currencies of those transactions; empty when there are none.
-	OutsideCurrencies []CurrencyScope `json:"outside_currencies"`
+	OutsideCurrencies []CurrencyScope `json:"outside_currencies" nullable:"false"`
 }
 
 type merchantPreviewOutput struct{ Body MerchantPreviewResponse }

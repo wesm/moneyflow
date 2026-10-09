@@ -243,7 +243,7 @@ type Projection struct {
 	CanonicalQuery          string          `json:"canonical_query"`
 	Selection               string          `json:"selection"`
 	SelectionCount          int             `json:"selection_count"`
-	SelectionSummary        []Statistics    `json:"selection_summary,omitempty"`
+	SelectionSummary        []Statistics    `json:"selection_summary,omitempty" nullable:"false"`
 	View                    ViewMetadata    `json:"view"`
 	Breadcrumbs             []Breadcrumb    `json:"breadcrumbs"`
 	BreadcrumbText          string          `json:"breadcrumb_text"`
@@ -255,7 +255,7 @@ type Projection struct {
 	AmazonMatchColumn       bool            `json:"amazon_match_column"`
 	AggregateRows           []AggregateRow  `json:"aggregate_rows,omitempty"`
 	Statistics              []Statistics    `json:"statistics"`
-	Currencies              []CurrencyCount `json:"currencies"`
+	Currencies              []CurrencyCount `json:"currencies" nullable:"false"`
 	Chart                   Chart           `json:"chart"`
 	Status                  string          `json:"status,omitempty"`
 	Warnings                []Warning       `json:"warnings,omitempty"`
@@ -427,12 +427,18 @@ func detailRowToWire(row app.WebDetailRow) DetailRow {
 }
 
 func stagedToWire(staged app.StagedValues) *StagedValues {
-	wire := StagedValues{Hidden: staged.Hidden, Deleted: staged.Deleted}
+	wire := StagedValues{Deleted: staged.Deleted}
+	if staged.Hidden != nil {
+		hidden := *staged.Hidden
+		wire.Hidden = &hidden
+	}
 	if staged.Merchant != nil {
-		wire.Merchant = &staged.Merchant.Name
+		merchant := staged.Merchant.Name
+		wire.Merchant = &merchant
 	}
 	if staged.Category != nil {
-		wire.Category, wire.Group = &staged.Category.Name, &staged.Category.Group
+		category, group := staged.Category.Name, staged.Category.Group
+		wire.Category, wire.Group = &category, &group
 	}
 	return &wire
 }

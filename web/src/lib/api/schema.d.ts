@@ -1044,7 +1044,7 @@ export interface components {
     MerchantPreviewResponse: {
       /** Format: int64 */
       affected_transactions: number
-      outside_currencies: components['schemas']['CurrencyScope'][] | null
+      outside_currencies: components['schemas']['CurrencyScope'][]
       /** Format: int64 */
       outside_view: number
       revision: string
@@ -1213,7 +1213,7 @@ export interface components {
     ProfileBootstrap: {
       base_path: string
       canonical_url: string
-      currencies: components['schemas']['CurrencyCount'][] | null
+      currencies: components['schemas']['CurrencyCount'][]
       mutation_token: string
       revision: string
       /** Format: date-time */
@@ -1265,7 +1265,7 @@ export interface components {
       canonical_query: string
       capabilities: components['schemas']['Capability'][] | null
       chart: components['schemas']['Chart']
-      currencies: components['schemas']['CurrencyCount'][] | null
+      currencies: components['schemas']['CurrencyCount'][]
       detail_rows?: components['schemas']['DetailRow'][] | null
       filters: components['schemas']['ActiveFilters']
       pending: components['schemas']['PendingSummary']
@@ -1276,7 +1276,7 @@ export interface components {
       selection: string
       /** Format: int64 */
       selection_count: number
-      selection_summary?: components['schemas']['Statistics'][] | null
+      selection_summary?: components['schemas']['Statistics'][]
       statistics: components['schemas']['Statistics'][] | null
       status?: string
       /** Format: int64 */

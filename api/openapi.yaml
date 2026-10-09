@@ -842,9 +842,7 @@ components:
         outside_currencies:
           items:
             $ref: "#/components/schemas/CurrencyScope"
-          type:
-            - array
-            - "null"
+          type: array
         outside_view:
           format: int64
           type: integer
@@ -1297,9 +1295,7 @@ components:
         currencies:
           items:
             $ref: "#/components/schemas/CurrencyCount"
-          type:
-            - array
-            - "null"
+          type: array
         mutation_token:
           type: string
         revision:
@@ -1457,9 +1453,7 @@ components:
         currencies:
           items:
             $ref: "#/components/schemas/CurrencyCount"
-          type:
-            - array
-            - "null"
+          type: array
         detail_rows:
           items:
             $ref: "#/components/schemas/DetailRow"
@@ -1492,9 +1486,7 @@ components:
         selection_summary:
           items:
             $ref: "#/components/schemas/Statistics"
-          type:
-            - array
-            - "null"
+          type: array
         statistics:
           items:
             $ref: "#/components/schemas/Statistics"

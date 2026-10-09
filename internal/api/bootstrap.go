@@ -19,7 +19,7 @@ type Bootstrap struct {
 // its default currency before the first projection.
 type ProfileBootstrap struct {
 	Bootstrap
-	Currencies []CurrencyCount `json:"currencies"`
+	Currencies []CurrencyCount `json:"currencies" nullable:"false"`
 }
 
 func newBootstrap(

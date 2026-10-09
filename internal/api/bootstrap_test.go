@@ -121,7 +121,10 @@ func TestProfileBootstrapListsNoCurrenciesForAnEmptyProfile(t *testing.T) {
 	response := requestServer(t, server, http.MethodGet, path, nil)
 
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	assert.Contains(t, response.Body.String(), `"currencies":[]`)
+	var body ProfileBootstrap
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	assert.NotNil(t, body.Currencies)
+	assert.Empty(t, body.Currencies)
 }
 
 func TestProfileBootstrapRejectsEncodedAndInvalidProfileRoutes(t *testing.T) {

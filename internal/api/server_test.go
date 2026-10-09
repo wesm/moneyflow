@@ -570,6 +570,60 @@ func TestServerDetailRowsCarryStagedValuesForPendingEdits(t *testing.T) {
 	assert.False(t, row.Staged.Deleted)
 }
 
+func TestServerDetailRowsCarryStagedCategoryWithItsGroup(t *testing.T) {
+	t.Parallel()
+	edited := apiTransactionWith(t, "edited", func(*domain.Transaction) {})
+	other := apiTransactionWith(t, "other", func(transaction *domain.Transaction) {
+		transaction.Amount.Minor = -500
+		transaction.Category = domain.CategoryRef{
+			ID: "category-other", Name: "Other Category", GroupID: "group-other", Group: "Other Group",
+		}
+	})
+	server := newPersistentAPITestServerFor(t, []domain.Transaction{edited, other}, nil)
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+	initial := projectState(t, server, state)
+	var target DetailRow
+	for _, row := range initial.DetailRows {
+		if row.Amount.Minor == "-1234" {
+			target = row
+		}
+	}
+	require.NotEmpty(t, target.Identity)
+	response := requestProtectedJSON(t, server, "/api/v1/mutations", MutationBody{
+		Version: MutationSchemaVersion, ExpectedRevision: initial.Revision,
+		Query: initial.CanonicalQuery, Selection: initial.Selection,
+		Action: app.ActionEditCategory,
+		Target: &TransitionTarget{Kind: app.IdentityTransaction, Identity: target.Identity},
+		Input: MutationInput{
+			Scope: string(app.EditScopeTransactions), DestinationID: "category-other",
+		},
+		Window: Window{Limit: 200},
+	})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+
+	projection := projectState(t, server, state)
+
+	var row DetailRow
+	for _, candidate := range projection.DetailRows {
+		if candidate.Identity == target.Identity {
+			row = candidate
+		}
+	}
+	assert.Equal(t, "Example Category", row.Category, "the row stays committed")
+	require.NotNil(t, row.Staged)
+	require.NotNil(t, row.Staged.Category)
+	assert.Equal(t, "Other Category", *row.Staged.Category)
+	require.NotNil(t, row.Staged.Group)
+	assert.Equal(t, "Other Group", *row.Staged.Group)
+	assert.Nil(t, row.Staged.Merchant)
+	for _, candidate := range projection.DetailRows {
+		if candidate.Identity != target.Identity {
+			assert.Nil(t, candidate.Staged)
+		}
+	}
+}
+
 func mustDate(t testing.TB, value string) domain.Date {
 	t.Helper()
 	date, err := domain.ParseDate(value)
