@@ -1584,13 +1584,23 @@ export interface components {
     TransitionBody: {
       action: string
       currency?: components['schemas']['CurrencyScope']
-      dimension?: string
+      /** @enum {string} */
+      dimension?: 'merchant' | 'category' | 'group' | 'account' | 'time'
       filters?: components['schemas']['TransitionFilters']
       period?: components['schemas']['TransitionPeriod']
       query: string
       search?: string
       selection?: string
-      sort_field?: string
+      /** @enum {string} */
+      sort_field?:
+        | 'count'
+        | 'amount'
+        | 'date'
+        | 'merchant'
+        | 'category'
+        | 'group'
+        | 'account'
+        | 'time_period'
       target?: components['schemas']['TransitionTarget']
       window: components['schemas']['Window']
     }

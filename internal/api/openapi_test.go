@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/wesm/moneyflow/internal/domain"
 )
 
 func TestOpenAPIDeterministicEditingContract(t *testing.T) {
@@ -44,4 +46,43 @@ func TestOpenAPIDeterministicEditingContract(t *testing.T) {
 	assert.NotContains(t, bytes.ToLower(yaml), []byte(" put:"))
 	assert.NotContains(t, bytes.ToLower(yaml), []byte(" patch:"))
 	assert.Contains(t, string(yaml), "url: /moneyflow/")
+}
+
+func TestOpenAPITransitionEnumsMatchTheDomain(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t, "/")
+	data, err := server.OpenAPIJSON()
+	require.NoError(t, err)
+	var document struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]struct {
+					Enum []string `json:"enum"`
+				} `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	require.NoError(t, json.Unmarshal(data, &document))
+	properties := document.Components.Schemas["TransitionBody"].Properties
+
+	wantDimensions := []string{"merchant", "category", "group", "account", "time"}
+	for _, value := range wantDimensions {
+		assert.True(t, domain.Dimension(value).Valid(), value)
+	}
+	assert.ElementsMatch(t, wantDimensions, properties["dimension"].Enum)
+	for _, value := range properties["dimension"].Enum {
+		assert.True(t, domain.Dimension(value).Valid(), value)
+	}
+
+	wantFields := []string{
+		"count", "amount", "date", "merchant", "category", "group", "account", "time_period",
+	}
+	for _, value := range wantFields {
+		assert.True(t, domain.SortField(value).Valid(), value)
+	}
+	assert.ElementsMatch(t, wantFields, properties["sort_field"].Enum)
+	for _, value := range properties["sort_field"].Enum {
+		assert.True(t, domain.SortField(value).Valid(), value)
+	}
 }

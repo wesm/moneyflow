@@ -74,9 +74,9 @@ type TransitionBody struct {
 	Target    *TransitionTarget  `json:"target,omitempty"`
 	Search    *string            `json:"search,omitempty" maxLength:"2048"`
 	Filters   *TransitionFilters `json:"filters,omitempty"`
-	Dimension *string            `json:"dimension,omitempty"`
+	Dimension *string            `json:"dimension,omitempty" enum:"merchant,category,group,account,time"`
 	Currency  *CurrencyScope     `json:"currency,omitempty"`
-	SortField *string            `json:"sort_field,omitempty"`
+	SortField *string            `json:"sort_field,omitempty" enum:"count,amount,date,merchant,category,group,account,time_period"`
 	Period    *TransitionPeriod  `json:"period,omitempty"`
 	Window    Window             `json:"window"`
 }

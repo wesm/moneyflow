@@ -723,7 +723,7 @@ func TestServerRejectsMismatchedNavigationArguments(t *testing.T) {
 	t.Parallel()
 
 	server := directNavigationServer(t)
-	category, bogus := "category", "bogus"
+	category, timeDimension, date := "category", "time", "date"
 	start, malformed := "2024-03-01", "0000-01-01"
 	currency := &CurrencyScope{Currency: "USD", Scale: 2}
 	tests := []struct {
@@ -739,7 +739,7 @@ func TestServerRejectsMismatchedNavigationArguments(t *testing.T) {
 		{"currency with grouping", TransitionBody{
 			Action: app.ActionSetGrouping, Dimension: &category, Currency: currency,
 		}, "invalid_web_request"},
-		{"currency without currency", TransitionBody{Action: app.ActionSetCurrency},
+		{"set-currency without a currency", TransitionBody{Action: app.ActionSetCurrency},
 			"invalid_web_request"},
 		{"sort field on currency", TransitionBody{
 			Action: app.ActionSetCurrency, Currency: currency, SortField: &category,
@@ -748,12 +748,20 @@ func TestServerRejectsMismatchedNavigationArguments(t *testing.T) {
 			Action: app.ActionSetSort, SortField: &category, Period: &TransitionPeriod{},
 		}, "invalid_web_request"},
 		{"period missing", TransitionBody{Action: app.ActionSetPeriod}, "invalid_web_request"},
-		{"unknown dimension", TransitionBody{
-			Action: app.ActionSetGrouping, Dimension: &bogus,
+		{"sub-grouping without a dimension", TransitionBody{Action: app.ActionSetSubGrouping},
+			"invalid_web_request"},
+		{"sub-grouping without a drill", TransitionBody{
+			Action: app.ActionSetSubGrouping, Dimension: &timeDimension,
 		}, "invalid_web_request"},
-		{"unknown sort field", TransitionBody{
-			Action: app.ActionSetSort, SortField: &bogus,
+		{"detail sort on an aggregate view", TransitionBody{
+			Action: app.ActionSetSort, SortField: &date,
 		}, "invalid_web_request"},
+		{"currency with an invalid code", TransitionBody{
+			Action: app.ActionSetCurrency, Currency: &CurrencyScope{Currency: "usd", Scale: 2},
+		}, "invalid_web_request"},
+		{"period with only an end", TransitionBody{
+			Action: app.ActionSetPeriod, Period: &TransitionPeriod{End: &start},
+		}, "invalid_view_state"},
 		{"period with one bound", TransitionBody{
 			Action: app.ActionSetPeriod, Period: &TransitionPeriod{Start: &start},
 		}, "invalid_view_state"},
@@ -780,4 +788,20 @@ func firstAggregateIdentity(t testing.TB, server *Server) string {
 	projection := decodeProjection(t, response)
 	require.NotEmpty(t, projection.AggregateRows)
 	return projection.AggregateRows[0].Identity
+}
+
+func TestServerRejectsUnknownDimensionAndSortFieldInTheSchema(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	bogus := "bogus"
+	for name, body := range map[string]TransitionBody{
+		"dimension":  {Action: app.ActionSetGrouping, Dimension: &bogus},
+		"sort field": {Action: app.ActionSetSort, SortField: &bogus},
+	} {
+		t.Run(name, func(t *testing.T) {
+			response := transitionFrom(t, server, "v=1", body)
+			assert.Equal(t, http.StatusUnprocessableEntity, response.Code, response.Body.String())
+		})
+	}
 }

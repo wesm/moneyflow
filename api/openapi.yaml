@@ -2345,6 +2345,12 @@ components:
         currency:
           $ref: "#/components/schemas/CurrencyScope"
         dimension:
+          enum:
+            - merchant
+            - category
+            - group
+            - account
+            - time
           type: string
         filters:
           $ref: "#/components/schemas/TransitionFilters"
@@ -2360,6 +2366,15 @@ components:
           maxLength: 1468006
           type: string
         sort_field:
+          enum:
+            - count
+            - amount
+            - date
+            - merchant
+            - category
+            - group
+            - account
+            - time_period
           type: string
         target:
           $ref: "#/components/schemas/TransitionTarget"
