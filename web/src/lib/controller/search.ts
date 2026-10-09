@@ -4,10 +4,10 @@ const maxSearchBytes = 2048
 const previewDelay = 150
 
 /**
- * How a preview ended: shown, refused by the server, or replaced by a newer request before
- * its answer arrived.
+ * How a preview ended: shown, refused by the server, replaced by a newer request before its
+ * answer arrived, or failed without a server answer, such as on a network error.
  */
-export type SearchPreview = 'applied' | 'rejected' | 'superseded'
+export type SearchPreview = 'applied' | 'rejected' | 'superseded' | 'failed'
 
 export interface SearchHost<Snapshot> {
   beginSearch(): Snapshot

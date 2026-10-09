@@ -46,13 +46,18 @@ export class OverlayState {
     this.#host = host
   }
 
-  /** Opens `next` without tracking state, so an effect that opens it does not rerun on close. */
+  /**
+   * Opens `next` without tracking state, so an effect that opens it does not rerun on close or
+   * when the grid element changes.
+   */
   open(next: Overlay): void {
-    this.#cancelRestore()
-    if (untrack(() => this.current) === undefined) this.#opener = this.#openerOutsideGrid()
-    this.#popScope?.()
-    this.#popScope = this.#host.pushScope(next)
-    this.current = next
+    untrack(() => {
+      this.#cancelRestore()
+      if (this.current === undefined) this.#opener = this.#openerOutsideGrid()
+      this.#popScope?.()
+      this.#popScope = this.#host.pushScope(next)
+      this.current = next
+    })
   }
 
   /**

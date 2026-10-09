@@ -338,6 +338,22 @@ describe('browser view controller', () => {
       expect(window.location.search).toBe('?v=1')
     })
 
+    it('fetches the parent on a late popstate after an edit replaced the view', async () => {
+      const { client, controller, parent } = await timedOut()
+      vi.mocked(client.view).mockImplementation(async (body) =>
+        projection(body.query, body.window.offset, 2, '1'),
+      )
+      await controller.recheck()
+      expect(controller.projection?.revision).toBe('1')
+      vi.mocked(client.view).mockClear()
+
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+
+      expect(client.view).toHaveBeenCalledTimes(1)
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect(controller.projection?.revision).toBe('1')
+    })
+
     it('forgets the expected target once another popstate arrives', async () => {
       const { client, controller, parent, drill } = await timedOut()
 
@@ -347,6 +363,33 @@ describe('browser view controller', () => {
 
       expect(client.view).toHaveBeenCalledTimes(2)
     })
+  })
+
+  it('runs later transitions after installing a returned view fails', async () => {
+    const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const client = clientWith({
+      transition: vi.fn(async (body) =>
+        projection(body.action === 'view.back' ? 'v=1' : 'v=1&drill=x', 0, 3),
+      ),
+    })
+    const controller = controllerFor(client)
+    await controller.hydrate()
+    const parent = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill' })
+    const before = go.mock.calls.length
+    const back = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+    vi.spyOn(history, 'replaceState').mockImplementationOnce(() => {
+      throw new Error('history is unavailable')
+    })
+
+    await expect(
+      controller.restore(new PopStateEvent('popstate', { state: parent })),
+    ).rejects.toThrow('history is unavailable')
+    await back
+
+    await expect(controller.apply({ action: 'view.drill' })).resolves.toBe(true)
+    expect(controller.projection?.canonical_query).toBe('v=1&drill=x')
   })
 
   it('installs the returned view at once, then fetches the parent cursor window', async () => {
@@ -801,6 +844,18 @@ describe('browser view controller', () => {
     expect(await controller.previewSearch('b')).toBe('applied')
     release(projection('v=1&q=a', 0, 1))
     expect(await slow).toBe('superseded')
+  })
+
+  it('reports a search preview the network failed as failed, not rejected', async () => {
+    const transition = vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    const controller = controllerFor(clientWith({ transition }), false)
+    await controller.hydrate()
+    controller.beginSearch()
+
+    expect(await controller.previewSearch('coffee')).toBe('failed')
+    expect(controller.problem).toEqual({ kind: 'request', code: 'network_error' })
   })
 
   it('aborts an in-flight search preview when cancel restores its snapshot', async () => {

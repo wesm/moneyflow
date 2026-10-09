@@ -45,6 +45,20 @@ describe('search coordinator', () => {
     expect(search.pending).toBe(false)
   })
 
+  it('shows no expression error when a preview request fails', async () => {
+    vi.useFakeTimers()
+    const host = fakeHost({ previewSearch: vi.fn(async () => 'failed' as const) })
+    const search = createSearchCoordinator(host)
+
+    search.input('coffee')
+    await vi.advanceTimersByTimeAsync(150)
+
+    expect(search.error).toBe('')
+    expect(search.pending).toBe(false)
+    await expect(search.commit()).resolves.toBe(false)
+    expect(host.commitSearch).not.toHaveBeenCalled()
+  })
+
   it('cancels pending work and restores the complete opening snapshot', async () => {
     vi.useFakeTimers()
     const host = fakeHost()

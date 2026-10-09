@@ -1,4 +1,4 @@
-import { tick } from 'svelte'
+import { flushSync, tick } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { OverlayState } from './overlay-state.svelte'
@@ -43,5 +43,34 @@ describe('OverlayState', () => {
     await afterRestore()
     expect(document.activeElement).toBe(elsewhere)
     expect(host.focusGrid).not.toHaveBeenCalled()
+  })
+
+  it('opens from an effect without making the effect depend on the grid or the overlay', () => {
+    let grid = $state<HTMLElement | undefined>(document.createElement('div'))
+    const popScope = vi.fn()
+    const overlays = new OverlayState({
+      pushScope: vi.fn(() => popScope),
+      focusGrid: vi.fn(),
+      grid: () => grid,
+    })
+    document.body.append(document.createElement('button'))
+    document.querySelector('button')?.focus()
+    let runs = 0
+    const stop = $effect.root(() => {
+      $effect(() => {
+        runs += 1
+        overlays.open('write')
+      })
+    })
+    flushSync()
+    expect(runs).toBe(1)
+
+    grid = document.createElement('div')
+    overlays.close('keep')
+    flushSync()
+
+    expect(runs).toBe(1)
+    expect(overlays.current).toBeUndefined()
+    stop()
   })
 })

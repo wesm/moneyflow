@@ -79,18 +79,19 @@
 
   /**
    * Leaving the field keeps a valid preview as an applied search and drops an invalid one.
-   * Text typed meanwhile starts a new search once this one is settled.
+   * Text typed meanwhile starts a new search once this one is settled, but only while the
+   * field still has focus: nothing would apply or end a search in a field already left.
    */
   async function leave(search: SearchCoordinator, typed: string | undefined): Promise<void> {
     if (!(await search.commit())) search.cancel()
     search.destroy()
     leaving = undefined
-    if (draft === typed) {
-      draft = undefined
-      error = ''
-    } else if (draft !== undefined) {
+    if (draft !== undefined && draft !== typed && document.activeElement === inputEl) {
       begin().input(draft)
+      return
     }
+    draft = undefined
+    error = ''
   }
 
   function keydown(event: KeyboardEvent): void {

@@ -323,8 +323,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     generation += 1
     activeRequest?.abort()
     loading = false
-    accept(returned.projection, 'replace', owned)
-    returned.settle()
+    // Later transitions wait for this return, so they must run even if installing it fails.
+    try {
+      accept(returned.projection, 'replace', owned)
+    } finally {
+      returned.settle()
+    }
     if (alignedOffset(owned.cursorIndex) !== returned.projection.window.offset) {
       await moveToIndex(owned.cursorIndex)
     }
@@ -333,7 +337,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   async function restore(event: PopStateEvent): Promise<void> {
     searchSnapshot = undefined
     const owned = ledger.record(event.state)
-    const returned = returning ?? lateReturn
+    // A late traversal's view is current only until anything else replaces it, such as an edit.
+    const late = lateReturn?.projection === projection ? lateReturn : undefined
+    const returned = returning ?? late
     returning = undefined
     lateReturn = undefined
     if (returned && owned && returned.sequence === owned.sequence) {
@@ -428,7 +434,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const requestGeneration = generation
     await request
     if (accepted) return 'applied'
-    return requestGeneration === generation && problem ? 'rejected' : 'superseded'
+    if (requestGeneration !== generation || !problem) return 'superseded'
+    return problem.code === 'network_error' ? 'failed' : 'rejected'
   }
 
   function commitSearch(snapshot: SearchSnapshot): void {

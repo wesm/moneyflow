@@ -142,6 +142,30 @@ describe('CommandSearch', () => {
     expect(field().value).toBe('pizza')
   })
 
+  it('starts no new search for text typed during a held leave once the field lost focus', async () => {
+    const controller = host()
+    let release!: (outcome: SearchPreview) => void
+    controller.previewSearch.mockImplementationOnce(
+      () => new Promise<SearchPreview>((resolve) => (release = resolve)),
+    )
+    const elsewhere = document.body.appendChild(document.createElement('button'))
+    render(CommandSearch, { controller, ondone: vi.fn() })
+    field().focus()
+    await fireEvent.input(field(), { target: { value: 'noodle' } })
+    await fireEvent.focusOut(field(), { relatedTarget: document.body })
+    await waitFor(() => expect(controller.previewSearch).toHaveBeenCalledWith('noodle'))
+    await fireEvent.input(field(), { target: { value: 'pizza' } })
+    elsewhere.focus()
+    release('applied')
+    await waitFor(() => expect(controller.commitSearch).toHaveBeenCalledOnce())
+    await new Promise((resolve) => setTimeout(resolve, 200))
+
+    expect(controller.beginSearch).toHaveBeenCalledOnce()
+    expect(controller.previewSearch).not.toHaveBeenCalledWith('pizza')
+    expect(field().value).toBe('')
+    elsewhere.remove()
+  })
+
   it('ends a search without applying it when browser history changes the view', async () => {
     const controller = host('noodle')
     const ondone = vi.fn()
