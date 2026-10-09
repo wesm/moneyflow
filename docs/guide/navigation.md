@@ -28,6 +28,19 @@ Each Esc press undoes one step, in this order:
 At the top level with nothing to undo, Esc does nothing. Returning does not restore an
 earlier selection, and it keeps the current period and filters.
 
+## Use the breadcrumb and Break down by in the browser
+
+The browser's command bar starts with a breadcrumb trail, such as
+`Merchants › Corner Grocery › by Category`. The first crumb names the grouping, or
+**All transactions** in the `d` view. Each drill-down adds a crumb, and a breakdown adds
+"by" and its dimension.
+
+- Click an earlier crumb to return to that level in one step. It clears what pressing Esc
+  repeatedly would clear on the way, and the browser's Back history stays one entry per view.
+- Inside a drill-down, **Break down by** lists **Transactions** and each dimension the
+  drill-down has not used. Choosing a dimension breaks the rows down like `g`;
+  **Transactions** removes the breakdown.
+
 ## Choose a year, month, or day
 
 In this checkout's TUI, `t` opens a time chooser from a grouped view or transaction list:

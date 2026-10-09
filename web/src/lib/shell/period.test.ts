@@ -165,9 +165,22 @@ describe('canShiftPeriod', () => {
 
   it('shifts a time drill under all time, the only drill-down included', () => {
     const query = 'v=1&g=time&drill=time%3AUSD%3A2%3Amonth%3A2026-09'
-    expect(canShiftPeriod(testProjection({ canonical_query: query }))).toBe(true)
+    const time = [{ dimension: 'time', label: 'Sep 2026' }]
+    expect(canShiftPeriod(testProjection({ canonical_query: query, breadcrumbs: time }))).toBe(true)
     const merchant = 'v=1&drill=merchant%3AUSD%3A2%3Aexample-key'
-    expect(canShiftPeriod(testProjection({ canonical_query: merchant }))).toBe(false)
+    const corner = [{ dimension: 'merchant', label: 'Corner Grocery' }]
+    expect(canShiftPeriod(testProjection({ canonical_query: merchant, breadcrumbs: corner }))).toBe(
+      false,
+    )
+  })
+
+  it('does not count a time drill inside a return frame', () => {
+    const nested = encodeURIComponent('g=time&drill=time:USD:2:month:2026-09')
+    const query = `v=1&g=time&return=navigation%3A${nested}`
+    const time = [{ dimension: 'time', label: 'Time' }]
+    expect(canShiftPeriod(testProjection({ canonical_query: query, breadcrumbs: time }))).toBe(
+      false,
+    )
   })
 })
 
@@ -287,12 +300,31 @@ describe('emptyScope', () => {
     ).toBeUndefined()
   })
 
-  it('leaves an empty drill-down to the table, since Latest may lie outside the drill', () => {
+  it('leaves every empty drill-down to the table', () => {
     const merchant = 'v=1&drill=merchant%3AUSD%3A2%3Aexample-key'
-    expect(emptyScope(scoped('2026-11-01', '2026-11-30', { canonical_query: merchant }))).toBe(
-      undefined,
-    )
+    const corner = [{ dimension: 'merchant', label: 'Corner Grocery' }]
+    expect(
+      emptyScope(
+        scoped('2026-11-01', '2026-11-30', { canonical_query: merchant, breadcrumbs: corner }),
+      ),
+    ).toBeUndefined()
     const time = 'v=1&g=time&drill=time%3AUSD%3A2%3Amonth%3A2026-11'
-    expect(emptyScope(scoped('2026-11-01', '2026-11-30', { canonical_query: time }))).toBeDefined()
+    const november = [{ dimension: 'time', label: 'Nov 2026' }]
+    expect(
+      emptyScope(
+        scoped('2026-11-01', '2026-11-30', { canonical_query: time, breadcrumbs: november }),
+      ),
+    ).toBeUndefined()
+  })
+
+  it('treats a drill-down inside a return frame as the top level', () => {
+    const nested = encodeURIComponent('drill=merchant:USD:2:example-key')
+    const query = `v=1&return=navigation%3A${nested}`
+    const merchants = [{ dimension: 'merchant', label: 'Merchants' }]
+    expect(
+      emptyScope(
+        scoped('2026-11-01', '2026-11-30', { canonical_query: query, breadcrumbs: merchants }),
+      ),
+    ).toBeDefined()
   })
 })

@@ -33,7 +33,7 @@ test('desktop and medium layouts preserve table primacy and chart linkage', asyn
   await expect(secondMark).toHaveAttribute('aria-pressed', 'true')
   await expect(await activeRow(page)).toContainText(label)
   await secondMark.dblclick()
-  await expect(page.getByRole('navigation', { name: 'Active refinements' })).toContainText(label)
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(label)
 
   await page.setViewportSize({ width: 1024, height: 768 })
   await expect(grid).toBeVisible()
@@ -64,9 +64,7 @@ test('narrow resize preserves analytical URL and moves charts into a drawer', as
 }) => {
   await openMoneyflow(page, server)
   await page.keyboard.press('g')
-  await expect(page.getByRole('navigation', { name: 'Active refinements' })).toContainText(
-    'Group: category',
-  )
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveText('Categories')
   const analyticalURL = page.url()
 
   await page.setViewportSize({ width: 390, height: 844 })

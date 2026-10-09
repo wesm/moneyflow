@@ -1,14 +1,12 @@
 <script lang="ts">
-  import { CollapsibleSidebar, MEDIA, Toggle } from '@kenn-io/kit-ui'
+  import { CollapsibleSidebar, MEDIA } from '@kenn-io/kit-ui'
   import { MediaQuery } from 'svelte/reactivity'
   import { onMount, untrack } from 'svelte'
   import ProviderConfirmation from './ProviderConfirmation.svelte'
-  import RefinementBar from './RefinementBar.svelte'
   import ChartDrawer from './shell/ChartDrawer.svelte'
   import ChartRail from './shell/ChartRail.svelte'
-  import CommandBar from './shell/CommandBar.svelte'
-  import PeriodControl from './shell/PeriodControl.svelte'
   import ShellAnnouncements from './shell/ShellAnnouncements.svelte'
+  import ShellCommandBar from './shell/ShellCommandBar.svelte'
   import ShellOverlays from './shell/ShellOverlays.svelte'
   import Sidebar from './shell/Sidebar.svelte'
   import SidebarRail from './shell/SidebarRail.svelte'
@@ -178,27 +176,7 @@
           />
         {/if}
         <div class="app-shell__column">
-          <CommandBar>
-            {#snippet leading()}
-              <RefinementBar {projection} onaction={(action) => void apply(action)} />
-            {/snippet}
-            {#snippet center()}
-              <PeriodControl
-                {projection}
-                chooserOpen={overlays.current === 'period'}
-                onchoose={() => overlays.open('period')}
-                onclose={(focus) => overlays.close(focus)}
-                onapply={(action) => void controller.apply(action)}
-              />
-            {/snippet}
-            {#snippet trailing()}
-              <Toggle
-                checked={charts.checked}
-                onchange={(checked) => charts.toggle(checked)}
-                label="Charts"
-              />
-            {/snippet}
-          </CommandBar>
+          <ShellCommandBar {controller} {projection} {overlays} {charts} onfocusgrid={focusGrid} />
           <main
             class="app-shell__main"
             class:app-shell__main--charts={charts.aside}

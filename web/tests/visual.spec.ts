@@ -22,9 +22,7 @@ async function prepareState(page: Page, state: (typeof states)[number]): Promise
   if (state === 'search') {
     await page.keyboard.press('/')
     await page.getByRole('searchbox', { name: 'Search transactions' }).fill('noodle')
-    await expect(page.getByRole('navigation', { name: 'Active refinements' })).toContainText(
-      'Search: noodle',
-    )
+    await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
     return
   }
   await page.keyboard.press(state === 'filters' ? 'f' : '?')

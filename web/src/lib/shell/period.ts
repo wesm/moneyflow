@@ -1,4 +1,5 @@
 import type { TransitionBody, ViewProjection } from '../api/client'
+import { drillFrames } from './drills'
 
 /** The view's date range: inclusive local YYYY-MM-DD dates, or undefined for all time. */
 export type DateRange = ViewProjection['filters']['date_range']
@@ -115,17 +116,11 @@ export function activeCurrency(projection: ViewProjection): Currency | undefined
   )
 }
 
-/** The dimensions of the view's drill-downs, outermost first. */
-function drillDimensions(projection: ViewProjection): string[] {
-  const drills = new URLSearchParams(projection.canonical_query).getAll('drill')
-  return drills.map((drill) => drill.split(':')[0] ?? '')
-}
-
 /** Whether ‹ and › can move the period: one calendar unit, or a time drill to move. */
 export function canShiftPeriod(projection: ViewProjection): boolean {
   const kind = scopeKind(projection.filters.date_range)
   if (kind === 'day' || kind === 'month' || kind === 'year') return true
-  return drillDimensions(projection).includes('time')
+  return drillFrames(projection).some((frame) => frame.dimension === 'time')
 }
 
 const stepKeys: Record<string, (columns: number) => number> = {
@@ -217,15 +212,15 @@ export interface EmptyScope {
 
 /**
  * Describes a chosen period with no transactions in the view's currency. All time, searches,
- * and drill-downs other than time are not empty periods: the period is not what hides their
- * results, and Latest for the currency may not hold a transaction inside the drill-down.
+ * and drill-downs are not empty periods: the table's own empty state covers them, since Latest
+ * for the currency may not hold a transaction inside the drill-down.
  */
 export function emptyScope(projection: ViewProjection): EmptyScope | undefined {
   const currency = activeCurrency(projection)
   const range = projection.filters.date_range
   const kind = scopeKind(range)
   if (!currency || kind === 'all' || projection.view.search) return undefined
-  if (drillDimensions(projection).some((dimension) => dimension !== 'time')) return undefined
+  if (drillFrames(projection).length > 0) return undefined
   const counted = (projection.statistics ?? []).some(
     (entry) =>
       entry.currency === currency.currency && entry.scale === currency.scale && entry.count > 0,

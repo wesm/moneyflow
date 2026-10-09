@@ -55,7 +55,7 @@ async function september(page: Page, server: ScenarioServer, showHidden = false)
     .click()
 }
 
-test('@smoke long active filters keep Clear reachable on a narrow empty view', async ({
+test('@smoke a narrow empty search view stays in bounds and Esc clears it', async ({
   page,
 }, info) => {
   await withScenarioServer(info.outputPath('scenario'), async (server) => {
@@ -67,14 +67,10 @@ test('@smoke long active filters keep Clear reachable on a narrow empty view', a
       .fill('NoSuchSyntheticMerchant')
     await page.keyboard.press('Enter')
     await expect(page.getByText('No transactions', { exact: true })).toBeVisible()
-    const clear = page
-      .getByRole('navigation', { name: 'Active refinements' })
-      .getByRole('button', { name: /^Clear/ })
-    await expect(clear).toBeInViewport()
     expect(
       await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth),
     ).toBe(true)
-    await clear.click()
+    await page.keyboard.press('Escape')
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeVisible()
     await expect(page.getByText('No transactions', { exact: true })).not.toBeVisible()
   })

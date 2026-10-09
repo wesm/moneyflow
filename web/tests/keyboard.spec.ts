@@ -3,7 +3,12 @@ import type { Page } from '@playwright/test'
 import { activeRow, expect, openMoneyflow, test } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
-const refinement = (page: Page) => page.getByRole('navigation', { name: 'Active refinements' })
+const breadcrumb = (page: Page) => page.getByRole('navigation', { name: 'Breadcrumb' })
+const breakDownBy = (page: Page) => page.getByRole('radiogroup', { name: 'Break down by' })
+const header = (page: Page, name: string) =>
+  page
+    .getByRole('grid', { name: 'Financial results' })
+    .getByRole('columnheader', { name, exact: true })
 
 test('@smoke initial grid owns keyboard focus and moves without a pointer', async ({
   page,
@@ -47,13 +52,14 @@ test('keys 1 to 5 group by merchant, category, group, account, and time', async 
   server,
 }) => {
   await openMoneyflow(page, server)
-  const groupings = ['merchant', 'category', 'group', 'account', 'time']
+  const groupings = ['Merchants', 'Categories', 'Groups', 'Accounts', 'Time']
   for (const [index, grouping] of groupings.entries()) {
     await page.keyboard.press(String(index + 1))
-    await expect(refinement(page)).toContainText(`Group: ${grouping}`)
+    await expect(breadcrumb(page)).toHaveText(grouping)
   }
   await page.keyboard.press('2')
-  await expect(refinement(page)).toContainText('Group: category')
+  await expect(breadcrumb(page)).toHaveText('Categories')
+  await expect(breakDownBy(page)).toHaveCount(0)
 })
 
 test('cycles every grouping, account direct view, detail, drill, subgroup, and back', async ({
@@ -61,37 +67,85 @@ test('cycles every grouping, account direct view, detail, drill, subgroup, and b
   server,
 }) => {
   await openMoneyflow(page, server)
-  for (const grouping of ['category', 'group', 'account', 'time', 'merchant']) {
+  for (const grouping of ['Categories', 'Groups', 'Accounts', 'Time', 'Merchants']) {
     await page.keyboard.press('g')
-    await expect(refinement(page)).toContainText(`Group: ${grouping}`)
+    await expect(breadcrumb(page)).toHaveText(grouping)
   }
 
   await page.keyboard.press('Shift+A')
-  await expect(refinement(page)).toContainText('Group: account')
+  await expect(breadcrumb(page)).toHaveText('Accounts')
   await page.keyboard.press('d')
+  await expect(breadcrumb(page)).toHaveText('All transactions')
   await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
   await page.keyboard.press('Escape')
-  // The grouping label is unchanged in detail mode; wait for the aggregate view.
+  await expect(breadcrumb(page)).toHaveText('Accounts')
   await expect(page.getByRole('columnheader', { name: 'Count', exact: true })).toBeVisible()
-  await expect(refinement(page)).toContainText('Group: account')
 
   await page.keyboard.press('g')
-  await expect(refinement(page)).toContainText('Group: time')
+  await expect(breadcrumb(page)).toHaveText('Time')
   await page.keyboard.press('g')
-  await expect(refinement(page)).toContainText('Group: merchant')
+  await expect(breadcrumb(page)).toHaveText('Merchants')
   const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
   await page.keyboard.press('Enter')
-  await expect(refinement(page)).toContainText(`M: ${merchant}`)
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Merchants', `› ${merchant}`])
+  await expect(breadcrumb(page).getByRole('button', { name: 'Merchants' })).toBeVisible()
+  await expect(breadcrumb(page).getByText(merchant)).toHaveAttribute('aria-current', 'page')
+  await expect(breakDownBy(page).getByRole('radio')).toHaveText([
+    'Transactions',
+    'Category',
+    'Group',
+    'Account',
+    'Time',
+  ])
+  await expect(breakDownBy(page).getByRole('radio', { name: 'Transactions' })).toBeChecked()
+
   await page.keyboard.press('g')
-  await expect(refinement(page)).toContainText('(by Category)')
+  await expect(breadcrumb(page).getByRole('listitem').last()).toHaveText('› by Category')
+  await expect(breakDownBy(page).getByRole('radio', { name: 'Category' })).toBeChecked()
   await page.keyboard.press('Enter')
-  await expect(refinement(page)).toContainText('C:')
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveCount(3)
+  await expect(breakDownBy(page).getByRole('radio')).toHaveText([
+    'Transactions',
+    'Group',
+    'Account',
+    'Time',
+  ])
   await page.keyboard.press('Escape')
-  await expect(refinement(page)).toContainText('by Category')
+  await expect(breadcrumb(page)).toContainText('by Category')
   await page.keyboard.press('Escape')
-  await expect(refinement(page)).not.toContainText('by Category')
+  await expect(breadcrumb(page)).not.toContainText('by Category')
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveCount(2)
   await page.keyboard.press('Escape')
-  await expect(refinement(page)).toContainText('Merchants')
+  await expect(breadcrumb(page)).toHaveText('Merchants')
+  await expect(breakDownBy(page)).toHaveCount(0)
+})
+
+test('Break down by sub-groups a drill and returns to its transactions', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  await page.keyboard.press('Enter')
+  await expect(breakDownBy(page)).toBeVisible()
+  const drillURL = page.url()
+  const initialLength = await page.evaluate(() => history.length)
+
+  await breakDownBy(page).getByRole('radio', { name: 'Account' }).click()
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveText([
+    'Merchants',
+    `› ${merchant}`,
+    '› by Account',
+  ])
+  await expect(page).toHaveURL(/[?&]subgroup=account/)
+  await expect(page.getByRole('columnheader', { name: 'Count', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => history.length)).toBe(initialLength + 1)
+
+  await breakDownBy(page).getByRole('radio', { name: 'Transactions' }).click()
+  await expect(page).toHaveURL(drillURL)
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Merchants', `› ${merchant}`])
+  await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  expect(await page.evaluate(() => history.length)).toBe(initialLength + 1)
 })
 
 test('time, sort, and exact selection refinements remain keyboard driven', async ({
@@ -100,11 +154,11 @@ test('time, sort, and exact selection refinements remain keyboard driven', async
 }) => {
   await openMoneyflow(page, server)
   await page.keyboard.press('s')
-  await expect(refinement(page)).toContainText('Sort: merchant desc')
+  await expect(header(page, 'merchant')).toHaveAttribute('aria-sort', 'descending')
   await page.keyboard.press('s')
-  await expect(refinement(page)).toContainText('Sort: count desc')
+  await expect(header(page, 'Count')).toHaveAttribute('aria-sort', 'descending')
   await page.keyboard.press('v')
-  await expect(refinement(page)).toContainText('Sort: count asc')
+  await expect(header(page, 'Count')).toHaveAttribute('aria-sort', 'ascending')
 
   await page.keyboard.press('Space')
   await expect(await activeRow(page)).toHaveAttribute('aria-selected', 'true')
@@ -116,14 +170,13 @@ test('time, sort, and exact selection refinements remain keyboard driven', async
       .first(),
   ).toHaveAttribute('aria-selected', 'true')
 
-  for (const grouping of ['category', 'group', 'account', 'time']) {
+  for (const grouping of ['Categories', 'Groups', 'Accounts', 'Time']) {
     await page.keyboard.press('g')
-    await expect(refinement(page)).toContainText(`Group: ${grouping}`)
+    await expect(breadcrumb(page)).toHaveText(grouping)
   }
-  await expect(refinement(page)).toContainText('Months')
   const period = await (await activeRow(page)).getByRole('gridcell').first().innerText()
   await page.keyboard.press('Enter')
-  await expect(refinement(page)).toContainText(`T: ${period}`)
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Time', `› ${period}`])
   const unboundedURL = page.url()
   await page.keyboard.press('ArrowLeft')
   await expect(page).not.toHaveURL(unboundedURL)
@@ -131,7 +184,7 @@ test('time, sort, and exact selection refinements remain keyboard driven', async
   await page.keyboard.press('ArrowRight')
   await expect(page).not.toHaveURL(previousPeriodURL)
   await page.keyboard.press('a')
-  await expect(refinement(page)).toContainText('Transactions')
+  await expect(breadcrumb(page)).toHaveText('All transactions')
   await expect(page).not.toHaveURL(/[?&]drill=time/)
 })
 
@@ -144,10 +197,9 @@ test('search previews, commits, cancels, and reports invalid regular expressions
   const search = page.getByRole('searchbox', { name: 'Search transactions' })
   await expect(search).toBeFocused()
   await search.fill('noodle')
-  await expect(refinement(page)).toContainText('1 results')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
   await search.press('Enter')
   await expect(page.getByRole('dialog', { name: 'Search transactions' })).toBeHidden()
-  await expect(refinement(page)).toContainText('Search: noodle')
   await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
   await expect(await activeRow(page)).toContainText('Noodle House')
 
@@ -155,7 +207,7 @@ test('search previews, commits, cancels, and reports invalid regular expressions
   await search.fill('[')
   await expect(page.getByText('That search expression is invalid.')).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(refinement(page)).toContainText('Search: noodle')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
 })
 
@@ -170,13 +222,14 @@ test('filters and help trap shortcuts and restore the grid', async ({ page, serv
   await expect(filters).toBeHidden()
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
 
-  const groupBefore = await refinement(page).textContent()
+  const viewBefore = page.url()
   await page.keyboard.press('?')
   const help = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
   await expect(help).toBeVisible()
   await expect(help).toContainText('Quit application · TUI only')
   await page.keyboard.press('g')
-  await expect(refinement(page)).toHaveText(groupBefore!)
+  await expect(breadcrumb(page)).toHaveText('Merchants')
+  await expect(page).toHaveURL(viewBefore)
   await page.keyboard.press('Escape')
   await expect(help).toBeHidden()
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
@@ -186,7 +239,7 @@ test('narrow layout keeps the same keyboard refinement surface', async ({ page, 
   await page.setViewportSize({ width: 390, height: 844 })
   await openMoneyflow(page, server)
   await page.keyboard.press('g')
-  await expect(refinement(page)).toContainText('Group: category')
+  await expect(breadcrumb(page)).toHaveText('Categories')
   await page.keyboard.press('Space')
   await expect(await activeRow(page)).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('/')
