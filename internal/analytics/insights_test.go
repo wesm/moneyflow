@@ -224,6 +224,23 @@ func TestInsightsTimeDrillNarrowsTheScope(t *testing.T) {
 	assert.Equal(t, 7, result.Summary.KPIs.Scope.Count)
 }
 
+func TestInsightsTimeDrillOutsideTheRangeIsAnEmptyScope(t *testing.T) {
+	t.Parallel()
+	query := insightsQuery(t, "", "2026-09-01", "2026-09-30")
+	query.Drilldowns = []domain.Drilldown{{
+		Dimension: domain.DimensionTime, Currency: "USD", Scale: 2,
+		Period: &domain.Period{Granularity: domain.TimeGranularityMonth, Year: 2026, Month: 3},
+	}}
+	result, err := ComputeInsights(metricsExample(t), InsightsSpec{
+		Query: query, Today: rangeDate(t, "2026-10-08"), Summary: true,
+	})
+	require.NoError(t, err, "the table shows an empty view, so the charts must too")
+	assert.Equal(t, "2026-09-01", result.Ranges.Scope.Start.String())
+	assert.Equal(t, InsightsTotals{}, result.Summary.KPIs.Scope)
+	require.NotNil(t, result.Summary.KPIs.Comparison)
+	assert.Zero(t, result.Summary.KPIs.Comparison.Count, "the drill-down still filters every range")
+}
+
 func TestInsightsRejectsInvalidRequests(t *testing.T) {
 	t.Parallel()
 	today := rangeDate(t, "2026-10-08")

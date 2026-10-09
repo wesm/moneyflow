@@ -165,7 +165,8 @@ func TestViewQueryRejectsMalformedInput(t *testing.T) {
 		"currency no scale":   "cur=USD&v=1",
 		"currency lowercase":  "cur=usd%3A2&v=1",
 		"currency bad scale":  "cur=USD%3A02&v=1",
-		"currency vs drill":   "cur=EUR%3A2&drill=merchant%3AUSD%3A2%3Am&mode=detail&sort=date%3Adesc&v=1",
+		"currency vs drill": "cur=EUR%3A2&drill=merchant%3AUSD%3A2%3Am" +
+			"&mode=detail&sort=date%3Adesc&v=1",
 	}
 
 	for name, query := range tests {

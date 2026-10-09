@@ -256,34 +256,42 @@ func validateInsightsKeys(keys []string, grouping domain.Dimension) error {
 }
 
 // effectiveScope removes date bounds from the filter query and folds any time drill-down into
-// the scope, so a drill into September of 2026 scopes the charts to that month.
+// the scope, so a drill into September of 2026 scopes the charts to that month. A drill-down
+// outside the date range leaves an empty view, as in the table: the scope stays the date range
+// and the drill-down keeps filtering every range.
 func effectiveScope(query domain.QuerySpec) (domain.QuerySpec, *domain.DateRange, error) {
 	base := query.Clone()
-	scope := base.DateRange
 	base.DateRange = nil
-	drilldowns := base.Drilldowns[:0]
+	scope := query.Clone().DateRange
+	kept := make([]domain.Drilldown, 0, len(base.Drilldowns))
 	for _, drilldown := range base.Drilldowns {
 		if drilldown.Dimension != domain.DimensionTime {
-			drilldowns = append(drilldowns, drilldown)
+			kept = append(kept, drilldown)
 			continue
 		}
 		start, end, err := periodBounds(*drilldown.Period)
 		if err != nil {
 			return domain.QuerySpec{}, nil, fmt.Errorf("insights: time drill-down: %w", err)
 		}
-		if scope == nil {
-			scope = &domain.DateRange{Start: start, End: end}
-			continue
+		narrowed, overlaps := intersectScope(scope, domain.DateRange{Start: start, End: end})
+		if !overlaps {
+			return base, query.Clone().DateRange, nil
 		}
-		scope = &domain.DateRange{Start: laterDate(scope.Start, start), End: earlierDate(scope.End, end)}
-		if scope.Start.Compare(scope.End) > 0 {
-			return domain.QuerySpec{}, nil, errors.New(
-				"insights: time drill-down lies outside the date range",
-			)
-		}
+		scope = narrowed
 	}
-	base.Drilldowns = drilldowns
+	base.Drilldowns = kept
 	return base, scope, nil
+}
+
+// intersectScope narrows a scope to a period; a nil scope becomes the period.
+func intersectScope(scope *domain.DateRange, period domain.DateRange) (*domain.DateRange, bool) {
+	if scope == nil {
+		return &period, true
+	}
+	narrowed := domain.DateRange{
+		Start: laterDate(scope.Start, period.Start), End: earlierDate(scope.End, period.End),
+	}
+	return &narrowed, narrowed.Start.Compare(narrowed.End) <= 0
 }
 
 func currencyBounds(

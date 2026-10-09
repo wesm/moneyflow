@@ -19,8 +19,14 @@ func TestCurrenciesCountsEachCurrencyMostFirst(t *testing.T) {
 		hidden, euro,
 	}
 	assert.Equal(t, []domain.CurrencyCount{
-		{Currency: "USD", Scale: 2, Count: 2, First: rangeDate(t, "2026-01-02"), Latest: rangeDate(t, "2026-09-30")},
-		{Currency: "EUR", Scale: 2, Count: 1, First: rangeDate(t, "2026-06-10"), Latest: rangeDate(t, "2026-06-10")},
+		{
+			Currency: "USD", Scale: 2, Count: 2,
+			First: rangeDate(t, "2026-01-02"), Latest: rangeDate(t, "2026-09-30"),
+		},
+		{
+			Currency: "EUR", Scale: 2, Count: 1,
+			First: rangeDate(t, "2026-06-10"), Latest: rangeDate(t, "2026-06-10"),
+		},
 	}, Currencies(transactions))
 	assert.Empty(t, Currencies(nil))
 }
