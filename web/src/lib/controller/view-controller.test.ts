@@ -174,8 +174,9 @@ describe('browser view controller', () => {
       }),
     )
     await controller.hydrate()
+    const top = history.state as MoneyflowHistoryState
     await controller.apply({ action: 'view.cycle-grouping' })
-    await controller.apply({ action: 'view.back' })
+    await traverse(controller, { action: 'view.back' }, top)
     expect(go).toHaveBeenCalledWith(-1)
 
     go.mockClear()
@@ -207,12 +208,10 @@ describe('browser view controller', () => {
     })
     const topLevel = history.state as MoneyflowHistoryState
     await controller.apply({ action: 'view.drill', target: { kind: 'aggregate', identity: 'x' } })
-
-    await controller.apply({ action: 'view.back' })
-    expect(go).toHaveBeenCalledWith(-1)
     vi.mocked(client.view).mockClear()
-    history.replaceState(topLevel, '', '/moneyflow/?v=1')
-    await controller.restore(new PopStateEvent('popstate', { state: topLevel }))
+
+    await traverse(controller, { action: 'view.back' }, topLevel)
+    expect(go).toHaveBeenCalledWith(-1)
 
     expect(client.view).not.toHaveBeenCalled()
     expect(controller.projection?.selection).toBe(cleared)
@@ -244,12 +243,145 @@ describe('browser view controller', () => {
       }),
     )
     await controller.hydrate()
+    const top = history.state as MoneyflowHistoryState
     await controller.apply({ action: 'view.drill' })
     await controller.apply({ action: 'view.drill-again' })
+    go.mockClear()
 
-    await controller.apply({ action: 'view.back-to', depth: 0 })
+    await traverse(controller, { action: 'view.back-to', depth: 0 }, top)
 
     expect(go).toHaveBeenCalledWith(-2)
+    expect(controller.projection?.canonical_query).toBe('v=1')
+    expect((history.state as MoneyflowHistoryState).sequence).toBe(top.sequence)
+  })
+
+  it('runs a key pressed during an Esc return from the returned view', async () => {
+    const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const stale = 'mfsel1.stale' as SelectionValue
+    const cleared = 'mfsel1.cleared' as SelectionValue
+    const parents: Record<string, string> = { 'v=1&d=2': 'v=1&d=1', 'v=1&d=1': 'v=1' }
+    const client = clientWith({
+      view: vi.fn(async (body) => projection('v=1', body.window.offset, 3, '0', cleared)),
+      transition: vi.fn(async (body) =>
+        body.action === 'view.back'
+          ? projection(parents[body.query] ?? body.query, 0, 3, '0', cleared)
+          : projection(`v=1&d=${body.query === 'v=1' ? 1 : 2}`, 0, 3, '0', stale),
+      ),
+    })
+    const controller = controllerFor(client)
+    await controller.hydrate()
+    const states = [history.state as MoneyflowHistoryState]
+    await controller.apply({ action: 'view.drill' })
+    states.push(history.state as MoneyflowHistoryState)
+    await controller.apply({ action: 'view.drill' })
+    states.push(history.state as MoneyflowHistoryState)
+    go.mockClear()
+    vi.mocked(client.transition).mockClear()
+
+    const first = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(go).toHaveBeenCalledTimes(1), { interval: 1 })
+    const second = controller.apply({ action: 'view.back' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(client.transition).toHaveBeenCalledTimes(1)
+
+    await controller.restore(new PopStateEvent('popstate', { state: states[1] }))
+    await first
+    await vi.waitFor(() => expect(go).toHaveBeenCalledTimes(2), { interval: 1 })
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: 'v=1&d=1', selection: cleared }),
+      expect.any(AbortSignal),
+    )
+    await controller.restore(new PopStateEvent('popstate', { state: states[0] }))
+    await second
+
+    expect(client.view).toHaveBeenCalledTimes(1)
+    expect(controller.projection?.canonical_query).toBe('v=1')
+    expect(controller.projection?.selection).toBe(cleared)
+    expect((history.state as MoneyflowHistoryState).sequence).toBe(0)
+  })
+
+  it('falls back to replacing the entry when the history traversal never arrives', async () => {
+    vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const controller = controllerFor(
+      clientWith({
+        transition: async (body) =>
+          projection(body.action === 'view.back' ? 'v=1' : 'v=1&group=category', 0, 2),
+      }),
+    )
+    await controller.hydrate()
+    await controller.apply({ action: 'view.cycle-grouping' })
+
+    await expect(controller.apply({ action: 'view.back' })).resolves.toBe(true)
+
+    expect(controller.projection?.canonical_query).toBe('v=1')
+    expect(window.location.search).toBe('?v=1')
+    expect(controller.loading).toBe(false)
+  })
+
+  it('fetches the parent cursor window when the returned window differs', async () => {
+    vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const cleared = 'mfsel1.cleared' as SelectionValue
+    const client = clientWith({
+      view: vi.fn(async (body) => projection('v=1', body.window.offset, 450, '0', cleared)),
+      transition: vi.fn(async (body) =>
+        body.action === 'view.back'
+          ? projection('v=1', body.window.offset, 450, '0', cleared)
+          : projection('v=1&drill=x', 0, 450),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.moveCursorTo(250)
+    const parent = history.state as MoneyflowHistoryState
+    expect(parent.cursorIndex).toBe(250)
+    await controller.apply({ action: 'view.drill' })
+    await controller.moveHome()
+    vi.mocked(client.view).mockClear()
+
+    await traverse(controller, { action: 'view.back' }, parent)
+
+    expect(client.view).toHaveBeenCalledTimes(1)
+    expect(client.view).toHaveBeenCalledWith(
+      expect.objectContaining({ selection: cleared, window: { offset: 200, limit: 200 } }),
+    )
+    expect(controller.projection?.window.offset).toBe(200)
+    expect(controller.cursorIndex).toBe(250)
+    expect(controller.loading).toBe(false)
+  })
+
+  it('holds keys behind the first-load currency transition instead of aborting it', async () => {
+    let release!: (value: ViewProjection) => void
+    const pending = new Promise<ViewProjection>((resolve) => (release = resolve))
+    const client = clientWith({
+      view: vi.fn(async (body) => ({
+        ...projection('v=1', body.window.offset, 3),
+        currencies: [
+          { currency: 'EUR', scale: 2, count: 3, first: '2024-01-01', latest: '2024-12-31' },
+        ],
+      })),
+      transition: vi
+        .fn()
+        .mockImplementationOnce(async () => pending)
+        .mockImplementation(async (body) => projection(`${body.query}&group=category`, 0, 3)),
+    })
+    const controller = controllerFor(client)
+
+    const hydrating = controller.hydrate()
+    await vi.waitFor(() => expect(client.transition).toHaveBeenCalledTimes(1), { interval: 1 })
+    const key = controller.apply({ action: 'view.cycle-grouping' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(client.transition).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(client.transition).mock.calls[0]?.[1]?.aborted).toBe(false)
+
+    release(projection('cur=EUR%3A2&v=1', 0, 3))
+    await Promise.all([hydrating, key])
+
+    expect(client.transition).toHaveBeenCalledTimes(2)
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: 'cur=EUR%3A2&v=1', action: 'view.cycle-grouping' }),
+      expect.any(AbortSignal),
+    )
+    expect(controller.projection?.canonical_query).toBe('cur=EUR%3A2&v=1&group=category')
   })
 
   it('restores owned Back/Forward state including cursor and selection', async () => {
@@ -615,7 +747,21 @@ function controllerFor(client: MoneyflowClient, prefetch = true) {
     instance: 'test-instance',
     prefetch,
     recheckDebounceMillis: 0,
+    returnTimeoutMillis: 200,
   })
+}
+
+async function traverse(
+  controller: ReturnType<typeof controllerFor>,
+  action: Parameters<ReturnType<typeof controllerFor>['apply']>[0],
+  target: MoneyflowHistoryState,
+): Promise<void> {
+  const go = vi.mocked(history.go)
+  const before = go.mock.calls.length
+  const done = controller.apply(action)
+  await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+  await controller.restore(new PopStateEvent('popstate', { state: target }))
+  await done
 }
 
 function clientWith(overrides: Partial<MoneyflowClient> = {}): MoneyflowClient {

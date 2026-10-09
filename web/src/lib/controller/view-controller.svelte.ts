@@ -32,6 +32,12 @@ export interface TransitionAction {
   depth?: TransitionBody['depth']
 }
 
+interface ReturnInProgress {
+  sequence: number
+  projection: ViewProjection
+  settle(): void
+}
+
 export interface ControllerProblem {
   kind: 'invalid-view' | 'request'
   code: string
@@ -82,6 +88,7 @@ export interface ViewControllerOptions {
   instance?: string
   prefetch?: boolean
   recheckDebounceMillis?: number
+  returnTimeoutMillis?: number
 }
 
 export function createViewController(options: ViewControllerOptions): ViewController {
@@ -93,6 +100,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   const cache = new WindowCache(windowSize)
   const prefetchEnabled = options.prefetch ?? true
   const recheckDebounceMillis = options.recheckDebounceMillis ?? 500
+  const returnTimeoutMillis = options.returnTimeoutMillis ?? 1000
   const existing = ledger.record(browserHistory.state)
 
   let projection = $state.raw<ViewProjection | undefined>()
@@ -109,7 +117,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let searchSnapshot: SearchSnapshot | undefined
   let recheckRequest: Promise<ViewProjection | undefined> | undefined
   let lastRevisionObservation = 0
-  let returning: { sequence: number; projection: ViewProjection } | undefined
+  let returning: ReturnInProgress | undefined
+  let barrier: Promise<unknown> = Promise.resolve()
   const prefetchRequests = new SvelteMap<string, AbortController>()
 
   const providerWrite = createProviderWriteController({
@@ -166,7 +175,13 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       hydrate,
     )
     const busiest = loaded && projection ? busiestCurrency(projection) : undefined
-    if (busiest) await transition({ action: 'view.set-currency', currency: busiest }, 'replace')
+    if (busiest)
+      await hold(transitionNow({ action: 'view.set-currency', currency: busiest }, 'replace'))
+  }
+
+  function hold<T>(work: Promise<T>): Promise<T> {
+    barrier = work.catch(() => undefined)
+    return work
   }
 
   async function recheck(selection?: SelectionValue): Promise<ViewProjection | undefined> {
@@ -213,9 +228,16 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return await transition(action)
   }
 
-  async function transition(action: TransitionAction, historyMode?: 'replace'): Promise<boolean> {
+  async function transition(action: TransitionAction): Promise<boolean> {
+    await barrier
+    return await transitionNow(action)
+  }
+
+  async function transitionNow(
+    action: TransitionAction,
+    historyMode?: 'replace',
+  ): Promise<boolean> {
     if (!projection) return false
-    returning = undefined
     const prior = projection
     const body: TransitionBody = {
       query: prior.canonical_query,
@@ -235,9 +257,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       return await requestProjection(
         async () =>
           ensureVisibleWindow(await options.client.transition(body, activeRequest?.signal)),
-        (next) => {
+        async (next) => {
           if (action.action === 'view.back' || action.action === 'view.back-to') {
-            returnTo(next)
+            await returnTo(next)
             return
           }
           const selectionOnly = action.action.startsWith('selection.')
@@ -251,19 +273,57 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return await run()
   }
 
-  function returnTo(next: ViewProjection): void {
+  function returnTo(next: ViewProjection): Promise<void> {
     const current = ledger.read(browserHistory.state)
-    if (current?.query === next.canonical_query) {
-      accept(next, 'replace')
-      return
-    }
     const delta = ledger.deltaTo(next.canonical_query, browserHistory.state)
-    if (current === undefined || delta === undefined) {
+    if (current?.query === next.canonical_query || current === undefined || delta === undefined) {
       accept(next, 'replace')
-      return
+      return Promise.resolve()
     }
-    returning = { sequence: current.sequence + delta, projection: next }
+    const traversal = new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        if (returning?.projection !== next) return
+        returning = undefined
+        accept(next, 'replace')
+        resolve()
+      }, returnTimeoutMillis)
+      returning = {
+        sequence: current.sequence + delta,
+        projection: next,
+        settle: () => {
+          clearTimeout(timer)
+          resolve()
+        },
+      }
+    })
+    barrier = traversal
     browserHistory.go(delta)
+    return traversal
+  }
+
+  async function installReturn(
+    returned: ReturnInProgress,
+    owned: MoneyflowHistoryState,
+  ): Promise<void> {
+    try {
+      const offset = alignedOffset(owned.cursorIndex)
+      if (offset === returned.projection.window.offset) {
+        generation += 1
+        activeRequest?.abort()
+        loading = false
+        accept(returned.projection, 'replace', owned)
+        return
+      }
+      const { canonical_query: query, selection } = returned.projection
+      await requestProjection(
+        async () =>
+          ensureVisibleWindow(await options.client.view(viewBody(query, selection, offset))),
+        (next) => accept(next, 'replace', owned),
+        () => installReturn(returned, owned),
+      )
+    } finally {
+      returned.settle()
+    }
   }
 
   async function restore(event: PopStateEvent): Promise<void> {
@@ -271,12 +331,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const owned = ledger.record(event.state)
     const returned = returning
     returning = undefined
-    if (owned && returned?.sequence === owned.sequence) {
-      generation += 1
-      activeRequest?.abort()
-      accept(returned.projection, 'replace', owned)
+    if (returned && owned && returned.sequence === owned.sequence) {
+      await installReturn(returned, owned)
       return
     }
+    returned?.settle()
     const query = owned?.query ?? currentQuery(browserLocation)
     const selection = owned?.selection ?? projection?.selection
     await requestProjection(
@@ -448,7 +507,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   async function requestProjection(
     request: () => Promise<ViewProjection>,
-    onSuccess: (next: ViewProjection) => void,
+    onSuccess: (next: ViewProjection) => void | Promise<void>,
     retry: () => Promise<void>,
   ): Promise<boolean> {
     lastRetry = async () => {
@@ -463,7 +522,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     try {
       const next = await request()
       if (requestGeneration !== generation) return false
-      onSuccess(next)
+      await onSuccess(next)
       return true
     } catch (error) {
       if (requestGeneration !== generation || isAbort(error)) return false
