@@ -13,7 +13,10 @@
     revision: string
     /** Pending text, given when the sidebar card is not showing it. */
     pending?: string | undefined
-    /** Phone width: the pending text takes the hint area, which has no keyboard to hint at. */
+    /**
+     * Phone width: the pending text takes the hint area, which has no keyboard to hint at, and
+     * the profile revision is left out so the pending text fits.
+     */
     compact?: boolean
     onretry: () => void
   }
@@ -65,7 +68,7 @@
             <StatusDot status="idle" label="" />Connected
           {/if}
         </span>
-        <span>profile revision {revision}</span>
+        {#if !compact}<span>profile revision {revision}</span>{/if}
       </span>
     {/snippet}
   </StatusBar>

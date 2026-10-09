@@ -30,9 +30,13 @@
 
   const sections = $derived(navItems(projection))
   const reviewAvailable = $derived(availableCapabilities(projection).has('changes.review'))
-  const pendingTip = $derived(
-    write ? `Write ${write.completed}/${write.total} · w` : 'Review pending changes · w',
-  )
+  const waiting = $derived(pending.active_operations > 0)
+  // Like the sidebar card: review needs pending edits; a running write always opens its drawer.
+  const reviewOffered = $derived(write !== undefined || (waiting && reviewAvailable))
+  const pendingTip = $derived.by(() => {
+    if (write) return `Write ${write.completed}/${write.total} · w`
+    return waiting ? 'Review pending changes · w' : 'No pending edits'
+  })
 
   // kit IconButton has no aria-current or aria-keyshortcuts prop; set them on its button.
   function entryAttributes(item: NavItem) {
@@ -79,13 +83,13 @@
           ariaLabel="Review pending changes"
           title=""
           class="mf-rail__item"
-          disabled={!reviewAvailable && !write}
+          ariaDisabled={!reviewOffered}
           onclick={onreview}
         >
           <PenLineIcon size={16} aria-hidden="true" />
         </IconButton>
       </Tooltip>
-      {#if pending.active_operations > 0}
+      {#if waiting}
         <span class="mf-rail__count" aria-hidden="true">{pending.active_operations}</span>
       {/if}
     </li>

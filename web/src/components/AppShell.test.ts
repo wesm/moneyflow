@@ -234,6 +234,28 @@ describe('AppShell', () => {
     expect(screen.getByRole('dialog', { name: 'Manage category groups' })).not.toBeNull()
   })
 
+  it('lets the write drawer close during a confirmation until the phase changes again', async () => {
+    const frames = captureFrames()
+    const confirming = () =>
+      testProviderWriteController({ state: { phase: 'confirmation', announcement: '' } })
+    const controller = { ...stubController(), providerWrite: confirming() }
+    const rendered = render(AppShell, { controller })
+    const name = 'Monarch write status'
+    expect(screen.getByRole('dialog', { name })).not.toBeNull()
+
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await frames.flush()
+    expect(screen.queryByRole('dialog', { name })).toBeNull()
+    await fireEvent.keyDown(window, { key: 'j' })
+    expect(screen.queryByRole('dialog', { name })).toBeNull()
+
+    const idle = testProviderWriteController({ state: { phase: 'idle', announcement: '' } })
+    await rendered.rerender({ controller: { ...controller, providerWrite: idle } })
+    expect(screen.queryByRole('dialog', { name })).toBeNull()
+    await rendered.rerender({ controller: { ...controller, providerWrite: confirming() } })
+    expect(screen.getByRole('dialog', { name })).not.toBeNull()
+  })
+
   it('returns focus to the grid when the opener is gone', async () => {
     onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
     const frames = captureFrames()

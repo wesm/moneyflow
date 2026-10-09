@@ -88,6 +88,24 @@ describe('SidebarRail', () => {
     )
   })
 
+  it('offers no review without pending edits, like the sidebar card', async () => {
+    const onreview = vi.fn()
+    render(
+      SidebarRail,
+      props({
+        onreview,
+        pending: { active_operations: 0, inactive_operations: 1, affected_transactions: 0 },
+      }),
+    )
+    const review = screen.getByRole('button', { name: 'Review pending changes' })
+    expect(review.getAttribute('aria-disabled')).toBe('true')
+    await fireEvent.click(review)
+    expect(onreview).not.toHaveBeenCalled()
+    expect(review.closest('li')?.querySelector('.mf-rail__count')).toBeNull()
+    await fireEvent.focusIn(review)
+    expect((await screen.findByRole('tooltip')).textContent?.trim()).toBe('No pending edits')
+  })
+
   it('shows write progress on the pending icon while a write runs', async () => {
     render(SidebarRail, props({ write: { completed: 2, total: 5 } }))
     const review = screen.getByRole('button', { name: 'Review pending changes' })

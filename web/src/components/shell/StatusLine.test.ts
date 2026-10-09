@@ -57,11 +57,12 @@ describe('StatusLine', () => {
     expect(onretry).toHaveBeenCalledTimes(1)
   })
 
-  it('puts pending text in place of the hints at phone width', () => {
+  it('puts pending text in place of the hints and the revision at phone width', () => {
     render(StatusLine, props({ compact: true, pending: '1 pending edit · 1 transaction' }))
     expect(screen.queryByText('Open')).toBeNull()
     expect(screen.getByRole('status', { name: 'Pending profile changes' })).not.toBeNull()
-    expect(screen.getByText('profile revision 7')).not.toBeNull()
+    expect(screen.queryByText('profile revision 7')).toBeNull()
+    expect(screen.getByText('Connected')).not.toBeNull()
   })
 
   it('carries the pending text only when given', async () => {
