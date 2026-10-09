@@ -73,4 +73,25 @@ describe('PeriodChooser', () => {
     expect(ondismiss).toHaveBeenCalledTimes(1)
     expect(document.activeElement).toBe(anchor)
   })
+
+  it('closes when focus leaves for the page but not when it moves inside', async () => {
+    const { anchor, ondismiss } = chooser()
+    const outside = document.createElement('button')
+    document.body.append(outside)
+    const month = screen.getByRole('radio', { name: 'Month' })
+    await fireEvent.focusOut(month, { relatedTarget: screen.getByRole('radio', { name: 'Day' }) })
+    await fireEvent.focusOut(month, { relatedTarget: anchor })
+    expect(ondismiss).not.toHaveBeenCalled()
+    await fireEvent.focusOut(month, { relatedTarget: outside })
+    expect(ondismiss).toHaveBeenCalledTimes(1)
+    await fireEvent.focusOut(anchor, { relatedTarget: outside })
+    expect(ondismiss).toHaveBeenCalledTimes(2)
+  })
+
+  it("starts on Latest's month in a year the scope does not reach", async () => {
+    chooser({ from: '2025-09-01', to: '2025-09-30' })
+    await fireEvent.click(screen.getByRole('button', { name: 'Next year' }))
+    expect(screen.getByRole('button', { name: 'Oct 2026' }).tabIndex).toBe(0)
+    expect(screen.getByRole('button', { name: 'Jan 2026' }).tabIndex).toBe(-1)
+  })
 })

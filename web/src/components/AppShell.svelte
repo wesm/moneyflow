@@ -1,19 +1,19 @@
 <script lang="ts">
-  import { CollapsibleSidebar, DetailDrawer, MEDIA, Toggle } from '@kenn-io/kit-ui'
+  import { CollapsibleSidebar, MEDIA, Toggle } from '@kenn-io/kit-ui'
   import { MediaQuery } from 'svelte/reactivity'
   import { onMount, untrack } from 'svelte'
-  import FinanceTable from './FinanceTable.svelte'
   import ProviderConfirmation from './ProviderConfirmation.svelte'
   import RefinementBar from './RefinementBar.svelte'
+  import ChartDrawer from './shell/ChartDrawer.svelte'
   import ChartRail from './shell/ChartRail.svelte'
   import CommandBar from './shell/CommandBar.svelte'
-  import EmptyScope from './shell/EmptyScope.svelte'
   import PeriodControl from './shell/PeriodControl.svelte'
   import ShellAnnouncements from './shell/ShellAnnouncements.svelte'
   import ShellOverlays from './shell/ShellOverlays.svelte'
   import Sidebar from './shell/Sidebar.svelte'
   import SidebarRail from './shell/SidebarRail.svelte'
   import StatusLine from './shell/StatusLine.svelte'
+  import WorkspaceBody from './shell/WorkspaceBody.svelte'
   import {
     createMoneyflowShortcuts,
     handleMoneyflowKeydown,
@@ -24,6 +24,7 @@
   import { ChartState } from '../lib/shell/chart-state.svelte'
   import { keyHints } from '../lib/shell/key-hints'
   import {
+    confirmDirectDelete,
     focusedRow,
     localActions,
     openTransactionInformation,
@@ -34,7 +35,7 @@
   import type { NavRun } from '../lib/shell/nav-items'
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
-  import { emptyScope } from '../lib/shell/period'
+  import type { Period } from '../lib/shell/period'
   import { connectionState, writeProgress } from '../lib/shell/status'
   interface Props {
     controller: ViewController
@@ -46,7 +47,6 @@
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
   let transitionTail: Promise<void> = Promise.resolve()
   const projection = $derived(controller.projection)
-  const emptyPeriod = $derived(projection && emptyScope(projection))
   const compact = new MediaQuery(MEDIA.compact)
   const fullSidebar = new MediaQuery(SIDEBAR_FULL_QUERY)
   const pushScope = (name: string) => shortcuts?.manager.pushScope(name)
@@ -92,15 +92,9 @@
     if (overlays.current !== undefined || charts.dialogOpen) return
     grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
   }
-  async function confirmDirectDelete(): Promise<void> {
-    const deleteTarget = overlays.deleteTarget
-    if (!deleteTarget) return
-    const accepted = await controller.editing.submit({
-      action: 'transaction.delete',
-      input: {},
-      target: deleteTarget,
-    })
-    if (accepted) overlays.close()
+  async function setPeriod(period: Period): Promise<void> {
+    await controller.apply({ action: 'time.set-period', period })
+    focusGrid()
   }
   $effect(() => {
     if (!compact.current && charts.dialogOpen) charts.setDialog(false)
@@ -212,25 +206,13 @@
           >
             <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
             <div class="app-shell__table" bind:this={grid}>
-              {#if emptyPeriod}
-                <EmptyScope
-                  scope={emptyPeriod}
-                  onjump={() =>
-                    void controller
-                      .apply({ action: 'time.set-period', period: emptyPeriod.jump })
-                      .then(focusGrid)}
-                />
-              {:else}
-                <FinanceTable
-                  {projection}
-                  cursorIndex={controller.cursorIndex}
-                  onmove={(delta) => void controller.moveCursor(delta)}
-                  onhome={() => void controller.moveHome()}
-                  onactivate={(identity, kind) => void target('view.drill', identity, kind)}
-                  onselect={(identity, kind) => void target('selection.toggle', identity, kind)}
-                  oninformation={(identity) => void openTransactionInformation(actions, identity)}
-                />
-              {/if}
+              <WorkspaceBody
+                {controller}
+                {projection}
+                ontarget={(action, identity, kind) => void target(action, identity, kind)}
+                oninformation={(identity) => void openTransactionInformation(actions, identity)}
+                onperiod={(period) => void setPeriod(period)}
+              />
             </div>
             {#if charts.aside}
               <aside aria-label="Visualizations">
@@ -258,18 +240,11 @@
     {projection}
     {overlays}
     row={row()}
-    onconfirmdelete={() => void confirmDirectDelete()}
+    onconfirmdelete={() => void confirmDirectDelete(actions)}
     {onreconnect}
   />
   <ProviderConfirmation controller={controller.provider} />
-  {#if compact.current && charts.dialogOpen}
-    <DetailDrawer
-      title="Visualizations"
-      ariaLabel="Moneyflow visualizations"
-      width="min(560px, calc(100vw - 1px))"
-      onclose={() => charts.setDialog(false)}
-    >
-      {@render chartRail()}
-    </DetailDrawer>
-  {/if}
+  <ChartDrawer open={compact.current && charts.dialogOpen} onclose={() => charts.setDialog(false)}>
+    {@render chartRail()}
+  </ChartDrawer>
 {/if}

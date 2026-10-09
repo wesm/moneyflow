@@ -91,10 +91,19 @@
     onpick(undefined)
   }
 
+  // Tabbing out closes the chooser, so its shortcut scope never outlives its focus.
+  function focusout(event: FocusEvent): void {
+    const next = event.relatedTarget
+    if (!(next instanceof Node) || panel?.contains(next) || anchor.contains(next)) return
+    ondismiss()
+  }
+
   onMount(() => {
     place()
     panel?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus()
+    anchor.addEventListener('focusout', focusout)
     const cleanups = [
+      () => anchor.removeEventListener('focusout', focusout),
       // A press outside leaves focus where it lands; Escape returns it to the label button.
       dismissable({
         owners: () => [panel, anchor],
@@ -115,6 +124,7 @@
   tabindex="-1"
   bind:this={panel}
   onkeydown={keydown}
+  onfocusout={focusout}
 >
   <SegmentedControl
     block
@@ -127,6 +137,7 @@
     {#if tab === 'day'}
       <Calendar
         bind:month={dayMonth}
+        locale="en-US"
         selected={kind === 'day' && range ? range : null}
         maxDate={latest}
         onpick={pickDay}
@@ -155,7 +166,7 @@
         label="Months of {monthYear}"
         columns={4}
         cells={monthCells(monthYear, range, first, latest)}
-        start={periodContaining(start, 'month').start}
+        starts={[start, latest].map((date) => periodContaining(date, 'month').start)}
         onpick={(date) => onpick(periodContaining(date, 'month'))}
       />
     {:else if tab === 'year'}
@@ -163,7 +174,7 @@
         label="Years"
         columns={4}
         cells={yearCells(firstYear, latestYear, range)}
-        start={periodContaining(start, 'year').start}
+        starts={[start, latest].map((date) => periodContaining(date, 'year').start)}
         onpick={(date) => onpick(periodContaining(date, 'year'))}
       />
     {:else}
@@ -185,6 +196,7 @@
       </dl>
       <Calendar
         bind:month={customMonth}
+        locale="en-US"
         selected={draft.from ? { from: draft.from, to: draft.to || draft.from } : null}
         maxDate={latest}
         onpick={pickCustomDay}

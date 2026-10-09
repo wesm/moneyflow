@@ -5,17 +5,17 @@
     label: string
     cells: PeriodCell[]
     columns: number
-    /** The cell that takes focus first when none is selected. */
-    start: string
+    /** Cells that take focus when none is selected, in order of preference. */
+    starts: string[]
     onpick: (key: string) => void
   }
 
-  let { label, cells, columns, start, onpick }: Props = $props()
+  let { label, cells, columns, starts, onpick }: Props = $props()
   let group = $state<HTMLElement>()
   let moved = $state<string | undefined>()
-  // One tab stop: the cell last moved to, the selected cell, the start cell, or the first enabled.
+  // One tab stop: the cell last moved to, the selected cell, a start cell, or the first enabled.
   const focusIndex = $derived.by(() => {
-    for (const wanted of [moved, cells.find((cell) => cell.selected)?.key, start]) {
+    for (const wanted of [moved, cells.find((cell) => cell.selected)?.key, ...starts]) {
       const index = cells.findIndex((cell) => cell.key === wanted && !cell.disabled)
       if (index >= 0) return index
     }

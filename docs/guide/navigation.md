@@ -95,7 +95,8 @@ Click the label or press `t` to open the period chooser. Its tabs choose how to 
 
 The chooser opens on the current period's tab; all time and custom ranges open on Month.
 Arrow keys move between months and years, and Enter picks one. **All time** or `a` shows all
-time. Esc closes the chooser without changing the period and returns to the label.
+time. Esc closes the chooser without changing the period and returns to the label; moving
+focus out of the chooser also closes it.
 
 Dates come from your transactions in the selected currency, never from your computer's
 calendar. The chooser offers no dates after your newest transaction, but › can still move
@@ -104,7 +105,8 @@ past it.
 When the chosen period has no transactions in the selected currency, the table is replaced by
 "No transactions in" and the period, with a **Jump to latest** button. It selects the period
 of the same length that contains your newest transaction; from a custom range it selects that
-month. A search with no matches shows the table's own empty state instead.
+month. A search with no matches, or an empty period inside a merchant, category, group, or
+account, shows the table's own empty state instead.
 
 ## Search
 

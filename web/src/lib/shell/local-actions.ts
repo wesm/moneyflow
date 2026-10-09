@@ -90,6 +90,19 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
   }
 }
 
+/** Deletes the transaction the delete confirmation names, closing it once the edit is staged. */
+export async function confirmDirectDelete(context: LocalActionContext): Promise<void> {
+  const { controller, overlays } = context
+  const target = overlays.deleteTarget
+  if (!target) return
+  const accepted = await controller.editing.submit({
+    action: 'transaction.delete',
+    input: {},
+    target,
+  })
+  if (accepted) overlays.close()
+}
+
 function confirmDelete(context: LocalActionContext, row: FocusedRow | undefined): void {
   if (row?.kind !== 'transaction') return
   const selected = context.controller.projection?.selection_count

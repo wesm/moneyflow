@@ -56,10 +56,10 @@ export class OverlayState {
   }
 
   /**
-   * Closes the open overlay and returns focus to its opener, or to `focus` when given. With
-   * 'keep', focus stays where it is, as after a pointer press outside a popover.
+   * Closes the open overlay and returns focus to its opener. With 'keep', focus stays where it
+   * is, as after a pointer press outside a popover.
    */
-  close(focus?: HTMLElement | 'keep'): void {
+  close(focus?: 'keep'): void {
     this.current = undefined
     this.#popScope?.()
     this.#popScope = undefined
@@ -70,7 +70,6 @@ export class OverlayState {
       this.#opener = undefined
       return
     }
-    if (focus) this.#opener = focus
     void tick().then(() => {
       this.#restoreFrame = requestAnimationFrame(() => {
         this.#restoreFrame = undefined

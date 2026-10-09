@@ -115,11 +115,17 @@ export function activeCurrency(projection: ViewProjection): Currency | undefined
   )
 }
 
+/** The dimensions of the view's drill-downs, outermost first. */
+function drillDimensions(projection: ViewProjection): string[] {
+  const drills = new URLSearchParams(projection.canonical_query).getAll('drill')
+  return drills.map((drill) => drill.split(':')[0] ?? '')
+}
+
 /** Whether ‹ and › can move the period: one calendar unit, or a time drill to move. */
 export function canShiftPeriod(projection: ViewProjection): boolean {
   const kind = scopeKind(projection.filters.date_range)
   if (kind === 'day' || kind === 'month' || kind === 'year') return true
-  return (projection.breadcrumbs ?? []).slice(1).some((crumb) => crumb.dimension === 'time')
+  return drillDimensions(projection).includes('time')
 }
 
 const stepKeys: Record<string, (columns: number) => number> = {
@@ -210,14 +216,16 @@ export interface EmptyScope {
 }
 
 /**
- * Describes a chosen period with no transactions in the view's currency. All time and searches
- * are not empty periods: the period is not what hides their results.
+ * Describes a chosen period with no transactions in the view's currency. All time, searches,
+ * and drill-downs other than time are not empty periods: the period is not what hides their
+ * results, and Latest for the currency may not hold a transaction inside the drill-down.
  */
 export function emptyScope(projection: ViewProjection): EmptyScope | undefined {
   const currency = activeCurrency(projection)
   const range = projection.filters.date_range
   const kind = scopeKind(range)
   if (!currency || kind === 'all' || projection.view.search) return undefined
+  if (drillDimensions(projection).some((dimension) => dimension !== 'time')) return undefined
   const counted = (projection.statistics ?? []).some(
     (entry) =>
       entry.currency === currency.currency && entry.scale === currency.scale && entry.count > 0,

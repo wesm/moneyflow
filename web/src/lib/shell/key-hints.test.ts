@@ -90,6 +90,23 @@ describe('keyHints', () => {
     expect(keyHints(selected, false).map(({ key }) => key)).toEqual(['m', 'c', 'h', 'Esc'])
   })
 
+  it('offers no row keys over an empty period', () => {
+    const currency = { currency: 'USD', scale: 2 }
+    for (const mode of ['aggregate', 'detail'] as const) {
+      const empty = projection({
+        view: { ...view(mode), currency },
+        currencies: [{ ...currency, count: 1, first: '2026-01-02', latest: '2026-10-07' }],
+        filters: {
+          show_hidden: false,
+          show_transfers: false,
+          date_range: { from: '2026-11-01', to: '2026-11-30' },
+        },
+        statistics: [],
+      })
+      expect(keyHints(empty, false).map(({ key }) => key)).toEqual(['g', '/', 't', '?'])
+    }
+  })
+
   it('offers only closing while an overlay is open', () => {
     expect(keyHints(projection({ view: view('aggregate') }), true)).toEqual([
       { key: 'Esc', label: 'Close' },

@@ -1,5 +1,6 @@
 import type { ViewProjection } from '../api/client'
 import { availableCapabilities } from './capabilities'
+import { emptyScope } from './period'
 
 export interface KeyHint {
   key: string
@@ -48,7 +49,10 @@ export function keyHints(projection: ViewProjection, overlayOpen: boolean): KeyH
   const available = availableCapabilities(projection)
   let candidates = groupedHints(projection)
   if (projection.selection_count > 0) candidates = selectionHints
-  else if (projection.view.mode === 'detail') candidates = detailHints
+  else if (emptyScope(projection)) {
+    // The empty-period state has no rows to open or edit.
+    candidates = candidates.filter(({ capability }) => capability !== 'view.drill')
+  } else if (projection.view.mode === 'detail') candidates = detailHints
   return candidates
     .filter(({ capability }) => available.has(capability))
     .slice(0, 6)

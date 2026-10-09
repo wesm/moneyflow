@@ -116,13 +116,63 @@ test('an empty month jumps to the latest month', async ({ page, server }) => {
   await openMoneyflow(page, server)
   await segment(page, 'Month').click()
   await expect(periodLabel(page)).toHaveText('Oct 2026')
-  await page.getByRole('button', { name: 'Next period' }).click()
+  await grid(page).focus()
+  await page.keyboard.press('ArrowRight')
   await expect(periodLabel(page)).toHaveText('Nov 2026')
   const workspace = page.getByRole('main', { name: 'Moneyflow workspace' })
   await expect(workspace.getByText('No transactions in Nov 2026', { exact: true })).toBeVisible()
   await expect(grid(page)).toHaveCount(0)
+  const jump = workspace.getByRole('button', { name: 'Jump to latest' })
+  await expect(jump).toBeFocused()
+  await expect(page.getByRole('contentinfo')).not.toContainText('Open')
 
-  await workspace.getByRole('button', { name: 'Jump to latest' }).click()
+  await page.keyboard.press('Enter')
   await expect(periodLabel(page)).toHaveText('Oct 2026')
   await expect(grid(page)).toBeFocused()
+})
+
+test('an empty month inside a merchant keeps the table empty state', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  await segment(page, 'Month').click()
+  await expect(periodLabel(page)).toHaveText('Oct 2026')
+  await grid(page).focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/[?&]drill=merchant/)
+  await page.getByRole('button', { name: 'Next period' }).click()
+  await expect(periodLabel(page)).toHaveText('Nov 2026')
+  const workspace = page.getByRole('main', { name: 'Moneyflow workspace' })
+  await expect(workspace.getByText('No transactions', { exact: true })).toBeVisible()
+  await expect(workspace.getByRole('button', { name: 'Jump to latest' })).toHaveCount(0)
+})
+
+test('Esc closes the chooser inside a drill, then a second Esc goes back', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/[?&]drill=merchant/)
+  await periodLabel(page).focus()
+  await page.keyboard.press('t')
+  await expect(chooser(page)).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(chooser(page)).toBeHidden()
+  await expect(periodLabel(page)).toBeFocused()
+  await expect(page).toHaveURL(/[?&]drill=merchant/)
+  await page.keyboard.press('Escape')
+  await expect(page).not.toHaveURL(/[?&]drill=/)
+})
+
+test('tabbing out of the chooser closes it and restores the shortcuts', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await periodLabel(page).click()
+  await expect(chooser(page)).toBeVisible()
+  await page.keyboard.press('Shift+Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(chooser(page)).toBeHidden()
+  await page.keyboard.press('g')
+  await expect(page).toHaveURL(/[?&]group=category/)
 })

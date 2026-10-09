@@ -163,12 +163,11 @@ describe('canShiftPeriod', () => {
     expect(canShiftPeriod(testProjection())).toBe(false)
   })
 
-  it('shifts a time drill under all time', () => {
-    const breadcrumbs = [
-      { dimension: 'time', label: 'Time' },
-      { dimension: 'time', label: '2026-09' },
-    ]
-    expect(canShiftPeriod(testProjection({ breadcrumbs }))).toBe(true)
+  it('shifts a time drill under all time, the only drill-down included', () => {
+    const query = 'v=1&g=time&drill=time%3AUSD%3A2%3Amonth%3A2026-09'
+    expect(canShiftPeriod(testProjection({ canonical_query: query }))).toBe(true)
+    const merchant = 'v=1&drill=merchant%3AUSD%3A2%3Aexample-key'
+    expect(canShiftPeriod(testProjection({ canonical_query: merchant }))).toBe(false)
   })
 })
 
@@ -286,5 +285,14 @@ describe('emptyScope', () => {
     expect(
       emptyScope(scoped('2026-11-01', '2026-11-30', { view: base.view, currencies: [usd] })),
     ).toBeUndefined()
+  })
+
+  it('leaves an empty drill-down to the table, since Latest may lie outside the drill', () => {
+    const merchant = 'v=1&drill=merchant%3AUSD%3A2%3Aexample-key'
+    expect(emptyScope(scoped('2026-11-01', '2026-11-30', { canonical_query: merchant }))).toBe(
+      undefined,
+    )
+    const time = 'v=1&g=time&drill=time%3AUSD%3A2%3Amonth%3A2026-11'
+    expect(emptyScope(scoped('2026-11-01', '2026-11-30', { canonical_query: time }))).toBeDefined()
   })
 })
