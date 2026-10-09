@@ -421,12 +421,14 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 			return nil, problemFromError(err)
 		}
 		window := app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit}
-		nextState, _, projection, err := service.TransitionView(state, selection, transition, window)
+		transit := func(selection app.SelectionValue) (app.ViewState, app.WebProjection, error) {
+			next, _, projection, err := service.TransitionView(state, selection, transition, window)
+			return next, projection, err
+		}
+		nextState, projection, err := transit(selection)
 		warnings := []Warning(nil)
-		if isInvalidHydrationSelection(err) {
-			nextState, _, projection, err = service.TransitionView(
-				state, app.EmptySelection(), transition, window,
-			)
+		if isInvalidTransitionSelection(err) {
+			nextState, projection, err = transit(app.EmptySelection())
 			warnings = selectionResetWarnings()
 		}
 		if err != nil {
@@ -696,6 +698,13 @@ func selectionResetWarnings() []Warning {
 		Code:   string(app.SelectionReset),
 		Detail: "The saved selection was invalid and has been reset.",
 	}}
+}
+
+// isInvalidTransitionSelection reports a selection that failed to decode. An oversized
+// selection is a conflict the browser handles, so a transition does not reset it.
+func isInvalidTransitionSelection(err error) bool {
+	var selectionErr *app.SelectionError
+	return errors.As(err, &selectionErr) && selectionErr.Code == app.SelectionInvalid
 }
 
 func isInvalidHydrationSelection(err error) bool {

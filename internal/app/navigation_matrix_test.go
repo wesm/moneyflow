@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1151,5 +1152,41 @@ func TestMatrixBackToFromALinkedViewTruncatesTheDrillPath(t *testing.T) {
 			assert.Equal(t, domain.SortFieldDate, session.Sort.Field)
 		}
 		assert.False(t, session.BackTo(depth))
+	}
+}
+
+func TestMatrixBackToFromALinkedViewClearsASearchAtOrBelowTheDeepestLevel(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name         string
+		anchorDepth  int
+		anchorViaSet bool
+	}{
+		{"applied at the deepest level", 2, true},
+		{"anchored below the drill path by a crafted link", 3, false},
+	} {
+		for _, depth := range []int{0, 1} {
+			t.Run(fmt.Sprintf("%s to depth %d", test.name, depth), func(t *testing.T) {
+				t.Parallel()
+				session := NewSession()
+				drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+				session.CycleSubGrouping()
+				drillMatrixRow(t, &session, matrixRow(domain.DimensionCategory, "category-1"))
+				session.SetSearch("grocer")
+				session.history = nil
+				if !test.anchorViaSet {
+					session.searchAnchor = &navigationMarker{
+						mode: session.Mode, drilldownSize: test.anchorDepth,
+					}
+				}
+				require.Equal(t, test.anchorDepth, session.searchAnchor.drilldownSize)
+
+				assert.True(t, session.BackTo(depth))
+
+				assert.Len(t, session.Drilldowns, depth)
+				assert.Empty(t, session.Search)
+				assert.Nil(t, session.searchAnchor)
+			})
+		}
 	}
 }

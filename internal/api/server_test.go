@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -899,4 +900,54 @@ func TestServerKeepsOtherTransitionProblemsWithAStaleSelection(t *testing.T) {
 	var problem Problem
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
 	assert.Equal(t, "no_change", problem.Code)
+}
+
+func TestServerKeepsAnOversizedSelectionAsAConflictOnATransition(t *testing.T) {
+	t.Parallel()
+
+	longID := strings.Repeat("x", app.MaxSelectionIdentityBytes+1)
+	service, err := app.NewService([]domain.Transaction{
+		apiTransactionWith(t, longID, func(*domain.Transaction) {}),
+	})
+	require.NoError(t, err)
+	server := newAPITestServerForService(t, service)
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+	projection := projectState(t, server, state)
+	require.Len(t, projection.DetailRows, 1)
+
+	response := transitionFrom(t, server, projection.CanonicalQuery, TransitionBody{
+		Selection: projection.Selection,
+		Action:    app.ActionToggleSelection,
+		Target: &TransitionTarget{
+			Kind: app.IdentityTransaction, Identity: projection.DetailRows[0].Identity,
+		},
+	})
+
+	require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	assert.Equal(t, string(app.SelectionTooLarge), problem.Code)
+}
+
+func TestOnlyAnInvalidSelectionIsResetOnATransition(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"invalid selection": {&app.SelectionError{Code: app.SelectionInvalid}, true},
+		"wrapped invalid": {
+			fmt.Errorf("toggle: %w", &app.SelectionError{Code: app.SelectionInvalid}), true,
+		},
+		"too large":      {&app.SelectionError{Code: app.SelectionTooLarge}, false},
+		"other problem":  {errors.New("no change"), false},
+		"no error":       {nil, false},
+		"stale web view": {&app.WebError{Code: app.WebStaleViewTarget}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, test.want, isInvalidTransitionSelection(test.err))
+		})
+	}
 }
