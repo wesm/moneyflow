@@ -197,7 +197,7 @@ func (service *Service) projectViewLocked(
 		return WebProjection{}, err
 	}
 	decorateWebSelection(&result, snapshot)
-	summary, err := selectionSummary(result)
+	summary, err := service.projectionSelectionSummary(result, selection, snapshot)
 	if err != nil {
 		return WebProjection{}, invalidWebRequest(err)
 	}

@@ -194,3 +194,27 @@ func TestSelectionSummaryMatchesAnalyticsStatisticsForDetailSelection(t *testing
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }
+
+func TestSelectionSummaryCoversSelectedTransactionsHiddenBySearch(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService(summaryTransactions(t))
+	require.NoError(t, err)
+	state := selectionDetailState()
+	selection := toggled(t, service, state, IdentityTransaction, "txn-a", "txn-b")
+	session := NewSession()
+	session.ShowAllDetail()
+	session.SetSearch("Alpha")
+
+	projection := summaryProjection(t, service, session.ViewState().Current, selection)
+
+	require.Equal(t, 2, projection.SelectionCount)
+	require.Equal(t, 1, projection.TotalRows)
+	assert.Equal(t, []domain.CurrencyStats{usdStats(t, 2, "3.00", "-5.00")},
+		projection.SelectionSummary)
+	var count int
+	for _, stats := range projection.SelectionSummary {
+		count += stats.Count
+	}
+	assert.Equal(t, projection.SelectionCount, count)
+}
