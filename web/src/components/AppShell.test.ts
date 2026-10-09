@@ -5,9 +5,20 @@ import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
 import { testProviderWriteController } from '../test/provider-write'
+import { loadRail } from '../lib/shell/rail'
+
+vi.mock('../lib/shell/rail', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../lib/shell/rail')>()
+  return { loadRail: vi.fn(original.loadRail) }
+})
+
+const failureText = 'Charts could not load. Reload the page.'
 
 describe('AppShell', () => {
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.mocked(loadRail).mockClear()
+  })
   it('keeps the finance grid primary and routes the TUI cursor shortcut', async () => {
     const controller = stubController()
     render(AppShell, { controller })
@@ -32,6 +43,61 @@ describe('AppShell', () => {
       { timeout: 10_000 },
     )
     expect(heading.tagName).toBe('H2')
+  })
+
+  it('shows a loading line until the chart rail arrives', async () => {
+    vi.mocked(loadRail).mockImplementationOnce(() => new Promise(() => undefined))
+    render(AppShell, { controller: stubController() })
+
+    const region = screen.getByRole('complementary', { name: 'Visualizations' })
+    expect(within(region).getByText('Loading charts…')).not.toBeNull()
+  })
+
+  it('explains a failed chart load and retries when charts are shown again', async () => {
+    vi.mocked(loadRail).mockRejectedValueOnce(new Error('chunk 404'))
+    render(AppShell, { controller: stubController() })
+
+    const region = screen.getByRole('complementary', { name: 'Visualizations' })
+    expect((await within(region).findByText(failureText)).getAttribute('role')).toBe('status')
+    expect(within(region).queryByText('Loading charts…')).toBeNull()
+
+    const toggle = screen.getByRole('switch', { name: 'Charts' })
+    await fireEvent.click(toggle)
+    await fireEvent.click(toggle)
+    const heading = await screen.findByRole(
+      'heading',
+      { name: 'Visualizations' },
+      { timeout: 10_000 },
+    )
+    expect(heading.tagName).toBe('H2')
+    expect(screen.queryByText(failureText)).toBeNull()
+    expect(loadRail).toHaveBeenCalledTimes(2)
+  })
+
+  it('explains a failed chart load inside the compact dialog', async () => {
+    const original = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => ({
+        matches: query.includes('640px'),
+        media: query,
+        onchange: null,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      }),
+    })
+    try {
+      vi.mocked(loadRail).mockRejectedValueOnce(new Error('chunk 404'))
+      render(AppShell, { controller: stubController() })
+      await fireEvent.click(screen.getByRole('switch', { name: 'Charts' }))
+      const dialog = screen.getByRole('dialog', { name: 'Moneyflow visualizations' })
+      expect((await within(dialog).findByText(failureText)).getAttribute('role')).toBe('status')
+    } finally {
+      Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
+    }
   })
 
   it('keeps the table full width and opens charts in a labelled compact drawer', async () => {

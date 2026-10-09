@@ -9,6 +9,7 @@
     TopBar,
   } from '@kenn-io/kit-ui'
   import { MediaQuery } from 'svelte/reactivity'
+  import { loadRail, type RailComponent } from '../lib/shell/rail'
   import { onMount, tick, untrack } from 'svelte'
   import FiltersDialog from './FiltersDialog.svelte'
   import FinanceTable from './FinanceTable.svelte'
@@ -42,7 +43,8 @@
   }
   let { controller, onreconnect, onamazonimport }: Props = $props()
   let charts = $state(true)
-  let Rail = $state.raw<typeof import('./VisualizationRail.svelte').default | undefined>()
+  let Rail = $state.raw<RailComponent | undefined>()
+  let railStatus = $state<'idle' | 'loading' | 'failed'>('idle')
   let chartDrawer = $state(false)
   let grid = $state<HTMLElement | undefined>()
   type Overlay =
@@ -199,6 +201,17 @@
     if (compact.current) setChartDrawer(checked)
     else charts = checked
   }
+  function startRailLoad(): void {
+    if (Rail || railStatus === 'loading') return
+    railStatus = 'loading'
+    loadRail().then(
+      (component) => {
+        Rail = component
+        railStatus = 'idle'
+      },
+      () => (railStatus = 'failed'),
+    )
+  }
   function setChartDrawer(open: boolean): void {
     popChartScope?.()
     popChartScope = open ? shortcuts?.manager.pushScope('charts') : undefined
@@ -207,9 +220,9 @@
   $effect(() => {
     if (!compact.current && chartDrawer) setChartDrawer(false)
   })
+  const chartsShown = $derived(compact.current ? chartDrawer : charts)
   $effect(() => {
-    if (Rail || !(compact.current ? chartDrawer : charts)) return
-    void import('./VisualizationRail.svelte').then((module) => (Rail = module.default))
+    if (chartsShown) untrack(startRailLoad)
   })
   $effect(() => {
     if (!projection) return
@@ -248,6 +261,22 @@
 </script>
 
 {#if projection}
+  {#snippet chartRail()}
+    {#if Rail}
+      <Rail
+        {projection}
+        cursorIndex={controller.cursorIndex}
+        oncursor={(index) => void controller.moveCursorTo(index)}
+        ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
+      />
+    {:else if railStatus === 'failed'}
+      <p class="overlay-status overlay-status--error" role="status">
+        Charts could not load. Reload the page.
+      </p>
+    {:else}
+      <p class="overlay-status" role="status">Loading charts…</p>
+    {/if}
+  {/snippet}
   <div class="app-shell">
     <TopBar ariaLabel="Moneyflow">
       {#snippet left()}<span class="moneyflow-brand">Moneyflow</span>{/snippet}
@@ -284,12 +313,7 @@
       </div>
       {#if charts && !compact.current}
         <aside aria-label="Visualizations">
-          {#if Rail}<Rail
-              {projection}
-              cursorIndex={controller.cursorIndex}
-              oncursor={(index) => void controller.moveCursorTo(index)}
-              ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
-            />{/if}
+          {@render chartRail()}
         </aside>
       {/if}
     </main>
@@ -367,12 +391,7 @@
       width="min(560px, calc(100vw - 1px))"
       onclose={() => setChartDrawer(false)}
     >
-      {#if Rail}<Rail
-          {projection}
-          cursorIndex={controller.cursorIndex}
-          oncursor={(index) => void controller.moveCursorTo(index)}
-          ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
-        />{/if}
+      {@render chartRail()}
     </DetailDrawer>
   {/if}
 {/if}

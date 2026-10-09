@@ -43,6 +43,7 @@ for (const overlay of ['search', 'filters', 'help'] as const) {
     page,
     server,
   }) => {
+    await page.addInitScript(() => localStorage.setItem('kit-ui-theme', 'dark'))
     await openMoneyflow(page, server)
     await page.keyboard.press(overlay === 'search' ? '/' : overlay === 'filters' ? 'f' : '?')
     const dialog = page.getByRole('dialog')
@@ -62,6 +63,7 @@ test('duplicate review and deletion confirmation pass axe and trap focus', async
     fixturePath: 'testdata/fixtures/duplicate_transactions.json',
   })
   try {
+    await page.addInitScript(() => localStorage.setItem('kit-ui-theme', 'dark'))
     await openMoneyflow(page, server)
     await page.keyboard.press('Shift+D')
     const review = page.getByRole('dialog', { name: 'Duplicate transactions' })
