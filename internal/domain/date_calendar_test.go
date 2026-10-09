@@ -47,6 +47,8 @@ func TestDaysBetweenCountsCalendarDays(t *testing.T) {
 	assert.Equal(t, 30, DaysBetween(mustTestDate(t, "2026-03-10"), mustTestDate(t, "2026-04-09")))
 	assert.Equal(t, 366, DaysBetween(mustTestDate(t, "2028-01-01"), mustTestDate(t, "2029-01-01")))
 	assert.Equal(t, -1, DaysBetween(mustTestDate(t, "2026-01-02"), mustTestDate(t, "2026-01-01")))
+	first, last := mustTestDate(t, "0001-01-01"), mustTestDate(t, "9999-12-31")
+	assert.Equal(t, 3652058, DaysBetween(first, last), "spans beyond 292 years stay exact")
 	assert.True(t, Date{}.IsZero())
 	assert.False(t, mustTestDate(t, "2026-01-01").IsZero())
 }

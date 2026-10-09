@@ -132,11 +132,13 @@ func (d Date) AddMonthsClamped(delta int) (Date, error) {
 	return Date{year: year, month: month, day: min(d.day, daysInMonth(year, month))}, nil
 }
 
+const secondsPerDay = 24 * 60 * 60
+
 // DaysBetween returns end minus start in calendar days.
 func DaysBetween(start Date, end Date) int {
 	startTime := time.Date(start.year, start.month, start.day, 0, 0, 0, 0, time.UTC)
 	endTime := time.Date(end.year, end.month, end.day, 0, 0, 0, 0, time.UTC)
-	return int(endTime.Sub(startTime).Hours() / 24)
+	return int((endTime.Unix() - startTime.Unix()) / secondsPerDay)
 }
 
 // IsZero reports whether the date is the unset zero value.
