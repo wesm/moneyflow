@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import CommandSearch from './CommandSearch.svelte'
 import { SearchCarry } from '../../lib/shell/search-carry'
+import CommandSearchSwap from '../../test/CommandSearchSwap.svelte'
 import type { SearchPreview } from '../../lib/controller/search'
 import { testProjection } from '../../test/projection'
 
@@ -195,16 +196,16 @@ describe('CommandSearch', () => {
   it('continues the search being typed in the field that replaces it', async () => {
     const controller = host('noodle')
     const carry = new SearchCarry()
-    const first = render(CommandSearch, { controller, ondone: vi.fn(), carry })
+    const { rerender } = render(CommandSearchSwap, { controller, carry, wide: false })
     await fireEvent.input(field(), { target: { value: 'pizza' } })
     await waitFor(() => expect(controller.previewSearch).toHaveBeenCalledWith('pizza'))
-    first.unmount()
-    expect(controller.restoreSearch).not.toHaveBeenCalled()
 
-    render(CommandSearch, { controller, ondone: vi.fn(), carry })
+    await rerender({ wide: true })
+
     expect(field().value).toBe('pizza')
+    expect(carry.take()).toBeUndefined()
+    expect(controller.restoreSearch).not.toHaveBeenCalled()
     await fireEvent.keyDown(field(), { key: 'Escape' })
-
     expect(controller.beginSearch).toHaveBeenCalledOnce()
     expect(controller.restoreSearch).toHaveBeenCalledWith({ id: 'snapshot' })
     expect(field().value).toBe('noodle')

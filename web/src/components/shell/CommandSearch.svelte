@@ -1,6 +1,6 @@
 <script lang="ts">
   import { SearchInput } from '@kenn-io/kit-ui'
-  import { onDestroy } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
 
   import {
     createSearchCoordinator,
@@ -30,7 +30,7 @@
   /** The text being typed; undefined while the field shows the applied search. */
   let draft = $state<string | undefined>()
   let error = $state('')
-  let session: { search: SearchCoordinator; unsubscribe: () => void } | undefined = resume()
+  let session: { search: SearchCoordinator; unsubscribe: () => void } | undefined
   /** A search that lost focus and is still being applied; new typing waits for it. */
   let leaving: Promise<void> | undefined
 
@@ -52,7 +52,11 @@
     return { search, unsubscribe: search.subscribe(() => (error = search.error)) }
   }
 
-  /** Continues a search that an earlier field left in `carry`. */
+  /**
+   * Continues a search that an earlier field left in `carry`. Svelte creates a replacing
+   * field before it destroys the old one, so this waits until mount, after the old field
+   * stored its search.
+   */
   function resume() {
     const carried = carry?.take()
     if (!carried) return undefined
@@ -138,6 +142,10 @@
   function historyChanged(): void {
     if (session) end()
   }
+
+  onMount(() => {
+    session = resume()
+  })
 
   onDestroy(() => {
     const search = detach()
