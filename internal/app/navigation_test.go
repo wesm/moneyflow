@@ -82,7 +82,7 @@ func TestSessionSearchBackPriority(t *testing.T) {
 	assert.Empty(t, session.Search)
 }
 
-func TestSessionTimeDrillNavigateAndClear(t *testing.T) {
+func TestSessionTimeDrillSortsByAmount(t *testing.T) {
 	t.Parallel()
 
 	session := NewSession()
@@ -93,12 +93,6 @@ func TestSessionTimeDrillNavigateAndClear(t *testing.T) {
 		Dimension: domain.DimensionTime, Key: "2024-12", Label: "Dec 2024", Period: &period,
 	}, ViewPosition{}))
 	assert.Equal(t, domain.SortSpec{Field: domain.SortFieldAmount, Direction: domain.SortDirectionDesc}, session.Sort)
-	assert.True(t, session.NavigatePeriod(1))
-	require.NotNil(t, session.Drilldowns[0].Period)
-	assert.Equal(t, 2025, session.Drilldowns[0].Period.Year)
-	assert.Equal(t, 1, session.Drilldowns[0].Period.Month)
-	assert.True(t, session.ClearTimePeriod())
-	assert.False(t, session.ClearTimePeriod())
 }
 
 func drillDimensions(drilldowns []domain.Drilldown) []domain.Dimension {

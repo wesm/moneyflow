@@ -419,12 +419,12 @@ func (service *Service) transitionViewLocked(
 		return rejectedTransition(state, selection, err)
 	}
 	nextState := session.ViewState()
-	if reflect.DeepEqual(state, nextState) {
-		return rejectedTransition(state, selection, noChangeWeb(errors.New("action did not change view")))
-	}
 	nextSelection, err := service.selectionFromSession(nextState, selection, selectionDocument, session)
 	if err != nil {
 		return rejectedTransition(state, selection, err)
+	}
+	if reflect.DeepEqual(state, nextState) && nextSelection == selection {
+		return rejectedTransition(state, selection, noChangeWeb(errors.New("action did not change view")))
 	}
 	projection, err := service.projectViewLocked(nextState, nextSelection, window)
 	if err != nil {
@@ -496,17 +496,13 @@ func (service *Service) applyAnalyticalTransition(
 			return noChangeWeb(errors.New("view has no parent"))
 		}
 	case ActionClearTime:
-		if !session.ClearTimePeriod() {
+		if !session.ClearPeriod() {
 			return noChangeWeb(errors.New("view has no active time period"))
 		}
 	case ActionPreviousPeriod:
-		if !session.NavigatePeriod(-1) {
-			return noChangeWeb(errors.New("view has no previous time period"))
-		}
+		return shiftWebPeriod(session, -1, "view has no previous time period")
 	case ActionNextPeriod:
-		if !session.NavigatePeriod(1) {
-			return noChangeWeb(errors.New("view has no next time period"))
-		}
+		return shiftWebPeriod(session, 1, "view has no next time period")
 	case ActionCycleSort:
 		session.CycleSort()
 	case ActionReverseSort:
@@ -519,6 +515,17 @@ func (service *Service) applyAnalyticalTransition(
 		}
 	default:
 		return invalidWebRequest(errors.New("unsupported analytical action"))
+	}
+	return nil
+}
+
+func shiftWebPeriod(session *Session, delta int, unchanged string) error {
+	changed, err := session.ShiftPeriod(delta)
+	if err != nil {
+		return invalidWebRequest(err)
+	}
+	if !changed {
+		return noChangeWeb(errors.New(unchanged))
 	}
 	return nil
 }

@@ -299,7 +299,7 @@ func TestTransitionViewResolvesDrillAndSelectionTargetsByIdentity(t *testing.T) 
 	assertWebCode(t, err, WebStaleViewTarget)
 }
 
-func TestTransitionViewDrillPreservesMoneyPartitionAndParentSelection(t *testing.T) {
+func TestTransitionViewDrillPreservesMoneyPartitionAndBackClearsSelection(t *testing.T) {
 	t.Parallel()
 
 	usd := appTransaction(t, "usd", "2024-01-01", "-1.00", "Shared", "Category", "Group")
@@ -360,14 +360,10 @@ func TestTransitionViewDrillPreservesMoneyPartitionAndParentSelection(t *testing
 	)
 	require.NoError(t, err)
 	assert.Equal(t, state, backed)
-	assert.NotEqual(t, EmptySelection(), backedSelection)
-	selectedParent := false
+	assert.Equal(t, EmptySelection(), backedSelection, "Esc does not restore the parent selection")
 	for _, row := range parent.AggregateRows {
-		if row.Identity == target.Identity {
-			selectedParent = row.Row.Flags.Selected
-		}
+		assert.False(t, row.Row.Flags.Selected)
 	}
-	assert.True(t, selectedParent)
 }
 
 func TestTransitionViewAllowsRefinementsThatEmptyDrilledResult(t *testing.T) {
@@ -400,67 +396,79 @@ func TestTransitionViewAllowsRefinementsThatEmptyDrilledResult(t *testing.T) {
 	assert.Zero(t, empty.TotalRows)
 }
 
-func TestTransitionViewSearchFiltersSelectionAndBack(t *testing.T) {
+func TestTransitionViewSearchAndFiltersClearSelection(t *testing.T) {
 	t.Parallel()
 
 	service := selectionService(t, 4)
 	state := selectionDetailViewState()
-	selection, err := service.ToggleSelection(
-		state.Current,
-		EmptySelection(),
-		IdentityTransaction,
-		"txn-000",
-	)
-	require.NoError(t, err)
-	search := "^Merchant 000$"
+	search := "^Merchant 00[01]$"
+	filters := Filters{ShowHidden: false, ShowTransfers: true}
+	for _, test := range []struct {
+		name       string
+		transition TransitionRequest
+		rows       int
+	}{
+		{"search", TransitionRequest{Action: ActionApplySearch, Search: &search}, 2},
+		{"filters", TransitionRequest{Action: ActionApplyFilters, Filters: &filters}, 4},
+	} {
+		for _, selectAll := range []bool{false, true} {
+			selection, err := service.ToggleSelection(
+				state.Current, EmptySelection(), IdentityTransaction, "txn-000",
+			)
+			require.NoError(t, err)
+			if selectAll {
+				selection, err = service.ToggleAllSelection(state.Current, EmptySelection())
+				require.NoError(t, err)
+			}
 
-	searched, preserved, projection, err := service.TransitionView(
-		state,
-		selection,
+			next, nextSelection, projection, err := service.TransitionView(
+				state, selection, test.transition, WindowRequest{},
+			)
+
+			require.NoError(t, err, test.name)
+			resolved, err := service.ResolveSelection(next.Current, nextSelection)
+			require.NoError(t, err)
+			assert.Empty(t, resolved.IDs, test.name)
+			assert.Equal(t, test.rows, projection.TotalRows, test.name)
+			for _, row := range projection.DetailRows {
+				assert.False(t, row.Row.Flags.Selected, test.name)
+			}
+		}
+	}
+}
+
+func TestTransitionViewBackClearsSelectionBeforeSearch(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 4)
+	search := "^Merchant 000$"
+	searched, _, _, err := service.TransitionView(
+		selectionDetailViewState(),
+		EmptySelection(),
 		TransitionRequest{Action: ActionApplySearch, Search: &search},
 		WindowRequest{},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, search, searched.Current.Search)
-	preservedSnapshot, err := service.ResolveSelection(searched.Current, preserved)
+	selection, err := service.ToggleAllSelection(searched.Current, EmptySelection())
 	require.NoError(t, err)
-	assert.Equal(t, stringSetForSelection("txn-000"), preservedSnapshot.IDs)
-	assert.Equal(t, 1, projection.TotalRows)
 
-	backed, backedSelection, _, err := service.TransitionView(
-		searched,
-		preserved,
-		TransitionRequest{Action: ActionBack},
-		WindowRequest{},
+	cleared, clearedSelection, projection, err := service.TransitionView(
+		searched, selection, TransitionRequest{Action: ActionBack}, WindowRequest{},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, searched, cleared, "the first Esc only clears the selection")
+	resolved, err := service.ResolveSelection(cleared.Current, clearedSelection)
+	require.NoError(t, err)
+	assert.Empty(t, resolved.IDs)
+	require.Len(t, projection.DetailRows, 1)
+	assert.False(t, projection.DetailRows[0].Row.Flags.Selected)
+
+	backed, _, _, err := service.TransitionView(
+		cleared, clearedSelection, TransitionRequest{Action: ActionBack}, WindowRequest{},
 	)
 	require.NoError(t, err)
 	assert.Empty(t, backed.Current.Search)
-	assert.Equal(t, preserved, backedSelection)
-
-	filters := Filters{ShowHidden: false, ShowTransfers: true}
-	filtered, filteredSelection, _, err := service.TransitionView(
-		backed,
-		backedSelection,
-		TransitionRequest{Action: ActionApplyFilters, Filters: &filters},
-		WindowRequest{},
-	)
-	require.NoError(t, err)
-	assert.False(t, filtered.Current.ShowHidden)
-	assert.True(t, filtered.Current.ShowTransfers)
-	assert.Equal(t, backedSelection, filteredSelection)
-
-	all, allSelection, allProjection, err := service.TransitionView(
-		filtered,
-		filteredSelection,
-		TransitionRequest{Action: ActionToggleSelectAll},
-		WindowRequest{},
-	)
-	require.NoError(t, err)
-	assert.Equal(t, filtered, all)
-	assert.NotEqual(t, filteredSelection, allSelection)
-	for _, row := range allProjection.DetailRows {
-		assert.True(t, row.Row.Flags.Selected)
-	}
 }
 
 func TestTransitionViewNavigatesAndClearsTimePeriods(t *testing.T) {
@@ -498,7 +506,10 @@ func TestTransitionViewNavigatesAndClearsTimePeriods(t *testing.T) {
 		WindowRequest{},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, 1, previous.Current.Drilldowns[0].Period.Month)
+	assert.Empty(t, previous.Current.Drilldowns, "a period change replaces the time drill")
+	require.NotNil(t, previous.Current.DateRange)
+	assert.Equal(t, "2024-01-01", previous.Current.DateRange.Start.String())
+	assert.Equal(t, "2024-01-31", previous.Current.DateRange.End.String())
 
 	next, selection, _, err := service.TransitionView(
 		previous,
@@ -507,7 +518,9 @@ func TestTransitionViewNavigatesAndClearsTimePeriods(t *testing.T) {
 		WindowRequest{},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, 2, next.Current.Drilldowns[0].Period.Month)
+	require.NotNil(t, next.Current.DateRange)
+	assert.Equal(t, "2024-02-01", next.Current.DateRange.Start.String())
+	assert.Equal(t, "2024-02-29", next.Current.DateRange.End.String())
 
 	cleared, _, _, err := service.TransitionView(
 		next,
@@ -517,6 +530,15 @@ func TestTransitionViewNavigatesAndClearsTimePeriods(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Empty(t, cleared.Current.Drilldowns)
+	assert.Nil(t, cleared.Current.DateRange)
+	for _, frame := range cleared.Returns {
+		assert.Nil(t, frame.State.DateRange, "back history uses the cleared period")
+	}
+
+	_, _, _, err = service.TransitionView(
+		cleared, EmptySelection(), TransitionRequest{Action: ActionClearTime}, WindowRequest{},
+	)
+	assertWebCode(t, err, WebNoChange)
 }
 
 func TestTransitionViewRejectsWrongArgumentsNoChangeAndInvalidRegex(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
@@ -64,13 +65,13 @@ func (model *Model) routeTimeChooser(message tea.KeyPressMsg) tea.Cmd {
 			if key == "up" || key == "k" {
 				delta = 1
 			}
-			anchor := shiftCalendarPeriod(chooser.anchor, chooser.resolution, delta)
-			if _, err := calendarPeriodRange(anchor, chooser.resolution); err == nil {
+			anchor := app.ShiftCalendarPeriod(chooser.anchor, chooser.resolution, delta)
+			if _, err := app.CalendarPeriodRange(anchor, chooser.resolution); err == nil {
 				chooser.anchor = anchor
 				chooser.selected = min(4, max(0, chooser.selected-delta))
 			}
 		case "enter":
-			dateRange, err := calendarPeriodRange(chooser.anchor, chooser.resolution)
+			dateRange, err := app.CalendarPeriodRange(chooser.anchor, chooser.resolution)
 			if err == nil {
 				model.applyTimeRange(&dateRange)
 			}
@@ -120,14 +121,12 @@ func parseCalendarPeriod(value string) (time.Time, domain.TimeGranularity, bool)
 }
 
 func (model *Model) applyTimeRange(dateRange *domain.DateRange) {
-	changed := dateRange != nil || model.session.DateRange != nil || slices.ContainsFunc(model.session.Drilldowns, func(drill domain.Drilldown) bool {
-		return drill.Dimension == domain.DimensionTime
-	})
-	if changed {
-		if err := model.session.SetTimeRange(dateRange); err != nil {
-			model.status = "The time range could not be applied."
-			return
-		}
+	changed := true
+	if dateRange == nil {
+		changed = model.session.ClearPeriod()
+	} else if err := model.session.SetTimeRange(dateRange); err != nil {
+		model.status = "The time range could not be applied."
+		return
 	}
 	if model.timeChooser.input != nil {
 		model.timeChooser.input.Blur()
@@ -138,65 +137,15 @@ func (model *Model) applyTimeRange(dateRange *domain.DateRange) {
 	}
 }
 
-func (model *Model) navigateTimePeriod(delta int) {
-	if anchor, resolution, ok := calendarPeriod(model.session.DateRange); ok {
-		dateRange, err := calendarPeriodRange(shiftCalendarPeriod(anchor, resolution, delta), resolution)
-		if err == nil {
-			model.applyTimeRange(&dateRange)
-		}
+func (model *Model) shiftTimePeriod(delta int) {
+	changed, err := model.session.ShiftPeriod(delta)
+	if err != nil {
+		model.status = "The time range could not be applied."
 		return
 	}
-	if model.session.NavigatePeriod(delta) {
+	if changed {
 		model.resetAndRefresh()
 	}
-}
-
-// shiftCalendarPeriod retains the day when possible and clamps it at month end.
-// Dates use UTC here because a time selection represents calendar dates, not instants.
-func shiftCalendarPeriod(anchor time.Time, resolution domain.TimeGranularity, delta int) time.Time {
-	year, month, day := anchor.Date()
-	if resolution == domain.TimeGranularityDay {
-		return time.Date(year, month, day+delta, 0, 0, 0, 0, time.UTC)
-	}
-	if resolution == domain.TimeGranularityYear {
-		year += delta
-	} else {
-		month += time.Month(delta)
-	}
-	lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
-	return time.Date(year, month, min(day, lastDay), 0, 0, 0, 0, time.UTC)
-}
-
-func calendarPeriodRange(anchor time.Time, resolution domain.TimeGranularity) (domain.DateRange, error) {
-	year, month, day := anchor.Date()
-	endMonth, endDay := month, day
-	switch resolution {
-	case domain.TimeGranularityYear:
-		month, day, endMonth, endDay = time.January, 1, time.December, 31
-	case domain.TimeGranularityMonth:
-		day = 1
-		endDay = time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
-	}
-	start, err := domain.NewDate(year, month, day)
-	if err != nil {
-		return domain.DateRange{}, err
-	}
-	end, err := domain.NewDate(year, endMonth, endDay)
-	return domain.DateRange{Start: start, End: end}, err
-}
-
-func calendarPeriod(dateRange *domain.DateRange) (time.Time, domain.TimeGranularity, bool) {
-	if dateRange != nil {
-		start := dateRange.Start
-		anchor := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
-		for _, resolution := range timeResolutions {
-			fullPeriod, err := calendarPeriodRange(anchor, resolution)
-			if err == nil && fullPeriod == *dateRange {
-				return anchor, resolution, true
-			}
-		}
-	}
-	return time.Time{}, "", false
 }
 
 func calendarPeriodLabel(anchor time.Time, resolution domain.TimeGranularity) string {
@@ -233,14 +182,15 @@ func (model Model) renderTimeChooser(screen *RenderedScreen) {
 		tabX += len(label) + 3
 	}
 	for index := range 5 {
-		anchor := shiftCalendarPeriod(chooser.anchor, chooser.resolution, chooser.selected-index)
-		if _, err := calendarPeriodRange(anchor, chooser.resolution); err != nil {
+		anchor := app.ShiftCalendarPeriod(chooser.anchor, chooser.resolution, chooser.selected-index)
+		if _, err := app.CalendarPeriodRange(anchor, chooser.resolution); err != nil {
 			continue
 		}
 		label := calendarPeriodLabel(anchor, chooser.resolution)
 		relative := ""
 		current := calendarPeriodLabel(chooser.now, chooser.resolution)
-		previous := calendarPeriodLabel(shiftCalendarPeriod(chooser.now, chooser.resolution, -1), chooser.resolution)
+		previousAnchor := app.ShiftCalendarPeriod(chooser.now, chooser.resolution, -1)
+		previous := calendarPeriodLabel(previousAnchor, chooser.resolution)
 		switch label {
 		case current:
 			relative = "This " + string(chooser.resolution)
@@ -256,7 +206,7 @@ func (model Model) renderTimeChooser(screen *RenderedScreen) {
 		label = padRight(label, 20) + relative
 		filterLine(&screen.Frame, x, rect.Y+4+index, width, chooser.selected == index, padRight(label, width-2), "", palette)
 	}
-	dateRange, _ := calendarPeriodRange(chooser.anchor, chooser.resolution)
+	dateRange, _ := app.CalendarPeriodRange(chooser.anchor, chooser.resolution)
 	preview := "Selected: " + dateRange.Start.String() + " → " + dateRange.End.String()
 	if value := chooser.input.Value(); value != "" {
 		if _, _, ok := parseCalendarPeriod(value); !ok {

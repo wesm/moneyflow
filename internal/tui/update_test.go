@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
@@ -142,10 +143,18 @@ func TestUpdateTimeAndUnavailableActions(t *testing.T) {
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	periodBefore := *model.session.Drilldowns[0].Period
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyRight})
-	assert.NotEqual(t, periodBefore, *model.session.Drilldowns[0].Period)
+	assert.Empty(t, model.session.Drilldowns, "a period change replaces the time drill")
+	require.NotNil(t, model.session.DateRange)
+	shifted := *model.session.DateRange
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyLeft})
-	assert.Equal(t, periodBefore, *model.session.Drilldowns[0].Period)
+	require.NotNil(t, model.session.DateRange)
+	assert.NotEqual(t, shifted, *model.session.DateRange)
+	start := model.session.DateRange.Start
+	assert.Equal(t, periodBefore.Year, start.Year())
+	assert.Equal(t, time.Month(periodBefore.Month), start.Month())
+	assert.Equal(t, 1, start.Day())
 	model = press(t, model, keyRune('a'))
+	assert.Nil(t, model.session.DateRange)
 	assert.Empty(t, model.session.Drilldowns)
 
 	model = press(t, model, keyRune('m'))
@@ -199,4 +208,59 @@ func press(t testing.TB, model Model, message tea.KeyPressMsg) Model {
 
 func keyRune(character rune) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: character, Text: string(character)}
+}
+
+func TestEscapeClearsSelectionBeforeLeavingTheView(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(t, app.NewSession())
+	model = press(t, model, keyRune('d'))
+	require.Equal(t, domain.ResultModeDetail, model.session.Mode)
+	model = press(t, model, keyRune('j'))
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	require.Equal(t, 1, selectedSessionCount(model.session))
+	cursor := model.cursor
+	require.Positive(t, cursor)
+
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	assert.Equal(t, domain.ResultModeDetail, model.session.Mode, "the first Esc stays in the view")
+	assert.Zero(t, selectedSessionCount(model.session))
+	assert.Equal(t, app.EmptySelection(), model.selection)
+	assert.Equal(t, cursor, model.cursor)
+
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	assert.Equal(t, domain.ResultModeAggregate, model.session.Mode)
+}
+
+func TestSearchAndFiltersClearSelection(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(t, app.NewSession())
+	model = press(t, model, tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	selection := model.selection
+	require.NotEqual(t, app.EmptySelection(), selection)
+	selected := selectedSessionCount(model.session)
+
+	model = press(t, model, keyRune('/'))
+	model = press(t, model, keyRune('e'))
+
+	assert.Zero(t, selectedSessionCount(model.session))
+	assert.Equal(t, app.EmptySelection(), model.selection)
+
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	assert.Equal(t, selected, selectedSessionCount(model.session), "cancel restores the selection")
+	assert.Equal(t, selection, model.selection)
+
+	model = press(t, model, keyRune('f'))
+	for model.filters.focus != filterApply {
+		model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	assert.Equal(t, overlayNone, model.overlay)
+	assert.Zero(t, selectedSessionCount(model.session))
+	assert.Equal(t, app.EmptySelection(), model.selection)
 }

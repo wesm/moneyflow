@@ -162,9 +162,10 @@ func (session Session) Clone() Session {
 	return cloned
 }
 
-// ShowAllDetail switches from a top-level aggregate to all visible transactions.
+// ShowAllDetail switches to all visible transactions, leaving any drill path.
 func (session *Session) ShowAllDetail() {
-	if session.Mode == domain.ResultModeDetail && session.SubGrouping == nil {
+	if session.Mode == domain.ResultModeDetail && session.SubGrouping == nil &&
+		len(session.Drilldowns) == 0 {
 		return
 	}
 	session.pushHistory(historyNavigation, ViewPosition{})
@@ -198,9 +199,11 @@ func (session *Session) ToggleTimeGranularity() {
 	}
 }
 
-// SetSearch replaces the case-insensitive regular expression search predicate.
+// SetSearch replaces the case-insensitive regular expression search predicate and clears
+// the selection.
 func (session *Session) SetSearch(search string) {
 	session.Search = search
+	session.clearSelections()
 	if search == "" {
 		session.searchAnchor = nil
 		return
@@ -209,20 +212,40 @@ func (session *Session) SetSearch(search string) {
 	session.searchAnchor = &marker
 }
 
-// SetFilters validates and defensively copies all independent filters.
+// SetFilters validates and defensively copies all independent filters. It clears the
+// selection and applies the filters to back history, so Back keeps them.
 func (session *Session) SetFilters(filters Filters) error {
-	if filters.DateRange != nil {
-		if filters.DateRange.Start.Year() == 0 || filters.DateRange.End.Year() == 0 {
-			return errors.New("set filters: invalid date range")
-		}
-		if filters.DateRange.Start.Compare(filters.DateRange.End) > 0 {
-			return errors.New("set filters: date range starts after it ends")
-		}
+	if err := validateDateRange(filters.DateRange); err != nil {
+		return err
 	}
+	session.applyFilters(filters)
+	return nil
+}
+
+func validateDateRange(dateRange *domain.DateRange) error {
+	if dateRange == nil {
+		return nil
+	}
+	if dateRange.Start.Year() == 0 || dateRange.End.Year() == 0 {
+		return errors.New("set filters: invalid date range")
+	}
+	if dateRange.Start.Compare(dateRange.End) > 0 {
+		return errors.New("set filters: date range starts after it ends")
+	}
+	return nil
+}
+
+func (session *Session) applyFilters(filters Filters) {
 	session.DateRange = cloneDateRange(filters.DateRange)
 	session.ShowHidden = filters.ShowHidden
 	session.ShowTransfers = filters.ShowTransfers
-	return nil
+	for index := range session.history {
+		snapshot := &session.history[index].snapshot
+		snapshot.dateRange = cloneDateRange(filters.DateRange)
+		snapshot.showHidden = filters.ShowHidden
+		snapshot.showTransfers = filters.ShowTransfers
+	}
+	session.clearSelections()
 }
 
 // CycleSort advances through the fields valid for the visible result shape.
@@ -337,6 +360,10 @@ func (session *Session) marker() navigationMarker {
 		subGrouping:   cloneDimension(session.SubGrouping),
 		drilldownSize: len(session.Drilldowns),
 	}
+}
+
+func (session *Session) hasSelection() bool {
+	return len(session.SelectedTransactionIDs) > 0 || len(session.SelectedAggregateKeys) > 0
 }
 
 func (session *Session) clearSelections() {

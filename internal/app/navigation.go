@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/wesm/moneyflow/internal/domain"
@@ -103,24 +104,72 @@ func (session *Session) JumpToTime(position ViewPosition) bool {
 }
 
 // SetTimeRange replaces date constraints while retaining the current grouping,
-// search, and non-time drill-downs. Back retains the new range. A nil range
-// selects all time.
+// search, and non-time drill-downs. It clears the selection, and Back retains the new
+// range. A nil range selects all time.
 func (session *Session) SetTimeRange(dateRange *domain.DateRange) error {
-	if err := session.SetFilters(Filters{
-		DateRange: dateRange, ShowHidden: session.ShowHidden, ShowTransfers: session.ShowTransfers,
-	}); err != nil {
+	if err := validateDateRange(dateRange); err != nil {
 		return err
 	}
+	session.applyTimeRange(dateRange)
+	return nil
+}
+
+// ShiftPeriod moves the period by delta calendar days, months, or years. A range that
+// covers exactly one calendar day, month, or year shifts by that unit. Otherwise the last
+// time drill-down shifts and becomes the range. It reports false when neither applies or
+// the shifted period is outside years 1 through 9999.
+func (session *Session) ShiftPeriod(delta int) (bool, error) {
+	anchor, resolution, ok := CalendarPeriod(session.DateRange)
+	if !ok {
+		anchor, resolution, ok = lastTimeDrillPeriod(session.Drilldowns)
+	}
+	if !ok {
+		return false, nil
+	}
+	dateRange, err := CalendarPeriodRange(ShiftCalendarPeriod(anchor, resolution, delta), resolution)
+	if err != nil {
+		return false, nil
+	}
+	return true, session.SetTimeRange(&dateRange)
+}
+
+// ClearPeriod selects all time and removes time drill-downs. It reports false when the
+// view already covers all time.
+func (session *Session) ClearPeriod() bool {
+	if session.DateRange == nil && !slices.ContainsFunc(session.Drilldowns, isTimeDrilldown) {
+		return false
+	}
+	session.applyTimeRange(nil)
+	return true
+}
+
+func (session *Session) applyTimeRange(dateRange *domain.DateRange) {
+	session.applyFilters(Filters{
+		DateRange: dateRange, ShowHidden: session.ShowHidden, ShowTransfers: session.ShowTransfers,
+	})
 	session.Drilldowns = removeTimeDrilldowns(session.Drilldowns, session.searchAnchor)
 	for index := range session.history {
 		snapshot := &session.history[index].snapshot
-		snapshot.dateRange = cloneDateRange(dateRange)
 		snapshot.drilldowns = removeTimeDrilldowns(snapshot.drilldowns, snapshot.searchAnchor)
 		clear(snapshot.selectedTransactionIDs)
 		clear(snapshot.selectedAggregateKeys)
 	}
-	session.clearSelections()
-	return nil
+}
+
+func isTimeDrilldown(drilldown domain.Drilldown) bool {
+	return drilldown.Dimension == domain.DimensionTime
+}
+
+func lastTimeDrillPeriod(drilldowns []domain.Drilldown) (time.Time, domain.TimeGranularity, bool) {
+	for index := len(drilldowns) - 1; index >= 0; index-- {
+		period := drilldowns[index].Period
+		if !isTimeDrilldown(drilldowns[index]) || period == nil {
+			continue
+		}
+		month, day := time.Month(max(period.Month, 1)), max(period.Day, 1)
+		return time.Date(period.Year, month, day, 0, 0, 0, 0, time.UTC), period.Granularity, true
+	}
+	return time.Time{}, "", false
 }
 
 func removeTimeDrilldowns(drilldowns []domain.Drilldown, searchAnchor *navigationMarker) []domain.Drilldown {
@@ -136,8 +185,14 @@ func removeTimeDrilldowns(drilldowns []domain.Drilldown, searchAnchor *navigatio
 	return drilldowns
 }
 
-// Back applies search, subgroup, and navigation-history priority in that order.
+// Back clears the selection first, then the search applied at this level, then the
+// sub-grouping, then returns to the parent. It reports false at the top level with
+// nothing to undo.
 func (session *Session) Back() (ViewPosition, bool) {
+	if session.hasSelection() {
+		session.clearSelections()
+		return ViewPosition{}, true
+	}
 	if session.Search != "" && session.searchAnchor != nil && markersEqual(session.marker(), *session.searchAnchor) {
 		session.Search = ""
 		session.searchAnchor = nil
@@ -157,33 +212,63 @@ func (session *Session) Back() (ViewPosition, bool) {
 	return ViewPosition{}, false
 }
 
-// NavigatePeriod shifts the active time drill-down by delta periods.
-func (session *Session) NavigatePeriod(delta int) bool {
-	for index := len(session.Drilldowns) - 1; index >= 0; index-- {
-		drilldown := &session.Drilldowns[index]
-		if drilldown.Dimension != domain.DimensionTime || drilldown.Period == nil {
-			continue
-		}
-		period, ok := shiftPeriod(*drilldown.Period, delta)
-		if !ok {
-			return false
-		}
-		drilldown.Period = &period
-		return true
-	}
-	return false
+var calendarResolutions = []domain.TimeGranularity{
+	domain.TimeGranularityYear, domain.TimeGranularityMonth, domain.TimeGranularityDay,
 }
 
-// ClearTimePeriod removes the active time drill-down without changing other filters.
-func (session *Session) ClearTimePeriod() bool {
-	for index := len(session.Drilldowns) - 1; index >= 0; index-- {
-		if session.Drilldowns[index].Dimension != domain.DimensionTime {
-			continue
+// CalendarPeriod reports the anchor and resolution of a range that covers exactly one
+// calendar day, month, or year.
+func CalendarPeriod(dateRange *domain.DateRange) (time.Time, domain.TimeGranularity, bool) {
+	if dateRange != nil {
+		start := dateRange.Start
+		anchor := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+		for _, resolution := range calendarResolutions {
+			fullPeriod, err := CalendarPeriodRange(anchor, resolution)
+			if err == nil && fullPeriod == *dateRange {
+				return anchor, resolution, true
+			}
 		}
-		session.Drilldowns = append(session.Drilldowns[:index], session.Drilldowns[index+1:]...)
-		return true
 	}
-	return false
+	return time.Time{}, "", false
+}
+
+// CalendarPeriodRange returns the calendar day, month, or year that contains anchor.
+func CalendarPeriodRange(
+	anchor time.Time,
+	resolution domain.TimeGranularity,
+) (domain.DateRange, error) {
+	year, month, day := anchor.Date()
+	endMonth, endDay := month, day
+	switch resolution {
+	case domain.TimeGranularityYear:
+		month, day, endMonth, endDay = time.January, 1, time.December, 31
+	case domain.TimeGranularityMonth:
+		day = 1
+		endDay = time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	}
+	start, err := domain.NewDate(year, month, day)
+	if err != nil {
+		return domain.DateRange{}, err
+	}
+	end, err := domain.NewDate(year, endMonth, endDay)
+	return domain.DateRange{Start: start, End: end}, err
+}
+
+// ShiftCalendarPeriod moves anchor by delta days, months, or years. It keeps the day when
+// possible and clamps it at month end. Anchors use UTC because a period holds calendar
+// dates, not instants.
+func ShiftCalendarPeriod(anchor time.Time, resolution domain.TimeGranularity, delta int) time.Time {
+	year, month, day := anchor.Date()
+	if resolution == domain.TimeGranularityDay {
+		return time.Date(year, month, day+delta, 0, 0, 0, 0, time.UTC)
+	}
+	if resolution == domain.TimeGranularityYear {
+		year += delta
+	} else {
+		month += time.Month(delta)
+	}
+	lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	return time.Date(year, month, min(day, lastDay), 0, 0, 0, 0, time.UTC)
 }
 
 func (session *Session) availableSubGroupings() []domain.Dimension {
@@ -205,6 +290,7 @@ func (session *Session) popHistory() (ViewPosition, bool) {
 	entry := session.history[last]
 	session.history = session.history[:last]
 	session.restore(entry.snapshot)
+	session.clearSelections()
 	return entry.position, true
 }
 
@@ -220,37 +306,6 @@ func sortForDetailTransition(dimension domain.Dimension, current domain.SortSpec
 		return current
 	default:
 		return amountDescending()
-	}
-}
-
-func shiftPeriod(period domain.Period, delta int) (domain.Period, bool) {
-	switch period.Granularity {
-	case domain.TimeGranularityYear:
-		period.Year += delta
-		return period, period.Year >= 1 && period.Year <= 9999
-	case domain.TimeGranularityMonth:
-		monthIndex := period.Year*12 + period.Month - 1 + delta
-		if monthIndex < 12 || monthIndex >= 10000*12 {
-			return domain.Period{}, false
-		}
-		period.Year = monthIndex / 12
-		period.Month = monthIndex%12 + 1
-		return period, period.Validate() == nil
-	case domain.TimeGranularityDay:
-		date, err := domain.NewDate(period.Year, time.Month(period.Month), period.Day)
-		if err != nil {
-			return domain.Period{}, false
-		}
-		date, err = date.AddDays(delta)
-		if err != nil {
-			return domain.Period{}, false
-		}
-		period.Year = date.Year()
-		period.Month = int(date.Month())
-		period.Day = date.Day()
-		return period, true
-	default:
-		return domain.Period{}, false
 	}
 }
 

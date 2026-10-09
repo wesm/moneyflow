@@ -123,8 +123,7 @@ func (model *Model) applyFilters() {
 	}
 	model.filters.err = ""
 	model.overlay = overlayNone
-	model.cursor, model.scroll = 0, 0
-	model.refresh()
+	model.resetAndRefresh()
 }
 
 func (model *Model) closeFilters() {

@@ -183,9 +183,9 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 	case app.ActionClearTime:
 		model.applyTimeRange(nil)
 	case app.ActionPreviousPeriod:
-		model.navigateTimePeriod(-1)
+		model.shiftTimePeriod(-1)
 	case app.ActionNextPeriod:
-		model.navigateTimePeriod(1)
+		model.shiftTimePeriod(1)
 	case app.ActionCycleSort:
 		model.session.CycleSort()
 		model.resetAndRefresh()
@@ -330,11 +330,14 @@ func (model *Model) drill() {
 }
 
 func (model *Model) back() {
+	clearsSelection := selectedSessionCount(model.session) > 0
 	position, ok := model.session.Back()
 	if !ok {
 		return
 	}
-	model.cursor, model.scroll = position.Cursor, position.Scroll
+	if !clearsSelection {
+		model.cursor, model.scroll = position.Cursor, position.Scroll
+	}
 	model.refresh()
 	if err := model.rebuildSelectionValue(); err != nil {
 		model.clearSessionSelection()

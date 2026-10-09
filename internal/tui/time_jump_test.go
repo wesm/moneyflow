@@ -187,7 +187,7 @@ func TestTimeJumpFromRootDetailRestoresList(t *testing.T) {
 
 	require.NotEmpty(t, model.result.DetailRows)
 	assert.Equal(t, before.QuerySpec(), model.session.QuerySpec())
-	assert.Equal(t, before.SelectedTransactionIDs, model.session.SelectedTransactionIDs)
+	assert.Empty(t, model.session.SelectedTransactionIDs, "Esc does not restore the selection")
 	assert.Equal(t, identity, model.rowIdentity(model.cursor))
 	assert.Equal(t, scroll, model.scroll)
 }
