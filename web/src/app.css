@@ -1,17 +1,7 @@
 @import '@kenn-io/kit-ui/theme.css';
+@import './theme.css';
 @import '@kenn-io/kit-ui/themes.css';
 @import '@kenn-io/kit-ui/fonts.css';
-
-:root {
-  --moneyflow-positive: var(--accent-green);
-  --moneyflow-negative: var(--accent-red);
-  --moneyflow-focus: var(--accent-blue);
-}
-
-:root:not(.dark) {
-  /* The kit default muted ink is decorative-grade; Moneyflow uses it for readable status text. */
-  --text-muted: var(--text-secondary);
-}
 
 html,
 body,
@@ -254,15 +244,15 @@ input {
   text-decoration: underline;
 }
 .finance-grid__row--active {
-  background: var(--bg-surface-hover);
-  box-shadow: inset 3px 0 var(--moneyflow-focus);
+  background: var(--mf-cursor);
+  box-shadow: inset 3px 0 var(--mf-focus);
 }
 .finance-grid__row--hidden {
   opacity: var(--opacity-disabled);
 }
 
 .finance-grid__row--pending {
-  box-shadow: inset 3px 0 0 var(--moneyflow-focus);
+  box-shadow: inset 3px 0 0 var(--mf-pending);
 }
 
 .pending-marker {
@@ -331,6 +321,7 @@ input {
 .finance-grid .money {
   text-align: right;
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .overlay-form {
   display: flex;
@@ -416,7 +407,7 @@ input {
 }
 .layer-chart {
   max-width: 100%;
-  color: var(--moneyflow-focus);
+  color: var(--mf-focus);
   overflow: hidden;
 }
 .layer-chart svg {
@@ -449,8 +440,8 @@ input {
   outline-offset: 1px;
 }
 .chart-mark--active {
-  border-color: var(--moneyflow-focus);
-  box-shadow: inset 3px 0 var(--moneyflow-focus);
+  border-color: var(--mf-focus);
+  box-shadow: inset 3px 0 var(--mf-focus);
   color: var(--text-primary);
   font-weight: var(--font-weight-semibold);
 }

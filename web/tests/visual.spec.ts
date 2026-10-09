@@ -71,10 +71,12 @@ async function expectThemeContract(page: Page, theme: (typeof themes)[number]): 
     const match = body.backgroundColor.match(/\d+(?:\.\d+)?/g)
     return {
       dark: element.classList.contains('dark'),
+      kitTheme: element.getAttribute('data-kit-theme'),
       backgroundChannels: (match ?? []).slice(0, 3).map(Number),
     }
   })
   expect(state.dark).toBe(theme === 'dark')
+  expect(state.kitTheme).toBe('moneyflow')
   expect(state.backgroundChannels).toHaveLength(3)
   const brightness = state.backgroundChannels.reduce((sum, channel) => sum + channel, 0)
   if (theme === 'dark') {

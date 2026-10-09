@@ -13,7 +13,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
     page,
     server,
   }) => {
-    await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     await openMoneyflow(page, server)
     await expectNoAxeViolations(page)
 
