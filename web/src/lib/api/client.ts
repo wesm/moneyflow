@@ -357,6 +357,7 @@ function isInsightsResponse(value: unknown): value is InsightsResponse {
   return (
     value.version === '1' &&
     typeof value.revision === 'string' &&
+    /^\d+$/.test(value.revision) &&
     typeof value.query === 'string' &&
     typeof value.today === 'string' &&
     typeof value.currency === 'string' &&

@@ -13,9 +13,8 @@ interface Call {
   reject(error: unknown): void
 }
 
-function harness() {
+function harness(onNewer = vi.fn<(revision: string) => unknown>()) {
   const calls: Call[] = []
-  const onNewer = vi.fn()
   const cache = new InsightsCache(
     (body, signal) =>
       new Promise<InsightsResponse>((resolve, reject) => {
@@ -50,23 +49,26 @@ async function answer(call: Call | undefined, revision = '1', today = '2026-10-0
 }
 
 describe('InsightsCache', () => {
-  it('keys entries by query and revision and keeps the eight most recent', async () => {
+  it('keys entries by query and revision and keeps the eight most recently used', async () => {
     const { cache, calls } = harness()
-    for (let index = 0; index < 9; index += 1) {
+    for (let index = 0; index < 8; index += 1) {
       cache.sync(view(`q=${index}`), [])
       await answer(calls.at(-1))
     }
+    cache.sync(view('q=0'), [])
+    cache.sync(view('q=8'), [])
+    await answer(calls.at(-1))
     expect(calls).toHaveLength(9)
-
-    cache.sync(view('q=1'), [])
-    expect(calls).toHaveLength(9)
-    expect(cache.status).toBe('ready')
-    expect(cache.entry?.query).toBe('q=1')
-
-    cache.sync(view('q=1', '2'), [])
-    expect(calls).toHaveLength(10)
 
     cache.sync(view('q=0'), [])
+    expect(calls).toHaveLength(9)
+    expect(cache.status).toBe('ready')
+    expect(cache.entry?.query).toBe('q=0')
+
+    cache.sync(view('q=0', '2'), [])
+    expect(calls).toHaveLength(10)
+
+    cache.sync(view('q=1'), [])
     expect(calls).toHaveLength(11)
     expect(cache.status).toBe('loading')
   })
@@ -107,11 +109,71 @@ describe('InsightsCache', () => {
     await answer(calls[2], '6')
     expect(cache.entry?.query).toBe('v=1')
     expect(cache.stale).toBe(true)
-    expect(cache.status).toBe('loading')
+    expect(cache.status).toBe('failed')
     expect(onNewer).toHaveBeenCalledTimes(1)
 
     cache.sync(view('v=2', '6'), [])
     expect(calls).toHaveLength(4)
+  })
+
+  it('loads while the view rechecks for newer insights and fails if that brings nothing', async () => {
+    let settle!: () => void
+    const { cache, calls } = harness(
+      vi.fn(() => new Promise<void>((_, reject) => (settle = () => reject(new Error('offline'))))),
+    )
+    cache.sync(view('v=1', '3'), ['a'])
+    await answer(calls[0], '4')
+    expect(cache.status).toBe('loading')
+
+    settle()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(cache.status).toBe('failed')
+    cache.retry()
+    expect(calls[1]?.body).toEqual({ query: 'v=1', rows: ['a'], summary: true })
+  })
+
+  it('reloads the displayed view when a series-only response brings a new day', async () => {
+    const { cache, calls } = harness()
+    cache.sync(view('v=1'), ['a'])
+    await answer(calls[0], '1', '2026-10-07')
+    cache.sync(view('v=1'), ['a', 'b'])
+    await answer(calls[1], '1', '2026-10-08')
+
+    expect(calls[2]?.body).toEqual({ query: 'v=1', rows: ['a'], summary: true })
+    expect(cache.status).toBe('loading')
+    await answer(calls[2], '1', '2026-10-08')
+    expect(cache.status).toBe('ready')
+    expect(cache.entry?.response.today).toBe('2026-10-08')
+    expect(cache.seriesFor('a')).toBeDefined()
+    expect(cache.seriesFor('b')).toBeDefined()
+  })
+
+  it('asks again for rows still on their way from an earlier day', async () => {
+    const { cache, calls } = harness()
+    cache.sync(view('v=1'), ['a'])
+    await answer(calls[0], '1', '2026-10-07')
+    cache.sync(view('v=1'), ['a', 'b'])
+    cache.sync(view('v=1'), ['a', 'b', 'c'])
+    await answer(calls[1], '1', '2026-10-08')
+
+    expect(calls[2]?.signal.aborted).toBe(true)
+    expect(calls[3]?.body).toEqual({ query: 'v=1', rows: ['a', 'c'], summary: true })
+  })
+
+  it('drops a late response from an earlier day', async () => {
+    const { cache, calls } = harness()
+    cache.sync(view('v=1'), ['a'])
+    cache.sync(view('v=1'), ['a', 'b'])
+    await answer(calls[1], '1', '2026-10-08')
+    await answer(calls[0], '1', '2026-10-07')
+
+    expect(cache.entry).toBeUndefined()
+    expect(cache.seriesFor('b')).toBeDefined()
+    expect(cache.status).toBe('failed')
+    cache.retry()
+    expect(calls[2]?.body).toEqual({ query: 'v=1', rows: ['a'], summary: true })
+    await answer(calls[2], '1', '2026-10-08')
+    expect(cache.status).toBe('ready')
   })
 
   it('clears every entry when today changes', async () => {
@@ -141,6 +203,62 @@ describe('InsightsCache', () => {
     expect(calls[1]?.body).toEqual({ query: 'v=1', rows: ['a'], summary: true })
     await answer(calls[1])
     expect(cache.status).toBe('ready')
+  })
+
+  it('retries only the missing series after a series request fails', async () => {
+    const { cache, calls } = harness()
+    cache.sync(view('v=1'), ['a'])
+    cache.sync(view('v=1'), ['a', 'b'])
+    await answer(calls[0])
+    calls[1]?.reject(new Error('offline'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(cache.status).toBe('ready')
+    expect(cache.seriesFailed).toBe(true)
+
+    cache.sync(view('v=1'), ['a', 'b', 'c'])
+    expect(calls).toHaveLength(2)
+    cache.retry()
+    expect(calls[2]?.body).toEqual({ query: 'v=1', rows: ['b', 'c'], summary: false })
+    await answer(calls[2])
+    expect(cache.seriesFailed).toBe(false)
+    expect(cache.seriesFor('c')).toBeDefined()
+  })
+
+  it('writes nothing from an aborted request that still answers', async () => {
+    const { cache, calls } = harness()
+    cache.sync(view('v=1'), ['a'])
+    cache.sync(view('v=2'), ['a'])
+    await answer(calls[0])
+
+    expect(cache.entry).toBeUndefined()
+    cache.sync(view('v=1'), ['a'])
+    expect(calls).toHaveLength(3)
+  })
+
+  it('aborts requests on dispose and ignores later calls and answers', async () => {
+    const { cache, calls } = harness()
+    cache.sync(view('v=1'), ['a'])
+    cache.dispose()
+
+    expect(calls[0]?.signal.aborted).toBe(true)
+    await answer(calls[0])
+    cache.sync(view('v=2'), ['a'])
+    cache.retry()
+    expect(calls).toHaveLength(1)
+    expect(cache.entry).toBeUndefined()
+    expect(cache.status).toBe('loading')
+  })
+
+  it('stays unchanged when a view recheck settles after dispose', async () => {
+    let settle!: () => void
+    const { cache, calls } = harness(vi.fn(() => new Promise<void>((done) => (settle = done))))
+    cache.sync(view('v=1', '3'), ['a'])
+    await answer(calls[0], '4')
+    cache.dispose()
+
+    settle()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(cache.status).toBe('loading')
   })
 
   it('aborts a request for an older key when the key changes', async () => {

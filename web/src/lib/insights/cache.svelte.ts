@@ -50,22 +50,28 @@ interface DisplayedView {
  */
 export class InsightsCache {
   readonly #load: InsightsLoad
-  readonly #onNewer: (revision: string) => void
+  readonly #onNewer: (revision: string) => unknown
   readonly #slots = new SvelteMap<string, Slot>()
   #flights: Flight[] = []
   #view = $state.raw<DisplayedView | undefined>()
   #shown = $state.raw<InsightsEntry | undefined>()
-  #failed = $state.raw<string | undefined>()
+  // Keys whose summary or series request failed; only `retry` or another key requests again.
+  #summaryFailed = $state.raw<string | undefined>()
+  #seriesFailed = $state.raw<string | undefined>()
+  // The key whose newer insights wait on `onNewer`, which rechecks the view.
+  #awaitingView: string | undefined
   #rows: readonly string[] = []
   #today: string | undefined
   #notified = -1n
+  #disposed = false
 
   /**
    * @param load Sends one insights request.
    * @param onNewer Called once per revision when insights report a newer revision than the
-   *   displayed projection; the view must be rechecked before those insights can show.
+   *   displayed projection; the view must be rechecked before those insights can show. When it
+   *   returns a promise, the summary counts as failed if it settles with the view unchanged.
    */
-  constructor(load: InsightsLoad, onNewer: (revision: string) => void) {
+  constructor(load: InsightsLoad, onNewer: (revision: string) => unknown) {
     this.#load = load
     this.#onNewer = onNewer
   }
@@ -81,10 +87,16 @@ export class InsightsCache {
     return shown !== undefined && keyOf(shown.query, shown.revision) !== this.#view?.key
   }
 
+  /** The state of the displayed view's summary; series failures are in `seriesFailed`. */
   get status(): InsightsStatus {
     if (this.#view === undefined) return 'idle'
-    if (this.#failed === this.#view.key) return 'failed'
+    if (this.#summaryFailed === this.#view.key) return 'failed'
     return this.#slots.get(this.#view.key)?.response ? 'ready' : 'loading'
+  }
+
+  /** Whether a series request for the displayed view failed; `retry` requests it again. */
+  get seriesFailed(): boolean {
+    return this.#view !== undefined && this.#seriesFailed === this.#view.key
   }
 
   /**
@@ -105,6 +117,7 @@ export class InsightsCache {
    */
   sync(projection: ViewProjection, rows: readonly string[]): void {
     untrack(() => {
+      if (this.#disposed) return
       this.#rows = rows
       if (projection.view.currency === undefined) {
         this.#show(undefined)
@@ -113,28 +126,45 @@ export class InsightsCache {
       const { canonical_query: query, revision } = projection
       const key = keyOf(query, revision)
       if (this.#view?.key !== key) this.#show({ key, query, revision })
-      if (this.#failed !== key) this.#request()
+      if (!this.#failedFor(key)) this.#request()
     })
   }
 
-  /** Requests the displayed view's missing insights again after a failure. */
+  /** Requests the displayed view's missing summary and series again after a failure. */
   retry(): void {
     untrack(() => {
-      if (this.#view === undefined || this.#failed !== this.#view.key) return
-      this.#failed = undefined
+      if (this.#disposed || this.#view === undefined || !this.#failedFor(this.#view.key)) return
+      this.#summaryFailed = undefined
+      this.#seriesFailed = undefined
       this.#request()
     })
   }
 
+  /** Aborts every request and ignores every later call and response. */
+  dispose(): void {
+    this.#disposed = true
+    this.#abortFlights(undefined)
+  }
+
+  #failedFor(key: string): boolean {
+    return this.#summaryFailed === key || this.#seriesFailed === key
+  }
+
   #show(view: DisplayedView | undefined): void {
     this.#view = view
-    this.#failed = undefined
-    for (const flight of this.#flights) {
-      if (flight.key !== view?.key) flight.abort.abort()
-    }
-    this.#flights = this.#flights.filter((flight) => flight.key === view?.key)
+    this.#summaryFailed = undefined
+    this.#seriesFailed = undefined
+    this.#abortFlights(view?.key)
     if (view) this.#touch(view.key)
     this.#refreshShown()
+  }
+
+  /** Aborts the requests for every key but `kept`. */
+  #abortFlights(kept: string | undefined): void {
+    for (const flight of this.#flights) {
+      if (flight.key !== kept) flight.abort.abort()
+    }
+    this.#flights = this.#flights.filter((flight) => flight.key === kept)
   }
 
   #request(): void {
@@ -165,11 +195,15 @@ export class InsightsCache {
     this.#load(body, flight.abort.signal).then(
       (response) => {
         settle()
-        if (!flight.abort.signal.aborted) this.#receive(flight, response)
+        if (flight.abort.signal.aborted) return
+        this.#receive(flight, response)
+        this.#checkWaiting()
       },
       () => {
         settle()
-        if (!flight.abort.signal.aborted) this.#failed = flight.key
+        if (flight.abort.signal.aborted) return
+        if (flight.summary) this.#summaryFailed = flight.key
+        else this.#seriesFailed = flight.key
       },
     )
   }
@@ -177,16 +211,41 @@ export class InsightsCache {
   #receive(flight: Flight, response: InsightsResponse): void {
     const revision = BigInt(response.revision)
     const requested = BigInt(flight.revision)
-    if (revision < requested) return
-    if (response.today !== this.#today) {
-      if (this.#today !== undefined) this.#clear()
-      this.#today = response.today
+    // ISO dates order as strings. A response from an earlier day is dropped.
+    if (revision < requested || (this.#today !== undefined && response.today < this.#today)) {
+      return
     }
+    const dayChanged = this.#today !== undefined && response.today !== this.#today
+    this.#today = response.today
+    if (dayChanged) this.#clear()
     this.#store(flight.query, response)
-    if (revision > requested && revision > this.#notified) {
-      this.#notified = revision
-      this.#onNewer(response.revision)
-    }
+    // The chart context ends at today, so the displayed view loads again for the new day.
+    if (dayChanged) this.#request()
+    if (revision > requested && revision > this.#notified) this.#notifyNewer(flight.key, response)
+  }
+
+  #notifyNewer(key: string, response: InsightsResponse): void {
+    this.#notified = BigInt(response.revision)
+    this.#awaitingView = key
+    void Promise.resolve()
+      .then(() => this.#onNewer(response.revision))
+      .catch(() => undefined)
+      .then(() => {
+        if (this.#awaitingView === key) this.#awaitingView = undefined
+        this.#checkWaiting()
+      })
+  }
+
+  /**
+   * Marks the summary failed when the displayed view lacks it and nothing will bring it, such as
+   * after a dropped response, so `retry` can ask again instead of `loading` lasting forever.
+   */
+  #checkWaiting(): void {
+    const view = this.#view
+    if (this.#disposed || view === undefined || this.#failedFor(view.key)) return
+    if (this.#slots.get(view.key)?.response || this.#awaitingView === view.key) return
+    if (this.#flights.some((flight) => flight.key === view.key)) return
+    this.#summaryFailed = view.key
   }
 
   #store(query: string, response: InsightsResponse): void {
@@ -205,7 +264,9 @@ export class InsightsCache {
     this.#refreshShown()
   }
 
+  /** Drops every entry, and the requests whose answers would belong to the earlier day. */
   #clear(): void {
+    this.#abortFlights(undefined)
     this.#slots.clear()
     this.#shown = undefined
   }

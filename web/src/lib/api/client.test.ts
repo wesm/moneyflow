@@ -94,6 +94,18 @@ describe('Moneyflow generated client adapter', () => {
     )
   })
 
+  it.each(['', '-1', '1.0', 'v5'])('rejects the insights revision %j', async (revision) => {
+    const client = createMoneyflowClient(
+      '/',
+      profileID,
+      vi.fn(async () => Response.json(testInsights({ revision }))) as typeof fetch,
+    )
+
+    await expect(client.insights({ query: 'v=1' })).rejects.toThrow(
+      'The Moneyflow insights response is invalid.',
+    )
+  })
+
   it('previews committed export counts without mutation transport', async () => {
     const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(String(input), init)

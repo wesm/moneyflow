@@ -10,6 +10,11 @@ describe('ratioBasisPoints', () => {
     expect(ratioBasisPoints('0', '5')).toBe(0)
   })
 
+  it('stops at 10000 when the value exceeds the maximum', () => {
+    expect(ratioBasisPoints('7', '3')).toBe(10000)
+    expect(ratioBasisPoints('-9223372036854775808', '1')).toBe(10000)
+  })
+
   it('is 0 when the maximum is 0', () => {
     expect(ratioBasisPoints('0', '0')).toBe(0)
     expect(ratioBasisPoints('7', '0')).toBe(0)

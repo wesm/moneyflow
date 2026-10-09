@@ -8,14 +8,15 @@ function magnitude(minor: string): bigint {
 }
 
 /**
- * The share `|value| / |max|` in basis points, floored with exact integer math; 0 when `max` is
- * 0. Chart geometry uses this so money never becomes a JavaScript number.
+ * The share `|value| / |max|` in basis points, floored with exact integer math and at most
+ * 10000; 0 when `max` is 0. Chart geometry uses this so money never becomes a JavaScript number.
  */
 export function ratioBasisPoints(value: string, max: string): number {
   const limit = magnitude(max)
   if (limit === 0n) return 0
-  // eslint-disable-next-line no-restricted-syntax -- a basis-point ratio, not money
-  return Number((magnitude(value) * basisPoints) / limit)
+  const ratio = (magnitude(value) * basisPoints) / limit
+  // eslint-disable-next-line no-restricted-syntax -- a basis-point ratio of at most 10000
+  return Number(ratio < basisPoints ? ratio : basisPoints)
 }
 
 /** The largest absolute value among minor-unit amounts, as a minor string; `'0'` for none. */
