@@ -240,7 +240,9 @@ func effectiveScope(query domain.QuerySpec) (domain.QuerySpec, *domain.DateRange
 		}
 		scope = &domain.DateRange{Start: laterDate(scope.Start, start), End: earlierDate(scope.End, end)}
 		if scope.Start.Compare(scope.End) > 0 {
-			return domain.QuerySpec{}, nil, errors.New("insights: time drill-down lies outside the date range")
+			return domain.QuerySpec{}, nil, errors.New(
+				"insights: time drill-down lies outside the date range",
+			)
 		}
 	}
 	base.Drilldowns = drilldowns

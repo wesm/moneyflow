@@ -44,14 +44,19 @@ func NetChange(current, prior int64) (Change, error) {
 	case prior == 0:
 		return Change{Kind: ChangeNew, Favorable: current > 0}, nil
 	case current != 0 && (current > 0) != (prior > 0):
-		if (prior < 0 && current > math.MaxInt64+prior) || (prior > 0 && current < math.MinInt64+prior) {
-			return Change{}, errChangeOverflow
-		}
-		amount := current - prior
-		return Change{Kind: ChangeAmount, Amount: amount, Favorable: amount > 0}, nil
+		return signChange(current, prior)
 	default:
 		return magnitudeChange(absMinor(current), absMinor(prior), prior > 0)
 	}
+}
+
+// signChange reports the signed difference when Net changed sign.
+func signChange(current, prior int64) (Change, error) {
+	if (prior < 0 && current > math.MaxInt64+prior) || (prior > 0 && current < math.MinInt64+prior) {
+		return Change{}, errChangeOverflow
+	}
+	amount := current - prior
+	return Change{Kind: ChangeAmount, Amount: amount, Favorable: amount > 0}, nil
 }
 
 // IncomeChange compares two In values; growth is favorable.

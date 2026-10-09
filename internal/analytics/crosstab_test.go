@@ -63,7 +63,9 @@ func TestCrossTabCountsHiddenAndPendingWithoutHiddenMoney(t *testing.T) {
 	pending.Pending = true
 	result, err := ComputeCrossTab([]domain.Transaction{hidden, pending}, CrossTabSpec{
 		Dimension: domain.DimensionMerchant,
-		Frames:    []CrossTabFrameSpec{{Periods: []PeriodRange{singlePeriod(t, "2026-09-01", "2026-09-30")}}},
+		Frames: []CrossTabFrameSpec{
+			{Periods: []PeriodRange{singlePeriod(t, "2026-09-01", "2026-09-30")}},
+		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, CrossTabCell{Count: 2, HiddenCount: 1, PendingCount: 1, Out: -1000},
@@ -79,7 +81,9 @@ func TestCrossTabRequestedKeysAlwaysHaveCells(t *testing.T) {
 	result, err := ComputeCrossTab(transactions, CrossTabSpec{
 		Dimension: domain.DimensionMerchant,
 		Keys:      []string{"merchant-noodle-house", "merchant-without-activity"},
-		Frames:    []CrossTabFrameSpec{{Periods: monthPeriods(t, "2026-08-01", "2026-09-30"), Series: true}},
+		Frames: []CrossTabFrameSpec{
+			{Periods: monthPeriods(t, "2026-08-01", "2026-09-30"), Series: true},
+		},
 	})
 	require.NoError(t, err)
 	series := result.Frames[0].Series
@@ -98,7 +102,9 @@ func TestCrossTabGroupsByCategoryGroup(t *testing.T) {
 	}
 	result, err := ComputeCrossTab(transactions, CrossTabSpec{
 		Dimension: domain.DimensionGroup,
-		Frames:    []CrossTabFrameSpec{{Periods: []PeriodRange{singlePeriod(t, "2026-09-01", "2026-09-30")}, Series: true}},
+		Frames: []CrossTabFrameSpec{{
+			Periods: []PeriodRange{singlePeriod(t, "2026-09-01", "2026-09-30")}, Series: true,
+		}},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int64(-10000), result.Frames[0].Series["group-food"][0].Net())
@@ -112,8 +118,16 @@ func TestCrossTabRejectsInvalidSpecs(t *testing.T) {
 	tests := map[string]CrossTabSpec{
 		"time dimension": {Dimension: domain.DimensionTime},
 		"too many keys":  {Dimension: domain.DimensionMerchant, Keys: tooMany},
-		"overlapping periods": {Dimension: domain.DimensionMerchant, Frames: []CrossTabFrameSpec{
+		"periods out of order": {Dimension: domain.DimensionMerchant, Frames: []CrossTabFrameSpec{
 			{Periods: []PeriodRange{periods[1], periods[0]}},
+		}},
+		"overlapping periods": {Dimension: domain.DimensionMerchant, Frames: []CrossTabFrameSpec{
+			{Periods: []PeriodRange{
+				singlePeriod(t, "2026-08-01", "2026-08-31"), singlePeriod(t, "2026-08-31", "2026-09-30"),
+			}},
+		}},
+		"period ends before it starts": {Dimension: domain.DimensionMerchant, Frames: []CrossTabFrameSpec{
+			{Periods: []PeriodRange{singlePeriod(t, "2026-09-02", "2026-09-01")}},
 		}},
 	}
 	for name, spec := range tests {
@@ -138,9 +152,26 @@ func TestCrossTabRejectsOverflow(t *testing.T) {
 	third.ID = "3"
 	_, err := ComputeCrossTab([]domain.Transaction{first, second, third}, CrossTabSpec{
 		Dimension: domain.DimensionMerchant,
-		Frames:    []CrossTabFrameSpec{{Periods: []PeriodRange{singlePeriod(t, "2026-09-01", "2026-09-30")}}},
+		Frames: []CrossTabFrameSpec{
+			{Periods: []PeriodRange{singlePeriod(t, "2026-09-01", "2026-09-30")}},
+		},
 	})
 	require.ErrorIs(t, err, errMinorOverflow)
+}
+
+func TestPeriodIndexFindsBoundaryDaysAndSkipsGaps(t *testing.T) {
+	t.Parallel()
+	periods := []PeriodRange{
+		singlePeriod(t, "2026-08-01", "2026-08-31"),
+		singlePeriod(t, "2026-09-05", "2026-09-30"),
+	}
+	tests := map[string]int{
+		"2026-07-31": -1, "2026-08-01": 0, "2026-08-31": 0, "2026-09-02": -1,
+		"2026-09-05": 1, "2026-09-30": 1, "2026-10-01": -1,
+	}
+	for date, want := range tests {
+		assert.Equal(t, want, periodIndex(periods, rangeDate(t, date)), date)
+	}
 }
 
 func merchantTransaction(t *testing.T, id, date, amount, merchant string) domain.Transaction {

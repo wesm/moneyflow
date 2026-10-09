@@ -24,7 +24,9 @@ func metricsExample(t *testing.T) []domain.Transaction {
 		insightsTransaction(t, "2", "2026-09-05", "120.00", "Online Megastore", "Shopping", "Shopping"),
 		insightsTransaction(t, "3", "2026-09-10", "-160.00", "Online Megastore", "Shopping", "Shopping"),
 		insightsTransaction(t, "4", "2026-09-20", "-160.00", "Online Megastore", "Shopping", "Shopping"),
-		insightsTransaction(t, "5", "2026-09-01", "-2150.00", "Maple Court Apartments", "Rent", "Housing"),
+		insightsTransaction(
+			t, "5", "2026-09-01", "-2150.00", "Maple Court Apartments", "Rent", "Housing",
+		),
 		insightsTransaction(t, "6", "2026-09-12", "-3334.18", "Corner Grocery", "Groceries", "Food"),
 		insightsTransaction(t, "7", "2026-09-15", "8410.72", "Example Employer", "Payroll", "Income"),
 		insightsTransaction(t, "8", "2026-08-14", "-300.00", "Online Megastore", "Shopping", "Shopping"),
@@ -132,7 +134,9 @@ func TestInsightsCompositionFoldsRowsAfterTheTopSeven(t *testing.T) {
 		amount := fmt.Sprintf("-%d.00", (index+1)*10)
 		merchant := fmt.Sprintf("Merchant %c", 'A'+index)
 		transactions = append(transactions,
-			insightsTransaction(t, fmt.Sprint(index), "2026-09-10", amount, merchant, "Shopping", "Shopping"))
+			insightsTransaction(
+				t, fmt.Sprint(index), "2026-09-10", amount, merchant, "Shopping", "Shopping",
+			))
 	}
 	transactions = append(transactions,
 		insightsTransaction(t, "income", "2026-09-15", "500.00", "Example Employer", "Payroll", "Income"))
@@ -145,7 +149,8 @@ func TestInsightsCompositionFoldsRowsAfterTheTopSeven(t *testing.T) {
 	require.Len(t, spending, 8)
 	assert.Equal(t, "Merchant I", spending[0].Label)
 	others := spending[7]
-	assert.Equal(t, CompositionEntry{Label: "2 others", Net: -3000, ShareTenths: 67, Others: 2}, others)
+	want := CompositionEntry{Label: "2 others", Net: -3000, ShareTenths: 67, Others: 2}
+	assert.Equal(t, want, others)
 	assert.Equal(t, []CompositionEntry{{
 		Key: "merchant-example-employer", Label: "Example Employer", Net: 50000, ShareTenths: 1000,
 	}}, result.Summary.Composition.Income)
@@ -186,7 +191,9 @@ func TestInsightsIsolatesTheCurrencyAndCountsHiddenRows(t *testing.T) {
 	t.Parallel()
 	euro := insightsTransaction(t, "eur", "2026-09-28", "-99.00", "Bistro du Port", "Dining", "Food")
 	euro.Amount.Currency = "EUR"
-	hidden := insightsTransaction(t, "hidden", "2026-09-21", "-25.00", "Noodle House", "Dining", "Food")
+	hidden := insightsTransaction(
+		t, "hidden", "2026-09-21", "-25.00", "Noodle House", "Dining", "Food",
+	)
 	hidden.Hidden = true
 	transactions := append(metricsExample(t), euro, hidden)
 	result, err := ComputeInsights(transactions, InsightsSpec{
@@ -244,8 +251,10 @@ func insightsQuery(t *testing.T, groupBy domain.Dimension, from, to string) doma
 	query := domain.QuerySpec{
 		Mode: domain.ResultModeAggregate, GroupBy: groupBy, ShowHidden: true,
 		TimeGranularity: domain.TimeGranularityMonth,
-		Sort:            domain.SortSpec{Field: domain.SortFieldAmount, Direction: domain.SortDirectionDesc},
-		Currency:        &domain.CurrencyScope{Currency: "USD", Scale: 2},
+		Sort: domain.SortSpec{
+			Field: domain.SortFieldAmount, Direction: domain.SortDirectionDesc,
+		},
+		Currency: &domain.CurrencyScope{Currency: "USD", Scale: 2},
 	}
 	if groupBy == "" {
 		query.Mode = domain.ResultModeDetail
@@ -276,7 +285,9 @@ func compositionShare(t *testing.T, entries []CompositionEntry, key string) int 
 	return 0
 }
 
-func shareColumn(t *testing.T, transactions []domain.Transaction, query domain.QuerySpec, key string) int {
+func shareColumn(
+	t *testing.T, transactions []domain.Transaction, query domain.QuerySpec, key string,
+) int {
 	t.Helper()
 	result, err := Query(transactions, query)
 	require.NoError(t, err)

@@ -198,17 +198,29 @@ func TestResolveRangesHeatmap(t *testing.T) {
 		want  Heatmap
 	}{
 		{name: "month", scope: [2]string{"2026-09-01", "2026-09-30"},
-			want: Heatmap{Layout: HeatmapMonths, Start: rangeDate(t, "2026-09-01"), End: rangeDate(t, "2026-09-30")}},
+			want: Heatmap{
+				Layout: HeatmapMonths, Start: rangeDate(t, "2026-09-01"), End: rangeDate(t, "2026-09-30"),
+			}},
 		{name: "day", scope: [2]string{"2026-09-15", "2026-09-15"},
-			want: Heatmap{Layout: HeatmapMonths, Start: rangeDate(t, "2026-09-01"), End: rangeDate(t, "2026-09-30")}},
+			want: Heatmap{
+				Layout: HeatmapMonths, Start: rangeDate(t, "2026-09-01"), End: rangeDate(t, "2026-09-30"),
+			}},
 		{name: "year", scope: [2]string{"2025-01-01", "2025-12-31"},
-			want: Heatmap{Layout: HeatmapWeeks, Start: rangeDate(t, "2025-01-01"), End: rangeDate(t, "2025-12-31")}},
+			want: Heatmap{
+				Layout: HeatmapWeeks, Start: rangeDate(t, "2025-01-01"), End: rangeDate(t, "2025-12-31"),
+			}},
 		{name: "short custom", scope: [2]string{"2026-03-10", "2026-04-09"},
-			want: Heatmap{Layout: HeatmapMonths, Start: rangeDate(t, "2026-03-01"), End: rangeDate(t, "2026-04-30")}},
+			want: Heatmap{
+				Layout: HeatmapMonths, Start: rangeDate(t, "2026-03-01"), End: rangeDate(t, "2026-04-30"),
+			}},
 		{name: "long custom", scope: [2]string{"2026-01-01", "2026-03-31"},
-			want: Heatmap{Layout: HeatmapWeeks, Start: rangeDate(t, "2025-03-26"), End: rangeDate(t, "2026-03-31")}},
+			want: Heatmap{
+				Layout: HeatmapWeeks, Start: rangeDate(t, "2025-03-26"), End: rangeDate(t, "2026-03-31"),
+			}},
 		{name: "all",
-			want: Heatmap{Layout: HeatmapWeeks, Start: rangeDate(t, "2025-10-02"), End: rangeDate(t, "2026-10-07")}},
+			want: Heatmap{
+				Layout: HeatmapWeeks, Start: rangeDate(t, "2025-10-02"), End: rangeDate(t, "2026-10-07"),
+			}},
 	}
 	for _, test := range tests {
 		ranges, err := ResolveRanges(RangeInput{

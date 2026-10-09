@@ -61,11 +61,13 @@ func TestIncomeAndSpendingChanges(t *testing.T) {
 	t.Parallel()
 	income, err := IncomeChange(150000, 100000)
 	require.NoError(t, err)
-	assert.Equal(t, Change{Kind: ChangePercent, PercentTenths: 500, Grew: true, Favorable: true}, income)
+	want := Change{Kind: ChangePercent, PercentTenths: 500, Grew: true, Favorable: true}
+	assert.Equal(t, want, income)
 
 	spending, err := SpendingChange(-150000, -100000)
 	require.NoError(t, err)
-	assert.Equal(t, Change{Kind: ChangePercent, PercentTenths: 500, Grew: true, Favorable: false}, spending)
+	want.Favorable = false
+	assert.Equal(t, want, spending)
 
 	newSpending, err := SpendingChange(-1, 0)
 	require.NoError(t, err)

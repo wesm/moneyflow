@@ -22,20 +22,9 @@ func buildKPIs(query domain.QuerySpec, ranges Ranges, crossTab CrossTab) (Insigh
 	}
 	if ranges.Comparison != nil {
 		comparison := insightsTotals(crossTab.Frames[frameComparison].Totals[0])
-		kpis.Comparison = &comparison
-		income, err := IncomeChange(kpis.Scope.In, comparison.In)
-		if err != nil {
-			return InsightsKPIs{}, fmt.Errorf("income change: %w", err)
+		if err := kpis.compare(comparison); err != nil {
+			return InsightsKPIs{}, err
 		}
-		spending, err := SpendingChange(kpis.Scope.Out, comparison.Out)
-		if err != nil {
-			return InsightsKPIs{}, fmt.Errorf("spending change: %w", err)
-		}
-		net, err := NetChange(kpis.Scope.Net, comparison.Net)
-		if err != nil {
-			return InsightsKPIs{}, fmt.Errorf("net change: %w", err)
-		}
-		kpis.IncomeChange, kpis.SpendingChange, kpis.NetChange = &income, &spending, &net
 	}
 	var err error
 	if len(query.Drilldowns) > 0 {
@@ -44,6 +33,25 @@ func buildKPIs(query domain.QuerySpec, ranges Ranges, crossTab CrossTab) (Insigh
 		kpis.SavingsRateTenths, err = savingsRate(kpis.Scope)
 	}
 	return kpis, err
+}
+
+// compare sets the comparison totals and the income, spending, and net changes.
+func (kpis *InsightsKPIs) compare(comparison InsightsTotals) error {
+	income, err := IncomeChange(kpis.Scope.In, comparison.In)
+	if err != nil {
+		return fmt.Errorf("income change: %w", err)
+	}
+	spending, err := SpendingChange(kpis.Scope.Out, comparison.Out)
+	if err != nil {
+		return fmt.Errorf("spending change: %w", err)
+	}
+	net, err := NetChange(kpis.Scope.Net, comparison.Net)
+	if err != nil {
+		return fmt.Errorf("net change: %w", err)
+	}
+	kpis.Comparison = &comparison
+	kpis.IncomeChange, kpis.SpendingChange, kpis.NetChange = &income, &spending, &net
+	return nil
 }
 
 func insightsTotals(cell CrossTabCell) InsightsTotals {
@@ -66,7 +74,8 @@ func savingsRate(totals InsightsTotals) (*int, error) {
 
 // averagePerTransaction rounds Net ÷ count half away from zero to the minor unit.
 func averagePerTransaction(totals InsightsTotals) *int64 {
-	count := uint64(totals.Count - totals.HiddenCount) //nolint:gosec // HiddenCount never exceeds Count.
+	// HiddenCount never exceeds Count.
+	count := uint64(totals.Count - totals.HiddenCount) //nolint:gosec // see above
 	if count == 0 {
 		return nil
 	}
@@ -192,23 +201,10 @@ func rankEntries(entries []netEntry) ([]CompositionEntry, error) {
 	if len(entries) == 0 {
 		return nil, nil
 	}
-	sort.Slice(entries, func(left, right int) bool {
-		leftMagnitude, rightMagnitude := absMinor(entries[left].net), absMinor(entries[right].net)
-		if leftMagnitude != rightMagnitude {
-			return leftMagnitude > rightMagnitude
-		}
-		if entries[left].label != entries[right].label {
-			return entries[left].label < entries[right].label
-		}
-		return entries[left].key < entries[right].key
-	})
-	var denominator uint64
-	for _, entry := range entries {
-		magnitude := absMinor(entry.net)
-		if math.MaxUint64-denominator < magnitude {
-			return nil, errors.New("composition: share denominator overflow")
-		}
-		denominator += magnitude
+	sortEntries(entries)
+	denominator, err := shareDenominator(entries)
+	if err != nil {
+		return nil, err
 	}
 	result := make([]CompositionEntry, 0, min(len(entries), compositionTop+1))
 	for index, entry := range entries {
@@ -224,6 +220,32 @@ func rankEntries(entries []netEntry) ([]CompositionEntry, error) {
 		})
 	}
 	return result, nil
+}
+
+// sortEntries orders by magnitude, largest first, then by label and key for stable output.
+func sortEntries(entries []netEntry) {
+	sort.Slice(entries, func(left, right int) bool {
+		leftMagnitude, rightMagnitude := absMinor(entries[left].net), absMinor(entries[right].net)
+		if leftMagnitude != rightMagnitude {
+			return leftMagnitude > rightMagnitude
+		}
+		if entries[left].label != entries[right].label {
+			return entries[left].label < entries[right].label
+		}
+		return entries[left].key < entries[right].key
+	})
+}
+
+func shareDenominator(entries []netEntry) (uint64, error) {
+	var denominator uint64
+	for _, entry := range entries {
+		magnitude := absMinor(entry.net)
+		if math.MaxUint64-denominator < magnitude {
+			return 0, errors.New("composition: share denominator overflow")
+		}
+		denominator += magnitude
+	}
+	return denominator, nil
 }
 
 func appendOthers(

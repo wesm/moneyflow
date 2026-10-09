@@ -64,13 +64,7 @@ func ComputeCrossTab(transactions []domain.Transaction, spec CrossTabSpec) (Cros
 		return CrossTab{}, err
 	}
 	result := newCrossTab(spec)
-	var requested map[string]struct{}
-	if spec.Keys != nil {
-		requested = make(map[string]struct{}, len(spec.Keys))
-		for _, key := range spec.Keys {
-			requested[key] = struct{}{}
-		}
-	}
+	requested := keySet(spec.Keys)
 	var partition *moneyPartition
 	for _, transaction := range transactions {
 		current := moneyPartition{currency: transaction.Amount.Currency, scale: transaction.Amount.Scale}
@@ -94,14 +88,21 @@ func validateCrossTabSpec(spec CrossTabSpec) error {
 		return fmt.Errorf("cross-tab: at most %d series keys", CrossTabMaxKeys)
 	}
 	for index, frame := range spec.Frames {
-		for period := range frame.Periods {
-			current := frame.Periods[period]
-			if current.Start.Compare(current.End) > 0 {
-				return fmt.Errorf("cross-tab: frame %d period %d starts after it ends", index, period)
-			}
-			if period > 0 && frame.Periods[period-1].End.Compare(current.Start) >= 0 {
-				return fmt.Errorf("cross-tab: frame %d periods overlap or are out of order", index)
-			}
+		if err := validatePeriods(frame.Periods); err != nil {
+			return fmt.Errorf("cross-tab: frame %d: %w", index, err)
+		}
+	}
+	return nil
+}
+
+// validatePeriods requires ordered periods that do not overlap, as periodIndex searches them.
+func validatePeriods(periods []PeriodRange) error {
+	for index, current := range periods {
+		if current.Start.Compare(current.End) > 0 {
+			return fmt.Errorf("period %d starts after it ends", index)
+		}
+		if index > 0 && periods[index-1].End.Compare(current.Start) >= 0 {
+			return errors.New("periods overlap or are out of order")
 		}
 	}
 	return nil
@@ -125,6 +126,18 @@ func newCrossTab(spec CrossTabSpec) CrossTab {
 	return result
 }
 
+// keySet returns nil for nil keys, meaning every key is collected.
+func keySet(keys []string) map[string]struct{} {
+	if keys == nil {
+		return nil
+	}
+	set := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		set[key] = struct{}{}
+	}
+	return set
+}
+
 func (result *CrossTab) add(
 	transaction domain.Transaction, spec CrossTabSpec, requested map[string]struct{},
 ) error {
@@ -143,19 +156,30 @@ func (result *CrossTab) add(
 		if !frame.Series || !collect {
 			continue
 		}
-		cells, exists := state.Series[key]
-		if !exists {
-			cells = make([]CrossTabCell, len(frame.Periods))
-			state.Series[key] = cells
-		}
+		cells := state.seriesCells(key, len(frame.Periods))
 		if err := addToCell(&cells[period], transaction); err != nil {
 			return fmt.Errorf("cross-tab: frame %d %q: %w", index, label, err)
 		}
-		if existing, seen := result.Labels[key]; !seen || label < existing {
-			result.Labels[key] = label
-		}
+		result.noteLabel(key, label)
 	}
 	return nil
+}
+
+// seriesCells returns the key's cells, creating empty cells on first use.
+func (frame *CrossTabFrame) seriesCells(key string, periods int) []CrossTabCell {
+	cells, exists := frame.Series[key]
+	if !exists {
+		cells = make([]CrossTabCell, periods)
+		frame.Series[key] = cells
+	}
+	return cells
+}
+
+// noteLabel keeps the smallest label seen for a key, as Aggregate chooses.
+func (result *CrossTab) noteLabel(key, label string) {
+	if existing, seen := result.Labels[key]; !seen || label < existing {
+		result.Labels[key] = label
+	}
 }
 
 // periodIndex finds the period containing date by binary search, or returns -1.

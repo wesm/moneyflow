@@ -100,16 +100,12 @@ func ClassifyScope(scope *domain.DateRange) ScopeKind {
 // ResolveRanges derives the four ranges of a view from its scope, following the rules and
 // worked examples in the web redesign spec.
 func ResolveRanges(input RangeInput) (Ranges, error) {
-	if input.Scope != nil && input.Scope.Start.Compare(input.Scope.End) > 0 {
-		return Ranges{}, errors.New("resolve ranges: scope starts after it ends")
+	scope, err := copyScope(input.Scope)
+	if err != nil {
+		return Ranges{}, err
 	}
 	kind := ClassifyScope(input.Scope)
-	ranges := Ranges{Kind: kind}
-	if input.Scope != nil {
-		scope := *input.Scope
-		ranges.Scope = &scope
-	}
-	var err error
+	ranges := Ranges{Kind: kind, Scope: scope}
 	ranges.ContextGranularity, ranges.Context, err = contextPeriods(kind, input)
 	if err != nil {
 		return Ranges{}, fmt.Errorf("resolve ranges: chart context: %w", err)
@@ -127,6 +123,17 @@ func ResolveRanges(input RangeInput) (Ranges, error) {
 		return Ranges{}, fmt.Errorf("resolve ranges: heatmap: %w", err)
 	}
 	return ranges, nil
+}
+
+func copyScope(scope *domain.DateRange) (*domain.DateRange, error) {
+	if scope == nil {
+		return nil, nil
+	}
+	if scope.Start.Compare(scope.End) > 0 {
+		return nil, errors.New("resolve ranges: scope starts after it ends")
+	}
+	copied := *scope
+	return &copied, nil
 }
 
 func contextPeriods(
@@ -256,16 +263,9 @@ func enumeratePeriods(
 }
 
 func trendPeriods(input RangeInput) ([]PeriodRange, error) {
-	var last domain.Date
-	switch {
-	case input.Scope == nil && input.Latest.IsZero():
+	last, ok := trendLastDay(input)
+	if !ok {
 		return nil, nil
-	case input.Scope == nil:
-		last = input.Latest
-	case contains(*input.Scope, input.Today) && input.Today != input.Scope.End:
-		last = input.Today
-	default:
-		last = input.Scope.End
 	}
 	first, err := last.MonthStart().AddMonthsClamped(1 - trendMonths)
 	if err != nil {
@@ -284,12 +284,27 @@ func trendPeriods(input RangeInput) ([]PeriodRange, error) {
 	return periods, nil
 }
 
+// trendLastDay picks the day the trend ends on. It reports false for All with no data.
+func trendLastDay(input RangeInput) (domain.Date, bool) {
+	switch {
+	case input.Scope == nil:
+		return input.Latest, !input.Latest.IsZero()
+	case contains(*input.Scope, input.Today) && input.Today != input.Scope.End:
+		return input.Today, true
+	default:
+		return input.Scope.End, true
+	}
+}
+
 func comparisonRange(kind ScopeKind, input RangeInput) (*domain.DateRange, string, error) {
 	switch kind {
 	case ScopeDay:
 		previous, err := input.Scope.Start.AddDays(-1)
+		if err != nil {
+			return nil, "", err
+		}
 		label := "vs " + formatComparisonDate(previous, comparisonDayLayout)
-		return &domain.DateRange{Start: previous, End: previous}, label, err
+		return &domain.DateRange{Start: previous, End: previous}, label, nil
 	case ScopeMonth:
 		return monthComparison(*input.Scope, input.Today)
 	case ScopeYear:
