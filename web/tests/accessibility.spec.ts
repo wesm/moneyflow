@@ -53,13 +53,18 @@ for (const colorScheme of ['light', 'dark'] as const) {
 }
 
 for (const colorScheme of ['light', 'dark'] as const) {
-  test(`${colorScheme} selected rows and a hovered pencil pass axe`, async ({ page, server }) => {
+  test(`${colorScheme} selected rows, the selection bar, and a hovered pencil pass axe`, async ({
+    page,
+    server,
+  }) => {
     await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await openMoneyflow(page, server)
     const grid = page.getByRole('grid', { name: 'Financial results' })
     await cell(grid.locator('[role="row"][aria-rowindex="3"]'), 'select').click()
     await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
+    const bar = page.getByRole('region', { name: 'Selection' })
+    await expect(bar).toContainText('1 merchant · ')
     await expectNoAxeViolations(page)
 
     // The detail chart rail scrolls with no focusable content; PR 6 replaces it.
@@ -73,6 +78,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(
       cell(hovered, 'merchant').getByRole('button', { name: 'Edit merchant' }),
     ).toBeVisible()
+    await expect(bar).toContainText('1 transaction · ')
     await expectNoAxeViolations(page)
   })
 }

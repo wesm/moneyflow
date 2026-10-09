@@ -1,15 +1,19 @@
 <script lang="ts">
   import FinanceGrid from '../table/FinanceGrid.svelte'
+  import SelectionBar from '../table/SelectionBar.svelte'
   import EmptyScope from './EmptyScope.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import type { TransitionAction } from '../../lib/controller/view-controller.svelte'
   import {
+    localActions,
     moveCursor,
     openEditor,
     openTransactionInformation,
     type LocalActionContext,
   } from '../../lib/shell/local-actions'
   import { emptyScope } from '../../lib/shell/period'
+  import { status } from '../../lib/shell/status.svelte'
+  import type { SelectionButton } from '../../lib/table/selection'
 
   interface Props {
     projection: ViewProjection
@@ -24,11 +28,31 @@
   let scroller = $state<HTMLDivElement>()
   let scrollTop = $state(0)
   let viewport = $state(520)
+  let barHeight = $state(0)
+  const selecting = $derived(!empty && projection.selection_count > 0)
+  /** The bar covers the scroller's bottom, so the table counts only the rows above it. */
+  const covered = $derived(selecting ? barHeight : 0)
+  const local = $derived(localActions(actions))
+  /** The projection a Clear was sent from; another click on it must not also go back a level. */
+  let cleared: ViewProjection | undefined
+
+  /** Runs a selection bar button as its key does, then leaves focus on the table. */
+  function select(action: SelectionButton['action']): void {
+    if (action === 'clear') {
+      if (cleared === projection) return
+      cleared = projection
+      return onapply({ action: 'view.back' })
+    }
+    scroller?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
+    status.clear()
+    local[action]()
+  }
 </script>
 
 <!-- The workspace's one vertical scroll surface; the table header sticks to its top. -->
 <div
-  class="mf-workspace"
+  class={['mf-workspace', selecting && 'mf-workspace--selecting']}
+  style:--mf-selection-height={`${covered}px`}
   bind:this={scroller}
   bind:clientHeight={viewport}
   onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
@@ -45,7 +69,7 @@
       cursorIndex={controller.cursorIndex}
       {scroller}
       bind:scrollTop
-      {viewport}
+      viewport={viewport - covered}
       compact={false}
       onmove={(delta) => moveCursor(() => controller.moveCursor(delta))}
       onhome={() => moveCursor(() => controller.moveHome())}
@@ -59,5 +83,8 @@
       onsort={(field) => onapply({ action: 'sort.set', sort_field: field })}
       onshow={(index) => void controller.showIndex(index)}
     />
+    {#if selecting}
+      <SelectionBar {projection} onaction={select} bind:height={barHeight} />
+    {/if}
   {/if}
 </div>

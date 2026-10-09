@@ -20,6 +20,19 @@ In detail view, an edit targets the current transaction. In a grouped view, it c
 transactions represented by that row. Space selects rows; `Ctrl+A` toggles the current result
 selection. The merchant editor shows the affected count and a bounded transaction preview.
 
+**Unreleased:** In the browser, a selection bar shows at the bottom of the table while rows are
+selected. It counts the selected groups in a grouped view, then the affected transactions and
+their Net, such as `3 merchants · 127 transactions · -4,212.40`. Its buttons do what their keys
+do:
+
+- **Merchant** (`m`), **Category** (`c`), **Hide** (`h`), and **Delete** (`x`) edit the
+  selection.
+- **Clear** (`Esc`) empties the selection and returns focus to the table.
+
+Delete is disabled in grouped views; open a group to delete its transactions. A disabled button
+shows its reason when you point at it, for example while a provider write runs. On a phone, the
+bar spans the bottom of the screen with larger buttons.
+
 **Unreleased:** In the merchant editor, Enter uses the highlighted suggestion. To use a new name that also
 matches existing merchants, select the `Create` option below the matches.
 

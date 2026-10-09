@@ -91,6 +91,18 @@ describe('keyHints', () => {
     expect(keyHints(selected, false).map(({ key }) => key)).toEqual(['m', 'c', 'h', 'Esc'])
   })
 
+  it('keeps x while a grouped selection explains why it cannot delete', () => {
+    const reason = 'Open the group to delete its transactions.'
+    const selected = projection({
+      view: view('aggregate'),
+      selection_count: 2,
+      capabilities: capabilities(['transaction.delete']).map((capability) =>
+        capability.id === 'transaction.delete' ? { ...capability, reason } : capability,
+      ),
+    })
+    expect(keyHints(selected, false).map(({ key }) => key)).toEqual(['m', 'c', 'h', 'x', 'Esc'])
+  })
+
   it('offers no row keys over an empty period', () => {
     const currency = { currency: 'USD', scale: 2 }
     for (const mode of ['aggregate', 'detail'] as const) {

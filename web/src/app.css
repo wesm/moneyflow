@@ -1070,6 +1070,38 @@ input {
   align-items: center;
   gap: var(--space-2);
 }
+/* In the scroll flow after the table, so the last row scrolls clear of it. The negative bottom
+   reaches past the workspace's focus-ring padding to its edge. */
+.mf-selection-bar {
+  position: sticky;
+  bottom: calc(-1 * var(--space-2));
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-6);
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  box-shadow: inset 3px 0 var(--mf-focus);
+  font-size: var(--font-size-sm);
+}
+.mf-selection-bar__summary {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.mf-selection-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+/* A disabled button takes no pointer events, so its Tooltip wrapper sees the hover. */
+.mf-selection-bar__button:disabled {
+  pointer-events: none;
+}
 
 .editing-form {
   display: grid;
@@ -1315,6 +1347,42 @@ input {
   .app-shell__main {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
+  }
+  /* The bar spans the screen's bottom edge, over the status line; the workspace keeps room for
+     it below the last row. */
+  .mf-workspace--selecting {
+    padding-bottom: calc(var(--space-2) + var(--mf-selection-height));
+  }
+  .mf-selection-bar {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    box-shadow: var(--shadow-md);
+  }
+  .mf-selection-bar__actions {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    gap: var(--space-2);
+  }
+  .mf-selection-bar__actions > .kit-tooltip-trigger {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+  }
+  .mf-selection-bar .kit-button.mf-selection-bar__button {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 44px;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2);
+  }
+  .mf-selection-bar__button .kit-kbd-badge {
+    display: none;
   }
   .detail-summary {
     grid-template-columns: 1fr;

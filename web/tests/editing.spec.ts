@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { activeAggregateCount, activeRow, cell, openMoneyflow } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
@@ -195,6 +195,85 @@ test('x stages count-only deletion and review keeps commit explicit', async ({ p
     await expect(review).toContainText('Delete transaction')
     await page.keyboard.press('Escape')
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+  } finally {
+    await server.stop()
+  }
+})
+
+/** The keys the status line hints at, in order. */
+async function hintKeys(page: Page): Promise<string[]> {
+  return await page
+    .locator('.mf-status-line__hint kbd')
+    .evaluateAll((keys) => keys.map((key) => key.getAttribute('aria-label') ?? ''))
+}
+
+test('the selection bar counts two merchants, explains Delete, and Clear empties it', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const bar = page.getByRole('region', { name: 'Selection' })
+    await expect(bar).toBeHidden()
+    // Maple Court Apartments (34 transactions, -73,100.00) and Corner Grocery (130, -12,611.08).
+    await page.keyboard.press('Space')
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
+    await page.keyboard.press('j')
+    await page.keyboard.press('Space')
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
+    await expect(bar).toContainText('2 merchants · 164 transactions · -85,711.08')
+    await expect.poll(() => hintKeys(page)).toEqual(['m', 'c', 'h', 'x', 'Esc'])
+
+    const reason = 'Open the group to delete its transactions.'
+    const remove = bar.getByRole('button', { name: 'Delete' })
+    await expect(remove).toBeDisabled()
+    await expect(remove).toHaveAttribute('title', reason)
+    const deleteButton = page.getByRole('button', { name: 'Delete' })
+    await bar.locator('.kit-tooltip-trigger').filter({ has: deleteButton }).hover()
+    await expect(page.getByRole('tooltip')).toHaveText(reason)
+
+    await bar.getByRole('button', { name: 'Merchant' }).click()
+    const merchant = page.getByRole('dialog', { name: 'Edit merchant' })
+    await expect(merchant).toContainText('164 transactions affected')
+    await page.keyboard.press('Escape')
+    await expect(merchant).toBeHidden()
+    await expect(grid).toBeFocused()
+
+    await bar.getByRole('button', { name: 'Clear' }).click()
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(0)
+    await expect(bar).toBeHidden()
+    await expect(grid).toBeFocused()
+    await expect(page.getByRole('columnheader', { name: 'Merchant' })).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
+test('the selection bar edits selected transactions as their keys do', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await page.keyboard.press('d')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('Space')
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
+    await page.keyboard.press('j')
+    await page.keyboard.press('Space')
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
+    const bar = page.getByRole('region', { name: 'Selection' })
+    await expect(bar).toContainText(/^2 transactions · [+-][\d,]+\.\d\d/)
+
+    await bar.getByRole('button', { name: 'Delete' }).click()
+    const confirmation = page.getByRole('dialog', { name: 'Confirm deletion' })
+    await expect(confirmation).toContainText('Delete 2 transactions?')
+    await page.keyboard.press('Escape')
+    await expect(grid).toBeFocused()
+
+    await bar.getByRole('button', { name: 'Hide' }).click()
+    await expect(page.getByText(/1 pending/)).toBeVisible()
+    await expect(grid).toBeFocused()
   } finally {
     await server.stop()
   }

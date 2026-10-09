@@ -99,3 +99,33 @@ test('j moves down across the edge of the 200 loaded rows', async ({ page, serve
     await expect.poll(() => activeRowIndex(page)).toBe(201 + step)
   }
 })
+
+/** How far `row`'s bottom edge sits below the selection bar's top edge; at most 0 when clear. */
+async function overlap(page: Page, rowIndex: number): Promise<number> {
+  return await page.evaluate((index) => {
+    const row = document.querySelector(`[role="row"][aria-rowindex="${index}"]`)!
+    const bar = document.querySelector('[aria-label="Selection"]')!
+    return row.getBoundingClientRect().bottom - bar.getBoundingClientRect().top
+  }, rowIndex)
+}
+
+test('the selection bar never covers the last row or the cursor row', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  await expect(grid(page).getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  await page.keyboard.press('Space')
+  await expect(page.getByRole('region', { name: 'Selection' })).toBeVisible()
+
+  // j past the bottom of the screen keeps the cursor row whole above the bar.
+  for (let step = 0; step < 40; step++) await page.keyboard.press('j')
+  await expect.poll(() => activeRowIndex(page)).toBe(42)
+  expect(await overlap(page, 42)).toBeLessThanOrEqual(0.5)
+  expect(await overlap(page, 42)).toBeGreaterThan(-30)
+
+  const total = Number(await grid(page).getAttribute('aria-rowcount')) - 1
+  await grid(page).hover()
+  await page.mouse.wheel(0, total * 100)
+  await expect.poll(async () => (await scrollState(page)).atEnd).toBe(true)
+  await expect(grid(page).locator(`[role="row"][aria-rowindex="${total + 1}"]`)).toBeVisible()
+  expect(await overlap(page, total + 1)).toBeLessThanOrEqual(0.5)
+})
