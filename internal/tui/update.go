@@ -171,7 +171,7 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 		model.drill()
 	case app.ActionBack:
 		model.back()
-	case actionChooseTime:
+	case app.ActionChooseTime:
 		model.openTimeChooser()
 	case app.ActionToggleTime:
 		if model.visibleMode() == domain.ResultModeAggregate && model.timeContext() {

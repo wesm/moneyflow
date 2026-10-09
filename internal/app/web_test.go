@@ -188,9 +188,6 @@ func TestTransitionViewAppliesAnalyticalActionsAndPreservesPriorOnFailure(t *tes
 		{name: "switch accounts", action: ActionSwitchAccounts, check: func(t testing.TB, next ViewState) {
 			assert.Equal(t, domain.DimensionAccount, next.Current.Dimension)
 		}},
-		{name: "toggle time", action: ActionToggleTime, check: func(t testing.TB, next ViewState) {
-			assert.Equal(t, domain.TimeGranularityMonth, next.Current.TimeGranularity)
-		}},
 		{name: "cycle sort", action: ActionCycleSort, check: func(t testing.TB, next ViewState) {
 			assert.Equal(t, domain.SortFieldMerchant, next.Current.Sort.Field)
 		}},
@@ -218,6 +215,8 @@ func TestTransitionViewAppliesAnalyticalActionsAndPreservesPriorOnFailure(t *tes
 		ActionOpenFilters,
 		ActionQuit,
 		ActionEditMerchant,
+		ActionToggleTime,
+		ActionChooseTime,
 		"missing",
 	} {
 		next, nextSelection, projection, err := service.TransitionView(

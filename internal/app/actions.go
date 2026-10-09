@@ -38,7 +38,9 @@ const (
 	ActionDrill ActionID = "view.drill"
 	// ActionBack returns to the analytical parent.
 	ActionBack ActionID = "view.back"
-	// ActionToggleTime cycles the active time granularity.
+	// ActionChooseTime opens the period chooser.
+	ActionChooseTime ActionID = "time.choose"
+	// ActionToggleTime cycles the active time granularity in the terminal.
 	ActionToggleTime ActionID = "time.toggle-granularity"
 	// ActionClearTime removes the active time period.
 	ActionClearTime ActionID = "time.clear-period"
@@ -116,7 +118,8 @@ var readOnlyActions = []ActionDefinition{
 	{ActionSwitchAccounts, []string{"A"}, "A", "View account aggregation (direct)", "Views", ScopeAnalytical, true, true},
 	{ActionDrill, []string{"enter"}, "enter", "Drill down into selected item", "Views", ScopeAnalytical, true, true},
 	{ActionBack, []string{"esc"}, "esc", "Go back (restores cursor and sort preferences)", "Views", ScopeAnalytical, true, true},
-	{ActionToggleTime, []string{"t"}, "t", "Toggle time granularity (Year→Month→Day)", "Time", ScopeAnalytical, true, true},
+	{ActionChooseTime, []string{"t"}, "t", "Choose a year, month, day, or all time", "Time", ScopeOverlay, true, false},
+	{ActionToggleTime, []string{"ctrl+t"}, "Ctrl+t", "Time view / cycle Year→Month→Day", "Time", ScopeAnalytical, true, false},
 	{ActionClearTime, []string{"a"}, "a", "Clear time period selection", "Time", ScopeAnalytical, true, true},
 	{ActionPreviousPeriod, []string{"left"}, "←", "Previous time period (when drilled into time)", "Time", ScopeAnalytical, true, true},
 	{ActionNextPeriod, []string{"right"}, "→", "Next time period (when drilled into time)", "Time", ScopeAnalytical, true, true},

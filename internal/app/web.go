@@ -495,8 +495,6 @@ func (service *Service) applyAnalyticalTransition(
 		if _, changed := session.Back(); !changed {
 			return noChangeWeb(errors.New("view has no parent"))
 		}
-	case ActionToggleTime:
-		session.ToggleTimeGranularity()
 	case ActionClearTime:
 		if !session.ClearTimePeriod() {
 			return noChangeWeb(errors.New("view has no active time period"))
