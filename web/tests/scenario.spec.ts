@@ -58,6 +58,9 @@ test('@smoke a narrow empty search view keeps Clear search reachable', async ({ 
   await withScenarioServer(info.outputPath('scenario'), async (server) => {
     await september(page, server)
     await page.setViewportSize({ width: 390, height: 844 })
+    // WebKit resolves the resize before the phone-width media query reaches the shell, so `/`
+    // could focus the desktop field just before the phone command bar replaces it.
+    await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible()
     await page.keyboard.press('/')
     await page
       .getByRole('searchbox', { name: 'Search transactions' })
