@@ -88,6 +88,10 @@ type bootstrapOutput struct {
 	Body Bootstrap
 }
 
+type profileBootstrapOutput struct {
+	Body ProfileBootstrap
+}
+
 type profileBootstrapInput struct {
 	ProfileID string `path:"profile_id"`
 }
@@ -313,7 +317,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	huma.Register(server.api, huma.Operation{
 		OperationID: "profileBootstrap", Method: http.MethodGet, Path: profileBootstrapPath,
 		Summary: "Issue profile-scoped browser mutation configuration", Errors: []int{404, 500},
-	}, func(ctx context.Context, input *profileBootstrapInput) (*bootstrapOutput, error) {
+	}, func(ctx context.Context, input *profileBootstrapInput) (*profileBootstrapOutput, error) {
 		if _, _, parseErr := ParseProfileAPIPath(
 			server.basePath,
 			server.basePath+"api/v1/profiles/"+input.ProfileID+"/bootstrap",
@@ -336,7 +340,9 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 				"The bootstrap configuration could not be issued.",
 			)
 		}
-		return &bootstrapOutput{Body: body}, nil
+		return &profileBootstrapOutput{Body: ProfileBootstrap{
+			Bootstrap: body, Currencies: currenciesToWire(service.Currencies()),
+		}}, nil
 	})
 
 	huma.Register(server.api, huma.Operation{

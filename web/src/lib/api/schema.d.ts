@@ -743,6 +743,8 @@ export interface components {
       out: components['schemas']['Money']
       period?: components['schemas']['Period']
       /** Format: int64 */
+      savings_rate_tenths?: number
+      /** Format: int64 */
       share_tenths: number
       top_category?: string
       /** Format: int64 */
@@ -859,6 +861,22 @@ export interface components {
       version: string
       window: components['schemas']['Window']
     }
+    CurrencyCount: {
+      /** Format: int64 */
+      count: number
+      currency: string
+      /** Format: date */
+      first: string
+      /** Format: date */
+      latest: string
+      /** Format: int32 */
+      scale: number
+    }
+    CurrencyScope: {
+      currency: string
+      /** Format: int32 */
+      scale: number
+    }
     DetailRow: {
       account: string
       amazon_match?: components['schemas']['AmazonMatchIndicator']
@@ -871,6 +889,7 @@ export interface components {
       /** Format: int64 */
       index: number
       merchant: string
+      staged?: components['schemas']['StagedValues']
     }
     DuplicateBody: {
       expected_revision: string
@@ -1025,6 +1044,9 @@ export interface components {
     MerchantPreviewResponse: {
       /** Format: int64 */
       affected_transactions: number
+      outside_currencies: components['schemas']['CurrencyScope'][] | null
+      /** Format: int64 */
+      outside_view: number
       revision: string
       transactions: components['schemas']['DetailRow'][] | null
       version: string
@@ -1188,6 +1210,16 @@ export interface components {
       provider_kind?: 'monarch' | 'ynab' | 'simplefin' | 'amazon' | 'local'
       version: string
     }
+    ProfileBootstrap: {
+      base_path: string
+      canonical_url: string
+      currencies: components['schemas']['CurrencyCount'][] | null
+      mutation_token: string
+      revision: string
+      /** Format: date-time */
+      token_expires_at: string
+      version: string
+    }
     ProfileCancelBody: {
       version: string
     }
@@ -1233,6 +1265,7 @@ export interface components {
       canonical_query: string
       capabilities: components['schemas']['Capability'][] | null
       chart: components['schemas']['Chart']
+      currencies: components['schemas']['CurrencyCount'][] | null
       detail_rows?: components['schemas']['DetailRow'][] | null
       filters: components['schemas']['ActiveFilters']
       pending: components['schemas']['PendingSummary']
@@ -1243,6 +1276,7 @@ export interface components {
       selection: string
       /** Format: int64 */
       selection_count: number
+      selection_summary?: components['schemas']['Statistics'][] | null
       statistics: components['schemas']['Statistics'][] | null
       status?: string
       /** Format: int64 */
@@ -1494,6 +1528,13 @@ export interface components {
       protocol_version: number
       settings: components['schemas']['SimpleFINOnboardingSettingsResponse']
     }
+    StagedValues: {
+      category?: string
+      deleted: boolean
+      group?: string
+      hidden?: boolean
+      merchant?: string
+    }
     Statistics: {
       /** Format: int64 */
       count: number
@@ -1570,11 +1611,13 @@ export interface components {
       window: components['schemas']['Window']
     }
     ViewMetadata: {
+      currency?: components['schemas']['CurrencyScope']
       grouping: string
       mode: string
       search?: string
       sort_direction: string
       sort_field: string
+      sub_grouping?: string
       time_granularity: string
     }
     Warning: {
@@ -2237,7 +2280,7 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['Bootstrap']
+          'application/json': components['schemas']['ProfileBootstrap']
         }
       }
       /** @description Not Found */

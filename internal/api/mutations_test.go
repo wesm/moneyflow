@@ -424,13 +424,22 @@ func newPersistentAPITestServer(t testing.TB) *Server {
 
 func newPersistentAPITestServerWithClock(t testing.TB, now func() time.Time) *Server {
 	t.Helper()
+	return newPersistentAPITestServerFor(t, []domain.Transaction{apiTransaction(t)}, now)
+}
+
+func newPersistentAPITestServerFor(
+	t testing.TB,
+	transactions []domain.Transaction,
+	now func() time.Time,
+) *Server {
+	t.Helper()
 	ctx := context.Background()
 	paths, err := home.ResolveRoot(t.TempDir(), nil, "")
 	require.NoError(t, err)
 	profile, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, profile.Close()) })
-	committed, err := fixture.CommittedProfile([]domain.Transaction{apiTransaction(t)})
+	committed, err := fixture.CommittedProfile(transactions)
 	require.NoError(t, err)
 	_, err = profile.CreateSeededProfile(ctx, committed)
 	require.NoError(t, err)

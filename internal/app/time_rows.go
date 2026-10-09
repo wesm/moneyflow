@@ -113,8 +113,9 @@ func (service *Service) webQuery(
 	return result, nil
 }
 
-// currencies lists the profile's currencies with their first and latest transaction dates.
-func (service *Service) currencies() []domain.CurrencyCount {
+// Currencies lists the profile's currencies with their transaction counts and first and latest
+// transaction dates, most transactions first.
+func (service *Service) Currencies() []domain.CurrencyCount {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
 	return analytics.Currencies(service.browseTransactionsLocked())
@@ -125,7 +126,7 @@ func (service *Service) currencies() []domain.CurrencyCount {
 func (service *Service) currenciesFor(states ...*AnalyticalState) []domain.CurrencyCount {
 	for _, state := range states {
 		if state != nil && derivesTimeGranularity(*state) {
-			return service.currencies()
+			return service.Currencies()
 		}
 	}
 	return nil

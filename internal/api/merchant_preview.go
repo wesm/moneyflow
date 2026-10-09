@@ -14,6 +14,10 @@ type MerchantPreviewResponse struct {
 	Revision             string      `json:"revision" pattern:"^[0-9]+$"`
 	AffectedTransactions int         `json:"affected_transactions"`
 	Transactions         []DetailRow `json:"transactions"`
+	// OutsideView counts affected transactions that the opening view hides.
+	OutsideView int `json:"outside_view"`
+	// OutsideCurrencies lists the currencies of those transactions; empty when there are none.
+	OutsideCurrencies []CurrencyScope `json:"outside_currencies"`
 }
 
 type merchantPreviewOutput struct{ Body MerchantPreviewResponse }
@@ -36,6 +40,11 @@ func (server *Server) registerMerchantPreviewEndpoint() {
 			Version: MutationSchemaVersion, Revision: strconv.FormatUint(preview.Revision, 10),
 			AffectedTransactions: preview.AffectedTransactions,
 			Transactions:         make([]DetailRow, 0, len(preview.Transactions)),
+			OutsideView:          preview.OutsideView,
+			OutsideCurrencies:    make([]CurrencyScope, 0, len(preview.OutsideCurrencies)),
+		}
+		for _, scope := range preview.OutsideCurrencies {
+			response.OutsideCurrencies = append(response.OutsideCurrencies, currencyScopeToWire(scope))
 		}
 		for _, transaction := range preview.Transactions {
 			response.Transactions = append(response.Transactions, transactionToDetailRow(transaction))

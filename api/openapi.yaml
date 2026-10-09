@@ -47,6 +47,9 @@ components:
           $ref: "#/components/schemas/Money"
         period:
           $ref: "#/components/schemas/Period"
+        savings_rate_tenths:
+          format: int64
+          type: integer
         share_tenths:
           format: int64
           type: integer
@@ -381,6 +384,44 @@ components:
         - query
         - window
       type: object
+    CurrencyCount:
+      additionalProperties: false
+      properties:
+        count:
+          format: int64
+          type: integer
+        currency:
+          type: string
+        first:
+          format: date
+          type: string
+        latest:
+          format: date
+          type: string
+        scale:
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+        - currency
+        - scale
+        - count
+        - first
+        - latest
+      type: object
+    CurrencyScope:
+      additionalProperties: false
+      properties:
+        currency:
+          type: string
+        scale:
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+        - currency
+        - scale
+      type: object
     DetailRow:
       additionalProperties: false
       properties:
@@ -405,6 +446,8 @@ components:
           type: integer
         merchant:
           type: string
+        staged:
+          $ref: "#/components/schemas/StagedValues"
       required:
         - index
         - identity
@@ -796,6 +839,15 @@ components:
         affected_transactions:
           format: int64
           type: integer
+        outside_currencies:
+          items:
+            $ref: "#/components/schemas/CurrencyScope"
+          type:
+            - array
+            - "null"
+        outside_view:
+          format: int64
+          type: integer
         revision:
           pattern: ^[0-9]+$
           type: string
@@ -812,6 +864,8 @@ components:
         - revision
         - affected_transactions
         - transactions
+        - outside_view
+        - outside_currencies
       type: object
     Money:
       additionalProperties: false
@@ -1233,6 +1287,38 @@ components:
         - version
         - key
       type: object
+    ProfileBootstrap:
+      additionalProperties: false
+      properties:
+        base_path:
+          type: string
+        canonical_url:
+          type: string
+        currencies:
+          items:
+            $ref: "#/components/schemas/CurrencyCount"
+          type:
+            - array
+            - "null"
+        mutation_token:
+          type: string
+        revision:
+          pattern: ^[0-9]+$
+          type: string
+        token_expires_at:
+          format: date-time
+          type: string
+        version:
+          type: string
+      required:
+        - currencies
+        - version
+        - canonical_url
+        - base_path
+        - revision
+        - mutation_token
+        - token_expires_at
+      type: object
     ProfileCancelBody:
       additionalProperties: false
       properties:
@@ -1368,6 +1454,12 @@ components:
             - "null"
         chart:
           $ref: "#/components/schemas/Chart"
+        currencies:
+          items:
+            $ref: "#/components/schemas/CurrencyCount"
+          type:
+            - array
+            - "null"
         detail_rows:
           items:
             $ref: "#/components/schemas/DetailRow"
@@ -1397,6 +1489,12 @@ components:
         selection_count:
           format: int64
           type: integer
+        selection_summary:
+          items:
+            $ref: "#/components/schemas/Statistics"
+          type:
+            - array
+            - "null"
         statistics:
           items:
             $ref: "#/components/schemas/Statistics"
@@ -1436,6 +1534,7 @@ components:
         - window
         - amazon_match_column
         - statistics
+        - currencies
         - chart
       type: object
     ProviderConfirmationBody:
@@ -2095,6 +2194,22 @@ components:
         - action
         - settings
       type: object
+    StagedValues:
+      additionalProperties: false
+      properties:
+        category:
+          type: string
+        deleted:
+          type: boolean
+        group:
+          type: string
+        hidden:
+          type: boolean
+        merchant:
+          type: string
+      required:
+        - deleted
+      type: object
     Statistics:
       additionalProperties: false
       properties:
@@ -2311,6 +2426,8 @@ components:
     ViewMetadata:
       additionalProperties: false
       properties:
+        currency:
+          $ref: "#/components/schemas/CurrencyScope"
         grouping:
           type: string
         mode:
@@ -2320,6 +2437,8 @@ components:
         sort_direction:
           type: string
         sort_field:
+          type: string
+        sub_grouping:
           type: string
         time_granularity:
           type: string
@@ -2849,7 +2968,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Bootstrap"
+                $ref: "#/components/schemas/ProfileBootstrap"
           description: OK
         "404":
           content:

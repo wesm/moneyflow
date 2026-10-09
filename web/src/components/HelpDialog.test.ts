@@ -33,4 +33,35 @@ describe('HelpDialog', () => {
     expect(screen.getByLabelText('q').closest('li')?.textContent).toContain('TUI only')
     expect(screen.getByLabelText('Ctrl+C').closest('li')?.textContent).toContain('TUI only')
   })
+
+  it('lists only capabilities that have a key', () => {
+    render(HelpDialog, {
+      capabilities: [
+        {
+          id: 'overlay.search',
+          key_display: '/',
+          description: 'Search transactions',
+          category: 'Filters',
+          available: true,
+        },
+        {
+          id: 'view.set-currency',
+          description: 'Show one currency',
+          category: '',
+          available: true,
+        },
+        {
+          id: 'sort.set',
+          description: 'Sort by a column',
+          category: '',
+          available: false,
+        },
+      ],
+      onclose: () => undefined,
+    })
+    expect(screen.getByText('Search transactions')).not.toBeNull()
+    expect(screen.queryByText('Show one currency')).toBeNull()
+    expect(screen.queryByText('Sort by a column')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Navigation' })).toBeNull()
+  })
 })

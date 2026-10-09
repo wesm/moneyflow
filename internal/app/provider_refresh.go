@@ -1223,7 +1223,7 @@ func (service *Service) providerProjectionResult(
 	if err != nil {
 		return ProviderRefreshResult{}, newAppError(AppStoreCorrupt, service.Revision(), err)
 	}
-	currencies := service.currencies()
+	currencies := service.Currencies()
 	if len(selectionBefore.IDs) > 0 {
 		source := targetSource{
 			profile: currentSnapshot.Effective, transactions: transactions,

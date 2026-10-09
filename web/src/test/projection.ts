@@ -22,6 +22,7 @@ export function testProjection(overrides: Partial<ViewProjection> = {}): ViewPro
     breadcrumb_text: 'All transactions',
     filters: { show_hidden: false, show_transfers: false },
     capabilities: [],
+    currencies: [],
     total_rows: 1,
     window: { offset: 0, limit: 200, count: 1 },
     detail_rows: [

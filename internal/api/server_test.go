@@ -445,3 +445,134 @@ func requestServer(
 	server.Handler().ServeHTTP(response, request)
 	return response
 }
+
+func apiTransactionWith(
+	t testing.TB,
+	id string,
+	edit func(*domain.Transaction),
+) domain.Transaction {
+	t.Helper()
+	transaction := apiTransaction(t).Clone()
+	transaction.ID, transaction.ProviderID = id, "provider-"+id
+	edit(&transaction)
+	return transaction
+}
+
+func projectState(t testing.TB, server *Server, state app.ViewState) Projection {
+	t.Helper()
+	query, err := EncodeViewQuery(state)
+	require.NoError(t, err)
+	return projectPersistentViewForQuery(t, server, query)
+}
+
+func TestServerProjectionListsCurrenciesAndSummarizesSelectionAcrossCurrencies(t *testing.T) {
+	t.Parallel()
+	usdLarge := apiTransactionWith(t, "usd-large", func(*domain.Transaction) {})
+	usdSmall := apiTransactionWith(t, "usd-small", func(transaction *domain.Transaction) {
+		transaction.Amount.Minor = -500
+	})
+	euro := apiTransactionWith(t, "eur", func(transaction *domain.Transaction) {
+		transaction.Amount = domain.Money{Minor: -700, Currency: "EUR", Scale: 2}
+		transaction.Date = mustDate(t, "2025-06-07")
+	})
+	service, err := app.NewService([]domain.Transaction{usdLarge, usdSmall, euro})
+	require.NoError(t, err)
+	server := newAPITestServerForService(t, service)
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+
+	projection := projectState(t, server, state)
+
+	assert.Equal(t, []CurrencyCount{
+		{Currency: "USD", Scale: 2, Count: 2, First: "2024-01-02", Latest: "2024-01-02"},
+		{Currency: "EUR", Scale: 2, Count: 1, First: "2025-06-07", Latest: "2025-06-07"},
+	}, projection.Currencies)
+	assert.Empty(t, projection.SelectionSummary, "nothing is selected")
+	assert.Nil(t, projection.View.Currency)
+
+	response := requestJSON(t, server, "/api/v1/view/transition", TransitionBody{
+		Query: projection.CanonicalQuery, Selection: projection.Selection,
+		Action: app.ActionToggleSelectAll, Window: Window{Limit: 200},
+	})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var selected Projection
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &selected))
+	assert.Equal(t, 3, selected.SelectionCount)
+	require.Len(t, selected.SelectionSummary, 2)
+	byCurrency := map[string]Statistics{}
+	for _, stats := range selected.SelectionSummary {
+		byCurrency[stats.Currency] = stats
+	}
+	assert.Equal(t, 2, byCurrency["USD"].Count)
+	assert.Equal(t, "-17.34", byCurrency["USD"].Net.Decimal)
+	assert.Equal(t, 1, byCurrency["EUR"].Count)
+	assert.Equal(t, "-7.00", byCurrency["EUR"].Net.Decimal)
+}
+
+func TestServerTimeRowsCarrySavingsRateInCurrencyScopedViews(t *testing.T) {
+	t.Parallel()
+	income := apiTransactionWith(t, "income", func(transaction *domain.Transaction) {
+		transaction.Amount.Minor = 100000
+		transaction.Date = mustDate(t, "2024-03-05")
+	})
+	spending := apiTransactionWith(t, "spending", func(transaction *domain.Transaction) {
+		transaction.Amount.Minor = -40000
+		transaction.Date = mustDate(t, "2024-03-20")
+	})
+	idleMonth := apiTransactionWith(t, "idle-month", func(transaction *domain.Transaction) {
+		transaction.Amount.Minor = -10000
+		transaction.Date = mustDate(t, "2024-04-01")
+	})
+	service, err := app.NewService([]domain.Transaction{income, spending, idleMonth})
+	require.NoError(t, err)
+	server := newAPITestServerForService(t, service)
+	state := app.DefaultViewState()
+	state.Current.Dimension = domain.DimensionTime
+	state.Current.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+
+	projection := projectState(t, server, state)
+
+	assert.Equal(t, &CurrencyScope{Currency: "USD", Scale: 2}, projection.View.Currency)
+	rates := map[string]*int{}
+	for _, row := range projection.AggregateRows {
+		rates[row.Label] = row.SavingsRateTenths
+	}
+	require.Contains(t, rates, "Mar 2024")
+	require.NotNil(t, rates["Mar 2024"])
+	assert.Equal(t, 600, *rates["Mar 2024"], "net 600.00 of 1,000.00 income is 60.0%")
+	require.Contains(t, rates, "Apr 2024")
+	assert.Nil(t, rates["Apr 2024"], "a month with no income has no rate")
+
+	state.Current.Dimension = domain.DimensionMerchant
+	for _, row := range projectState(t, server, state).AggregateRows {
+		assert.Nil(t, row.SavingsRateTenths, "only Time rows carry a savings rate")
+	}
+}
+
+func TestServerDetailRowsCarryStagedValuesForPendingEdits(t *testing.T) {
+	t.Parallel()
+	server := newPersistentAPITestServer(t)
+	appendMerchantMutation(t, server, "Renamed Merchant")
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+
+	projection := projectState(t, server, state)
+
+	require.Len(t, projection.DetailRows, 1)
+	row := projection.DetailRows[0]
+	assert.Equal(t, "Example Merchant", row.Merchant, "the row stays committed")
+	require.NotNil(t, row.Staged)
+	require.NotNil(t, row.Staged.Merchant)
+	assert.Equal(t, "Renamed Merchant", *row.Staged.Merchant)
+	assert.Nil(t, row.Staged.Category)
+	assert.Nil(t, row.Staged.Group)
+	assert.Nil(t, row.Staged.Hidden)
+	assert.False(t, row.Staged.Deleted)
+}
+
+func mustDate(t testing.TB, value string) domain.Date {
+	t.Helper()
+	date, err := domain.ParseDate(value)
+	require.NoError(t, err)
+	return date
+}

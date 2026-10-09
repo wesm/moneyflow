@@ -497,6 +497,7 @@ function projection(query: string, offset: number, total: number, revision = '0'
     breadcrumb_text: 'All transactions',
     filters: { show_hidden: false, show_transfers: false },
     capabilities: [],
+    currencies: [],
     total_rows: total,
     window: { offset, limit: 200, count },
     detail_rows: Array.from({ length: count }, (_, index) => ({
