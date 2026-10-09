@@ -1050,3 +1050,106 @@ func TestMatrixWebPeriodChangeInsideASubGroupedTimeDrillPromotesTheSubGrouping(t
 	})
 	assert.Equal(t, &category, broken.Current.SubGrouping)
 }
+
+// drilledTwice returns a merchant view drilled into a merchant and then a category, with the
+// column values of each level on the way down.
+func drilledTwice(t *testing.T) (session Session, top, middle matrixColumns) {
+	t.Helper()
+	session = matrixSession(t, "example")
+	session.clearSelections()
+	top = columnsOf(session)
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	middle = columnsOf(session)
+	session.CycleSubGrouping()
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionCategory, "category-1"))
+	return session, top, middle
+}
+
+func TestMatrixBackToPopsToTheRequestedLevel(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name         string
+		depth        int
+		subGrouped   bool
+		selectedRows bool
+	}{
+		{"depth 0", 0, false, false},
+		{"depth 1", 1, false, false},
+		{"depth 0 with sub-grouping", 0, true, false},
+		{"depth 1 with sub-grouping", 1, true, false},
+		{"depth 0 with a selection", 0, false, true},
+		{"depth 1 with a selection", 1, true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			session, top, middle := drilledTwice(t)
+			if test.subGrouped {
+				session.CycleSubGrouping()
+			}
+			if test.selectedRows {
+				session.ToggleAggregateSelection("selected-row")
+			}
+			want := top
+			if test.depth == 1 {
+				want = middle
+			}
+
+			assert.True(t, session.BackTo(test.depth))
+
+			assert.Equal(t, want, columnsOf(session))
+			assert.Nil(t, session.SubGrouping)
+			assert.Empty(t, session.SelectedAggregateKeys)
+		})
+	}
+}
+
+func TestMatrixBackToClearsASearchAppliedAtADeeperLevel(t *testing.T) {
+	t.Parallel()
+	session, _, middle := drilledTwice(t)
+	session.SetSearch("grocer")
+
+	assert.True(t, session.BackTo(1))
+
+	assert.Equal(t, middle, columnsOf(session))
+}
+
+func TestMatrixBackToTheCurrentLevelDropsOnlyASubGrouping(t *testing.T) {
+	t.Parallel()
+	session, _, _ := drilledTwice(t)
+	assert.False(t, session.BackTo(2), "nothing to undo at the current level")
+	session.CycleSubGrouping()
+	require.NotNil(t, session.SubGrouping)
+
+	assert.True(t, session.BackTo(2))
+
+	assert.Nil(t, session.SubGrouping)
+	assert.Len(t, session.Drilldowns, 2)
+}
+
+func TestMatrixBackToFromALinkedViewTruncatesTheDrillPath(t *testing.T) {
+	t.Parallel()
+	for _, depth := range []int{0, 1} {
+		session := NewSession()
+		drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+		session.CycleSubGrouping()
+		drillMatrixRow(t, &session, matrixRow(domain.DimensionCategory, "category-1"))
+		session.CycleSubGrouping()
+		session.ToggleAggregateSelection("selected-row")
+		session.history = nil
+		session.Sort = sortSpec(domain.SortFieldCount, domain.SortDirectionAsc)
+
+		assert.True(t, session.BackTo(depth))
+
+		assert.Len(t, session.Drilldowns, depth)
+		assert.Nil(t, session.SubGrouping)
+		assert.Zero(t, columnsOf(session).selected)
+		if depth == 0 {
+			assert.Equal(t, domain.ResultModeAggregate, session.Mode)
+			assert.Equal(t, domain.SortFieldMerchant, session.Sort.Field)
+		} else {
+			assert.Equal(t, domain.ResultModeDetail, session.Mode)
+			assert.Equal(t, domain.SortFieldDate, session.Sort.Field)
+		}
+		assert.False(t, session.BackTo(depth))
+	}
+}

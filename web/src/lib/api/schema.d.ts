@@ -1726,6 +1726,8 @@ export interface components {
     TransitionBody: {
       action: string
       currency?: components['schemas']['CurrencyScope']
+      /** Format: int64 */
+      depth?: number
       /** @enum {string} */
       dimension?: 'merchant' | 'category' | 'group' | 'account' | 'time'
       filters?: components['schemas']['TransitionFilters']

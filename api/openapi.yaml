@@ -2688,6 +2688,10 @@ components:
           type: string
         currency:
           $ref: "#/components/schemas/CurrencyScope"
+        depth:
+          format: int64
+          minimum: 0
+          type: integer
         dimension:
           enum:
             - merchant

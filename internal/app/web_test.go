@@ -852,3 +852,106 @@ func assertWebCode(t testing.TB, err error, code WebErrorCode) {
 	require.True(t, errors.As(err, &webErr), err)
 	assert.Equal(t, code, webErr.Code)
 }
+
+// drilledTwiceView drills into the first merchant, breaks it down by category, and drills into
+// the first category row, so the view has two breadcrumb frames above the top level.
+func drilledTwiceView(t *testing.T, service *Service) ViewState {
+	t.Helper()
+	drilled, selection := drilledFirstMerchant(t, service)
+	category := domain.DimensionCategory
+	nested, selection, projection, err := service.TransitionView(
+		drilled, selection,
+		TransitionRequest{Action: ActionSetSubGrouping, Dimension: &category},
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, projection.AggregateRows)
+	deeper, _, _, err := service.TransitionView(
+		nested, selection,
+		TransitionRequest{
+			Action: ActionDrill,
+			Target: &RowTarget{Kind: IdentityAggregate, Identity: projection.AggregateRows[0].Identity},
+		},
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	require.Len(t, deeper.Current.Drilldowns, 2)
+	return deeper
+}
+
+func TestTransitionViewBackToReturnsToABreadcrumbLevel(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 3)
+	deep := drilledTwiceView(t, service)
+	linked := deep.Clone()
+	linked.Returns = nil
+
+	for _, test := range []struct {
+		name  string
+		state ViewState
+		depth int
+	}{
+		{"to the top level", deep, 0},
+		{"to the first drill", deep, 1},
+		{"from a linked view to the top level", linked, 0},
+		{"from a linked view to the first drill", linked, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			depth := test.depth
+			next, nextSelection, projection, err := service.TransitionView(
+				test.state, EmptySelection(),
+				TransitionRequest{Action: ActionBackTo, Depth: &depth},
+				WindowRequest{},
+			)
+
+			require.NoError(t, err)
+			assert.Len(t, next.Current.Drilldowns, test.depth)
+			assert.Nil(t, next.Current.SubGrouping)
+			assert.Equal(t, EmptySelection(), nextSelection)
+			assert.Equal(t, next, projection.State)
+		})
+	}
+}
+
+func TestTransitionViewBackToRejectsBadDepths(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 3)
+	deep := drilledTwiceView(t, service)
+	depthOf := func(depth int) *int { return &depth }
+	dimension := domain.DimensionCategory
+
+	for _, test := range []struct {
+		name       string
+		state      ViewState
+		transition TransitionRequest
+		code       WebErrorCode
+	}{
+		{"missing depth", deep, TransitionRequest{Action: ActionBackTo}, WebInvalidRequest},
+		{"negative depth", deep, TransitionRequest{Action: ActionBackTo, Depth: depthOf(-1)},
+			WebInvalidRequest},
+		{"deeper than the view", deep, TransitionRequest{Action: ActionBackTo, Depth: depthOf(3)},
+			WebInvalidRequest},
+		{"with another argument", deep, TransitionRequest{
+			Action: ActionBackTo, Depth: depthOf(0), Dimension: &dimension,
+		}, WebInvalidRequest},
+		{"depth on another action", deep, TransitionRequest{
+			Action: ActionBack, Depth: depthOf(0),
+		}, WebInvalidRequest},
+		{"already at the level", deep, TransitionRequest{Action: ActionBackTo, Depth: depthOf(2)},
+			WebNoChange},
+		{"already at the top", DefaultViewState(), TransitionRequest{
+			Action: ActionBackTo, Depth: depthOf(0),
+		}, WebNoChange},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			next, _, _, err := service.TransitionView(
+				test.state, EmptySelection(), test.transition, WindowRequest{},
+			)
+
+			assertWebCode(t, err, test.code)
+			assert.Equal(t, test.state, next)
+		})
+	}
+}

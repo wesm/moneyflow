@@ -460,7 +460,9 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 }
 
 func transitionToApp(body TransitionBody) (app.TransitionRequest, error) {
-	transition := app.TransitionRequest{Action: body.Action, Search: body.Search}
+	transition := app.TransitionRequest{
+		Action: body.Action, Search: body.Search, Depth: body.Depth,
+	}
 	if body.Target != nil {
 		transition.Target = &app.RowTarget{
 			Kind: body.Target.Kind, Identity: body.Target.Identity,

@@ -805,3 +805,65 @@ func TestServerRejectsUnknownDimensionAndSortFieldInTheSchema(t *testing.T) {
 		})
 	}
 }
+
+func TestServerReturnsToABreadcrumbLevel(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	category := "category"
+	top := decodeProjection(t, transitionFrom(t, server, "v=1", TransitionBody{
+		Action: app.ActionDrill,
+		Target: &TransitionTarget{
+			Kind: app.IdentityAggregate, Identity: firstAggregateIdentity(t, server),
+		},
+	}))
+	nested := decodeProjection(t, transitionFrom(t, server, top.CanonicalQuery, TransitionBody{
+		Action: app.ActionSetSubGrouping, Dimension: &category,
+	}))
+	require.NotEmpty(t, nested.AggregateRows)
+	deeper := decodeProjection(t, transitionFrom(t, server, nested.CanonicalQuery, TransitionBody{
+		Action: app.ActionDrill,
+		Target: &TransitionTarget{
+			Kind: app.IdentityAggregate, Identity: nested.AggregateRows[0].Identity,
+		},
+	}))
+	require.Len(t, deeper.Breadcrumbs, 2)
+
+	for depth, want := range map[int][]string{0: {"Merchants"}, 1: {"Example Landlord"}} {
+		backed := decodeProjection(t, transitionFrom(t, server, deeper.CanonicalQuery, TransitionBody{
+			Action: app.ActionBackTo, Depth: &depth,
+		}))
+		var labels []string
+		for _, breadcrumb := range backed.Breadcrumbs {
+			labels = append(labels, breadcrumb.Label)
+		}
+		assert.Equal(t, want, labels, "depth %d", depth)
+	}
+
+	deepest := 3
+	for name, body := range map[string]TransitionBody{
+		"missing depth": {Action: app.ActionBackTo},
+		"too deep":      {Action: app.ActionBackTo, Depth: &deepest},
+	} {
+		response := transitionFrom(t, server, deeper.CanonicalQuery, body)
+		require.Equal(t, http.StatusBadRequest, response.Code, name+": "+response.Body.String())
+	}
+	level := 2
+	response := transitionFrom(t, server, deeper.CanonicalQuery, TransitionBody{
+		Action: app.ActionBackTo, Depth: &level,
+	})
+	assert.Equal(t, http.StatusConflict, response.Code, "already at that level")
+}
+
+func TestServerRejectsANegativeBreadcrumbDepthInTheSchema(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	response := requestServer(
+		t, server, http.MethodPost, "/api/v1/view/transition",
+		strings.NewReader(
+			`{"query":"v=1","action":"view.back-to","depth":-1,"window":{"offset":0,"limit":200}}`,
+		),
+	)
+	assert.Equal(t, http.StatusUnprocessableEntity, response.Code, response.Body.String())
+}

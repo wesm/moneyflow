@@ -78,6 +78,7 @@ type TransitionBody struct {
 	Currency  *CurrencyScope     `json:"currency,omitempty"`
 	SortField *string            `json:"sort_field,omitempty" enum:"count,amount,date,merchant,category,group,account,time_period"`
 	Period    *TransitionPeriod  `json:"period,omitempty"`
+	Depth     *int               `json:"depth,omitempty" minimum:"0"`
 	Window    Window             `json:"window"`
 }
 
