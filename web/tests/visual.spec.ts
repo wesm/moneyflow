@@ -25,7 +25,12 @@ async function prepareState(page: Page, state: (typeof states)[number]): Promise
     await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
     return
   }
-  await page.keyboard.press(state === 'filters' ? 'f' : '?')
+  if (state === 'filters') {
+    await page.keyboard.press('f')
+    await expect(page.getByRole('button', { name: 'Show transfers' })).toBeVisible()
+    return
+  }
+  await page.keyboard.press('?')
   await expect(page.getByRole('dialog')).toBeVisible()
 }
 
@@ -112,8 +117,12 @@ for (const viewport of viewports) {
         await prepareState(page, state)
         await expectLayoutContract(page, viewport)
         await expectThemeContract(page, theme)
-        if (state === 'filters' || state === 'help') {
+        if (state === 'help') {
           await expectFullyWithinViewport(page.getByRole('dialog'), viewport)
+        } else if (state === 'filters') {
+          for (const name of ['Filters', 'Show hidden transactions', 'Show transfers']) {
+            await expectFullyWithinViewport(page.getByRole('button', { name }), viewport)
+          }
         } else {
           await expectFullyWithinViewport(
             page.getByRole('grid', { name: 'Financial results' }),

@@ -193,35 +193,113 @@ test('search previews, commits, cancels, and reports invalid regular expressions
   server,
 }) => {
   await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const initialLength = await page.evaluate(() => history.length)
   await page.keyboard.press('/')
   const search = page.getByRole('searchbox', { name: 'Search transactions' })
   await expect(search).toBeFocused()
-  await search.fill('noodle')
-  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
-  await search.press('Enter')
-  await expect(page.getByRole('dialog', { name: 'Search transactions' })).toBeHidden()
+  await search.pressSequentially('noodle')
   await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
   await expect(await activeRow(page)).toContainText('Noodle House')
+  expect(await page.evaluate(() => history.length)).toBe(initialLength)
+  await search.press('Enter')
+  await expect(grid).toBeFocused()
+  await expect(search).toHaveValue('noodle')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
+  expect(await page.evaluate(() => history.length)).toBe(initialLength + 1)
+
+  await page.keyboard.press('/')
+  await expect(search).toBeFocused()
+  await search.pressSequentially('pizza')
+  await expect(page).toHaveURL(/[?&]q=pizza(?:&|$)/)
+  await expect(await activeRow(page)).toContainText('Slice Pizza')
+  await page.keyboard.press('Escape')
+  await expect(grid).toBeFocused()
+  await expect(search).toHaveValue('noodle')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
+  await expect(await activeRow(page)).toContainText('Noodle House')
+  expect(await page.evaluate(() => history.length)).toBe(initialLength + 1)
 
   await page.keyboard.press('/')
   await search.fill('[')
   await expect(page.getByText('That search expression is invalid.')).toBeVisible()
+  await expect(search).toHaveAttribute('aria-invalid', 'true')
+  await page.keyboard.press('Enter')
+  await expect(search).toBeFocused()
   await page.keyboard.press('Escape')
+  await expect(page.getByText('That search expression is invalid.')).toBeHidden()
   await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
-  await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+  await expect(grid).toBeFocused()
+
+  await page.keyboard.press('Escape')
+  await expect(page).not.toHaveURL(/[?&]q=/)
+  await expect(search).toHaveValue('')
 })
 
-test('filters and help trap shortcuts and restore the grid', async ({ page, server }) => {
+test('the Filters chip shows and hides hidden transactions and keeps the period', async ({
+  page,
+  server,
+}) => {
   await openMoneyflow(page, server)
-  await page.keyboard.press('f')
-  const filters = page.getByRole('dialog', { name: 'Filter transactions' })
-  await expect(filters).toBeVisible()
-  await page.getByRole('checkbox', { name: 'Show hidden transactions' }).uncheck()
-  await page.getByRole('checkbox', { name: 'Show transfers' }).check()
-  await page.getByRole('button', { name: 'Apply filters' }).click()
-  await expect(filters).toBeHidden()
-  await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+  const trigger = page.getByRole('button', { name: 'Filters' })
+  const hidden = page.getByRole('button', { name: 'Show hidden transactions' })
+  const noodleCount = page
+    .getByRole('row')
+    .filter({ has: page.getByRole('gridcell', { name: 'Noodle House', exact: true }) })
+    .getByRole('gridcell')
+    .nth(1)
+  await expect(noodleCount).toHaveText('144')
+  await expect(trigger).toHaveText('Filters 1')
 
+  await page.keyboard.press('f')
+  await expect(trigger).toBeFocused()
+  await hidden.click()
+  await expect(page).toHaveURL(/[?&]hidden=0/)
+  await expect(noodleCount).toHaveText('138')
+  await expect(trigger).toHaveText('Filters')
+  await expect(hidden).toBeVisible()
+  await hidden.click()
+  await expect(page).not.toHaveURL(/[?&]hidden=0/)
+  await expect(noodleCount).toHaveText('144')
+  await page.keyboard.press('Escape')
+  await expect(hidden).toBeHidden()
+  await expect(trigger).toBeFocused()
+
+  await page
+    .getByRole('radiogroup', { name: 'Period', exact: true })
+    .getByRole('radio', { name: 'Month' })
+    .click()
+  await expect(page).toHaveURL(/[?&]from=2026-10-01&to=2026-10-31/)
+  await trigger.click()
+  await page.getByRole('button', { name: 'Show transfers' }).click()
+  await expect(page).toHaveURL(/[?&]transfers=1/)
+  await expect(page).toHaveURL(/[?&]from=2026-10-01&to=2026-10-31/)
+  await expect(trigger).toHaveText('Filters 2')
+})
+
+test('switching currency inside a drill returns to the top level in that currency', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('Enter')
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveCount(2)
+  await expect(page).toHaveURL(/[?&]drill=/)
+
+  await page.getByRole('combobox', { name: 'Currency: USD' }).click()
+  const options = page.getByRole('listbox').getByRole('option')
+  await expect(options).toHaveText(['USD · 2,163 transactions', 'EUR · 34 transactions'])
+  await options.filter({ hasText: 'EUR' }).click()
+
+  await expect(page.getByRole('combobox', { name: 'Currency: EUR' })).toBeVisible()
+  await expect(page).toHaveURL(/[?&]cur=EUR%3A2/)
+  await expect(page).not.toHaveURL(/[?&]drill=/)
+  await expect(breadcrumb(page)).toHaveText('Merchants')
+  await expect(breakDownBy(page)).toHaveCount(0)
+})
+
+test('help traps shortcuts and restores the grid', async ({ page, server }) => {
+  await openMoneyflow(page, server)
   const viewBefore = page.url()
   await page.keyboard.press('?')
   const help = page.getByRole('dialog', { name: 'Keyboard shortcuts' })

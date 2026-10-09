@@ -1,7 +1,5 @@
 <script lang="ts">
-  import FiltersDialog from '../FiltersDialog.svelte'
   import HelpDialog from '../HelpDialog.svelte'
-  import SearchOverlay from '../SearchOverlay.svelte'
   import TransactionInformationDrawer from '../TransactionInformationDrawer.svelte'
   import CategoryDialog from '../editing/CategoryDialog.svelte'
   import CategoryManager from '../editing/CategoryManager.svelte'
@@ -32,11 +30,7 @@
   const onwrite = () => overlays.open('write')
 </script>
 
-{#if overlay === 'search'}
-  <SearchOverlay {controller} {onclose} />
-{:else if overlay === 'filters'}
-  <FiltersDialog {projection} onapply={(action) => controller.apply(action)} {onclose} />
-{:else if overlay === 'help'}
+{#if overlay === 'help'}
   <HelpDialog capabilities={projection.capabilities ?? []} {onclose} />
 {:else if overlay === 'merchant' && row}
   <MerchantDialog

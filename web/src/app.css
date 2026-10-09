@@ -201,14 +201,10 @@ input {
   justify-content: flex-end;
   gap: var(--space-3) var(--space-5);
 }
+/* The view controls and the Charts switch wrap as one row of siblings. */
 .mf-command-bar__center,
 .mf-command-bar__trailing {
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-3) var(--space-4);
+  display: contents;
 }
 
 .mf-breadcrumbs {
@@ -264,6 +260,34 @@ input {
 }
 .mf-break-down__label {
   color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+/* kit SelectDropdown reserves 150px; a currency code needs a fraction of that. */
+.mf-command-bar .kit-select-dropdown.mf-currency-chip {
+  min-width: 4.5rem;
+}
+
+/* kit FilterDropdown fades unchecked items to half opacity, which fails WCAG AA contrast;
+   the check mark and dot still show the state (upstream candidate). */
+.mf-filters-chip .kit-filter-dropdown__panel .kit-filter-dropdown__item:not(.active) {
+  opacity: 1;
+}
+
+.mf-command-search {
+  position: relative;
+}
+.mf-command-search__status {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: var(--z-popover);
+}
+.mf-command-search__error {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--accent-red);
   font-size: var(--font-size-xs);
   white-space: nowrap;
 }
@@ -797,17 +821,6 @@ input {
   text-align: right;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-}
-.overlay-form {
-  display: flex;
-  min-width: min(28rem, calc(100vw - 6rem));
-  flex-direction: column;
-  gap: var(--space-5);
-}
-.overlay-label {
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
 }
 .overlay-status {
   min-height: 1.25rem;

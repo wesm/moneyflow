@@ -18,6 +18,10 @@ export interface LocalActionContext {
   afterTransitions(): Promise<void>
   /** Opens Amazon order import, which the app shell owns. */
   importAmazon(): void
+  /** Focuses the command bar's search field. */
+  focusSearch(): void
+  /** Opens the command bar's Filters menu. */
+  openFilters(): void
 }
 
 /** Finds the row under the cursor in the loaded window. */
@@ -53,8 +57,8 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
     'cursor.up': () => void controller.moveCursor(-1),
     'cursor.down': () => void controller.moveCursor(1),
     'cursor.home': () => void controller.moveHome(),
-    'overlay.search': () => overlays.open('search'),
-    'overlay.filters': () => overlays.open('filters'),
+    'overlay.search': () => context.focusSearch(),
+    'overlay.filters': () => context.openFilters(),
     'overlay.help': () => overlays.open('help'),
     'edit.merchant': openWithRow('merchant'),
     'edit.category': openWithRow('category'),

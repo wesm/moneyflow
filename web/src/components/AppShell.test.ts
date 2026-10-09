@@ -33,6 +33,22 @@ describe('AppShell', () => {
     expect(controller.moveCursor).toHaveBeenCalledTimes(1)
   })
 
+  it('focuses the command bar search on / and opens the Filters menu on f', async () => {
+    render(AppShell, { controller: stubController() })
+    await fireEvent.keyDown(window, { key: '/' })
+    expect(document.activeElement).toBe(
+      screen.getByRole('searchbox', { name: 'Search transactions' }),
+    )
+    await fireEvent.keyDown(screen.getByRole('searchbox', { name: 'Search transactions' }), {
+      key: 'f',
+    })
+    expect(screen.queryByRole('button', { name: 'Show hidden transactions' })).toBeNull()
+    await fireEvent.keyDown(window, { key: 'f' })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Filters' }))
+    expect(await screen.findByRole('button', { name: 'Show hidden transactions' })).not.toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('starts charts off at rail widths so the table keeps the full width', async () => {
     render(AppShell, { controller: stubController() })
     const charts = screen.getByRole('switch', { name: 'Charts' }) as HTMLInputElement
@@ -541,6 +557,8 @@ function stubController(projection = testProjection()): ViewController {
         ...[
           ['view.set-grouping', '1-5'],
           ['overlay.help', '?'],
+          ['overlay.search', '/'],
+          ['overlay.filters', 'f'],
           ['transaction.edit-merchant', 'm'],
           ['transaction.edit-category', 'c'],
           ['category.manage', 'C'],
@@ -664,6 +682,7 @@ function stubController(projection = testProjection()): ViewController {
     previewSearch: vi.fn(),
     commitSearch: vi.fn(),
     restoreSearch: vi.fn(),
+    hold: <T>(work: Promise<T>) => work,
     restore: vi.fn(),
     retry: vi.fn(),
     reset: vi.fn(),

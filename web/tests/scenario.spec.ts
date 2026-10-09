@@ -44,10 +44,9 @@ async function september(page: Page, server: ScenarioServer, showHidden = false)
   await expect(page.getByRole('button', { name: 'Sep 2026', exact: true })).toBeVisible()
   if (!showHidden) {
     await page.keyboard.press('f')
-    const filters = page.getByRole('dialog', { name: 'Filter transactions', exact: true })
-    await filters.getByRole('checkbox', { name: 'Show hidden transactions' }).uncheck()
-    await filters.getByRole('button', { name: 'Apply filters' }).click()
-    await expect(filters).not.toBeVisible()
+    await page.getByRole('button', { name: 'Show hidden transactions', exact: true }).click()
+    await expect(page).toHaveURL(/[?&]hidden=0/)
+    await page.keyboard.press('Escape')
   }
   await page
     .getByRole('row')
@@ -55,9 +54,7 @@ async function september(page: Page, server: ScenarioServer, showHidden = false)
     .click()
 }
 
-test('@smoke a narrow empty search view stays in bounds and Esc clears it', async ({
-  page,
-}, info) => {
+test('@smoke a narrow empty search view keeps Clear search reachable', async ({ page }, info) => {
   await withScenarioServer(info.outputPath('scenario'), async (server) => {
     await september(page, server)
     await page.setViewportSize({ width: 390, height: 844 })
@@ -67,10 +64,12 @@ test('@smoke a narrow empty search view stays in bounds and Esc clears it', asyn
       .fill('NoSuchSyntheticMerchant')
     await page.keyboard.press('Enter')
     await expect(page.getByText('No transactions', { exact: true })).toBeVisible()
+    const clear = page.getByRole('button', { name: 'Clear search' })
+    await expect(clear).toBeInViewport()
     expect(
       await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth),
     ).toBe(true)
-    await page.keyboard.press('Escape')
+    await clear.click()
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeVisible()
     await expect(page.getByText('No transactions', { exact: true })).not.toBeVisible()
   })

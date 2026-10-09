@@ -715,6 +715,38 @@ describe('browser view controller', () => {
     expect(controller.projection?.canonical_query).toBe('v=1&q=coffee%20shop')
   })
 
+  it('runs a transition after held work, such as a search committed on blur', async () => {
+    const client = clientWith({
+      transition: vi.fn(async (body) =>
+        body.action === 'search.apply'
+          ? projection(`v=1&q=${encodeURIComponent(body.search ?? '')}`, 0, 1)
+          : projection(`${body.query}&group=category`, 0, 1),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    const snapshot = controller.beginSearch()
+    let finish!: () => void
+    const held = controller.hold(
+      new Promise<void>((resolve) => (finish = resolve)).then(async () => {
+        await controller.previewSearch('coffee')
+        controller.commitSearch(snapshot)
+      }),
+    )
+
+    const grouping = controller.apply({ action: 'view.cycle-grouping' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(client.transition).not.toHaveBeenCalled()
+    finish()
+    await Promise.all([held, grouping])
+
+    expect(vi.mocked(client.transition).mock.calls.map(([body]) => body.action)).toEqual([
+      'search.apply',
+      'view.cycle-grouping',
+    ])
+    expect(controller.projection?.canonical_query).toBe('v=1&q=coffee&group=category')
+  })
+
   it('aborts an in-flight search preview when cancel restores its snapshot', async () => {
     let release!: (value: ViewProjection) => void
     const delayed = new Promise<ViewProjection>((resolve) => (release = resolve))

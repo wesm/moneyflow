@@ -42,6 +42,7 @@
   }
   let { controller, onreconnect, onamazonimport }: Props = $props()
   let grid = $state<HTMLElement | undefined>()
+  let commandBar = $state<ShellCommandBar>()
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
   let transitionTail: Promise<void> = Promise.resolve()
   const projection = $derived(controller.projection)
@@ -62,6 +63,8 @@
     overlays,
     afterTransitions: () => transitionTail,
     importAmazon: () => onamazonimport?.(),
+    focusSearch: () => commandBar?.focusSearch(),
+    openFilters: () => commandBar?.openFilters(),
   }
   const localActionTable = localActions(actions)
   const local = (action: LocalAction) => localActionTable[action]()
@@ -176,7 +179,14 @@
           />
         {/if}
         <div class="app-shell__column">
-          <ShellCommandBar {controller} {projection} {overlays} {charts} onfocusgrid={focusGrid} />
+          <ShellCommandBar
+            bind:this={commandBar}
+            {controller}
+            {projection}
+            {overlays}
+            {charts}
+            onfocusgrid={focusGrid}
+          />
           <main
             class="app-shell__main"
             class:app-shell__main--charts={charts.aside}

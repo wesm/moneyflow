@@ -23,8 +23,8 @@ export function browserCampaign(seed: number): BrowserAction[] {
     { kind: 'click', role: 'radio', name: 'Month' },
     { kind: 'wait', role: 'button', name: 'Sep 2026' },
     { kind: 'key', value: 'f' },
-    { kind: 'click', role: 'checkbox', name: 'Show hidden transactions' },
-    { kind: 'click', role: 'button', name: 'Apply filters' },
+    { kind: 'click', role: 'button', name: 'Show hidden transactions' },
+    { kind: 'key', value: 'Escape' },
     { kind: 'click', role: 'gridcell', name: 'Example Shop' },
     { kind: 'focus', role: 'grid', name: 'Financial results' },
   ]

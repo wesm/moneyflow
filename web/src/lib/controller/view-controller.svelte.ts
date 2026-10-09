@@ -70,6 +70,8 @@ export interface ViewController {
   moveCursorTo(index: number): Promise<void>
   moveHome(): Promise<void>
   apply(action: TransitionAction): Promise<boolean>
+  /** Makes later transitions wait for `work`, as they wait for an Esc return. */
+  hold<T>(work: Promise<T>): Promise<T>
   beginSearch(): SearchSnapshot
   previewSearch(search: string): Promise<boolean>
   commitSearch(snapshot: SearchSnapshot): void
@@ -720,6 +722,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     moveCursorTo,
     moveHome,
     apply,
+    hold,
     beginSearch,
     previewSearch,
     commitSearch,

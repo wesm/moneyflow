@@ -20,7 +20,7 @@ capabilities can disable actions. Terminal shortcuts do not override your termin
 | `Ctrl+t` | In the TUI, jump to Time grouping; cycle year/month/day within Time |
 | Left / Right | Adjacent year, month, or day at the selected resolution, or the period next to a period drill-down |
 | `a` | Clear the time period and any period drill-down |
-| `/` / `f` | Search / filters |
+| `/` / `f` | Search / filters; in the browser, focus the command bar's search field / open its Filters menu |
 | `i` | Transaction information |
 | `D` | Find duplicate transactions |
 

@@ -3,8 +3,6 @@ import { tick, untrack } from 'svelte'
 import type { TransactionInformationResponse } from '../api/client'
 
 export type Overlay =
-  | 'search'
-  | 'filters'
   | 'help'
   | 'merchant'
   | 'category'

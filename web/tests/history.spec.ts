@@ -38,6 +38,7 @@ test('@smoke browser history, Esc, refresh, and selection retain server state', 
   await page.reload()
   await expect(page).toHaveURL(searchURL)
   await expect(await activeRow(page)).toContainText('Noodle House')
+  await expect(page.getByRole('searchbox', { name: 'Search transactions' })).toHaveValue('noodle')
 })
 
 test('Esc after a selection returns to the same entry, and Back and Forward land on views', async ({

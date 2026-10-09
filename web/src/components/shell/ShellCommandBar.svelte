@@ -4,6 +4,9 @@
   import Breadcrumbs from './Breadcrumbs.svelte'
   import BreakDownBy from './BreakDownBy.svelte'
   import CommandBar from './CommandBar.svelte'
+  import CommandSearch from './CommandSearch.svelte'
+  import CurrencyChip from './CurrencyChip.svelte'
+  import FiltersChip from './FiltersChip.svelte'
   import PeriodControl from './PeriodControl.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import type {
@@ -24,6 +27,18 @@
   }
 
   let { controller, projection, overlays, charts, onfocusgrid }: Props = $props()
+  let search = $state<CommandSearch>()
+  let filters = $state<FiltersChip>()
+
+  /** Focuses the search field, for the `/` key. */
+  export function focusSearch(): void {
+    search?.focus()
+  }
+
+  /** Opens the Filters menu, for the `f` key. */
+  export function openFilters(): void {
+    filters?.open()
+  }
 
   function apply(action: TransitionAction): void {
     void controller.apply(action)
@@ -53,6 +68,12 @@
       onclose={(focus) => overlays.close(focus)}
       onapply={apply}
     />
+    <CurrencyChip
+      {projection}
+      onchange={(currency) => apply({ action: 'view.set-currency', currency })}
+    />
+    <FiltersChip bind:this={filters} {projection} onapply={apply} />
+    <CommandSearch bind:this={search} {controller} ondone={onfocusgrid} />
   {/snippet}
   {#snippet trailing()}
     <Toggle

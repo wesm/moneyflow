@@ -127,6 +127,15 @@ Press `/`, enter a search, and apply it. TUI and web search use case-insensitive
 expressions over merchant and category labels. Invalid expressions show an error rather
 than silently changing the query.
 
+In the browser, the search field sits in the command bar. `/` focuses it, or click it.
+
+- The table previews the results as you type.
+- Enter applies the search and returns to the table. Moving focus out of the field also
+  applies it; an invalid expression is dropped instead.
+- Esc cancels the preview, restores the previous search, and returns to the table.
+- The field's clear button (×) previews the view without a search.
+- A search longer than 2,048 bytes is refused with a message.
+
 For Amazon-like merchants, [imported product names](amazon-mode.md#match-bank-charges-to-products)
 also help find related charges. This does not require an Amazon network connection.
 

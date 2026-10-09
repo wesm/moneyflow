@@ -60,22 +60,45 @@ test('the icon rail view has no automated accessibility violations', async ({ pa
   await expectNoAxeViolations(page)
 })
 
-for (const overlay of ['search', 'filters', 'help'] as const) {
-  test(`${overlay} overlay traps focus, passes axe, and restores the grid`, async ({
-    page,
-    server,
-  }) => {
-    await page.addInitScript(() => localStorage.setItem('kit-ui-theme', 'dark'))
+test('help overlay traps focus, passes axe, and restores the grid', async ({ page, server }) => {
+  await page.addInitScript(() => localStorage.setItem('kit-ui-theme', 'dark'))
+  await openMoneyflow(page, server)
+  await page.keyboard.press('?')
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expectNoAxeViolations(page)
+  await page.keyboard.press('Tab')
+  expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+})
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} command bar controls pass axe while open`, async ({ page, server }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     await openMoneyflow(page, server)
-    await page.keyboard.press(overlay === 'search' ? '/' : overlay === 'filters' ? 'f' : '?')
-    const dialog = page.getByRole('dialog')
-    await expect(dialog).toBeVisible()
+    // The drilled chart rail scrolls with no focusable content; PR 6 replaces it.
+    await page.getByRole('switch', { name: 'Charts' }).uncheck()
+    await page.getByRole('grid', { name: 'Financial results' }).focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('radiogroup', { name: 'Break down by' })).toBeVisible()
+    await page.keyboard.press('f')
+    await expect(page.getByRole('button', { name: 'Show transfers' })).toBeVisible()
     await expectNoAxeViolations(page)
-    await page.keyboard.press('Tab')
-    await expect(dialog).toContainText('')
-    expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true)
     await page.keyboard.press('Escape')
-    await expect(dialog).toBeHidden()
+
+    await page.getByRole('combobox', { name: /^Currency/ }).click()
+    await expect(page.getByRole('listbox')).toBeVisible()
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
+
+    await page.keyboard.press('/')
+    await page.getByRole('searchbox', { name: 'Search transactions' }).fill('[')
+    await expect(page.getByText('That search expression is invalid.')).toBeVisible()
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
   })
 }
