@@ -4,6 +4,7 @@ import type { ViewProjection } from '../api/client'
 import type { ViewController } from '../controller/view-controller.svelte'
 import type { LocalAction } from '../shortcuts'
 import type { OverlayState } from './overlay-state.svelte'
+import { activeCurrency } from './period'
 
 export interface FocusedRow {
   identity: string
@@ -67,6 +68,10 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
       else void controller.provider.refresh()
     },
     'transactions.export': () => void beginExport(context),
+    'time.choose': () => {
+      const projection = controller.projection
+      if (projection && activeCurrency(projection)) overlays.open('period')
+    },
     'edit.undo': () => void controller.editing.undo(),
     'edit.redo': () => void controller.editing.redo(),
     'edit.hide': () => {

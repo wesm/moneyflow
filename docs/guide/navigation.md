@@ -72,6 +72,35 @@ keys, `a`, the chooser, or a date filter, removes period drill-downs and keeps t
 If a period drill-down was the only one and you had broken it down, the breakdown becomes
 the top-level grouping. Left, right, and `a` work the same way in the TUI and the browser.
 
+## Choose a period in the browser
+
+The command bar's period control shows the current period, such as `‹ Sep 2026 ›`.
+
+- **‹** and **›** move to the previous or next day, month, or year. They are disabled for a
+  custom range or all time unless you have drilled into a period.
+- **Day**, **Month**, and **Year** select the period of that length around the current one:
+  its last day, or the date of your newest transaction when the period contains it. From all
+  time they select the period containing your newest transaction. **All** shows all time.
+  The segments are disabled when the selected currency has no transactions.
+- Inside the segments, Left and Right change the segment instead of moving the period.
+
+Click the label or press `t` to open the period chooser. Its tabs choose how to pick:
+
+| Tab | Pick |
+| --- | --- |
+| Day | A day on the calendar |
+| Month | A month; ‹ and › change the year |
+| Year | A year from your first transaction to your newest |
+| Custom | A start day and an end day on the calendar, then **Apply** |
+
+The chooser opens on the current period's tab; all time and custom ranges open on Month.
+Arrow keys move between months and years, and Enter picks one. **All time** or `a` shows all
+time. Esc closes the chooser without changing the period and returns to the label.
+
+Dates come from your transactions in the selected currency, never from your computer's
+calendar. The chooser offers no dates after your newest transaction, but › can still move
+past it.
+
 ## Search
 
 Press `/`, enter a search, and apply it. TUI and web search use case-insensitive regular

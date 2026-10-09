@@ -35,7 +35,7 @@ func TestActionRegistryMatchesReadOnlyContract(t *testing.T) {
 		{app.ActionDrill, []string{"enter"}, "enter", "Drill down into selected item", "Views", app.ScopeAnalytical, true, true},
 		{app.ActionBack, []string{"esc"}, "esc", "Go back (restores cursor and sort preferences)", "Views", app.ScopeAnalytical, true, true},
 		{app.ActionBackTo, nil, "", "Return to a breadcrumb level", "Views", app.ScopeAnalytical, true, true},
-		{app.ActionChooseTime, []string{"t"}, "t", "Choose a year, month, day, or all time", "Time", app.ScopeOverlay, true, false},
+		{app.ActionChooseTime, []string{"t"}, "t", "Choose a year, month, day, or all time", "Time", app.ScopeOverlay, true, true},
 		{app.ActionToggleTime, []string{"ctrl+t"}, "Ctrl+t", "Time view / cycle Year→Month→Day", "Time", app.ScopeAnalytical, true, false},
 		{app.ActionClearTime, []string{"a"}, "a", "Clear time period selection", "Time", app.ScopeAnalytical, true, true},
 		{app.ActionPreviousPeriod, []string{"left"}, "←", "Previous time period (when drilled into time)", "Time", app.ScopeAnalytical, true, true},

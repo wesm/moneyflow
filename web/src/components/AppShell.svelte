@@ -7,6 +7,7 @@
   import RefinementBar from './RefinementBar.svelte'
   import ChartRail from './shell/ChartRail.svelte'
   import CommandBar from './shell/CommandBar.svelte'
+  import PeriodControl from './shell/PeriodControl.svelte'
   import ShellAnnouncements from './shell/ShellAnnouncements.svelte'
   import ShellOverlays from './shell/ShellOverlays.svelte'
   import Sidebar from './shell/Sidebar.svelte'
@@ -183,6 +184,15 @@
           <CommandBar>
             {#snippet leading()}
               <RefinementBar {projection} onaction={(action) => void apply(action)} />
+            {/snippet}
+            {#snippet center()}
+              <PeriodControl
+                {projection}
+                chooserOpen={overlays.current === 'period'}
+                onchoose={() => overlays.open('period')}
+                onclose={(focus) => overlays.close(focus)}
+                onapply={(action) => void controller.apply(action)}
+              />
             {/snippet}
             {#snippet trailing()}
               <Toggle

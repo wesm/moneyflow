@@ -16,6 +16,7 @@ const capabilities = [
   ['time.clear-period', 'a'],
   ['time.previous-period', '←'],
   ['time.next-period', '→'],
+  ['time.choose', 't'],
   ['sort.cycle', 's'],
   ['sort.reverse', 'v'],
   ['selection.toggle', 'space'],
@@ -62,6 +63,7 @@ describe('Moneyflow browser shortcuts', () => {
       'a',
       'ArrowLeft',
       'ArrowRight',
+      't',
       's',
       'v',
       ' ',
@@ -153,6 +155,29 @@ describe('Moneyflow browser shortcuts', () => {
     Object.defineProperty(letter, 'target', { value: button })
     expect(handleMoneyflowKeydown(shortcuts.manager, letter)).toBe(true)
     expect(handlers.apply).toHaveBeenCalledWith('view.cycle-grouping')
+  })
+
+  it('opens the period chooser locally with t', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    expect(shortcuts.manager.handleKeydown(keyboard('t'))).toBe(true)
+    expect(handlers.local).toHaveBeenCalledWith('time.choose')
+    expect(shortcuts.manager.handleKeydown(keyboard('t', { ctrlKey: true }))).toBe(false)
+    shortcuts.destroy()
+  })
+
+  it('leaves a key to the control that already handled it', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    for (const key of ['ArrowLeft', 'ArrowRight', 'Escape']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      event.preventDefault()
+      expect(handleMoneyflowKeydown(shortcuts.manager, event)).toBe(false)
+    }
+    expect(handlers.apply).not.toHaveBeenCalled()
+    expect(handleMoneyflowKeydown(shortcuts.manager, keyboard('ArrowLeft'))).toBe(true)
+    expect(handlers.apply).toHaveBeenCalledWith('time.previous-period')
+    shortcuts.destroy()
   })
 
   it('dispatches editing keys only when the server capability is available', () => {

@@ -134,7 +134,7 @@ var readOnlyActions = []ActionDefinition{
 	{ActionDrill, []string{"enter"}, "enter", "Drill down into selected item", "Views", ScopeAnalytical, true, true},
 	{ActionBack, []string{"esc"}, "esc", "Go back (restores cursor and sort preferences)", "Views", ScopeAnalytical, true, true},
 	{ActionBackTo, nil, "", "Return to a breadcrumb level", "Views", ScopeAnalytical, true, true},
-	{ActionChooseTime, []string{"t"}, "t", "Choose a year, month, day, or all time", "Time", ScopeOverlay, true, false},
+	{ActionChooseTime, []string{"t"}, "t", "Choose a year, month, day, or all time", "Time", ScopeOverlay, true, true},
 	{ActionToggleTime, []string{"ctrl+t"}, "Ctrl+t", "Time view / cycle Year→Month→Day", "Time", ScopeAnalytical, true, false},
 	{ActionClearTime, []string{"a"}, "a", "Clear time period selection", "Time", ScopeAnalytical, true, true},
 	{ActionPreviousPeriod, []string{"left"}, "←", "Previous time period (when drilled into time)", "Time", ScopeAnalytical, true, true},

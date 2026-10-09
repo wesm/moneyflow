@@ -23,6 +23,7 @@ export type LocalAction =
   | 'edit.delete'
   | 'transaction.info'
   | 'provider.refresh'
+  | 'time.choose'
 
 const bindings = [
   { id: 'cursor.up', display: '↑/k', combos: ['arrowup', 'k'], local: true },
@@ -49,6 +50,7 @@ const bindings = [
   { id: 'time.clear-period', display: 'a', combos: ['a'] },
   { id: 'time.previous-period', display: '←', combos: ['arrowleft'] },
   { id: 'time.next-period', display: '→', combos: ['arrowright'] },
+  { id: 'time.choose', display: 't', combos: ['t'], local: true },
   { id: 'sort.cycle', display: 's', combos: ['s'] },
   { id: 'sort.reverse', display: 'v', combos: ['v'] },
   { id: 'selection.toggle', display: 'space', combos: ['space'] },
@@ -183,5 +185,8 @@ export function handleMoneyflowKeydown(manager: ShortcutManager, event: Keyboard
   if (target instanceof HTMLButtonElement && (event.key === 'Enter' || event.key === ' ')) {
     return false
   }
+  // A control that handled the key claims it: the Period segments move with the arrows, and a
+  // popover closes on Escape. The same key must not also shift the period or go back.
+  if (event.defaultPrevented) return false
   return manager.handleKeydown(event)
 }

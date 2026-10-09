@@ -16,6 +16,7 @@ export type Overlay =
   | 'delete'
   | 'export'
   | 'information'
+  | 'period'
 
 export interface OverlayHost {
   /** Pushes a shortcut scope and returns the function that pops it. */
@@ -54,13 +55,22 @@ export class OverlayState {
     this.current = next
   }
 
-  close(): void {
+  /**
+   * Closes the open overlay and returns focus to its opener, or to `focus` when given. With
+   * 'keep', focus stays where it is, as after a pointer press outside a popover.
+   */
+  close(focus?: HTMLElement | 'keep'): void {
     this.current = undefined
     this.#popScope?.()
     this.#popScope = undefined
     this.deleteTarget = undefined
     this.deleteCount = 0
     this.information = undefined
+    if (focus === 'keep') {
+      this.#opener = undefined
+      return
+    }
+    if (focus) this.#opener = focus
     void tick().then(() => {
       this.#restoreFrame = requestAnimationFrame(() => {
         this.#restoreFrame = undefined

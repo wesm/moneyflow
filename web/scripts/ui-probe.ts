@@ -7,16 +7,7 @@ import { startScenarioServer, type ScenarioServer, type Observation } from './sc
 
 type Role = Parameters<Page['getByRole']>[0]
 export interface BrowserAction {
-  kind:
-    | 'key'
-    | 'click'
-    | 'fill'
-    | 'wait'
-    | 'focus'
-    | 'close-date'
-    | 'checkpoint'
-    | 'resize'
-    | 'theme'
+  kind: 'key' | 'click' | 'fill' | 'wait' | 'focus' | 'checkpoint' | 'resize' | 'theme'
   value?: string
   role?: Role
   name?: string
@@ -29,15 +20,12 @@ export interface BrowserAction {
 
 export function browserCampaign(seed: number): BrowserAction[] {
   const actions: BrowserAction[] = [
+    { kind: 'click', role: 'radio', name: 'Month' },
+    { kind: 'wait', role: 'button', name: 'Sep 2026' },
     { kind: 'key', value: 'f' },
-    { kind: 'click', role: 'button', name: 'All time' },
-    { kind: 'click', role: 'radio', name: 'Custom' },
-    { kind: 'click', role: 'button', name: 'Previous month' },
-    { kind: 'click', role: 'button', name: 'Sep 1, 2026' },
-    { kind: 'click', role: 'button', name: 'Sep 30, 2026' },
-    { kind: 'close-date' },
     { kind: 'click', role: 'checkbox', name: 'Show hidden transactions' },
     { kind: 'click', role: 'button', name: 'Apply filters' },
+    { kind: 'click', role: 'gridcell', name: 'Example Shop' },
     { kind: 'focus', role: 'grid', name: 'Financial results' },
   ]
   let changed: BrowserAction['changed']
@@ -113,12 +101,6 @@ export async function driveBrowser(
           await expect(
             page.getByRole(action.role!, { name: action.name!, exact: true }),
           ).toBeFocused()
-          break
-        case 'close-date':
-          await page
-            .getByRole('dialog', { name: 'Filter transactions', exact: true })
-            .locator('button[aria-haspopup="dialog"]')
-            .click()
           break
         case 'resize':
           await page.setViewportSize({ width: action.width!, height: action.height! })
