@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { StatusDot } from '@kenn-io/kit-ui'
-
+  import RowName from './RowName.svelte'
   import type { components } from '../../lib/api/schema'
   import { contextCell, moneyCell, shareCell } from '../../lib/table/cells'
   import { cellClass, type Column } from '../../lib/table/columns'
@@ -23,11 +22,7 @@
 {#each columns as column (column.key)}
   <div class={cellClass(column)} role="gridcell" data-column={column.key}>
     {#if column.key === 'name'}
-      <span class="mf-table__name">
-        <span class="mf-table__text">{row.label}</span>
-        {#if row.flags.pending}<StatusDot status="stale" label="Pending edits" />{/if}
-        {#if divider}<span class="mf-table__divider" aria-hidden="true">{divider}</span>{/if}
-      </span>
+      <RowName label={row.label} pending={row.flags.pending} {divider} />
     {:else if column.key === 'context'}
       <span class="mf-table__muted">{contextCell(row, dimension)}</span>
     {:else if column.key === 'count'}

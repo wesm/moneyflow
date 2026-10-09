@@ -62,6 +62,7 @@
     },
     overlays,
     afterTransitions: () => transitionTail,
+    focusGrid,
     importAmazon: () => onamazonimport?.(),
     focusSearch: () => void commandBar?.focusSearch(),
     openFilters: () => void commandBar?.openFilters(),

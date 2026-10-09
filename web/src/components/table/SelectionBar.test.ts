@@ -85,13 +85,15 @@ describe('SelectionBar', () => {
     render(SelectionBar, { projection: projection(), onaction: vi.fn() })
     const remove = within(bar()).getByRole('button', { name: 'Delete' })
     expect((remove as HTMLButtonElement).disabled).toBe(true)
-    expect(remove.getAttribute('title')).toBe(groupedReason)
+    // Only the kit Tooltip explains it; a native title would show a second, unstyled tip.
+    expect(remove.hasAttribute('title')).toBe(false)
     await fireEvent.mouseEnter(remove.closest('.kit-tooltip-trigger')!)
     await vi.advanceTimersByTimeAsync(300)
     expect(screen.getByRole('tooltip').textContent).toContain(groupedReason)
   })
 
-  it('disables every edit while a provider write runs, but not Clear', () => {
+  it('disables every edit while a provider write runs, but not Clear', async () => {
+    vi.useFakeTimers()
     const capabilities = testCapabilities(editIDs, editIDs).map((capability) => ({
       ...capability,
       reason: writeReason,
@@ -100,7 +102,11 @@ describe('SelectionBar', () => {
     for (const name of ['Merchant', 'Category', 'Hide', 'Delete']) {
       const button = within(bar()).getByRole('button', { name }) as HTMLButtonElement
       expect(button.disabled).toBe(true)
-      expect(button.title).toBe(writeReason)
+      await fireEvent.mouseEnter(button.closest('.kit-tooltip-trigger')!)
+      await vi.advanceTimersByTimeAsync(300)
+      expect(screen.getByRole('tooltip').textContent).toContain(writeReason)
+      await fireEvent.mouseLeave(button.closest('.kit-tooltip-trigger')!)
+      await vi.advanceTimersByTimeAsync(300)
     }
     const clear = within(bar()).getByRole('button', { name: 'Clear' }) as HTMLButtonElement
     expect(clear.disabled).toBe(false)

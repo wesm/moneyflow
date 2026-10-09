@@ -57,7 +57,6 @@ export interface SearchSnapshot {
   history: MoneyflowHistoryState
   cursorIdentity: string | undefined
   cursorIndex: number
-  scrollTop: number
 }
 
 export interface ViewController {
@@ -132,7 +131,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let announcement = $state('')
   let cursorIdentity = $state<string | undefined>()
   let cursorIndex = $state(0)
-  let scrollTop = 0
   let problem = $state<ControllerProblem | undefined>()
   let sequence = existing?.sequence ?? 0
   let generation = 0
@@ -416,7 +414,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       history: ownedState(projection),
       cursorIdentity,
       cursorIndex,
-      scrollTop,
     }
     return searchSnapshot
   }
@@ -476,7 +473,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     projection = snapshot.projection
     cursorIdentity = snapshot.cursorIdentity
     cursorIndex = snapshot.cursorIndex
-    scrollTop = snapshot.scrollTop
     problem = undefined
     announcement = snapshot.projection.status ?? ''
     sequence = snapshot.history.sequence
@@ -637,7 +633,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     )
     cursorIdentity = cursor.identity
     cursorIndex = cursor.index
-    scrollTop = restored?.scrollTop ?? scrollTop
     announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
     problem = undefined
 
@@ -703,7 +698,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       query: next.canonical_query,
       ...(cursorIdentity === undefined ? {} : { cursorIdentity }),
       cursorIndex,
-      scrollTop,
       selection: next.selection,
     }
   }

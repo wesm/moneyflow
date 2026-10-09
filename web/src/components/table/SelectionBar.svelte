@@ -35,7 +35,6 @@
     size="sm"
     class="mf-selection-bar__button"
     disabled={button.reason !== undefined}
-    title={button.reason}
     ariaLabel={button.label}
     label={button.label}
     onclick={() => onaction(button.action)}

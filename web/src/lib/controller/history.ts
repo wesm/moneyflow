@@ -7,7 +7,6 @@ export interface MoneyflowHistoryState {
   query: string
   cursorIdentity?: string
   cursorIndex: number
-  scrollTop: number
   selection: SelectionValue
 }
 
@@ -28,7 +27,6 @@ export class OwnedHistoryLedger {
       'query',
       'cursorIdentity',
       'cursorIndex',
-      'scrollTop',
       'selection',
     ])
     if (
@@ -41,8 +39,6 @@ export class OwnedHistoryLedger {
       (value.cursorIdentity !== undefined && typeof value.cursorIdentity !== 'string') ||
       !Number.isSafeInteger(value.cursorIndex) ||
       (value.cursorIndex as number) < 0 ||
-      !Number.isSafeInteger(value.scrollTop) ||
-      (value.scrollTop as number) < 0 ||
       typeof value.selection !== 'string'
     ) {
       return undefined

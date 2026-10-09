@@ -9,7 +9,7 @@
   import BottomSheet from '../shell/BottomSheet.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import type { components } from '../../lib/api/schema'
-  import { rowActionButtons, type RowActionButton } from '../../lib/table/selection'
+  import { rowActionButtons, type RowActionButton } from '../../lib/table/actions'
 
   interface Props {
     open: boolean

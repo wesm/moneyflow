@@ -62,7 +62,7 @@
       const settle = () => (clearing = false)
       return void actions.afterTransitions().then(settle, settle)
     }
-    scroller?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
+    actions.focusGrid()
     status.clear()
     local[action]()
   }

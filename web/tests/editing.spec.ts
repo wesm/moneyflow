@@ -228,7 +228,7 @@ test('the selection bar counts two merchants, explains Delete, and Clear empties
     const reason = 'Open the group to delete its transactions.'
     const remove = bar.getByRole('button', { name: 'Delete' })
     await expect(remove).toBeDisabled()
-    await expect(remove).toHaveAttribute('title', reason)
+    await expect(remove).not.toHaveAttribute('title')
     const deleteButton = page.getByRole('button', { name: 'Delete' })
     await bar.locator('.kit-tooltip-trigger').filter({ has: deleteButton }).hover()
     await expect(page.getByRole('tooltip')).toHaveText(reason)

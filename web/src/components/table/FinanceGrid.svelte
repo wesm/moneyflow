@@ -21,6 +21,7 @@
     compactTapAction,
     doubleClickAction,
     pointerHit,
+    type CompactTapAction,
     type RowKind,
   } from '../../lib/table/pointer'
   import { loadedRow, type TableRow } from '../../lib/table/virtual-rows'
@@ -148,7 +149,7 @@
   }
 
   /** A tap on a compact row: toggle, drill, or move the cursor there and open Info or actions. */
-  function tap(row: TableRow, action: ReturnType<typeof compactTapAction>, event: MouseEvent) {
+  function tap(row: TableRow, action: CompactTapAction, event: MouseEvent) {
     if (action === 'toggle') return ontoggle(row.identity, kind)
     // On the tapped row first, so Back returns there.
     if (action === 'drill')

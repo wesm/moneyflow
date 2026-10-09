@@ -472,10 +472,11 @@ test.describe('phone rows: drilling, keys, and the sheet', () => {
     const grid = page.getByRole('grid', { name: 'Financial results' })
     const third = grid.locator('[role="row"][aria-rowindex="4"]')
     const name = await cell(third, 'name').innerText()
+    const id = (await third.getAttribute('id'))!
     await cell(third, 'net').tap()
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(name)
     await page.goBack()
-    await expect(cell(await activeRow(page), 'name')).toHaveText(name)
+    await expect(grid).toHaveAttribute('aria-activedescendant', id)
   })
 
   test('Enter drills a group and opens Info on a transaction', async ({ page, server }) => {

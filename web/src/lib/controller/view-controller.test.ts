@@ -577,7 +577,6 @@ describe('browser view controller', () => {
         sequence: 0,
         query: 'v=1',
         cursorIndex: 400,
-        scrollTop: 0,
         selection: 'mfsel1.example' as SelectionValue,
       } satisfies MoneyflowHistoryState,
       '',

@@ -3,7 +3,7 @@ import { tick } from 'svelte'
 import type { ViewProjection } from '../api/client'
 import type { ViewController } from '../controller/view-controller.svelte'
 import type { LocalAction } from '../shortcuts'
-import type { RowActionButton } from '../table/selection'
+import type { RowActionButton } from '../table/actions'
 import type { OverlayState } from './overlay-state.svelte'
 import { activeCurrency } from './period'
 import { status } from './status.svelte'
@@ -21,6 +21,8 @@ export interface LocalActionContext {
    * leave: the selection a quick Space made and the row the cursor moved to.
    */
   afterTransitions(): Promise<void>
+  /** Returns focus to the table unless a dialog is open. */
+  focusGrid(): void
   /** Opens Amazon order import, which the app shell owns. */
   importAmazon(): void
   /** Focuses the command bar's search field. */

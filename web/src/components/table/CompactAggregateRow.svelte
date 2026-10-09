@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { IconButton, StatusDot } from '@kenn-io/kit-ui'
+  import { IconButton } from '@kenn-io/kit-ui'
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right'
 
+  import RowName from './RowName.svelte'
   import type { components } from '../../lib/api/schema'
   import { moneyCell } from '../../lib/table/cells'
   import { compactColumnIndex, type ColumnKey } from '../../lib/table/columns'
@@ -27,11 +28,7 @@
     data-column={nameKey}
     aria-colindex={column(nameKey)}
   >
-    <span class="mf-table__name">
-      <span class="mf-table__text">{row.label}</span>
-      {#if row.flags.pending}<StatusDot status="stale" label="Pending edits" />{/if}
-      {#if divider}<span class="mf-table__divider" aria-hidden="true">{divider}</span>{/if}
-    </span>
+    <RowName label={row.label} pending={row.flags.pending} {divider} />
   </div>
   <div class="mf-compact__figure" role="gridcell" data-column="net" aria-colindex={column('net')}>
     {moneyCell(row.total, 'unsigned')}
