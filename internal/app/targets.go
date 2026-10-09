@@ -32,28 +32,10 @@ func ResolveTargets(
 	if err != nil {
 		return ResolvedTargets{}, mutationError(MutationInvalidTarget, err)
 	}
-	payload := document.payload()
-	selection, explicitErr := resolveExplicitSelectionPayload(request.State.Current, payload)
+	selection, explicitErr := resolveExplicitSelection(request.State.Current, document)
 	if explicitErr == nil && len(selection.IDs) > 0 && selection.Kind == IdentityTransaction {
 		resolved, resolveErr := resolveExactTransactionSelection(snapshot.Effective, selection)
-		if document.Revision == nil || *document.Revision != snapshot.Revision {
-			refreshed := EmptySelection()
-			if resolveErr == nil {
-				refreshed, err = BindSelectionRevision(selectionValue, snapshot.Revision)
-				if err != nil {
-					return ResolvedTargets{}, mutationError(MutationInvalidTarget, err)
-				}
-			}
-			return ResolvedTargets{}, staleSelectionError(
-				snapshot.Revision, refreshed,
-				errors.New("selection was defined at another profile revision"),
-			)
-		}
-		if resolveErr != nil {
-			return ResolvedTargets{}, resolveErr
-		}
-		resolved.FromSelection = true
-		return resolved, nil
+		return selectionTargets(document, selectionValue, snapshot.Revision, resolved, resolveErr)
 	}
 	if err := snapshot.Effective.Validate(); err != nil {
 		return ResolvedTargets{}, mutationError(MutationInvalidOperation, err)
@@ -68,55 +50,61 @@ func ResolveTargets(
 		return ResolvedTargets{}, mutationError(MutationInvalidOperation, err)
 	}
 	service.now = request.now
-	selection, err = service.resolveSelectionPayload(request.State.Current, payload)
+	source := targetSource{
+		profile: snapshot.Committed, transactions: transactions, service: service,
+		currencies: service.currenciesFor(&request.State.Current, document.State),
+	}
+	selection, err = service.resolveSelectionDocument(
+		request.State.Current, document, source.currencies,
+	)
 	if err != nil {
 		return ResolvedTargets{}, mutationError(MutationInvalidTarget, err)
 	}
 
 	if len(selection.IDs) > 0 {
-		resolved, resolveErr := resolveSelectionTargets(
-			snapshot.Committed,
-			transactions,
-			service,
-			request.State.Current,
-			selection,
-		)
+		resolved, resolveErr := resolveSelectionTargets(source, request.State.Current, selection)
 		if resolveErr == nil {
 			resolveErr = validateEffectiveTargets(snapshot.Effective, resolved)
 		}
-		if document.Revision == nil || *document.Revision != snapshot.Revision {
-			refreshed := EmptySelection()
-			if resolveErr == nil {
-				refreshed, err = BindSelectionRevision(selectionValue, snapshot.Revision)
-				if err != nil {
-					return ResolvedTargets{}, mutationError(MutationInvalidTarget, err)
-				}
-			}
-			return ResolvedTargets{}, staleSelectionError(
-				snapshot.Revision,
-				refreshed,
-				errors.New("selection was defined at another profile revision"),
-			)
-		}
-		if resolveErr != nil {
-			return ResolvedTargets{}, resolveErr
-		}
-		resolved.FromSelection = true
-		return resolved, nil
+		return selectionTargets(document, selectionValue, snapshot.Revision, resolved, resolveErr)
 	}
-	resolved, err := resolveFocusedTarget(
-		snapshot.Committed,
-		transactions,
-		service,
-		request.State.Current,
-		request.Target,
-	)
+	resolved, err := resolveFocusedTarget(source, request.State.Current, request.Target)
 	if err != nil {
 		return ResolvedTargets{}, err
 	}
 	if err = validateEffectiveTargets(snapshot.Effective, resolved); err != nil {
 		return ResolvedTargets{}, err
 	}
+	return resolved, nil
+}
+
+// selectionTargets returns the targets of a selection defined at revision. A selection
+// defined at another revision fails as stale; the failure carries the selection rebound to
+// revision when its targets still resolve, so the client can confirm it again.
+func selectionTargets(
+	document selectionDocument,
+	value SelectionValue,
+	revision uint64,
+	resolved ResolvedTargets,
+	resolveErr error,
+) (ResolvedTargets, error) {
+	if document.Revision == nil || *document.Revision != revision {
+		refreshed := EmptySelection()
+		if resolveErr == nil {
+			var err error
+			refreshed, err = BindSelectionRevision(value, revision)
+			if err != nil {
+				return ResolvedTargets{}, mutationError(MutationInvalidTarget, err)
+			}
+		}
+		return ResolvedTargets{}, staleSelectionError(
+			revision, refreshed, errors.New("selection was defined at another profile revision"),
+		)
+	}
+	if resolveErr != nil {
+		return ResolvedTargets{}, resolveErr
+	}
+	resolved.FromSelection = true
 	return resolved, nil
 }
 
@@ -133,22 +121,22 @@ func validateEffectiveTargets(profile domain.CommittedProfile, targets ResolvedT
 	return nil
 }
 
-func resolveExplicitSelectionPayload(
+func resolveExplicitSelection(
 	state AnalyticalState,
-	payload selectionPayload,
+	document selectionDocument,
 ) (SelectionSnapshot, error) {
-	if payload.Base != selectionBaseExplicit {
+	if document.Base != selectionBaseExplicit {
 		return SelectionSnapshot{}, errors.New("selection is not explicit")
 	}
 	kind := identityKindForState(state)
-	if payload.Kind != kind && !payload.isUniversalEmpty() {
+	if document.Kind != kind && !document.isUniversalEmpty() {
 		return SelectionSnapshot{}, invalidSelection(errors.New("selection kind does not match result"))
 	}
-	ids := identitySliceSet(payload.IDs)
-	for _, identity := range payload.Exclude {
+	ids := identitySliceSet(document.IDs)
+	for _, identity := range document.Exclude {
 		delete(ids, identity)
 	}
-	for _, identity := range payload.Include {
+	for _, identity := range document.Include {
 		ids[identity] = struct{}{}
 	}
 	return SelectionSnapshot{Kind: kind, IDs: ids}, nil
@@ -176,17 +164,24 @@ func resolveExactTransactionSelection(
 	return resolved, nil
 }
 
+// targetSource is what edit targets resolve against: a committed profile, its transactions,
+// a service over them, and the currencies the request computed from that service.
+type targetSource struct {
+	profile      domain.CommittedProfile
+	transactions []domain.Transaction
+	service      *Service
+	currencies   []domain.CurrencyCount
+}
+
 func resolveSelectionTargets(
-	profile domain.CommittedProfile,
-	transactions []domain.Transaction,
-	service *Service,
+	source targetSource,
 	state AnalyticalState,
 	selection SelectionSnapshot,
 ) (ResolvedTargets, error) {
 	identities := sortedIdentitySet(selection.IDs)
 	if selection.Kind == IdentityTransaction {
-		available := make(map[string]struct{}, len(profile.Transactions))
-		for _, transaction := range profile.Transactions {
+		available := make(map[string]struct{}, len(source.profile.Transactions))
+		for _, transaction := range source.profile.Transactions {
 			available[string(transaction.ID)] = struct{}{}
 		}
 		resolved := ResolvedTargets{TransactionIDs: make([]domain.EntityID, len(identities))}
@@ -201,7 +196,7 @@ func resolveSelectionTargets(
 		}
 		return resolved, nil
 	}
-	rows, err := aggregateRowsByIdentity(service, state)
+	rows, err := aggregateRowsByIdentity(source, state)
 	if err != nil {
 		return ResolvedTargets{}, err
 	}
@@ -214,7 +209,8 @@ func resolveSelectionTargets(
 				errors.New("selected aggregate does not resolve"),
 			)
 		}
-		if err = appendAggregateTargets(&resolved, profile, transactions, state, row); err != nil {
+		err = appendAggregateTargets(&resolved, source.profile, source.transactions, state, row)
+		if err != nil {
 			return ResolvedTargets{}, err
 		}
 	}
@@ -226,9 +222,7 @@ func resolveSelectionTargets(
 }
 
 func resolveFocusedTarget(
-	profile domain.CommittedProfile,
-	transactions []domain.Transaction,
-	service *Service,
+	source targetSource,
 	state AnalyticalState,
 	target *RowTarget,
 ) (ResolvedTargets, error) {
@@ -239,7 +233,7 @@ func resolveFocusedTarget(
 		)
 	}
 	if target.Kind == IdentityTransaction {
-		result, err := service.Query(sessionFromAnalyticalState(state))
+		result, err := source.service.Query(sessionFromAnalyticalState(state))
 		if err != nil {
 			return ResolvedTargets{}, mutationError(MutationInvalidOperation, err)
 		}
@@ -255,7 +249,7 @@ func resolveFocusedTarget(
 			errors.New("focused transaction does not resolve in the submitted view"),
 		)
 	}
-	rows, err := aggregateRowsByIdentity(service, state)
+	rows, err := aggregateRowsByIdentity(source, state)
 	if err != nil {
 		return ResolvedTargets{}, err
 	}
@@ -267,7 +261,8 @@ func resolveFocusedTarget(
 		)
 	}
 	resolved := ResolvedTargets{}
-	if err = appendAggregateTargets(&resolved, profile, transactions, state, row); err != nil {
+	err = appendAggregateTargets(&resolved, source.profile, source.transactions, state, row)
+	if err != nil {
 		return ResolvedTargets{}, err
 	}
 	if err = requireTransactionTargets(resolved); err != nil {
@@ -278,10 +273,10 @@ func resolveFocusedTarget(
 }
 
 func aggregateRowsByIdentity(
-	service *Service,
+	source targetSource,
 	state AnalyticalState,
 ) (map[string]domain.AggregateRow, error) {
-	result, err := service.webQuery(state)
+	result, err := source.service.webQuery(state, source.currencies)
 	if err != nil {
 		return nil, mutationError(MutationInvalidOperation, err)
 	}

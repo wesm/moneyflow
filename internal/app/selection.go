@@ -98,15 +98,6 @@ type selectionDocument struct {
 	Exclude  []string          `json:"exclude,omitempty"`
 }
 
-type selectionPayload struct {
-	Kind    IdentityKind      `json:"kind"`
-	Base    selectionBaseKind `json:"base"`
-	IDs     []string          `json:"ids,omitempty"`
-	State   *AnalyticalState  `json:"state,omitempty"`
-	Include []string          `json:"include,omitempty"`
-	Exclude []string          `json:"exclude,omitempty"`
-}
-
 type encodedSelectionCandidate struct {
 	value     SelectionValue
 	canonical []byte
@@ -217,45 +208,45 @@ func (document selectionDocument) validate() error {
 	if document.Version != 1 {
 		return errors.New("unsupported selection version")
 	}
-	return document.payload().validate()
+	return document.validateContents()
 }
 
-func (payload selectionPayload) validate() error {
-	if !payload.Kind.valid() {
+func (document selectionDocument) validateContents() error {
+	if !document.Kind.valid() {
 		return errors.New("invalid selection identity kind")
 	}
-	if err := validateCanonicalIdentities(payload.IDs); err != nil {
+	if err := validateCanonicalIdentities(document.IDs); err != nil {
 		return fmt.Errorf("invalid explicit identities: %w", err)
 	}
-	if err := validateCanonicalIdentities(payload.Include); err != nil {
+	if err := validateCanonicalIdentities(document.Include); err != nil {
 		return fmt.Errorf("invalid inclusion identities: %w", err)
 	}
-	if err := validateCanonicalIdentities(payload.Exclude); err != nil {
+	if err := validateCanonicalIdentities(document.Exclude); err != nil {
 		return fmt.Errorf("invalid exclusion identities: %w", err)
 	}
-	if intersectsSorted(payload.Include, payload.Exclude) {
+	if intersectsSorted(document.Include, document.Exclude) {
 		return errors.New("selection inclusion and exclusion identities overlap")
 	}
 
-	switch payload.Base {
+	switch document.Base {
 	case selectionBaseExplicit:
-		if payload.State != nil {
+		if document.State != nil {
 			return errors.New("explicit selection contains a defining state")
 		}
-		if intersectsSorted(payload.IDs, payload.Include) {
+		if intersectsSorted(document.IDs, document.Include) {
 			return errors.New("explicit selection base and inclusion identities overlap")
 		}
 	case selectionBaseAll:
-		if payload.State == nil {
+		if document.State == nil {
 			return errors.New("all selection has no defining state")
 		}
-		if len(payload.IDs) != 0 {
+		if len(document.IDs) != 0 {
 			return errors.New("all selection contains explicit base identities")
 		}
-		if err := validateSelectionState(*payload.State); err != nil {
+		if err := validateSelectionState(*document.State); err != nil {
 			return err
 		}
-		if identityKindForState(*payload.State) != payload.Kind {
+		if identityKindForState(*document.State) != document.Kind {
 			return errors.New("all selection kind does not match its defining state")
 		}
 	default:
@@ -277,13 +268,6 @@ func (document selectionDocument) validateBounds() error {
 		}
 	}
 	return nil
-}
-
-func (document selectionDocument) payload() selectionPayload {
-	return selectionPayload{
-		Kind: document.Kind, Base: document.Base, IDs: document.IDs, State: document.State,
-		Include: document.Include, Exclude: document.Exclude,
-	}
 }
 
 func validateCanonicalIdentities(identities []string) error {
@@ -354,28 +338,43 @@ func (service *Service) ResolveSelection(
 	if err != nil {
 		return SelectionSnapshot{}, err
 	}
-	return service.resolveSelectionPayload(state, document.payload())
+	currencies := service.currenciesFor(&state, document.State)
+	return service.resolveSelectionDocument(state, document, currencies)
 }
 
-func (service *Service) resolveSelectionPayload(
+// resolveSelection resolves value with the currencies its request computed.
+func (service *Service) resolveSelection(
 	state AnalyticalState,
-	payload selectionPayload,
+	value SelectionValue,
+	currencies []domain.CurrencyCount,
+) (SelectionSnapshot, error) {
+	document, err := decodeSelection(value)
+	if err != nil {
+		return SelectionSnapshot{}, err
+	}
+	return service.resolveSelectionDocument(state, document, currencies)
+}
+
+func (service *Service) resolveSelectionDocument(
+	state AnalyticalState,
+	document selectionDocument,
+	currencies []domain.CurrencyCount,
 ) (SelectionSnapshot, error) {
 	if err := validateSelectionState(state); err != nil {
 		return SelectionSnapshot{}, invalidSelection(err)
 	}
 	currentKind := identityKindForState(state)
-	if payload.Kind != currentKind && !payload.isUniversalEmpty() {
+	if document.Kind != currentKind && !document.isUniversalEmpty() {
 		return SelectionSnapshot{}, invalidSelection(errors.New("selection kind does not match result"))
 	}
-	ids, err := service.resolveSelectionPayloadBase(payload)
+	ids, err := service.resolveSelectionBase(document, currencies)
 	if err != nil {
 		return SelectionSnapshot{}, err
 	}
-	for _, identity := range payload.Exclude {
+	for _, identity := range document.Exclude {
 		delete(ids, identity)
 	}
-	for _, identity := range payload.Include {
+	for _, identity := range document.Include {
 		ids[identity] = struct{}{}
 	}
 	return SelectionSnapshot{Kind: currentKind, IDs: ids}, nil
@@ -388,6 +387,17 @@ func (service *Service) ToggleSelection(
 	kind IdentityKind,
 	identity string,
 ) (SelectionValue, error) {
+	currencies := service.selectionCurrencies(state, value)
+	return service.toggleSelection(state, value, kind, identity, currencies)
+}
+
+func (service *Service) toggleSelection(
+	state AnalyticalState,
+	value SelectionValue,
+	kind IdentityKind,
+	identity string,
+	currencies []domain.CurrencyCount,
+) (SelectionValue, error) {
 	if !kind.valid() || kind != identityKindForState(state) {
 		return value, invalidSelection(errors.New("selection target kind does not match result"))
 	}
@@ -397,13 +407,13 @@ func (service *Service) ToggleSelection(
 	if len(identity) > MaxSelectionIdentityBytes {
 		return value, tooLargeSelection(errors.New("selection target identity exceeds limit"))
 	}
-	snapshot, err := service.ResolveSelection(state, value)
+	snapshot, err := service.resolveSelection(state, value, currencies)
 	if err != nil {
 		return value, err
 	}
 	target := cloneSet(snapshot.IDs)
 	toggleSetValue(target, identity)
-	return service.smallestSelection(state, value, kind, target)
+	return service.smallestSelection(state, value, kind, target, currencies)
 }
 
 // ToggleAllSelection selects or clears the complete current result.
@@ -411,11 +421,19 @@ func (service *Service) ToggleAllSelection(
 	state AnalyticalState,
 	value SelectionValue,
 ) (SelectionValue, error) {
-	snapshot, err := service.ResolveSelection(state, value)
+	return service.toggleAllSelection(state, value, service.selectionCurrencies(state, value))
+}
+
+func (service *Service) toggleAllSelection(
+	state AnalyticalState,
+	value SelectionValue,
+	currencies []domain.CurrencyCount,
+) (SelectionValue, error) {
+	snapshot, err := service.resolveSelection(state, value, currencies)
 	if err != nil {
 		return value, err
 	}
-	currentKind, currentIDs, err := service.identitiesForState(state)
+	currentKind, currentIDs, err := service.identitiesForState(state, currencies)
 	if err != nil {
 		return value, err
 	}
@@ -428,7 +446,7 @@ func (service *Service) ToggleAllSelection(
 	if equalIdentitySets(target, snapshot.IDs) {
 		return value, nil
 	}
-	return service.smallestSelection(state, value, currentKind, target)
+	return service.smallestSelection(state, value, currentKind, target, currencies)
 }
 
 func (service *Service) smallestSelection(
@@ -436,6 +454,7 @@ func (service *Service) smallestSelection(
 	oldValue SelectionValue,
 	kind IdentityKind,
 	target map[string]struct{},
+	currencies []domain.CurrencyCount,
 ) (SelectionValue, error) {
 	oldDocument, err := decodeSelection(oldValue)
 	if err != nil {
@@ -449,7 +468,7 @@ func (service *Service) smallestSelection(
 		IDs:      sortedIdentitySet(target),
 	}}
 
-	_, currentBase, err := service.identitiesForState(state)
+	_, currentBase, err := service.identitiesForState(state, currencies)
 	if err != nil {
 		return oldValue, err
 	}
@@ -466,7 +485,7 @@ func (service *Service) smallestSelection(
 	candidates = append(candidates, currentCandidate)
 
 	if oldDocument.Kind == kind && !oldDocument.isUniversalEmpty() {
-		oldBase, resolveErr := service.resolveSelectionBase(oldDocument)
+		oldBase, resolveErr := service.resolveSelectionBase(oldDocument, currencies)
 		if resolveErr != nil {
 			return oldValue, resolveErr
 		}
@@ -551,21 +570,16 @@ func selectionDocumentForBase(
 
 func (service *Service) resolveSelectionBase(
 	document selectionDocument,
+	currencies []domain.CurrencyCount,
 ) (map[string]struct{}, error) {
-	return service.resolveSelectionPayloadBase(document.payload())
-}
-
-func (service *Service) resolveSelectionPayloadBase(
-	payload selectionPayload,
-) (map[string]struct{}, error) {
-	if payload.Base == selectionBaseExplicit {
-		return identitySliceSet(payload.IDs), nil
+	if document.Base == selectionBaseExplicit {
+		return identitySliceSet(document.IDs), nil
 	}
-	kind, identities, err := service.identitiesForState(*payload.State)
+	kind, identities, err := service.identitiesForState(*document.State, currencies)
 	if err != nil {
 		return nil, err
 	}
-	if kind != payload.Kind {
+	if kind != document.Kind {
 		return nil, invalidSelection(errors.New("selection base kind does not match result"))
 	}
 	return identities, nil
@@ -573,11 +587,12 @@ func (service *Service) resolveSelectionPayloadBase(
 
 func (service *Service) identitiesForState(
 	state AnalyticalState,
+	currencies []domain.CurrencyCount,
 ) (IdentityKind, map[string]struct{}, error) {
 	if err := validateSelectionState(state); err != nil {
 		return "", nil, invalidSelection(err)
 	}
-	result, err := service.webQuery(state)
+	result, err := service.webQuery(state, currencies)
 	if err != nil {
 		return "", nil, invalidSelection(fmt.Errorf("resolve selection result: %w", err))
 	}
@@ -596,12 +611,8 @@ func (service *Service) identitiesForState(
 }
 
 func (document selectionDocument) isUniversalEmpty() bool {
-	return document.payload().isUniversalEmpty()
-}
-
-func (payload selectionPayload) isUniversalEmpty() bool {
-	return payload.Base == selectionBaseExplicit && payload.State == nil &&
-		len(payload.IDs) == 0 && len(payload.Include) == 0 && len(payload.Exclude) == 0
+	return document.Base == selectionBaseExplicit && document.State == nil &&
+		len(document.IDs) == 0 && len(document.Include) == 0 && len(document.Exclude) == 0
 }
 
 // BindSelectionRevision records the profile revision that defines one nonempty exact selection.
@@ -632,7 +643,8 @@ func ResolveSelectionAtRevision(
 		(document.Revision == nil || *document.Revision != revision) {
 		return SelectionSnapshot{}, invalidSelection(errors.New("selection revision is stale"))
 	}
-	return service.resolveSelectionPayload(state, document.payload())
+	currencies := service.currenciesFor(&state, document.State)
+	return service.resolveSelectionDocument(state, document, currencies)
 }
 
 func cloneUint64(value *uint64) *uint64 {

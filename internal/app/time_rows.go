@@ -34,8 +34,9 @@ func applyPeriodTransition(session *Session, transition TransitionRequest) error
 }
 
 // derivesTimeGranularity reports whether a view's Time-row granularity follows from its
-// period instead of stored state. The browser always scopes a view to one currency; the
-// terminal and MCP clients do not, so they keep their own granularity.
+// period instead of stored state. Derivation applies to currency-scoped states. The browser
+// sends them once its shell sets a currency; until then it sends no currency. The terminal
+// and MCP clients send none either, so they keep their own granularity.
 func derivesTimeGranularity(state AnalyticalState) bool {
 	grouping := state.Dimension
 	if state.SubGrouping != nil {
@@ -95,14 +96,14 @@ func currencyDates(
 }
 
 // webQuery evaluates a view with the rows the browser shows, so an identity from a projected
-// row resolves here too.
-func (service *Service) webQuery(state AnalyticalState) (domain.QueryResult, error) {
-	var periods []analytics.PeriodRange
-	if derivesTimeGranularity(state) {
-		var err error
-		if periods, err = service.deriveTimeRows(&state, service.currencies()); err != nil {
-			return domain.QueryResult{}, err
-		}
+// row resolves here too. The request computes the profile's currencies once and passes them
+// in; only a view that derives its Time rows reads them.
+func (service *Service) webQuery(
+	state AnalyticalState, currencies []domain.CurrencyCount,
+) (domain.QueryResult, error) {
+	periods, err := service.deriveTimeRows(&state, currencies)
+	if err != nil {
+		return domain.QueryResult{}, err
 	}
 	result, err := service.Query(sessionFromAnalyticalState(state))
 	if err != nil {
@@ -117,6 +118,30 @@ func (service *Service) currencies() []domain.CurrencyCount {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
 	return analytics.Currencies(service.browseTransactionsLocked())
+}
+
+// currenciesFor lists the profile's currencies when one of states derives its Time rows, and
+// nil otherwise, so a request that needs no currencies skips the scan.
+func (service *Service) currenciesFor(states ...*AnalyticalState) []domain.CurrencyCount {
+	for _, state := range states {
+		if state != nil && derivesTimeGranularity(*state) {
+			return service.currencies()
+		}
+	}
+	return nil
+}
+
+// selectionCurrencies lists the currencies that resolving value in state needs. A selection's
+// defining state derives its Time rows as the view does. A value that does not decode needs
+// only the view's; resolving it then reports the decode error.
+func (service *Service) selectionCurrencies(
+	state AnalyticalState, value SelectionValue,
+) []domain.CurrencyCount {
+	document, err := decodeSelection(value)
+	if err != nil {
+		return service.currenciesFor(&state)
+	}
+	return service.currenciesFor(&state, document.State)
 }
 
 // mergeTimeRows lists every period of a Time grouping, including periods without

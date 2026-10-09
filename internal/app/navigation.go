@@ -116,14 +116,16 @@ func (session *Session) SetSubGrouping(dimension domain.Dimension) error {
 	return nil
 }
 
-// SetCurrency restricts the view to one currency and scale, or to all currencies when
-// scope is nil. Drill identities include the currency, so the drill path, sub-grouping,
-// selection, and back history are cleared.
+// SetCurrency restricts the view to one currency and scale. Drill identities include the
+// currency, so the drill path, sub-grouping, selection, and back history are cleared.
 func (session *Session) SetCurrency(scope *domain.CurrencyScope) error {
-	if scope != nil && !domain.IsValidCurrency(scope.Currency) {
+	if scope == nil {
+		return errors.New("set currency: a currency is required")
+	}
+	if !domain.IsValidCurrency(scope.Currency) {
 		return fmt.Errorf("set currency: %q is not a three-letter uppercase code", scope.Currency)
 	}
-	if equalCurrencyScopes(session.Currency, scope) {
+	if session.Currency != nil && *session.Currency == *scope {
 		return nil
 	}
 	fromDetail := session.fromDetailView()
@@ -168,13 +170,6 @@ func GroupingForKey(key string) (domain.Dimension, bool) {
 		return "", false
 	}
 	return dimensionOrder[index], true
-}
-
-func equalCurrencyScopes(left *domain.CurrencyScope, right *domain.CurrencyScope) bool {
-	if left == nil || right == nil {
-		return left == right
-	}
-	return *left == *right
 }
 
 func defaultSortDirection(field domain.SortField) domain.SortDirection {

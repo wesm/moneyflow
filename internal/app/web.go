@@ -210,7 +210,7 @@ func (service *Service) projectViewWith(
 	if err != nil {
 		return WebProjection{}, err
 	}
-	snapshot, err := service.ResolveSelection(state.Current, selection)
+	snapshot, err := service.resolveSelection(state.Current, selection, currencies)
 	if err != nil {
 		return WebProjection{}, err
 	}
@@ -459,7 +459,9 @@ func (service *Service) applySelectionTransitionView(
 	window WindowRequest,
 	currencies []domain.CurrencyCount,
 ) (transitionResult, error) {
-	nextSelection, err := service.applySelectionTransition(state.Current, selection, transition)
+	nextSelection, err := service.applySelectionTransition(
+		state.Current, selection, transition, currencies,
+	)
 	if err != nil {
 		return transitionResult{}, err
 	}
@@ -486,18 +488,20 @@ func (service *Service) applyAnalyticalTransitionView(
 	window WindowRequest,
 	currencies []domain.CurrencyCount,
 ) (transitionResult, error) {
-	session, err := service.transitionSession(state, selection)
+	session, err := service.transitionSession(state, selection, currencies)
 	if err != nil {
 		return transitionResult{}, err
 	}
-	if err := service.applyAnalyticalTransition(&session, transition); err != nil {
+	if err := service.applyAnalyticalTransition(&session, transition, currencies); err != nil {
 		return transitionResult{}, err
 	}
 	nextState, err := service.deriveViewState(session.ViewState(), currencies)
 	if err != nil {
 		return transitionResult{}, err
 	}
-	nextSelection, err := service.selectionFromSession(nextState.Current, selection, session)
+	nextSelection, err := service.selectionFromSession(
+		nextState.Current, selection, session, currencies,
+	)
 	if err != nil {
 		return transitionResult{}, err
 	}
@@ -514,7 +518,7 @@ func (service *Service) applyAnalyticalTransitionView(
 // transitionSession rebuilds the session of a view state with resolved drill labels and the
 // current selection.
 func (service *Service) transitionSession(
-	state ViewState, selection SelectionValue,
+	state ViewState, selection SelectionValue, currencies []domain.CurrencyCount,
 ) (Session, error) {
 	session, err := NewSessionFromViewState(state)
 	if err != nil {
@@ -525,7 +529,7 @@ func (service *Service) transitionSession(
 		return Session{}, err
 	}
 	session.Drilldowns = resolvedCurrent.Drilldowns
-	snapshot, err := service.ResolveSelection(state.Current, selection)
+	snapshot, err := service.resolveSelection(state.Current, selection, currencies)
 	if err != nil {
 		return Session{}, err
 	}
@@ -586,20 +590,22 @@ func (service *Service) applySelectionTransition(
 	state AnalyticalState,
 	selection SelectionValue,
 	transition TransitionRequest,
+	currencies []domain.CurrencyCount,
 ) (SelectionValue, error) {
 	switch transition.Action {
 	case ActionToggleSelection:
-		if err := service.validateRowTarget(state, *transition.Target); err != nil {
+		if err := service.validateRowTarget(state, *transition.Target, currencies); err != nil {
 			return selection, err
 		}
-		return service.ToggleSelection(
+		return service.toggleSelection(
 			state,
 			selection,
 			transition.Target.Kind,
 			transition.Target.Identity,
+			currencies,
 		)
 	case ActionToggleSelectAll:
-		return service.ToggleAllSelection(state, selection)
+		return service.toggleAllSelection(state, selection, currencies)
 	default:
 		return selection, invalidWebRequest(errors.New("unsupported selection action"))
 	}
@@ -608,6 +614,7 @@ func (service *Service) applySelectionTransition(
 func (service *Service) applyAnalyticalTransition(
 	session *Session,
 	transition TransitionRequest,
+	currencies []domain.CurrencyCount,
 ) error {
 	switch transition.Action {
 	case ActionCycleGrouping:
@@ -617,7 +624,7 @@ func (service *Service) applyAnalyticalTransition(
 	case ActionSwitchAccounts:
 		session.SwitchAccounts()
 	case ActionDrill:
-		row, err := service.resolveAggregateTarget(*session, *transition.Target)
+		row, err := service.resolveAggregateTarget(*session, *transition.Target, currencies)
 		if err != nil {
 			return err
 		}
@@ -680,11 +687,12 @@ func shiftWebPeriod(session *Session, delta int, unchanged string) error {
 func (service *Service) resolveAggregateTarget(
 	session Session,
 	target RowTarget,
+	currencies []domain.CurrencyCount,
 ) (domain.AggregateRow, error) {
 	if target.Kind != IdentityAggregate || target.Identity == "" {
 		return domain.AggregateRow{}, invalidWebRequest(errors.New("drill target kind is invalid"))
 	}
-	result, err := service.webQuery(analyticalStateFromSession(session))
+	result, err := service.webQuery(analyticalStateFromSession(session), currencies)
 	if err != nil {
 		return domain.AggregateRow{}, invalidWebRequest(err)
 	}
@@ -701,14 +709,16 @@ func (service *Service) resolveAggregateTarget(
 	return domain.AggregateRow{}, staleWebTarget(errors.New("aggregate target no longer resolves"))
 }
 
-func (service *Service) validateRowTarget(state AnalyticalState, target RowTarget) error {
+func (service *Service) validateRowTarget(
+	state AnalyticalState, target RowTarget, currencies []domain.CurrencyCount,
+) error {
 	if target.Kind != identityKindForState(state) || target.Identity == "" {
 		return invalidWebRequest(errors.New("selection target kind is invalid"))
 	}
 	if _, _, err := service.ResolveViewSession(state); err != nil {
 		return err
 	}
-	result, err := service.webQuery(state)
+	result, err := service.webQuery(state, currencies)
 	if err != nil {
 		return invalidWebRequest(err)
 	}
@@ -742,6 +752,7 @@ func (service *Service) selectionFromSession(
 	state AnalyticalState,
 	old SelectionValue,
 	session Session,
+	currencies []domain.CurrencyCount,
 ) (SelectionValue, error) {
 	kind := identityKindForState(state)
 	target := session.SelectedAggregateKeys
@@ -751,7 +762,7 @@ func (service *Service) selectionFromSession(
 	if len(target) == 0 {
 		return EmptySelection(), nil
 	}
-	return service.smallestSelection(state, old, kind, target)
+	return service.smallestSelection(state, old, kind, target, currencies)
 }
 
 func rejectedTransition(

@@ -641,6 +641,19 @@ func TestMatrixSetCurrencyRejectsInvalidCode(t *testing.T) {
 	}
 }
 
+func TestMatrixSetCurrencyRequiresACurrency(t *testing.T) {
+	t.Parallel()
+	for _, session := range []Session{matrixSession(t, "example"), NewSession()} {
+		drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+		before := session.Clone()
+
+		require.Error(t, session.SetCurrency(nil))
+
+		assert.Equal(t, before.ViewState(), session.ViewState())
+		assert.Equal(t, columnsOf(before), columnsOf(session))
+	}
+}
+
 func TestMatrixSetSortReversesActiveFieldAndKeepsSelection(t *testing.T) {
 	t.Parallel()
 	session := matrixSession(t, "example")
@@ -827,11 +840,6 @@ func TestMatrixSetCurrencyToTheCurrentScopeChangesNothing(t *testing.T) {
 
 	require.NoError(t, session.SetCurrency(&domain.CurrencyScope{Currency: "USD", Scale: 3}))
 	assert.Empty(t, session.Drilldowns, "a different scale is a different scope")
-
-	all := NewSession()
-	drillMatrixRow(t, &all, matrixRow(domain.DimensionMerchant, "merchant-1"))
-	require.NoError(t, all.SetCurrency(nil))
-	assert.Len(t, all.Drilldowns, 1, "no scope to no scope changes nothing")
 }
 
 func TestMatrixSetCurrencyLeavesASubGroupedAllTransactionsView(t *testing.T) {

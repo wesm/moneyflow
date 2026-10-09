@@ -21,7 +21,7 @@ func (service *Service) projectionSelectionSummary(
 	if err != nil {
 		return nil, err
 	}
-	explicit := document.payload().Base == selectionBaseExplicit
+	explicit := document.Base == selectionBaseExplicit
 	if !explicit || selection.Kind != IdentityTransaction {
 		return selectionSummary(result)
 	}
