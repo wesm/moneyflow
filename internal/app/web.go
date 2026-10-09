@@ -95,6 +95,7 @@ type WebDetailRow struct {
 	Identity    string
 	Row         domain.DetailRow
 	AmazonMatch *AmazonMatchIndicator
+	Staged      *StagedValues
 }
 
 // AmazonMatchIndicator is the bounded table-cell summary for one best match.
@@ -232,6 +233,7 @@ func (service *Service) projectViewLocked(
 	service.mu.RUnlock()
 	projection.Window = windowResult(window, projection.TotalRows)
 	projection.DetailRows = detailWindow(result.DetailRows, projection.Window)
+	service.decorateStagedValues(projection.DetailRows)
 	if err = service.decorateAmazonMatchColumn(&projection, result.DetailRows); err != nil {
 		return WebProjection{}, invalidWebRequest(err)
 	}
