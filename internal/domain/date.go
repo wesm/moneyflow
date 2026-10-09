@@ -100,3 +100,50 @@ func (d *Date) UnmarshalJSON(data []byte) error {
 func (d Date) ordinal() int {
 	return d.year*10000 + int(d.month)*100 + d.day
 }
+
+// MonthStart returns the first day of the date's month.
+func (d Date) MonthStart() Date {
+	return Date{year: d.year, month: d.month, day: 1}
+}
+
+// MonthEnd returns the last day of the date's month.
+func (d Date) MonthEnd() Date {
+	return Date{year: d.year, month: d.month, day: daysInMonth(d.year, d.month)}
+}
+
+// YearStart returns January 1 of the date's year.
+func (d Date) YearStart() Date {
+	return Date{year: d.year, month: time.January, day: 1}
+}
+
+// YearEnd returns December 31 of the date's year.
+func (d Date) YearEnd() Date {
+	return Date{year: d.year, month: time.December, day: 31}
+}
+
+// AddMonthsClamped moves by whole months and clamps the day to the target month's length,
+// so January 31 plus one month is February 28 or 29.
+func (d Date) AddMonthsClamped(delta int) (Date, error) {
+	months := d.year*12 + int(d.month) - 1 + delta
+	year, month := months/12, time.Month(months%12+1)
+	if months < 0 || year < 1 || year > 9999 {
+		return Date{}, errors.New("add months: result outside supported range")
+	}
+	return Date{year: year, month: month, day: min(d.day, daysInMonth(year, month))}, nil
+}
+
+// DaysBetween returns end minus start in calendar days.
+func DaysBetween(start Date, end Date) int {
+	startTime := time.Date(start.year, start.month, start.day, 0, 0, 0, 0, time.UTC)
+	endTime := time.Date(end.year, end.month, end.day, 0, 0, 0, 0, time.UTC)
+	return int(endTime.Sub(startTime).Hours() / 24)
+}
+
+// IsZero reports whether the date is the unset zero value.
+func (d Date) IsZero() bool {
+	return d == Date{}
+}
+
+func daysInMonth(year int, month time.Month) int {
+	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+}
