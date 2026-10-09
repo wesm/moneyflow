@@ -714,6 +714,13 @@ func TestTransitionViewSetsCurrencyAndClearsDrill(t *testing.T) {
 	assert.Equal(t, EmptySelection(), nextSelection)
 	assert.NotEmpty(t, projection.AggregateRows)
 
+	_, _, _, err = service.TransitionView(
+		next, nextSelection,
+		TransitionRequest{Action: ActionSetCurrency, Currency: &scope},
+		WindowRequest{},
+	)
+	assertWebCode(t, err, WebNoChange)
+
 	bad := domain.CurrencyScope{Currency: "usd", Scale: 2}
 	rejected, _, _, err := service.TransitionView(
 		next, nextSelection,

@@ -316,16 +316,12 @@ func (model *Model) refreshForInteraction() bool {
 	return false
 }
 
-var groupingKeys = map[string]domain.Dimension{
-	"1": domain.DimensionMerchant,
-	"2": domain.DimensionCategory,
-	"3": domain.DimensionGroup,
-	"4": domain.DimensionAccount,
-	"5": domain.DimensionTime,
-}
-
 func (model *Model) setGrouping(message tea.KeyPressMsg) {
-	if err := model.session.SetGrouping(groupingKeys[message.Keystroke()]); err != nil {
+	dimension, ok := app.GroupingForKey(message.Keystroke())
+	if !ok {
+		return
+	}
+	if err := model.session.SetGrouping(dimension); err != nil {
 		model.err = err
 		return
 	}

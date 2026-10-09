@@ -768,3 +768,122 @@ func TestMatrixSetGroupingFromAllTransactionsUsesTheAggregateSortDefault(t *test
 
 	assert.Equal(t, amountDescending(), session.Sort)
 }
+
+func amountAscending() domain.SortSpec {
+	return sortSpec(domain.SortFieldAmount, domain.SortDirectionAsc)
+}
+
+func TestMatrixLeavingADetailViewKeepsAnAmountOrCountSortDirection(t *testing.T) {
+	t.Parallel()
+	leavers := map[string]func(*Session) error{
+		"grouping": func(s *Session) error { return s.SetGrouping(domain.DimensionCategory) },
+		"currency": func(s *Session) error {
+			return s.SetCurrency(&domain.CurrencyScope{Currency: "EUR", Scale: 2})
+		},
+	}
+	for name, leave := range leavers {
+		for _, sort := range []domain.SortSpec{
+			amountAscending(), sortSpec(domain.SortFieldCount, domain.SortDirectionAsc),
+		} {
+			t.Run(name+" "+string(sort.Field), func(t *testing.T) {
+				session := NewSession()
+				drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+				session.Sort = sort
+
+				require.NoError(t, leave(&session))
+
+				assert.Equal(t, sort, session.Sort)
+				assert.Equal(t, domain.ResultModeAggregate, session.Mode)
+			})
+		}
+	}
+}
+
+func TestMatrixTopLevelCycleKeepsAnAmountSortDirectionLikeSetGrouping(t *testing.T) {
+	t.Parallel()
+	cycled := NewSession()
+	cycled.Sort = amountAscending()
+	direct := cycled.Clone()
+
+	cycled.CycleGrouping()
+	require.NoError(t, direct.SetGrouping(cycled.Dimension))
+
+	assert.Equal(t, amountAscending(), cycled.Sort)
+	assert.Equal(t, cycled.Sort, direct.Sort)
+}
+
+func TestMatrixSetCurrencyToTheCurrentScopeChangesNothing(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "example")
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	session.CycleSubGrouping()
+	session.ToggleAggregateSelection("category-selected")
+	before := session.Clone()
+
+	require.NoError(t, session.SetCurrency(&domain.CurrencyScope{Currency: "USD", Scale: 2}))
+
+	assert.Equal(t, before.ViewState(), session.ViewState())
+	assert.Equal(t, columnsOf(before), columnsOf(session), "drill and selection are kept")
+
+	require.NoError(t, session.SetCurrency(&domain.CurrencyScope{Currency: "USD", Scale: 3}))
+	assert.Empty(t, session.Drilldowns, "a different scale is a different scope")
+
+	all := NewSession()
+	drillMatrixRow(t, &all, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	require.NoError(t, all.SetCurrency(nil))
+	assert.Len(t, all.Drilldowns, 1, "no scope to no scope changes nothing")
+}
+
+func TestMatrixSetCurrencyLeavesASubGroupedAllTransactionsView(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "")
+	session.ShowAllDetail()
+	require.True(t, session.JumpToTime(ViewPosition{}))
+	require.NotNil(t, session.SubGrouping)
+
+	require.NoError(t, session.SetCurrency(&domain.CurrencyScope{Currency: "EUR", Scale: 2}))
+
+	assert.Equal(t, domain.ResultModeDetail, session.Mode)
+	assert.Nil(t, session.SubGrouping)
+	assert.Empty(t, session.Drilldowns)
+	assert.Empty(t, session.ViewState().Returns)
+	assert.Equal(t, amountDescending(), session.Sort, "a detail sort replaces the time-period sort")
+	assert.NoError(t, session.ViewState().Validate())
+}
+
+func TestMatrixSetSortInsideASubGroupedDrillUsesTheSubGroupingFields(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "")
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	require.NoError(t, session.SetSubGrouping(domain.DimensionCategory))
+	session.ToggleAggregateSelection("category-selected")
+	want := columnsOf(session)
+
+	require.NoError(t, session.SetSort(domain.SortFieldCategory))
+
+	want.sort = sortSpec(domain.SortFieldCategory, domain.SortDirectionAsc)
+	assert.Equal(t, want, columnsOf(session))
+	require.NoError(t, session.SetSort(domain.SortFieldCount))
+	assert.Equal(t, sortSpec(domain.SortFieldCount, domain.SortDirectionDesc), session.Sort)
+	for _, field := range []domain.SortField{
+		domain.SortFieldMerchant, domain.SortFieldDate, domain.SortFieldTimePeriod,
+	} {
+		require.Error(t, session.SetSort(field), field)
+	}
+}
+
+func TestGroupingForKeyFollowsTheRegistryKeysAndGroupingOrder(t *testing.T) {
+	t.Parallel()
+	definition, ok := ActionByID(ActionSetGrouping)
+	require.True(t, ok)
+	require.Len(t, definition.Keys, len(dimensionOrder))
+	for index, key := range definition.Keys {
+		dimension, ok := GroupingForKey(key)
+		require.True(t, ok, key)
+		assert.Equal(t, dimensionOrder[index], dimension, key)
+	}
+	for _, key := range []string{"", "0", "6", "g", "11"} {
+		_, ok := GroupingForKey(key)
+		assert.False(t, ok, key)
+	}
+}

@@ -123,6 +123,9 @@ func (session *Session) SetCurrency(scope *domain.CurrencyScope) error {
 	if scope != nil && !domain.IsValidCurrency(scope.Currency) {
 		return fmt.Errorf("set currency: %q is not a three-letter uppercase code", scope.Currency)
 	}
+	if equalCurrencyScopes(session.Currency, scope) {
+		return nil
+	}
 	fromDetail := session.fromDetailView()
 	hadDrill := len(session.Drilldowns) > 0
 	hadSubGrouping := session.SubGrouping != nil
@@ -151,6 +154,27 @@ func (session *Session) SetSort(field domain.SortField) error {
 	}
 	session.Sort = domain.SortSpec{Field: field, Direction: defaultSortDirection(field)}
 	return nil
+}
+
+// GroupingForKey returns the dimension that a view.set-grouping key selects. The keys
+// follow the order of the five top-level groupings.
+func GroupingForKey(key string) (domain.Dimension, bool) {
+	definition, ok := ActionByID(ActionSetGrouping)
+	if !ok {
+		return "", false
+	}
+	index := slices.Index(definition.Keys, key)
+	if index < 0 || index >= len(dimensionOrder) {
+		return "", false
+	}
+	return dimensionOrder[index], true
+}
+
+func equalCurrencyScopes(left *domain.CurrencyScope, right *domain.CurrencyScope) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
 }
 
 func defaultSortDirection(field domain.SortField) domain.SortDirection {
@@ -184,14 +208,17 @@ func (session *Session) rebaseSearchAnchor() {
 	session.searchAnchor = &marker
 }
 
-// topLevelSort picks the sort for a top-level aggregate. A detail sort field has no
-// aggregate meaning, so it starts from the amount default.
+// topLevelSort picks the sort for a top-level aggregate. A detail sort field other than
+// amount has no aggregate meaning, so it starts from the amount default. An amount or count
+// sort keeps its direction.
 func topLevelSort(
 	dimension domain.Dimension,
 	current domain.SortSpec,
 	fromDetail bool,
 ) domain.SortSpec {
-	if fromDetail {
+	keepsDirection := current.Field == domain.SortFieldAmount ||
+		current.Field == domain.SortFieldCount
+	if fromDetail && !keepsDirection {
 		current = amountDescending()
 	}
 	return sortForTopLevelTransition(dimension, current)
