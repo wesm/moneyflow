@@ -109,6 +109,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let searchSnapshot: SearchSnapshot | undefined
   let recheckRequest: Promise<ViewProjection | undefined> | undefined
   let lastRevisionObservation = 0
+  let returning: { sequence: number; projection: ViewProjection } | undefined
   const prefetchRequests = new SvelteMap<string, AbortController>()
 
   const providerWrite = createProviderWriteController({
@@ -208,6 +209,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   async function apply(action: TransitionAction): Promise<boolean> {
     if (!projection) return false
+    returning = undefined
     const prior = projection
     const body: TransitionBody = {
       query: prior.canonical_query,
@@ -228,13 +230,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         async () =>
           ensureVisibleWindow(await options.client.transition(body, activeRequest?.signal)),
         (next) => {
-          if (action.action === 'view.back') {
-            const delta = ledger.deltaTo(next.canonical_query, next.selection, browserHistory.state)
-            if (delta !== undefined) {
-              browserHistory.go(delta)
-              return
-            }
-            accept(next, 'replace')
+          if (action.action === 'view.back' || action.action === 'view.back-to') {
+            returnTo(next)
             return
           }
           accept(next, action.action.startsWith('selection.') ? 'replace' : 'push')
@@ -247,9 +244,32 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return await run()
   }
 
+  function returnTo(next: ViewProjection): void {
+    const current = ledger.read(browserHistory.state)
+    if (current?.query === next.canonical_query) {
+      accept(next, 'replace')
+      return
+    }
+    const delta = ledger.deltaTo(next.canonical_query, browserHistory.state)
+    if (current === undefined || delta === undefined) {
+      accept(next, 'replace')
+      return
+    }
+    returning = { sequence: current.sequence + delta, projection: next }
+    browserHistory.go(delta)
+  }
+
   async function restore(event: PopStateEvent): Promise<void> {
     searchSnapshot = undefined
     const owned = ledger.record(event.state)
+    const returned = returning
+    returning = undefined
+    if (owned && returned?.sequence === owned.sequence) {
+      generation += 1
+      activeRequest?.abort()
+      accept(returned.projection, 'replace', owned)
+      return
+    }
     const query = owned?.query ?? currentQuery(browserLocation)
     const selection = owned?.selection ?? projection?.selection
     await requestProjection(

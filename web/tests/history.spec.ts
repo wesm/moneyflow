@@ -40,6 +40,36 @@ test('@smoke browser history, Esc, refresh, and selection retain server state', 
   await expect(refinements(page)).toContainText('Search: noodle')
 })
 
+test('Esc after a selection returns to the same entry, and Back and Forward land on views', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  const initialLength = await page.evaluate(() => history.length)
+  const topURL = page.url()
+  const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const selectedRows = page.locator('[role="row"][aria-selected="true"]')
+
+  await page.keyboard.press('Space')
+  await expect(selectedRows).toHaveCount(1)
+  await page.keyboard.press('Enter')
+  await expect(refinements(page)).toContainText(`M: ${merchant}`)
+  const drillURL = page.url()
+  await page.keyboard.press('Escape')
+  await expect(refinements(page)).toContainText('Merchants')
+  await expect(page).toHaveURL(topURL)
+  await expect(selectedRows).toHaveCount(0)
+  expect(await page.evaluate(() => history.length)).toBe(initialLength + 1)
+
+  await page.goForward()
+  await expect(page).toHaveURL(drillURL)
+  await expect(refinements(page)).toContainText(`M: ${merchant}`)
+  await page.goBack()
+  await expect(page).toHaveURL(topURL)
+  await expect(refinements(page)).toContainText('Merchants')
+  await expect(selectedRows).toHaveCount(0)
+})
+
 test('direct invalid bookmarks fail safely and can reset', async ({ page, server }) => {
   await page.goto(`${server.url}?missing=1`)
   await expect(

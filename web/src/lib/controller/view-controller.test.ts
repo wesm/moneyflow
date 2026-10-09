@@ -82,7 +82,8 @@ describe('browser view controller', () => {
     const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
     const controller = controllerFor(
       clientWith({
-        transition: async () => projection('v=1', 0, 2),
+        transition: async (body) =>
+          projection(body.action === 'view.back' ? 'v=1' : 'v=1&group=category', 0, 2),
       }),
     )
     await controller.hydrate()
@@ -95,6 +96,73 @@ describe('browser view controller', () => {
     await controller.apply({ action: 'view.back' })
     expect(go).not.toHaveBeenCalled()
     expect(window.location.search).toBe('?v=1')
+  })
+
+  it('keeps one history entry per view when Esc returns after a selection change', async () => {
+    const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const selected = 'mfsel1.selected' as SelectionValue
+    const cleared = 'mfsel1.cleared' as SelectionValue
+    const client = clientWith({
+      view: vi.fn(async (body) => projection('v=1', body.window.offset, 3, '0', cleared)),
+      transition: vi.fn(async (body) => {
+        if (body.action === 'selection.toggle') return projection('v=1', 0, 3, '0', selected)
+        if (body.action === 'view.drill') {
+          return projection('v=1&drill=x', 0, 3, '0', body.selection as SelectionValue)
+        }
+        return projection('v=1', 0, 3, '0', cleared)
+      }),
+    })
+    const controller = controllerFor(client)
+    await controller.hydrate()
+    await controller.apply({
+      action: 'selection.toggle',
+      target: { kind: 'transaction', identity: 'row-0' },
+    })
+    const topLevel = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill', target: { kind: 'aggregate', identity: 'x' } })
+
+    await controller.apply({ action: 'view.back' })
+    expect(go).toHaveBeenCalledWith(-1)
+    vi.mocked(client.view).mockClear()
+    history.replaceState(topLevel, '', '/moneyflow/?v=1')
+    await controller.restore(new PopStateEvent('popstate', { state: topLevel }))
+
+    expect(client.view).not.toHaveBeenCalled()
+    expect(controller.projection?.selection).toBe(cleared)
+    expect((history.state as MoneyflowHistoryState).selection).toBe(cleared)
+    expect((history.state as MoneyflowHistoryState).sequence).toBe(topLevel.sequence)
+  })
+
+  it('replaces in place when Esc returns the query the current entry already holds', async () => {
+    const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const pushes = vi.spyOn(history, 'pushState')
+    const controller = controllerFor(clientWith())
+    await controller.hydrate()
+    go.mockClear()
+    pushes.mockClear()
+
+    await controller.apply({ action: 'view.back' })
+
+    expect(go).not.toHaveBeenCalled()
+    expect(pushes).not.toHaveBeenCalled()
+    expect((history.state as MoneyflowHistoryState).sequence).toBe(0)
+  })
+
+  it('returns to a breadcrumb level through owned history', async () => {
+    const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const controller = controllerFor(
+      clientWith({
+        transition: async (body) =>
+          projection(body.action === 'view.back-to' ? 'v=1' : `v=1&drill=${body.action}`, 0, 2),
+      }),
+    )
+    await controller.hydrate()
+    await controller.apply({ action: 'view.drill' })
+    await controller.apply({ action: 'view.drill-again' })
+
+    await controller.apply({ action: 'view.back-to', depth: 0 })
+
+    expect(go).toHaveBeenCalledWith(-2)
   })
 
   it('restores owned Back/Forward state including cursor and selection', async () => {
@@ -495,7 +563,13 @@ function clientWith(overrides: Partial<MoneyflowClient> = {}): MoneyflowClient {
   }
 }
 
-function projection(query: string, offset: number, total: number, revision = '0'): ViewProjection {
+function projection(
+  query: string,
+  offset: number,
+  total: number,
+  revision = '0',
+  selection = 'mfsel1.example',
+): ViewProjection {
   const count = Math.max(0, Math.min(200, total - offset))
   return {
     api_schema_version: '1',
@@ -512,7 +586,7 @@ function projection(query: string, offset: number, total: number, revision = '0'
       sort_field: 'date',
       sort_direction: 'desc',
     },
-    selection: 'mfsel1.example' as ViewProjection['selection'],
+    selection: selection as ViewProjection['selection'],
     selection_count: 0,
     breadcrumbs: [],
     breadcrumb_text: 'All transactions',
