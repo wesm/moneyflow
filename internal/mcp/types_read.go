@@ -50,6 +50,27 @@ type SpendingSummaryInput struct {
 	Limit     *int   `json:"limit,omitempty"`
 }
 
+// GetInsightsInput describes one analytical view. ID filters become drill-downs in the order
+// merchant, category, group, account; group_by groups the rows below them.
+type GetInsightsInput struct {
+	StartDate string `json:"start_date,omitempty" jsonschema:"inclusive ISO date; omit both for All"`
+	EndDate   string `json:"end_date,omitempty" jsonschema:"inclusive ISO date; omit both for All"`
+	Currency  string `json:"currency,omitempty" jsonschema:"ISO code; needed with several currencies"`
+	Scale     *uint8 `json:"scale,omitempty" jsonschema:"minor-unit digits; required with currency"`
+	GroupBy   string `json:"group_by,omitempty" jsonschema:"merchant, category, group, account, time"`
+
+	MerchantID string `json:"merchant_id,omitempty" jsonschema:"merchant ID from get_merchants"`
+	CategoryID string `json:"category_id,omitempty" jsonschema:"category ID from get_categories"`
+	GroupID    string `json:"group_id,omitempty" jsonschema:"category group ID from get_categories"`
+	AccountID  string `json:"account_id,omitempty" jsonschema:"account ID from transaction reads"`
+	Search     string `json:"search,omitempty" jsonschema:"case-insensitive regular expression"`
+
+	IncludeHidden    *bool    `json:"include_hidden,omitempty" jsonschema:"default true"`
+	IncludeTransfers bool     `json:"include_transfers,omitempty" jsonschema:"default false"`
+	Keys             []string `json:"keys,omitempty" jsonschema:"at most 200 group_by row IDs"`
+	Summary          *bool    `json:"summary,omitempty" jsonschema:"default true"`
+}
+
 type CategoriesInput struct {
 	GroupOffset    int  `json:"group_offset,omitempty"`
 	GroupLimit     *int `json:"group_limit,omitempty"`

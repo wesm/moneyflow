@@ -15,6 +15,42 @@ import (
 // MaxInsightsRows bounds requested series rows to one loaded browser window.
 const MaxInsightsRows = analytics.MaxInsightsKeys
 
+// The insights result types are named here too, so interface adapters that may not import
+// analytics can convert them.
+
+// InsightsRanges holds the scope, chart context, trend, and comparison ranges.
+type InsightsRanges = analytics.Ranges
+
+// InsightsPeriodRange is one chart period.
+type InsightsPeriodRange = analytics.PeriodRange
+
+// InsightsSummary holds the view-wide chart data.
+type InsightsSummary = analytics.InsightsSummary
+
+// InsightsKPIs holds the scope totals and their comparison.
+type InsightsKPIs = analytics.InsightsKPIs
+
+// InsightsTotals holds exact totals for one range.
+type InsightsTotals = analytics.InsightsTotals
+
+// InsightsChange compares a value with its prior range.
+type InsightsChange = analytics.Change
+
+// InsightsPeriod is one cash-flow period.
+type InsightsPeriod = analytics.InsightsPeriod
+
+// InsightsComposition ranks rows by their share of spending and of income.
+type InsightsComposition = analytics.Composition
+
+// InsightsCompositionEntry is one ranked row, or the entry folding the rest.
+type InsightsCompositionEntry = analytics.CompositionEntry
+
+// InsightsSeries is one requested row's chart data.
+type InsightsSeries = analytics.InsightsSeries
+
+// InsightsChangeAmount marks a change reported as an amount rather than a percentage.
+const InsightsChangeAmount = analytics.ChangeAmount
+
 var errMalformedIdentity = errors.New("malformed aggregate row identity")
 
 // InsightsRequest asks for the chart data of one view.

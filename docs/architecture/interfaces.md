@@ -87,6 +87,15 @@ controls; it does not permit direct provider mutations. Dry run validates withou
 Read tools return exact money strings/minor units, not JSON floats. Literal search includes notes,
 preserving Python MCP's search behavior without altering the TUI's regex search.
 
+`get_insights` returns the same chart data as the web insights operation, from the same
+`Service.Insights` primitive over **committed** values. The transaction reads apply pending edits;
+insights do not. The adapter turns its inputs into an analytical state by navigating a shared
+`app.Session`: ID filters become drill-downs in the order merchant, category, group, account;
+`group_by` is the top-level grouping without filters and the sub-grouping below them; omitting it
+requests a transaction view. Keys become aggregate row identities of that grouping and currency.
+Invalid views, including a bad regular expression, return `invalid_operation`. The document
+mirrors the HTTP response's sections but carries every amount as an MCP money object.
+
 Category and merchant assignment, whole-merchant rename/explicit merge, hide cancellation, and
 transaction deletion reuse the application mutation planner and provider checks. Transaction batches
 are atomic and bounded to 100 unique IDs. Whole-merchant edits report the full affected count with
