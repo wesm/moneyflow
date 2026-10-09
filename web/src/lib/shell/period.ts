@@ -202,3 +202,29 @@ export function yearCells(firstYear: number, latestYear: number, range: DateRang
   }
   return cells
 }
+
+export interface EmptyScope {
+  label: string
+  /** The period at the same resolution that contains Latest; Month for a custom range. */
+  jump: Period
+}
+
+/**
+ * Describes a chosen period with no transactions in the view's currency. All time and searches
+ * are not empty periods: the period is not what hides their results.
+ */
+export function emptyScope(projection: ViewProjection): EmptyScope | undefined {
+  const currency = activeCurrency(projection)
+  const range = projection.filters.date_range
+  const kind = scopeKind(range)
+  if (!currency || kind === 'all' || projection.view.search) return undefined
+  const counted = (projection.statistics ?? []).some(
+    (entry) =>
+      entry.currency === currency.currency && entry.scale === currency.scale && entry.count > 0,
+  )
+  if (counted) return undefined
+  return {
+    label: periodLabel(range),
+    jump: periodContaining(currency.latest, kind === 'custom' ? 'month' : kind),
+  }
+}

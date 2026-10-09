@@ -6,6 +6,7 @@ import {
   canShiftPeriod,
   chooserTab,
   customDraft,
+  emptyScope,
   gridStep,
   monthCells,
   periodContaining,
@@ -14,6 +15,7 @@ import {
   yearCells,
 } from './period'
 import { testProjection } from '../../test/projection'
+import type { ViewProjection } from '../api/client'
 
 describe('scopeKind', () => {
   it.each([
@@ -219,5 +221,70 @@ describe('chooser', () => {
     expect(
       yearCells(2024, 2026, { from: '2025-03-01', to: '2025-03-31' }).some((c) => c.selected),
     ).toBe(false)
+  })
+})
+
+describe('emptyScope', () => {
+  const usd = { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' }
+  const money = { minor: '0', currency: 'USD', scale: 2, decimal: '0.00', display: '0.00' }
+  const stats = (count: number, currency = 'USD') => ({
+    currency,
+    scale: 2,
+    count,
+    in: money,
+    out: money,
+    net: money,
+  })
+  const base = testProjection()
+  function scoped(from: string, to: string, overrides: Partial<ViewProjection> = {}) {
+    return testProjection({
+      currencies: [usd],
+      view: { ...base.view, currency: { currency: 'USD', scale: 2 } },
+      filters: { show_hidden: false, show_transfers: false, date_range: { from, to } },
+      statistics: [],
+      ...overrides,
+    })
+  }
+
+  it('offers the period at the same resolution that contains Latest', () => {
+    expect(emptyScope(scoped('2026-11-01', '2026-11-30'))).toEqual({
+      label: 'Nov 2026',
+      jump: { start: '2026-10-01', end: '2026-10-31' },
+    })
+    expect(emptyScope(scoped('2026-11-15', '2026-11-15'))?.jump).toEqual({
+      start: '2026-10-07',
+      end: '2026-10-07',
+    })
+    expect(emptyScope(scoped('2027-01-01', '2027-12-31'))?.jump).toEqual({
+      start: '2026-01-01',
+      end: '2026-12-31',
+    })
+  })
+
+  it('jumps from an empty custom range to the month containing Latest', () => {
+    expect(emptyScope(scoped('2023-03-10', '2023-04-09'))).toEqual({
+      label: 'Mar 10 – Apr 9, 2023',
+      jump: { start: '2026-10-01', end: '2026-10-31' },
+    })
+  })
+
+  it('counts only the active currency', () => {
+    expect(emptyScope(scoped('2026-11-01', '2026-11-30', { statistics: [stats(0)] }))).toBeDefined()
+    expect(
+      emptyScope(scoped('2026-11-01', '2026-11-30', { statistics: [stats(4, 'EUR')] })),
+    ).toBeDefined()
+    expect(emptyScope(scoped('2026-09-01', '2026-09-30', { statistics: [stats(4)] }))).toBe(
+      undefined,
+    )
+  })
+
+  it('is not an empty period for all time, a search, or a view without a currency', () => {
+    expect(emptyScope(testProjection({ currencies: [usd], statistics: [] }))).toBeUndefined()
+    const searched = scoped('2026-09-01', '2026-09-30')
+    searched.view.search = 'no such merchant'
+    expect(emptyScope(searched)).toBeUndefined()
+    expect(
+      emptyScope(scoped('2026-11-01', '2026-11-30', { view: base.view, currencies: [usd] })),
+    ).toBeUndefined()
   })
 })

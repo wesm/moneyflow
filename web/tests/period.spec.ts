@@ -111,3 +111,18 @@ test('Custom sets a range and All time clears it', async ({ page, server }) => {
   await expect(periodLabel(page)).toHaveText('All time')
   await expect(segment(page, 'All')).toBeChecked()
 })
+
+test('an empty month jumps to the latest month', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  await segment(page, 'Month').click()
+  await expect(periodLabel(page)).toHaveText('Oct 2026')
+  await page.getByRole('button', { name: 'Next period' }).click()
+  await expect(periodLabel(page)).toHaveText('Nov 2026')
+  const workspace = page.getByRole('main', { name: 'Moneyflow workspace' })
+  await expect(workspace.getByText('No transactions in Nov 2026', { exact: true })).toBeVisible()
+  await expect(grid(page)).toHaveCount(0)
+
+  await workspace.getByRole('button', { name: 'Jump to latest' }).click()
+  await expect(periodLabel(page)).toHaveText('Oct 2026')
+  await expect(grid(page)).toBeFocused()
+})

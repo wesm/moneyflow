@@ -7,6 +7,7 @@
   import RefinementBar from './RefinementBar.svelte'
   import ChartRail from './shell/ChartRail.svelte'
   import CommandBar from './shell/CommandBar.svelte'
+  import EmptyScope from './shell/EmptyScope.svelte'
   import PeriodControl from './shell/PeriodControl.svelte'
   import ShellAnnouncements from './shell/ShellAnnouncements.svelte'
   import ShellOverlays from './shell/ShellOverlays.svelte'
@@ -33,6 +34,7 @@
   import type { NavRun } from '../lib/shell/nav-items'
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
+  import { emptyScope } from '../lib/shell/period'
   import { connectionState, writeProgress } from '../lib/shell/status'
   interface Props {
     controller: ViewController
@@ -44,6 +46,7 @@
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
   let transitionTail: Promise<void> = Promise.resolve()
   const projection = $derived(controller.projection)
+  const emptyPeriod = $derived(projection && emptyScope(projection))
   const compact = new MediaQuery(MEDIA.compact)
   const fullSidebar = new MediaQuery(SIDEBAR_FULL_QUERY)
   const pushScope = (name: string) => shortcuts?.manager.pushScope(name)
@@ -209,15 +212,25 @@
           >
             <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
             <div class="app-shell__table" bind:this={grid}>
-              <FinanceTable
-                {projection}
-                cursorIndex={controller.cursorIndex}
-                onmove={(delta) => void controller.moveCursor(delta)}
-                onhome={() => void controller.moveHome()}
-                onactivate={(identity, kind) => void target('view.drill', identity, kind)}
-                onselect={(identity, kind) => void target('selection.toggle', identity, kind)}
-                oninformation={(identity) => void openTransactionInformation(actions, identity)}
-              />
+              {#if emptyPeriod}
+                <EmptyScope
+                  scope={emptyPeriod}
+                  onjump={() =>
+                    void controller
+                      .apply({ action: 'time.set-period', period: emptyPeriod.jump })
+                      .then(focusGrid)}
+                />
+              {:else}
+                <FinanceTable
+                  {projection}
+                  cursorIndex={controller.cursorIndex}
+                  onmove={(delta) => void controller.moveCursor(delta)}
+                  onhome={() => void controller.moveHome()}
+                  onactivate={(identity, kind) => void target('view.drill', identity, kind)}
+                  onselect={(identity, kind) => void target('selection.toggle', identity, kind)}
+                  oninformation={(identity) => void openTransactionInformation(actions, identity)}
+                />
+              {/if}
             </div>
             {#if charts.aside}
               <aside aria-label="Visualizations">

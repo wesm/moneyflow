@@ -101,6 +101,11 @@ Dates come from your transactions in the selected currency, never from your comp
 calendar. The chooser offers no dates after your newest transaction, but › can still move
 past it.
 
+When the chosen period has no transactions in the selected currency, the table is replaced by
+"No transactions in" and the period, with a **Jump to latest** button. It selects the period
+of the same length that contains your newest transaction; from a custom range it selects that
+month. A search with no matches shows the table's own empty state instead.
+
 ## Search
 
 Press `/`, enter a search, and apply it. TUI and web search use case-insensitive regular
