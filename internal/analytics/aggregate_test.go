@@ -136,6 +136,26 @@ func TestAggregateFlagsRowsWhoseTransactionsAreAllHidden(t *testing.T) {
 	}
 }
 
+func TestAggregateFlagsRowsWithSeveralTransactionsAllHidden(t *testing.T) {
+	t.Parallel()
+	first := testTransaction(t, "txn-first", "2024-01-01", "-10.00", "Same Store", "Dining", "Living")
+	first.Hidden = true
+	second := testTransaction(
+		t, "txn-second", "2024-01-02", "-20.00", "Same Store", "Dining", "Living",
+	)
+	second.Hidden = true
+	second.Merchant = first.Merchant
+
+	rows, err := Aggregate(
+		[]domain.Transaction{first, second}, domain.DimensionMerchant, domain.TimeGranularityMonth,
+	)
+
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, 2, rows[0].Count)
+	assert.True(t, rows[0].Flags.Hidden)
+}
+
 func TestAggregateTimeGapRowsAreNotHidden(t *testing.T) {
 	t.Parallel()
 	january := testTransaction(t, "txn-jan", "2024-01-01", "-10.00", "Store", "Dining", "Living")

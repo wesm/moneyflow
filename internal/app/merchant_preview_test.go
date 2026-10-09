@@ -212,6 +212,60 @@ func TestMerchantPreviewKeepsScalesApartInOutsideCurrencies(t *testing.T) {
 	assert.Equal(t, []domain.CurrencyScope{{Currency: "USD", Scale: 3}}, preview.OutsideCurrencies)
 }
 
+func TestMerchantPreviewCountsHiddenTransactionsInDetailMode(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	hidden := merchantARecord(t, "transaction_c", "2026-08-14", "USD")
+	hidden.Hidden = true
+	profile.snapshot.Committed.Transactions = append(profile.snapshot.Committed.Transactions, hidden)
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	session := app.NewSession()
+	session.ShowAllDetail()
+	session.ShowHidden = false
+	request := app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: 5, State: session.ViewState(),
+		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_a"},
+		Input:  app.EditInput{Scope: app.EditScopeEntity},
+	}
+
+	preview, err := service.PreviewMerchantEdit(ctx, request)
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, preview.AffectedTransactions)
+	assert.Zero(t, preview.OutsideView, "the detail table still shows hidden rows")
+	assert.Empty(t, preview.OutsideCurrencies)
+}
+
+func TestMerchantPreviewErrorReportsThePreviewedRevision(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	session := app.NewSession()
+	rows, err := service.Query(session)
+	require.NoError(t, err)
+	session.SetSearch("(")
+	request := app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: 5, State: session.ViewState(),
+		Target: &app.RowTarget{
+			Kind: app.IdentityAggregate, Identity: app.AggregateIdentity(rows.AggregateRows[0]),
+		},
+		Input: app.EditInput{Scope: app.EditScopeEntity},
+	}
+
+	_, err = service.PreviewMerchantEdit(ctx, request)
+
+	assertAppCode(t, err, app.AppInvalidOperation)
+	var failure *app.AppError
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, uint64(5), failure.CurrentRevision)
+}
+
 func merchantARecord(
 	t *testing.T, id, date string, currency domain.Currency,
 ) domain.TransactionRecord {
