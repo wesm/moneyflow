@@ -73,3 +73,24 @@ func validQuerySpec(mode domain.ResultMode, dimension domain.Dimension) domain.Q
 		},
 	}
 }
+
+func TestQuerySubGroupingFlagsRowsWhoseTransactionsAreAllHidden(t *testing.T) {
+	t.Parallel()
+	hidden := testTransaction(t, "txn-hidden", "2024-01-01", "-10.00", "Store", "Dining", "Living")
+	hidden.Hidden = true
+	visible := testTransaction(t, "txn-visible", "2024-01-02", "-20.00", "Store", "Travel", "Living")
+	visible.Merchant = hidden.Merchant
+	spec := validQuerySpec(domain.ResultModeAggregate, domain.DimensionCategory)
+	spec.Drilldowns = []domain.Drilldown{{
+		Dimension: domain.DimensionMerchant, Currency: "USD", Scale: 2,
+		Key: hidden.Merchant.ID, Label: hidden.Merchant.Name,
+	}}
+
+	result, err := Query([]domain.Transaction{hidden, visible}, spec)
+	require.NoError(t, err)
+	flags := make(map[string]bool, len(result.AggregateRows))
+	for _, row := range result.AggregateRows {
+		flags[row.Label] = row.Flags.Hidden
+	}
+	assert.Equal(t, map[string]bool{"Dining": true, "Travel": false}, flags)
+}
