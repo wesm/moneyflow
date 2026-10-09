@@ -26,8 +26,8 @@ func TestOpenAPIDeterministicEditingContract(t *testing.T) {
 	require.NoError(t, err)
 	profilePrefix := "/moneyflow/api/v1/profiles/{profile_id}/"
 	for _, endpoint := range []string{
-		"health", "view", "view/transition", "mutations", "undo", "redo", "commit",
-		"review", "review/targets", "duplicates", "editor-catalog",
+		"health", "view", "view/transition", "view/insights", "mutations", "undo", "redo",
+		"commit", "review", "review/targets", "duplicates", "editor-catalog",
 	} {
 		assert.Contains(t, string(yaml), profilePrefix+endpoint)
 	}

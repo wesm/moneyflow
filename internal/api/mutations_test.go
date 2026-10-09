@@ -433,6 +433,11 @@ func newPersistentAPITestServerFor(
 	now func() time.Time,
 ) *Server {
 	t.Helper()
+	return newAPITestServerForServiceWithClock(t, newPersistentAPITestService(t, transactions), now)
+}
+
+func newPersistentAPITestService(t testing.TB, transactions []domain.Transaction) *app.Service {
+	t.Helper()
 	ctx := context.Background()
 	paths, err := home.ResolveRoot(t.TempDir(), nil, "")
 	require.NoError(t, err)
@@ -445,7 +450,7 @@ func newPersistentAPITestServerFor(
 	require.NoError(t, err)
 	service, err := app.NewProfileService(ctx, profile)
 	require.NoError(t, err)
-	return newAPITestServerForServiceWithClock(t, service, now)
+	return service
 }
 
 func newAPITestServerForService(t testing.TB, service *app.Service) *Server {

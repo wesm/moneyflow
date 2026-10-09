@@ -833,6 +833,346 @@ components:
         - revision
         - pending
       type: object
+    InsightsBody:
+      additionalProperties: false
+      properties:
+        query:
+          maxLength: 65536
+          type: string
+        rows:
+          items:
+            type: string
+          type: array
+        summary:
+          type: boolean
+      required:
+        - query
+      type: object
+    InsightsCashflow:
+      additionalProperties: false
+      properties:
+        count:
+          items:
+            format: int64
+            type: integer
+          type: array
+        in:
+          items:
+            type: string
+          type: array
+        labels:
+          items:
+            type: string
+          type: array
+        net:
+          items:
+            type: string
+          type: array
+        out:
+          items:
+            type: string
+          type: array
+      required:
+        - labels
+        - in
+        - out
+        - net
+        - count
+      type: object
+    InsightsChange:
+      additionalProperties: false
+      properties:
+        amount:
+          type: string
+        favorable:
+          type: boolean
+        grew:
+          type: boolean
+        kind:
+          enum:
+            - none
+            - new
+            - percent
+            - amount
+          type: string
+        percent_tenths:
+          format: int64
+          type: integer
+      required:
+        - kind
+        - percent_tenths
+        - grew
+        - favorable
+      type: object
+    InsightsComposition:
+      additionalProperties: false
+      properties:
+        income:
+          items:
+            $ref: "#/components/schemas/InsightsCompositionEntry"
+          type: array
+        spending:
+          items:
+            $ref: "#/components/schemas/InsightsCompositionEntry"
+          type: array
+      required:
+        - spending
+        - income
+      type: object
+    InsightsCompositionEntry:
+      additionalProperties: false
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        net:
+          type: string
+        others:
+          format: int64
+          type: integer
+        share_tenths:
+          format: int64
+          type: integer
+      required:
+        - label
+        - net
+        - share_tenths
+      type: object
+    InsightsDateRange:
+      additionalProperties: false
+      properties:
+        end:
+          format: date
+          type: string
+        start:
+          format: date
+          type: string
+      required:
+        - start
+        - end
+      type: object
+    InsightsHeatmap:
+      additionalProperties: false
+      properties:
+        end:
+          format: date
+          type: string
+        layout:
+          enum:
+            - months
+            - weeks
+          type: string
+        start:
+          format: date
+          type: string
+      required:
+        - layout
+        - start
+        - end
+      type: object
+    InsightsInOut:
+      additionalProperties: false
+      properties:
+        in:
+          items:
+            type: string
+          type: array
+        out:
+          items:
+            type: string
+          type: array
+      required:
+        - in
+        - out
+      type: object
+    InsightsKPIs:
+      additionalProperties: false
+      properties:
+        average_per_transaction:
+          type: string
+        comparison:
+          $ref: "#/components/schemas/InsightsTotals"
+        income_change:
+          $ref: "#/components/schemas/InsightsChange"
+        net_change:
+          $ref: "#/components/schemas/InsightsChange"
+        savings_rate_tenths:
+          format: int64
+          type: integer
+        scope:
+          $ref: "#/components/schemas/InsightsTotals"
+        spending_change:
+          $ref: "#/components/schemas/InsightsChange"
+      required:
+        - scope
+      type: object
+    InsightsPeriodRange:
+      additionalProperties: false
+      properties:
+        absent:
+          type: boolean
+        end:
+          format: date
+          type: string
+        partial:
+          type: boolean
+        period:
+          $ref: "#/components/schemas/Period"
+        start:
+          format: date
+          type: string
+      required:
+        - period
+        - start
+        - end
+        - partial
+        - absent
+      type: object
+    InsightsRanges:
+      additionalProperties: false
+      properties:
+        comparison:
+          $ref: "#/components/schemas/InsightsDateRange"
+        comparison_label:
+          type: string
+        context:
+          items:
+            $ref: "#/components/schemas/InsightsPeriodRange"
+          type: array
+        context_granularity:
+          enum:
+            - year
+            - month
+            - day
+          type: string
+        heatmap:
+          $ref: "#/components/schemas/InsightsHeatmap"
+        kind:
+          enum:
+            - day
+            - month
+            - year
+            - custom
+            - all
+          type: string
+        scope:
+          $ref: "#/components/schemas/InsightsDateRange"
+        trend:
+          items:
+            $ref: "#/components/schemas/InsightsPeriodRange"
+          type: array
+      required:
+        - kind
+        - context_granularity
+        - context
+        - trend
+      type: object
+    InsightsResponse:
+      additionalProperties: false
+      properties:
+        currency:
+          type: string
+        latest:
+          format: date
+          type: string
+        query:
+          type: string
+        ranges:
+          $ref: "#/components/schemas/InsightsRanges"
+        revision:
+          pattern: ^[0-9]+$
+          type: string
+        scale:
+          format: int32
+          minimum: 0
+          type: integer
+        series:
+          items:
+            $ref: "#/components/schemas/InsightsSeries"
+          type: array
+        summary:
+          $ref: "#/components/schemas/InsightsSummary"
+        today:
+          format: date
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - revision
+        - query
+        - currency
+        - scale
+        - today
+        - ranges
+        - series
+      type: object
+    InsightsSeries:
+      additionalProperties: false
+      properties:
+        context:
+          $ref: "#/components/schemas/InsightsInOut"
+        identity:
+          type: string
+        prior_net:
+          type: string
+        trend:
+          items:
+            type: string
+          type: array
+        vs_prior:
+          $ref: "#/components/schemas/InsightsChange"
+      required:
+        - identity
+        - trend
+        - context
+      type: object
+    InsightsSummary:
+      additionalProperties: false
+      properties:
+        calendar:
+          $ref: "#/components/schemas/InsightsInOut"
+        cashflow:
+          $ref: "#/components/schemas/InsightsCashflow"
+        composition:
+          $ref: "#/components/schemas/InsightsComposition"
+        kpis:
+          $ref: "#/components/schemas/InsightsKPIs"
+        period_composition:
+          items:
+            $ref: "#/components/schemas/InsightsComposition"
+          type: array
+      required:
+        - kpis
+        - cashflow
+      type: object
+    InsightsTotals:
+      additionalProperties: false
+      properties:
+        count:
+          format: int64
+          type: integer
+        hidden_count:
+          format: int64
+          type: integer
+        in:
+          type: string
+        net:
+          type: string
+        out:
+          type: string
+        pending_count:
+          format: int64
+          type: integer
+      required:
+        - in
+        - out
+        - net
+        - count
+        - hidden_count
+        - pending_count
+      type: object
     MerchantPreviewResponse:
       additionalProperties: false
       properties:
@@ -5013,6 +5353,59 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Internal Server Error
       summary: Project one stateless read-only view
+  /api/v1/profiles/{profile_id}/view/insights:
+    post:
+      operationId: projectInsights
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsightsBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InsightsResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Project chart data for one view from committed values
   /api/v1/profiles/{profile_id}/view/transition:
     post:
       operationId: transitionView

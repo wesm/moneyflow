@@ -51,6 +51,7 @@ func TestDemoSpansFixedDatesInUSDAndEUR(t *testing.T) {
 	}
 	assert.Equal(t, first, earliest)
 	assert.Equal(t, last, latest)
+	assert.Equal(t, last, DemoLastDate())
 	assert.Equal(t, map[domain.Currency]uint8{"USD": 2, "EUR": 2}, currencies)
 }
 

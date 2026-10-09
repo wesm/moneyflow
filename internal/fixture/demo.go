@@ -439,6 +439,10 @@ func (builder *demoBuilder) addOccurrence(
 	}
 }
 
+// DemoLastDate is the date of the demo's newest transaction. Demos use it as today, so their
+// output never depends on the current date.
+func DemoLastDate() domain.Date { return mustDemoDate(2026, time.October, 7) }
+
 // Demo returns the deterministic synthetic household behind `--demo`. It spans 2024-01-01
 // through 2026-10-07 with USD checking, card, and savings accounts plus a EUR travel card. It
 // has recurring merchants, seasonal spending, refunds, income, transfers, raw provider names on
@@ -452,7 +456,7 @@ func Demo() []domain.Transaction {
 	}
 	occurrences := make(map[string]int)
 	plans := demoPlans()
-	first, last := mustDemoDate(2024, time.January, 1), mustDemoDate(2026, time.October, 7)
+	first, last := mustDemoDate(2024, time.January, 1), DemoLastDate()
 	for date := first; date.Compare(last) <= 0; date = mustNextDemoDay(date) {
 		day := newDemoDay(date)
 		for _, plan := range plans {

@@ -157,6 +157,7 @@ func New(config Config) (*Server, error) {
 	server.registerSimpleFINOnboardingEndpoints(config)
 	server.registerAmazonImportEndpoints(config)
 	server.registerTransactionInformationEndpoint()
+	server.registerInsightsEndpoint()
 	server.installProblemSchemas()
 
 	var handler http.Handler = mux

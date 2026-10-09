@@ -316,6 +316,29 @@ func TestOpenProfileDemoSeedsUniquePrivateTemporaryProfileAndCleansIt(t *testing
 	require.NoError(t, err, "closing one demo must not remove another demo")
 }
 
+func TestOpenProfileDemoFixesInsightsTodayAtTheDemoEnd(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	opened, err := openProfile(ctx, ProfileOptions{Demo: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = opened.Close() })
+	demo := fixture.Demo()
+	latest := demo[0].Date
+	for _, transaction := range demo {
+		if transaction.Date.Compare(latest) > 0 {
+			latest = transaction.Date
+		}
+	}
+	state := app.DefaultViewState().Current
+	state.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+
+	result, err := opened.Service.Insights(ctx, app.InsightsRequest{State: state})
+
+	require.NoError(t, err)
+	assert.Equal(t, "2026-10-07", result.Insights.Today.String())
+	assert.Equal(t, latest, result.Insights.Today, "today is the demo's last transaction date")
+}
+
 func TestOpenTemporaryContractProfileUsesEmptySQLiteAndCleansIt(t *testing.T) {
 	t.Parallel()
 	opened, err := openTemporaryContractProfile(context.Background())

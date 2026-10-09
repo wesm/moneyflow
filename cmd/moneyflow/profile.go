@@ -238,23 +238,9 @@ func openDemoProfile(ctx context.Context, fixturePath string) (OpenedProfile, er
 			cause, profile.Close(), removeOwnedTemporaryRoot(root, demoDirectoryPrefix),
 		)
 	}
-	transactions := fixture.Demo()
-	if fixturePath != "" {
-		transactions, err = fixture.Load(fixturePath)
-	}
+	service, err := seedDemoService(ctx, profile, fixturePath)
 	if err != nil {
-		return fail(fmt.Errorf("open demo profile: load fixture: %w", err))
-	}
-	committed, err := fixture.CommittedProfile(transactions)
-	if err != nil {
-		return fail(fmt.Errorf("open demo profile: convert fixture: %w", err))
-	}
-	if _, err = profile.CreateSeededProfile(ctx, committed); err != nil {
-		return fail(fmt.Errorf("open demo profile: seed fixture: %w", err))
-	}
-	service, err := app.NewProfileService(ctx, profile)
-	if err != nil {
-		return fail(fmt.Errorf("open demo profile: load service: %w", err))
+		return fail(fmt.Errorf("open demo profile: %w", err))
 	}
 	return OpenedProfile{
 		ID: "profile_demo", DisplayName: "Demo", Service: service,
@@ -267,6 +253,43 @@ func openDemoProfile(ctx context.Context, fixturePath string) (OpenedProfile, er
 		Paths: paths,
 		Demo:  true,
 	}, nil
+}
+
+// seedDemoService seeds the built-in demo or a fixture document into an empty profile. The
+// built-in demo also fixes the service clock at its last transaction date.
+func seedDemoService(
+	ctx context.Context, profile store.Profile, fixturePath string,
+) (*app.Service, error) {
+	transactions := fixture.Demo()
+	var err error
+	if fixturePath != "" {
+		transactions, err = fixture.Load(fixturePath)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load fixture: %w", err)
+	}
+	committed, err := fixture.CommittedProfile(transactions)
+	if err != nil {
+		return nil, fmt.Errorf("convert fixture: %w", err)
+	}
+	if _, err = profile.CreateSeededProfile(ctx, committed); err != nil {
+		return nil, fmt.Errorf("seed fixture: %w", err)
+	}
+	service, err := app.NewProfileService(ctx, profile)
+	if err != nil {
+		return nil, fmt.Errorf("load service: %w", err)
+	}
+	if fixturePath == "" {
+		service.SetClock(demoClock)
+	}
+	return service, nil
+}
+
+// demoClock fixes today at the demo's last transaction date, so partial periods and
+// comparisons in demos do not depend on the current date.
+func demoClock() time.Time {
+	last := fixture.DemoLastDate()
+	return time.Date(last.Year(), last.Month(), last.Day(), 12, 0, 0, 0, time.UTC)
 }
 
 func openTemporaryContractProfile(ctx context.Context) (OpenedProfile, error) {

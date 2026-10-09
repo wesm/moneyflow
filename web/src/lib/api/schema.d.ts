@@ -700,6 +700,23 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/profiles/{profile_id}/view/insights': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Project chart data for one view from committed values */
+    post: operations['projectInsights']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/profiles/{profile_id}/view/transition': {
     parameters: {
       query?: never
@@ -1040,6 +1057,129 @@ export interface components {
       read_only: boolean
       revision: string
       version: string
+    }
+    InsightsBody: {
+      query: string
+      rows?: string[]
+      summary?: boolean
+    }
+    InsightsCashflow: {
+      count: number[]
+      in: string[]
+      labels: string[]
+      net: string[]
+      out: string[]
+    }
+    InsightsChange: {
+      amount?: string
+      favorable: boolean
+      grew: boolean
+      /** @enum {string} */
+      kind: 'none' | 'new' | 'percent' | 'amount'
+      /** Format: int64 */
+      percent_tenths: number
+    }
+    InsightsComposition: {
+      income: components['schemas']['InsightsCompositionEntry'][]
+      spending: components['schemas']['InsightsCompositionEntry'][]
+    }
+    InsightsCompositionEntry: {
+      key?: string
+      label: string
+      net: string
+      /** Format: int64 */
+      others?: number
+      /** Format: int64 */
+      share_tenths: number
+    }
+    InsightsDateRange: {
+      /** Format: date */
+      end: string
+      /** Format: date */
+      start: string
+    }
+    InsightsHeatmap: {
+      /** Format: date */
+      end: string
+      /** @enum {string} */
+      layout: 'months' | 'weeks'
+      /** Format: date */
+      start: string
+    }
+    InsightsInOut: {
+      in: string[]
+      out: string[]
+    }
+    InsightsKPIs: {
+      average_per_transaction?: string
+      comparison?: components['schemas']['InsightsTotals']
+      income_change?: components['schemas']['InsightsChange']
+      net_change?: components['schemas']['InsightsChange']
+      /** Format: int64 */
+      savings_rate_tenths?: number
+      scope: components['schemas']['InsightsTotals']
+      spending_change?: components['schemas']['InsightsChange']
+    }
+    InsightsPeriodRange: {
+      absent: boolean
+      /** Format: date */
+      end: string
+      partial: boolean
+      period: components['schemas']['Period']
+      /** Format: date */
+      start: string
+    }
+    InsightsRanges: {
+      comparison?: components['schemas']['InsightsDateRange']
+      comparison_label?: string
+      context: components['schemas']['InsightsPeriodRange'][]
+      /** @enum {string} */
+      context_granularity: 'year' | 'month' | 'day'
+      heatmap?: components['schemas']['InsightsHeatmap']
+      /** @enum {string} */
+      kind: 'day' | 'month' | 'year' | 'custom' | 'all'
+      scope?: components['schemas']['InsightsDateRange']
+      trend: components['schemas']['InsightsPeriodRange'][]
+    }
+    InsightsResponse: {
+      currency: string
+      /** Format: date */
+      latest?: string
+      query: string
+      ranges: components['schemas']['InsightsRanges']
+      revision: string
+      /** Format: int32 */
+      scale: number
+      series: components['schemas']['InsightsSeries'][]
+      summary?: components['schemas']['InsightsSummary']
+      /** Format: date */
+      today: string
+      version: string
+    }
+    InsightsSeries: {
+      context: components['schemas']['InsightsInOut']
+      identity: string
+      prior_net?: string
+      trend: string[]
+      vs_prior?: components['schemas']['InsightsChange']
+    }
+    InsightsSummary: {
+      calendar?: components['schemas']['InsightsInOut']
+      cashflow: components['schemas']['InsightsCashflow']
+      composition?: components['schemas']['InsightsComposition']
+      kpis: components['schemas']['InsightsKPIs']
+      period_composition?: components['schemas']['InsightsComposition'][]
+    }
+    InsightsTotals: {
+      /** Format: int64 */
+      count: number
+      /** Format: int64 */
+      hidden_count: number
+      in: string
+      net: string
+      out: string
+      /** Format: int64 */
+      pending_count: number
     }
     MerchantPreviewResponse: {
       /** Format: int64 */
@@ -5000,6 +5140,77 @@ export interface operations {
       }
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  projectInsights: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['InsightsBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['InsightsResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
         headers: {
           [name: string]: unknown
         }
