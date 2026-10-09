@@ -331,6 +331,42 @@ func TestGetInsightsRejectsInvalidInputWithItsReason(t *testing.T) {
 	}
 }
 
+func TestGetInsightsRejectsACurrencyTheProfileDoesNotHave(t *testing.T) {
+	service := insightsTestService(t)
+	client, cleanup := connectReadTestServer(t, service)
+	defer cleanup()
+
+	tests := map[string]map[string]any{
+		"unknown currency": {"currency": "EUR", "scale": 2},
+		"unknown scale":    {"currency": "USD", "scale": 3},
+	}
+	for name, arguments := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := callInsights(t, client, arguments)
+			assert.True(t, result.IsError)
+			document := result.StructuredContent.(map[string]any)
+			assert.Equal(t, "invalid_operation", document["code"])
+			assert.Contains(t, document["detail"], "The insights request is invalid: ")
+			assert.Contains(t, document["detail"], "the profile has no")
+		})
+	}
+}
+
+func TestGetInsightsChartsAnExplicitCurrencyInAnEmptyProfile(t *testing.T) {
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	client, cleanup := connectReadTestServer(t, service)
+	defer cleanup()
+
+	result := callInsights(t, client, map[string]any{"currency": "USD", "scale": 2})
+
+	require.False(t, result.IsError, "%v", result.StructuredContent)
+	document := result.StructuredContent.(map[string]any)
+	scope := document["summary"].(map[string]any)["kpis"].(map[string]any)["scope"].(map[string]any)
+	assert.Equal(t, float64(0), scope["count"])
+	assert.Equal(t, usd("0.00", "0"), scope["net"])
+}
+
 func TestGetInsightsExplainsAnEmptyProfile(t *testing.T) {
 	service, err := app.NewService(nil)
 	require.NoError(t, err)

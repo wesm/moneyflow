@@ -241,7 +241,7 @@ func insightsCurrency(
 		return domain.CurrencyScope{}, errors.New("currency and scale must be provided together")
 	}
 	if input.Currency != "" {
-		return domain.CurrencyScope{Currency: domain.Currency(input.Currency), Scale: *input.Scale}, nil
+		return requestedInsightsCurrency(input, currencies)
 	}
 	if len(currencies) == 0 {
 		return domain.CurrencyScope{}, errors.New("the profile has no transactions")
@@ -251,6 +251,24 @@ func insightsCurrency(
 			"the profile has several currencies; provide currency and scale")
 	}
 	return domain.CurrencyScope{Currency: currencies[0].Currency, Scale: currencies[0].Scale}, nil
+}
+
+// requestedInsightsCurrency accepts the requested pair when the profile has it. An empty
+// profile has no pairs, so any pair charts as zeros.
+func requestedInsightsCurrency(
+	input GetInsightsInput, currencies []domain.CurrencyCount,
+) (domain.CurrencyScope, error) {
+	scope := domain.CurrencyScope{Currency: domain.Currency(input.Currency), Scale: *input.Scale}
+	if len(currencies) == 0 {
+		return scope, nil
+	}
+	for _, have := range currencies {
+		if have.Currency == scope.Currency && have.Scale == scope.Scale {
+			return scope, nil
+		}
+	}
+	return domain.CurrencyScope{}, fmt.Errorf(
+		"the profile has no %s transactions at scale %d", scope.Currency, scope.Scale)
 }
 
 // insightsDateRange parses an inclusive range; omitting both dates means All.
