@@ -47,6 +47,7 @@ type AnalyticalState struct {
 	SearchAnchor    *NavigationScope       `json:"search_anchor,omitempty"`
 	ShowHidden      bool                   `json:"show_hidden"`
 	ShowTransfers   bool                   `json:"show_transfers"`
+	Currency        *domain.CurrencyScope  `json:"currency,omitempty"`
 	Sort            domain.SortSpec        `json:"sort"`
 }
 
@@ -83,6 +84,7 @@ func (state AnalyticalState) Clone() AnalyticalState {
 	state.SubGrouping = cloneDimension(state.SubGrouping)
 	state.Drilldowns = stableDrilldowns(state.Drilldowns)
 	state.DateRange = cloneDateRange(state.DateRange)
+	state.Currency = cloneCurrencyScope(state.Currency)
 	state.SearchAnchor = cloneNavigationScope(state.SearchAnchor)
 	return state
 }
@@ -194,7 +196,8 @@ func analyticalStateFromSession(session Session) AnalyticalState {
 		SubGrouping: cloneDimension(session.SubGrouping), TimeGranularity: session.TimeGranularity,
 		Drilldowns: stableDrilldowns(session.Drilldowns), DateRange: cloneDateRange(session.DateRange),
 		Search: session.Search, SearchAnchor: navigationScopeFromMarker(session.searchAnchor),
-		ShowHidden: session.ShowHidden, ShowTransfers: session.ShowTransfers, Sort: session.Sort,
+		ShowHidden: session.ShowHidden, ShowTransfers: session.ShowTransfers,
+		Currency: cloneCurrencyScope(session.Currency), Sort: session.Sort,
 	}
 }
 
@@ -204,7 +207,8 @@ func analyticalStateFromSnapshot(snapshot sessionSnapshot) AnalyticalState {
 		SubGrouping: cloneDimension(snapshot.subGrouping), TimeGranularity: snapshot.timeGranularity,
 		Drilldowns: stableDrilldowns(snapshot.drilldowns), DateRange: cloneDateRange(snapshot.dateRange),
 		Search: snapshot.search, SearchAnchor: navigationScopeFromMarker(snapshot.searchAnchor),
-		ShowHidden: snapshot.showHidden, ShowTransfers: snapshot.showTransfers, Sort: snapshot.sort,
+		ShowHidden: snapshot.showHidden, ShowTransfers: snapshot.showTransfers,
+		Currency: cloneCurrencyScope(snapshot.currency), Sort: snapshot.sort,
 	}
 }
 
@@ -214,7 +218,8 @@ func sessionFromAnalyticalState(state AnalyticalState) Session {
 		SubGrouping: cloneDimension(state.SubGrouping), TimeGranularity: state.TimeGranularity,
 		Drilldowns: stableDrilldowns(state.Drilldowns), DateRange: cloneDateRange(state.DateRange),
 		Search: state.Search, searchAnchor: markerFromNavigationScope(state.SearchAnchor),
-		ShowHidden: state.ShowHidden, ShowTransfers: state.ShowTransfers, Sort: state.Sort,
+		ShowHidden: state.ShowHidden, ShowTransfers: state.ShowTransfers,
+		Currency: cloneCurrencyScope(state.Currency), Sort: state.Sort,
 		SelectedTransactionIDs: make(map[string]struct{}),
 		SelectedAggregateKeys:  make(map[string]struct{}),
 	}
@@ -226,7 +231,8 @@ func snapshotFromAnalyticalState(state AnalyticalState) sessionSnapshot {
 		subGrouping: cloneDimension(state.SubGrouping), timeGranularity: state.TimeGranularity,
 		drilldowns: stableDrilldowns(state.Drilldowns), dateRange: cloneDateRange(state.DateRange),
 		search: state.Search, searchAnchor: markerFromNavigationScope(state.SearchAnchor),
-		showHidden: state.ShowHidden, showTransfers: state.ShowTransfers, sort: state.Sort,
+		showHidden: state.ShowHidden, showTransfers: state.ShowTransfers,
+		currency: cloneCurrencyScope(state.Currency), sort: state.Sort,
 		selectedTransactionIDs: make(map[string]struct{}),
 		selectedAggregateKeys:  make(map[string]struct{}),
 	}
@@ -242,6 +248,7 @@ func analyticalQuerySpec(state AnalyticalState) domain.QuerySpec {
 	return domain.QuerySpec{
 		DateRange: cloneDateRange(state.DateRange), Search: state.Search,
 		ShowHidden: state.ShowHidden, ShowTransfers: state.ShowTransfers,
+		Currency:   cloneCurrencyScope(state.Currency),
 		Drilldowns: stableDrilldowns(state.Drilldowns), Mode: mode, GroupBy: groupBy,
 		TimeGranularity: state.TimeGranularity, Sort: state.Sort,
 	}

@@ -43,6 +43,9 @@ func matches(transaction domain.Transaction, spec domain.QuerySpec, search *rege
 		(transaction.Date.Compare(spec.DateRange.Start) < 0 || transaction.Date.Compare(spec.DateRange.End) > 0) {
 		return false
 	}
+	if !matchesCurrency(transaction, spec.Currency) {
+		return false
+	}
 	if search != nil &&
 		!search.MatchString(transaction.Merchant.Name) &&
 		!search.MatchString(transaction.Category.Name) {
@@ -60,6 +63,11 @@ func matches(transaction domain.Transaction, spec domain.QuerySpec, search *rege
 		}
 	}
 	return true
+}
+
+func matchesCurrency(transaction domain.Transaction, scope *domain.CurrencyScope) bool {
+	return scope == nil ||
+		(transaction.Amount.Currency == scope.Currency && transaction.Amount.Scale == scope.Scale)
 }
 
 func matchesDrilldown(transaction domain.Transaction, drilldown domain.Drilldown) bool {
