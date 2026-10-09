@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -356,4 +357,89 @@ func TestTerminalPeriodChangesKeepTheGranularity(t *testing.T) {
 	require.True(t, changed)
 	assert.True(t, session.ClearPeriod())
 	assert.Equal(t, domain.TimeGranularityYear, session.TimeGranularity)
+}
+
+// emptyEdgeMonthsState is a 2025 Time view whose data covers only March and April, so the
+// other ten months are listed only because they are in the range.
+func emptyEdgeMonthsState(t *testing.T) (*Service, ViewState) {
+	t.Helper()
+	service := timeRowsService(t,
+		appTransaction(t, "march", "2025-03-10", "-10.00", "Example", "Category", "Group"),
+		appTransaction(t, "april", "2025-04-05", "20.00", "Example", "Category", "Group"),
+	)
+	state := timeGroupingState()
+	state.Current.DateRange = matrixRange(t, "2025-01-01", "2025-12-31")
+	state.Current.TimeGranularity = domain.TimeGranularityMonth
+	return service, state
+}
+
+func emptyMonthTarget(month int) *RowTarget {
+	row := domain.AggregateRow{
+		Dimension: domain.DimensionTime,
+		Key:       fmt.Sprintf("2025-%02d", month),
+		Total:     domain.Money{Currency: "USD", Scale: 2},
+	}
+	return &RowTarget{Kind: IdentityAggregate, Identity: AggregateIdentity(row)}
+}
+
+func TestEmptyTimeRowsCanBeDrilled(t *testing.T) {
+	t.Parallel()
+
+	service, state := emptyEdgeMonthsState(t)
+	next, _, projection, err := service.TransitionView(state, EmptySelection(), TransitionRequest{
+		Action: ActionDrill, Target: emptyMonthTarget(1),
+	}, WindowRequest{})
+	require.NoError(t, err)
+	require.Len(t, next.Current.Drilldowns, 1)
+	assert.Equal(t, &domain.Period{Granularity: domain.TimeGranularityMonth, Year: 2025, Month: 1},
+		next.Current.Drilldowns[0].Period)
+	assert.Equal(t, domain.ResultModeDetail, next.Current.Mode)
+	assert.Zero(t, projection.TotalRows, "an empty period drills into an empty list")
+}
+
+func TestEmptyTimeRowsCanBeSelected(t *testing.T) {
+	t.Parallel()
+
+	service, state := emptyEdgeMonthsState(t)
+	_, selection, projection, err := service.TransitionView(state, EmptySelection(),
+		TransitionRequest{Action: ActionToggleSelection, Target: emptyMonthTarget(12)},
+		WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, projection.SelectionCount)
+	december := projection.AggregateRows[11]
+	assert.Equal(t, "2025-12", december.Row.Key)
+	assert.True(t, december.Row.Flags.Selected, "a selected empty row shows as selected")
+
+	_, _, projection, err = service.TransitionView(state, selection,
+		TransitionRequest{Action: ActionToggleSelectAll}, WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, 12, projection.SelectionCount, "select all includes the empty months")
+	for _, row := range projection.AggregateRows {
+		assert.True(t, row.Row.Flags.Selected, row.Row.Key)
+	}
+}
+
+func TestSelectAllOfAPartialMonthFollowsTheClock(t *testing.T) {
+	t.Parallel()
+
+	service := timeRowsService(t,
+		appTransaction(t, "early", "2026-10-02", "-10.00", "Example", "Category", "Group"),
+	)
+	service.SetClock(func() time.Time { return time.Date(2026, 10, 20, 12, 0, 0, 0, time.Local) })
+	state := timeGroupingState()
+	state.Current.DateRange = matrixRange(t, "2026-10-01", "2026-10-31")
+	state.Current.TimeGranularity = domain.TimeGranularityDay
+	_, selection, projection, err := service.TransitionView(state, EmptySelection(),
+		TransitionRequest{Action: ActionToggleSelectAll}, WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, 20, projection.SelectionCount, "October 1 through today")
+	document, err := decodeSelection(selection)
+	require.NoError(t, err)
+	require.Equal(t, selectionBaseAll, document.Base, "twenty rows store the view, not IDs")
+
+	service.SetClock(func() time.Time { return time.Date(2026, 10, 25, 12, 0, 0, 0, time.Local) })
+	projection, err = service.ProjectView(state, selection, WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, 25, projection.SelectionCount,
+		"a select-all selection covers the days the range lists now, so it grows with the clock")
 }

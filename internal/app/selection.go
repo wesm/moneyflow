@@ -577,8 +577,7 @@ func (service *Service) identitiesForState(
 	if err := validateSelectionState(state); err != nil {
 		return "", nil, invalidSelection(err)
 	}
-	session := sessionFromAnalyticalState(state)
-	result, err := service.Query(session)
+	result, err := service.webQuery(state)
 	if err != nil {
 		return "", nil, invalidSelection(fmt.Errorf("resolve selection result: %w", err))
 	}

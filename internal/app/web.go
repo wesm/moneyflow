@@ -195,13 +195,10 @@ func (service *Service) projectViewLocked(
 	if err != nil {
 		return WebProjection{}, err
 	}
-	resolvedSession, breadcrumbs, err := service.ResolveViewSession(state.Current)
+	currencies := service.currencies()
+	resolvedSession, breadcrumbs, result, err := service.queryProjection(state.Current, currencies)
 	if err != nil {
 		return WebProjection{}, err
-	}
-	result, err := service.Query(resolvedSession)
-	if err != nil {
-		return WebProjection{}, invalidWebRequest(err)
 	}
 	snapshot, err := service.ResolveSelection(state.Current, selection)
 	if err != nil {
@@ -239,17 +236,17 @@ func (service *Service) projectViewLocked(
 		},
 		Actions:    actions,
 		Statistics: append([]domain.CurrencyStats(nil), result.Statistics...),
+		Currencies: currencies,
 	}
 	service.mu.RLock()
 	projection.AuditWarning = service.auditWarning
-	projection.Currencies = analytics.Currencies(service.browseTransactionsLocked())
 	if service.amazonSettings != nil {
 		projection.AmazonSettings = &AmazonProjectionSettings{
 			Currency: service.amazonSettings.Currency, Scale: service.amazonSettings.Scale,
 		}
 	}
 	service.mu.RUnlock()
-	if err = service.projectRows(&projection, state.Current, result, window); err != nil {
+	if err = service.projectRows(&projection, result, window); err != nil {
 		return WebProjection{}, invalidWebRequest(err)
 	}
 	if projection.TotalRows == 0 {
@@ -258,18 +255,30 @@ func (service *Service) projectViewLocked(
 	return projection, nil
 }
 
+// queryProjection resolves a view's breadcrumbs and the rows the browser shows. Rows are
+// complete before selection decoration, so a selected empty Time row shows as selected.
+func (service *Service) queryProjection(
+	state AnalyticalState, currencies []domain.CurrencyCount,
+) (Session, []BreadcrumbSegment, domain.QueryResult, error) {
+	session, breadcrumbs, err := service.ResolveViewSession(state)
+	if err != nil {
+		return Session{}, nil, domain.QueryResult{}, err
+	}
+	result, err := service.Query(session)
+	if err == nil {
+		result.AggregateRows, err = service.withTimeRows(state, result.AggregateRows, currencies)
+	}
+	if err != nil {
+		return Session{}, nil, domain.QueryResult{}, invalidWebRequest(err)
+	}
+	return session, breadcrumbs, result, nil
+}
+
 // projectRows sets the row count, the row window, and the chart of a projection.
 func (service *Service) projectRows(
-	projection *WebProjection, state AnalyticalState,
-	result domain.QueryResult, window WindowRequest,
+	projection *WebProjection, result domain.QueryResult, window WindowRequest,
 ) error {
 	var err error
-	result.AggregateRows, err = service.withTimeRows(
-		state, result.AggregateRows, projection.Currencies,
-	)
-	if err != nil {
-		return err
-	}
 	projection.TotalRows = resultRowCount(result)
 	projection.Window = windowResult(window, projection.TotalRows)
 	projection.DetailRows = detailWindow(result.DetailRows, projection.Window)
@@ -599,7 +608,7 @@ func (service *Service) resolveAggregateTarget(
 	if target.Kind != IdentityAggregate || target.Identity == "" {
 		return domain.AggregateRow{}, invalidWebRequest(errors.New("drill target kind is invalid"))
 	}
-	result, err := service.Query(session)
+	result, err := service.webQuery(analyticalStateFromSession(session))
 	if err != nil {
 		return domain.AggregateRow{}, invalidWebRequest(err)
 	}
@@ -620,11 +629,10 @@ func (service *Service) validateRowTarget(state AnalyticalState, target RowTarge
 	if target.Kind != identityKindForState(state) || target.Identity == "" {
 		return invalidWebRequest(errors.New("selection target kind is invalid"))
 	}
-	session, _, err := service.ResolveViewSession(state)
-	if err != nil {
+	if _, _, err := service.ResolveViewSession(state); err != nil {
 		return err
 	}
-	result, err := service.Query(session)
+	result, err := service.webQuery(state)
 	if err != nil {
 		return invalidWebRequest(err)
 	}

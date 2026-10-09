@@ -32,15 +32,34 @@ func (service *Service) applyPeriodTransition(
 	if err != nil {
 		return err
 	}
-	service.mu.RLock()
-	currencies := analytics.Currencies(service.browseTransactionsLocked())
-	service.mu.RUnlock()
-	ranges, err := service.timeRowRanges(session.DateRange, session.Currency, currencies)
+	ranges, err := service.timeRowRanges(
+		session.DateRange, session.Currency, service.currencies(),
+	)
 	if err != nil {
 		return invalidWebRequest(err)
 	}
 	session.setPeriodGranularity(ranges.ContextGranularity)
 	return nil
+}
+
+// webQuery evaluates a view with the rows the browser shows, so an identity from a projected
+// row resolves here too.
+func (service *Service) webQuery(state AnalyticalState) (domain.QueryResult, error) {
+	result, err := service.Query(sessionFromAnalyticalState(state))
+	if err != nil || !listsTimeRowsFromRange(analyticalQuerySpec(state)) {
+		return result, err
+	}
+	result.AggregateRows, err = service.withTimeRows(
+		state, result.AggregateRows, service.currencies(),
+	)
+	return result, err
+}
+
+// currencies lists the profile's currencies with their first and latest transaction dates.
+func (service *Service) currencies() []domain.CurrencyCount {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return analytics.Currencies(service.browseTransactionsLocked())
 }
 
 // withTimeRows lists every period of a Time grouping's range, including periods without

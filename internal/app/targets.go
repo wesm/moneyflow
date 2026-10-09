@@ -274,7 +274,7 @@ func aggregateRowsByIdentity(
 	service *Service,
 	state AnalyticalState,
 ) (map[string]domain.AggregateRow, error) {
-	result, err := service.Query(sessionFromAnalyticalState(state))
+	result, err := service.webQuery(state)
 	if err != nil {
 		return nil, mutationError(MutationInvalidOperation, err)
 	}
