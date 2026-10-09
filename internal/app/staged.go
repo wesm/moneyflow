@@ -15,19 +15,27 @@ type StagedValues struct {
 func (service *Service) decorateStagedValues(rows []WebDetailRow) {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
-	var effective map[string]domain.Transaction
+	pending := make(map[string]struct{})
+	for index := range rows {
+		id := rows[index].Row.Transaction.ID
+		if _, isPending := service.localPending[id]; isPending {
+			pending[id] = struct{}{}
+		}
+	}
+	if len(pending) == 0 {
+		return
+	}
+	effective := make(map[string]domain.Transaction, len(pending))
+	for _, transaction := range service.transactions {
+		if _, isPending := pending[transaction.ID]; isPending {
+			effective[transaction.ID] = transaction
+		}
+	}
 	for index := range rows {
 		committed := rows[index].Row.Transaction
-		if _, pending := service.localPending[committed.ID]; !pending {
-			continue
+		if _, isPending := pending[committed.ID]; isPending {
+			rows[index].Staged = stagedValues(committed, effective)
 		}
-		if effective == nil {
-			effective = make(map[string]domain.Transaction, len(service.transactions))
-			for _, transaction := range service.transactions {
-				effective[transaction.ID] = transaction
-			}
-		}
-		rows[index].Staged = stagedValues(committed, effective)
 	}
 }
 

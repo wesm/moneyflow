@@ -112,6 +112,43 @@ func TestProjectViewStagedClearsOnUndo(t *testing.T) {
 	}
 }
 
+func TestProjectViewStagedCoversEveryRowOfAnEntityEdit(t *testing.T) {
+	committed := replayProfile(t)
+	extra := committed.Transactions[0]
+	extra.ID, extra.ProviderID = "transaction_c", "provider-c"
+	committed.Transactions = append(committed.Transactions, extra)
+	require.NoError(t, committed.Validate())
+	profile := newMemoryProfile(t, 5)
+	profile.snapshot.Committed = committed
+	service, err := app.NewProfileService(t.Context(), profile)
+	require.NoError(t, err)
+	stagedMutate(t, service, app.ActionEditMerchant, "transaction_a",
+		app.EditInput{Scope: app.EditScopeEntity, Label: "Renamed Merchant"})
+	rows := stagedProjection(t, service)
+	require.Len(t, rows, 3)
+	want := &app.StagedValues{
+		Merchant: &domain.EntityRef{ID: "merchant_a", Name: "Renamed Merchant"},
+	}
+	assert.Equal(t, want, rows["transaction_a"].Staged)
+	assert.Equal(t, want, rows["transaction_c"].Staged)
+	assert.Nil(t, rows["transaction_b"].Staged)
+}
+
+func TestProjectViewStagedReturnsOnRedo(t *testing.T) {
+	service, err := app.NewProfileService(t.Context(), newMemoryProfile(t, 5))
+	require.NoError(t, err)
+	yes := true
+	stagedMutate(t, service, app.ActionToggleHidden, "transaction_a", app.EditInput{})
+	_, err = service.Undo(t.Context(), service.Revision())
+	require.NoError(t, err)
+	require.Nil(t, stagedProjection(t, service)["transaction_a"].Staged)
+	_, err = service.Redo(t.Context(), service.Revision())
+	require.NoError(t, err)
+	row := stagedProjection(t, service)["transaction_a"]
+	assert.True(t, row.Row.Flags.Pending)
+	assert.Equal(t, &app.StagedValues{Hidden: &yes}, row.Staged)
+}
+
 func TestProjectViewWithoutProfileHasNoStagedValues(t *testing.T) {
 	transactions, err := replayProfile(t).MaterializeTransactions()
 	require.NoError(t, err)
