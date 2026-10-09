@@ -131,7 +131,9 @@ func TestMerchantPreviewCountsAffectedTransactionsOutsideTheView(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 5, preview.AffectedTransactions)
 	assert.Equal(t, 4, preview.OutsideView)
-	assert.Equal(t, []domain.Currency{"EUR", "USD"}, preview.OutsideCurrencies)
+	assert.Equal(t, []domain.CurrencyScope{
+		{Currency: "EUR", Scale: 2}, {Currency: "USD", Scale: 2},
+	}, preview.OutsideCurrencies)
 
 	request.Input.Scope = app.EditScopeTransactions
 	preview, err = service.PreviewMerchantEdit(ctx, request)
@@ -166,7 +168,8 @@ func TestMerchantPreviewCountsHiddenTransactionsTheViewHides(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, preview.AffectedTransactions)
 	assert.Equal(t, 1, preview.OutsideView)
-	assert.Equal(t, []domain.Currency{"USD"}, preview.OutsideCurrencies)
+	assert.Equal(t, []domain.CurrencyScope{{Currency: "USD", Scale: 2}},
+		preview.OutsideCurrencies)
 
 	session.ShowHidden = true
 	request.State = session.ViewState()
@@ -174,6 +177,39 @@ func TestMerchantPreviewCountsHiddenTransactionsTheViewHides(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, preview.OutsideView)
 	assert.Empty(t, preview.OutsideCurrencies)
+}
+
+func TestMerchantPreviewKeepsScalesApartInOutsideCurrencies(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	fine := merchantARecord(t, "transaction_c", "2026-08-14", "USD")
+	fine.Amount = domain.Money{Minor: -1000, Currency: "USD", Scale: 3}
+	other := merchantARecord(t, "transaction_d", "2026-08-15", "USD")
+	other.Amount = domain.Money{Minor: -1000, Currency: "USD", Scale: 3}
+	profile.snapshot.Committed.Transactions = append(
+		profile.snapshot.Committed.Transactions, fine, other,
+	)
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	session := app.NewSession()
+	session.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+	rows, err := service.Query(session)
+	require.NoError(t, err)
+	request := app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: 5, State: session.ViewState(),
+		Target: &app.RowTarget{
+			Kind: app.IdentityAggregate, Identity: app.AggregateIdentity(rows.AggregateRows[0]),
+		},
+		Input: app.EditInput{Scope: app.EditScopeEntity},
+	}
+
+	preview, err := service.PreviewMerchantEdit(ctx, request)
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, preview.OutsideView)
+	assert.Equal(t, []domain.CurrencyScope{{Currency: "USD", Scale: 3}}, preview.OutsideCurrencies)
 }
 
 func merchantARecord(

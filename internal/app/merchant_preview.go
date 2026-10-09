@@ -17,13 +17,17 @@ type MerchantEditPreview struct {
 	Transactions         []domain.Transaction
 	// OutsideView counts affected transactions whose committed values the opening view hides.
 	OutsideView int
-	// OutsideCurrencies lists, sorted and unique, the currencies of those transactions.
-	OutsideCurrencies []domain.Currency
+	// OutsideCurrencies lists, sorted by currency then scale and unique, the money partitions of
+	// those transactions.
+	OutsideCurrencies []domain.CurrencyScope
 }
 
 // PreviewMerchantEdit resolves the same targets as an edit without appending an operation.
+// It holds the interaction lock throughout, so the counts and the revision describe one state.
 func (service *Service) PreviewMerchantEdit(ctx context.Context, request MutationRequest) (MerchantEditPreview, error) {
-	snapshot, err := service.readSnapshot(ctx)
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
+	snapshot, err := service.readSnapshotLocked(ctx)
 	if err != nil {
 		return MerchantEditPreview{}, err
 	}
@@ -66,7 +70,7 @@ func (service *Service) PreviewMerchantEdit(ctx context.Context, request Mutatio
 	}
 	if request.Input.Scope == EditScopeEntity {
 		state := request.State.Current
-		if err := service.countOutsideView(ctx, state, ids, transactions, &result); err != nil {
+		if err := service.countOutsideView(ctx, snapshot.Revision, state, ids, transactions, &result); err != nil {
 			return MerchantEditPreview{}, err
 		}
 	}
@@ -76,10 +80,10 @@ func (service *Service) PreviewMerchantEdit(ctx context.Context, request Mutatio
 // countOutsideView records which affected transactions the opening view hides, judged by
 // committed values as the table shows them. Currencies come from the effective transactions.
 func (service *Service) countOutsideView(
-	ctx context.Context, state AnalyticalState, ids []domain.EntityID,
+	ctx context.Context, revision uint64, state AnalyticalState, ids []domain.EntityID,
 	effective []domain.Transaction, preview *MerchantEditPreview,
 ) error {
-	inView, err := service.committedViewMembers(ctx, state)
+	inView, err := service.committedViewMembers(ctx, revision, state)
 	if err != nil {
 		return err
 	}
@@ -95,9 +99,13 @@ func (service *Service) countOutsideView(
 			continue
 		}
 		preview.OutsideView++
-		preview.OutsideCurrencies = append(preview.OutsideCurrencies, transaction.Amount.Currency)
+		preview.OutsideCurrencies = append(preview.OutsideCurrencies, domain.CurrencyScope{
+			Currency: transaction.Amount.Currency, Scale: transaction.Amount.Scale,
+		})
 	}
-	slices.Sort(preview.OutsideCurrencies)
+	slices.SortFunc(preview.OutsideCurrencies, func(a, b domain.CurrencyScope) int {
+		return cmp.Or(cmp.Compare(a.Currency, b.Currency), cmp.Compare(a.Scale, b.Scale))
+	})
 	preview.OutsideCurrencies = slices.Compact(preview.OutsideCurrencies)
 	return nil
 }
@@ -105,7 +113,7 @@ func (service *Service) countOutsideView(
 // committedViewMembers returns the IDs of committed transactions that pass the view's filters.
 // For Amazon profiles a search also matches product names, as it does in the table.
 func (service *Service) committedViewMembers(
-	ctx context.Context, state AnalyticalState,
+	ctx context.Context, revision uint64, state AnalyticalState,
 ) (map[string]struct{}, error) {
 	service.mu.RLock()
 	transactions := append([]domain.Transaction(nil), service.browseTransactionsLocked()...)
@@ -121,7 +129,7 @@ func (service *Service) committedViewMembers(
 		members, err = analytics.Filter(transactions, spec)
 	}
 	if err != nil {
-		return nil, newAppError(AppInvalidOperation, service.Revision(), err)
+		return nil, newAppError(AppInvalidOperation, revision, err)
 	}
 	inView := make(map[string]struct{}, len(members))
 	for _, transaction := range members {
@@ -130,9 +138,7 @@ func (service *Service) committedViewMembers(
 	return inView, nil
 }
 
-func (service *Service) readSnapshot(ctx context.Context) (EffectiveSnapshot, error) {
-	service.interactions.Lock()
-	defer service.interactions.Unlock()
+func (service *Service) readSnapshotLocked(ctx context.Context) (EffectiveSnapshot, error) {
 	if _, err := service.refreshLocked(ctx); err != nil {
 		return EffectiveSnapshot{}, err
 	}

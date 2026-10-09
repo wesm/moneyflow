@@ -31,7 +31,9 @@ func TestCommittedViewMembersExpandSearchToAmazonProductNames(t *testing.T) {
 	session := NewSession()
 	session.SetSearch("searchable")
 
-	members, err := service.committedViewMembers(context.Background(), session.ViewState().Current)
+	members, err := service.committedViewMembers(
+		context.Background(), 0, session.ViewState().Current,
+	)
 	require.NoError(t, err)
 	assert.Contains(t, members, "matched", "the product name matches the search")
 	assert.NotContains(t, members, "other")
