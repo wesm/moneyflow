@@ -93,8 +93,8 @@ insights do not. The adapter turns its inputs into an analytical state by naviga
 `app.Session`: ID filters become drill-downs in the order merchant, category, group, account;
 `group_by` is the top-level grouping without filters and the sub-grouping below them; omitting it
 requests a transaction view. Keys become aggregate row identities of that grouping and currency.
-Invalid views, including a bad regular expression, return `invalid_operation`. The document
-mirrors the HTTP response's sections but carries every amount as an MCP money object.
+Invalid views return `invalid_operation`; unlike other tools, its `detail` gives the reason.
+The document mirrors the HTTP response's sections but carries every amount as an MCP money object.
 
 Category and merchant assignment, whole-merchant rename/explicit merge, hide cancellation, and
 transaction deletion reuse the application mutation planner and provider checks. Transaction batches

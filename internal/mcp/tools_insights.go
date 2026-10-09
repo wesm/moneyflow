@@ -149,26 +149,38 @@ func insightsDocument(
 	if _, err := service.Refresh(ctx); err != nil {
 		return InsightsDocument{}, err
 	}
-	keys := distinctKeys(input.Keys)
-	request, err := insightsRequest(input, keys, service.Currencies())
+	request, err := insightsRequest(input, service.Currencies())
 	if err != nil {
-		return InsightsDocument{}, newAppInputError(service.Revision(), err)
+		return InsightsDocument{}, newInsightsInputError(service.Revision(), err)
 	}
 	result, err := service.Insights(ctx, request)
 	var webErr *app.WebError
 	if errors.As(err, &webErr) && webErr.Code == app.WebInvalidRequest {
-		return InsightsDocument{}, newAppInputError(service.Revision(), err)
+		reason := errors.Unwrap(webErr)
+		if reason == nil {
+			reason = webErr
+		}
+		return InsightsDocument{}, newInsightsInputError(service.Revision(), reason)
 	}
 	if err != nil {
 		return InsightsDocument{}, err
 	}
-	return insightsResultDocument(result, keys)
+	return insightsResultDocument(result), nil
+}
+
+// newInsightsInputError tells the agent why its insights request was rejected. Only input
+// errors carry their reason; other failures keep their generic documents.
+func newInsightsInputError(revision uint64, reason error) error {
+	return &app.AppError{
+		Code: app.AppInvalidOperation, CurrentRevision: revision,
+		Detail: "The insights request is invalid: " + reason.Error(),
+	}
 }
 
 // insightsRequest builds the analytical state and turns keys into row identities of the
 // view's grouping.
 func insightsRequest(
-	input GetInsightsInput, keys []string, currencies []domain.CurrencyCount,
+	input GetInsightsInput, currencies []domain.CurrencyCount,
 ) (app.InsightsRequest, error) {
 	scope, err := insightsCurrency(input, currencies)
 	if err != nil {
@@ -178,7 +190,7 @@ func insightsRequest(
 	if err != nil {
 		return app.InsightsRequest{}, err
 	}
-	rows, err := insightsRows(keys, grouping, scope)
+	rows, err := insightsRows(input.Keys, grouping, scope)
 	if err != nil {
 		return app.InsightsRequest{}, err
 	}
@@ -231,8 +243,12 @@ func insightsCurrency(
 	if input.Currency != "" {
 		return domain.CurrencyScope{Currency: domain.Currency(input.Currency), Scale: *input.Scale}, nil
 	}
-	if len(currencies) != 1 {
-		return domain.CurrencyScope{}, errors.New("this profile needs an explicit currency and scale")
+	if len(currencies) == 0 {
+		return domain.CurrencyScope{}, errors.New("the profile has no transactions")
+	}
+	if len(currencies) > 1 {
+		return domain.CurrencyScope{}, errors.New(
+			"the profile has several currencies; provide currency and scale")
 	}
 	return domain.CurrencyScope{Currency: currencies[0].Currency, Scale: currencies[0].Scale}, nil
 }
@@ -338,31 +354,14 @@ func insightsRows(
 	return rows, nil
 }
 
-// distinctKeys drops repeated keys and keeps the first occurrence's order, as the service
-// does, so each series pairs with its key.
-func distinctKeys(keys []string) []string {
-	distinct := make([]string, 0, len(keys))
-	seen := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		if _, duplicate := seen[key]; !duplicate {
-			seen[key] = struct{}{}
-			distinct = append(distinct, key)
-		}
-	}
-	return distinct
-}
-
-func insightsResultDocument(result app.InsightsResult, keys []string) (InsightsDocument, error) {
+func insightsResultDocument(result app.InsightsResult) InsightsDocument {
 	insights := result.Insights
-	if len(insights.Series) != len(keys) {
-		return InsightsDocument{}, errors.New("insights series do not match the requested keys")
-	}
 	money := insightsMoney{currency: insights.Currency, scale: insights.Scale}
 	document := InsightsDocument{
 		Header:   NewHeader(StatusOK, result.Revision),
 		Currency: string(insights.Currency), Scale: insights.Scale, Today: insights.Today.String(),
 		Ranges: insightsRangesDocument(insights.Ranges),
-		Series: make([]InsightsSeriesDocument, len(keys)),
+		Series: make([]InsightsSeriesDocument, len(insights.Series)),
 	}
 	if !insights.Latest.IsZero() {
 		latest := insights.Latest.String()
@@ -373,9 +372,9 @@ func insightsResultDocument(result app.InsightsResult, keys []string) (InsightsD
 		document.Summary = &summary
 	}
 	for index, series := range insights.Series {
-		document.Series[index] = money.series(keys[index], series)
+		document.Series[index] = money.series(series)
 	}
-	return document, nil
+	return document
 }
 
 func insightsRangesDocument(ranges app.InsightsRanges) InsightsRangesDocument {
@@ -535,11 +534,9 @@ func (money insightsMoney) compositionEntries(
 	return documents
 }
 
-func (money insightsMoney) series(
-	key string, series app.InsightsSeries,
-) InsightsSeriesDocument {
+func (money insightsMoney) series(series app.InsightsSeries) InsightsSeriesDocument {
 	document := InsightsSeriesDocument{
-		Key: key, Trend: make([]Money, len(series.Trend)),
+		Key: series.Key, Trend: make([]Money, len(series.Trend)),
 		Context: InsightsInOutDocument{
 			In: make([]Money, len(series.Context)), Out: make([]Money, len(series.Context)),
 		},

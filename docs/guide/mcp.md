@@ -200,7 +200,7 @@ effective values with pending edits applied, so the two can differ until you com
 | `search` | The view's case-insensitive regular expression over merchant and category names, and product names in an Amazon profile. |
 | `include_hidden` | Include hidden transactions. Default `true`. |
 | `include_transfers` | Include the Transfers category group. Default `false`. |
-| `keys` | At most 200 row IDs of the `group_by` dimension to chart as series. Not allowed for `time` or a transaction view. |
+| `keys` | At most 200 row IDs of the `group_by` dimension to chart as series, counting repeats. Not allowed for `time` or a transaction view. |
 | `summary` | Include the view-wide charts. Default `true`. |
 
 ID filters apply in the order merchant, category, group, account, and `group_by` then groups what
@@ -223,8 +223,12 @@ The result has the standard header and revision, plus `currency`, `scale`, `toda
 `ranges.context` lists the chart periods, and cash-flow and series values align with it. Each
 amount is a money object with `amount`, `amount_minor`, `currency`, and `scale`. Changes such as
 `net_change` and `vs_prior` are computed by the server; `percent_tenths` and `share_tenths` are
-tenths of a percent. Invalid input, including an invalid regular expression, returns
-`invalid_operation`.
+tenths of a percent.
+
+Invalid input returns `invalid_operation` with a `detail` that starts with
+`The insights request is invalid:` and gives the reason, such as a regular-expression syntax
+error, a missing currency, or a grouping that repeats a filtered dimension. A profile with no
+transactions has no currency to chart and returns the same code.
 
 ## Server-side export
 

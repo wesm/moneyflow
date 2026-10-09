@@ -111,6 +111,7 @@ func TestGetInsightsRequiresACurrencyInAMultiCurrencyProfile(t *testing.T) {
 	missing := callInsights(t, client, map[string]any{"summary": true})
 	assert.True(t, missing.IsError)
 	assert.Equal(t, "invalid_operation", missing.StructuredContent.(map[string]any)["code"])
+	assert.Contains(t, missing.StructuredContent.(map[string]any)["detail"], "currency")
 
 	chosen := callInsights(t, client, map[string]any{"currency": "EUR", "scale": 2, "summary": true})
 	require.False(t, chosen.IsError, "%v", chosen.StructuredContent)
@@ -149,7 +150,130 @@ func TestGetInsightsIgnoresPendingEdits(t *testing.T) {
 	assert.Equal(t, withoutRevision(before), withoutRevision(after))
 }
 
-func TestGetInsightsRejectsInvalidInput(t *testing.T) {
+func TestGetInsightsAppliesEveryIDFilterInOrder(t *testing.T) {
+	date, err := domain.ParseDate("2026-08-04")
+	require.NoError(t, err)
+	otherAccount := insightsTransaction("transaction_b", date, "merchant_a", "category_a", -50)
+	otherAccount.Account = domain.EntityRef{ID: "account_b", Name: "Example Account B"}
+	service := insightsTestService(t, otherAccount)
+	client, cleanup := connectReadTestServer(t, service)
+	defer cleanup()
+	august := map[string]any{"start_date": "2026-08-01", "end_date": "2026-08-31"}
+
+	tests := map[string]struct {
+		filters map[string]any
+		out     map[string]any
+		in      map[string]any
+		count   float64
+	}{
+		"all four filters": {
+			filters: map[string]any{
+				"merchant_id": "merchant_a", "category_id": "category_a",
+				"group_id": "group_a", "account_id": "account_a",
+			},
+			out: usd("-123.45", "-12345"), in: usd("0.00", "0"), count: 1,
+		},
+		"account filter": {
+			filters: map[string]any{"account_id": "account_b"},
+			out:     usd("-0.50", "-50"), in: usd("0.00", "0"), count: 1,
+		},
+		"group filter": {
+			filters: map[string]any{"group_id": "group_b"},
+			out:     usd("0.00", "0"), in: usd("5000.00", "500000"), count: 1,
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			arguments := maps.Clone(august)
+			maps.Copy(arguments, test.filters)
+			scope := insightsScope(t, callInsights(t, client, arguments))
+			assert.Equal(t, test.out, scope["out"])
+			assert.Equal(t, test.in, scope["in"])
+			assert.Equal(t, test.count, scope["count"])
+		})
+	}
+}
+
+func TestGetInsightsSearchesWithTheViewRegularExpression(t *testing.T) {
+	service := insightsTestService(t)
+	client, cleanup := connectReadTestServer(t, service)
+	defer cleanup()
+
+	scope := insightsScope(t, callInsights(t, client, map[string]any{
+		"start_date": "2026-08-01", "end_date": "2026-08-31", "search": "CATEGORY_[BC]$",
+	}))
+
+	assert.Equal(t, usd("-25.00", "-2500"), scope["out"])
+	assert.Equal(t, usd("5000.00", "500000"), scope["in"])
+	assert.Equal(t, float64(2), scope["count"])
+}
+
+func TestGetInsightsHonorsHiddenAndTransferFlags(t *testing.T) {
+	date, err := domain.ParseDate("2026-08-05")
+	require.NoError(t, err)
+	hidden := insightsTransaction("transaction_hidden", date, "merchant_a", "category_a", -900)
+	hidden.Hidden = true
+	transfer := insightsTransaction("transaction_transfer", date, "merchant_b", "category_t", -3000)
+	transfer.Category.GroupID, transfer.Category.Group = "group_t", "Transfers"
+	service := insightsTestService(t, hidden, transfer)
+	client, cleanup := connectReadTestServer(t, service)
+	defer cleanup()
+	call := func(flags map[string]any) map[string]any {
+		arguments := map[string]any{
+			"start_date": "2026-08-01", "end_date": "2026-08-31", "group_by": "category",
+		}
+		maps.Copy(arguments, flags)
+		return insightsScope(t, callInsights(t, client, arguments))
+	}
+
+	defaults := call(nil)
+	visible := call(map[string]any{"include_hidden": false})
+	transfers := call(map[string]any{"include_transfers": true})
+
+	assert.Equal(t, float64(1), defaults["hidden_count"])
+	assert.Equal(t, float64(4), defaults["count"])
+	assert.Equal(t, float64(0), visible["hidden_count"])
+	assert.Equal(t, float64(3), visible["count"])
+	assert.Equal(t, usd("-148.45", "-14845"), defaults["out"])
+	assert.Equal(t, usd("-178.45", "-17845"), transfers["out"])
+}
+
+func TestGetInsightsGroupsByTime(t *testing.T) {
+	service := insightsTestService(t)
+	client, cleanup := connectReadTestServer(t, service)
+	defer cleanup()
+
+	result := callInsights(t, client, map[string]any{
+		"start_date": "2026-01-01", "end_date": "2026-12-31", "group_by": "time",
+	})
+
+	require.False(t, result.IsError, "%v", result.StructuredContent)
+	document := result.StructuredContent.(map[string]any)
+	summary := document["summary"].(map[string]any)
+	assert.NotContains(t, summary, "composition")
+	periods := summary["period_composition"].([]any)
+	assert.Len(t, periods, len(document["ranges"].(map[string]any)["context"].([]any)))
+	assert.NotEmpty(t, periods)
+}
+
+func TestGetInsightsDescriptionSeparatesCommittedFromEffectiveValues(t *testing.T) {
+	service := insightsTestService(t)
+	client, cleanup := connectReadTestServer(t, service)
+	defer cleanup()
+
+	tools, err := client.ListTools(t.Context(), nil)
+	require.NoError(t, err)
+	var description string
+	for _, tool := range tools.Tools {
+		if tool.Name == "get_insights" {
+			description = tool.Description
+		}
+	}
+	assert.Contains(t, description, "committed values")
+	assert.Contains(t, description, "pending edits applied")
+}
+
+func TestGetInsightsRejectsInvalidInputWithItsReason(t *testing.T) {
 	service := insightsTestService(t)
 	client, cleanup := connectReadTestServer(t, service)
 	defer cleanup()
@@ -157,25 +281,68 @@ func TestGetInsightsRejectsInvalidInput(t *testing.T) {
 	for index := range tooMany {
 		tooMany[index] = "category_" + strconv.Itoa(index)
 	}
-	tests := map[string]map[string]any{
-		"invalid regular expression":      {"search": "(", "summary": true},
-		"start date without end date":     {"start_date": "2026-08-01"},
-		"end before start":                {"start_date": "2026-08-31", "end_date": "2026-08-01"},
-		"currency without scale":          {"currency": "USD"},
-		"unknown grouping":                {"group_by": "payee"},
-		"grouping by a filtered key":      {"merchant_id": "merchant_a", "group_by": "merchant"},
-		"keys in a transaction view":      {"keys": []string{"category_a"}},
-		"keys in the time grouping":       {"group_by": "time", "keys": []string{"2026"}},
-		"more keys than one window":       {"group_by": "category", "keys": tooMany},
-		"grouping by a filtered category": {"category_id": "category_a", "group_by": "category"},
+	repeated := make([]string, 300)
+	for index := range repeated {
+		repeated[index] = "category_a"
 	}
-	for name, arguments := range tests {
+	tests := map[string]struct {
+		arguments map[string]any
+		reason    string
+	}{
+		"invalid regular expression": {
+			map[string]any{"search": "(", "summary": true}, "missing closing )",
+		},
+		"start date without end date": {
+			map[string]any{"start_date": "2026-08-01"}, "start_date and end_date",
+		},
+		"end before start": {
+			map[string]any{"start_date": "2026-08-31", "end_date": "2026-08-01"}, "date range",
+		},
+		"currency without scale": {map[string]any{"currency": "USD"}, "currency and scale"},
+		"unknown grouping":       {map[string]any{"group_by": "payee"}, "payee"},
+		"grouping by a filtered key": {
+			map[string]any{"merchant_id": "merchant_a", "group_by": "merchant"}, "merchant",
+		},
+		"keys in a transaction view": {
+			map[string]any{"keys": []string{"category_a"}}, "keys require group_by",
+		},
+		"keys in the time grouping": {
+			map[string]any{"group_by": "time", "keys": []string{"2026"}}, "series",
+		},
+		"more keys than one window": {
+			map[string]any{"group_by": "category", "keys": tooMany}, "200",
+		},
+		"one key repeated past the limit": {
+			map[string]any{"group_by": "category", "keys": repeated}, "200",
+		},
+		"grouping by a filtered category": {
+			map[string]any{"category_id": "category_a", "group_by": "category"}, "category",
+		},
+	}
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			result := callInsights(t, client, arguments)
+			result := callInsights(t, client, test.arguments)
 			assert.True(t, result.IsError)
-			assert.Equal(t, "invalid_operation", result.StructuredContent.(map[string]any)["code"])
+			document := result.StructuredContent.(map[string]any)
+			assert.Equal(t, "invalid_operation", document["code"])
+			assert.Contains(t, document["detail"], "The insights request is invalid: ")
+			assert.Contains(t, document["detail"], test.reason)
 		})
 	}
+}
+
+func TestGetInsightsExplainsAnEmptyProfile(t *testing.T) {
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	client, cleanup := connectReadTestServer(t, service)
+	defer cleanup()
+
+	result := callInsights(t, client, map[string]any{})
+
+	assert.True(t, result.IsError)
+	document := result.StructuredContent.(map[string]any)
+	assert.Equal(t, "invalid_operation", document["code"])
+	assert.Contains(t, document["detail"], "the profile has no transactions")
 }
 
 func insightsTestService(t *testing.T, extra ...domain.Transaction) *app.Service {
@@ -245,6 +412,13 @@ func sumMinor(t *testing.T, values any) string {
 		total += minor
 	}
 	return strconv.FormatInt(total, 10)
+}
+
+func insightsScope(t *testing.T, result *mcpsdk.CallToolResult) map[string]any {
+	t.Helper()
+	require.False(t, result.IsError, "%v", result.StructuredContent)
+	summary := result.StructuredContent.(map[string]any)["summary"].(map[string]any)
+	return summary["kpis"].(map[string]any)["scope"].(map[string]any)
 }
 
 func last(values any) any {
