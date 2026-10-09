@@ -392,34 +392,16 @@ func (service *Service) transitionViewLocked(
 		return rejectedTransition(state, selection, err)
 	}
 	session.Drilldowns = resolvedCurrent.Drilldowns
-	selectionDocument, err := decodeSelection(selection)
-	if err != nil {
-		return rejectedTransition(state, selection, err)
-	}
-	if len(selectionDocument.Returns) != 0 && len(selectionDocument.Returns) != len(state.Returns) {
-		return rejectedTransition(
-			state,
-			selection,
-			invalidSelection(errors.New("return selections do not match return frames")),
-		)
-	}
-	snapshot, err := service.resolveSelectionPayload(state.Current, selectionDocument.payload())
+	snapshot, err := service.ResolveSelection(state.Current, selection)
 	if err != nil {
 		return rejectedTransition(state, selection, err)
 	}
 	applySnapshotToSession(&session, snapshot)
-	for index, payload := range selectionDocument.Returns {
-		returnSnapshot, resolveErr := service.resolveSelectionPayload(state.Returns[index].State, payload)
-		if resolveErr != nil {
-			return rejectedTransition(state, selection, resolveErr)
-		}
-		applySnapshotToHistory(&session.history[index].snapshot, returnSnapshot)
-	}
 	if err := service.applyAnalyticalTransition(&session, transition); err != nil {
 		return rejectedTransition(state, selection, err)
 	}
 	nextState := session.ViewState()
-	nextSelection, err := service.selectionFromSession(nextState, selection, selectionDocument, session)
+	nextSelection, err := service.selectionFromSession(nextState.Current, selection, session)
 	if err != nil {
 		return rejectedTransition(state, selection, err)
 	}
@@ -592,51 +574,20 @@ func applySnapshotToSession(session *Session, snapshot SelectionSnapshot) {
 	session.SelectedAggregateKeys = cloneSet(snapshot.IDs)
 }
 
-func applySnapshotToHistory(snapshot *sessionSnapshot, selection SelectionSnapshot) {
-	snapshot.selectedTransactionIDs = make(map[string]struct{})
-	snapshot.selectedAggregateKeys = make(map[string]struct{})
-	if selection.Kind == IdentityTransaction {
-		snapshot.selectedTransactionIDs = cloneSet(selection.IDs)
-		return
-	}
-	snapshot.selectedAggregateKeys = cloneSet(selection.IDs)
-}
-
 func (service *Service) selectionFromSession(
-	state ViewState,
+	state AnalyticalState,
 	old SelectionValue,
-	oldDocument selectionDocument,
 	session Session,
 ) (SelectionValue, error) {
-	if len(session.history) != len(state.Returns) {
-		return old, invalidSelection(errors.New("session history does not match return frames"))
-	}
-	returns := make([]selectionPayload, len(session.history))
-	for index, entry := range session.history {
-		returnState := state.Returns[index].State
-		returnKind := identityKindForState(returnState)
-		returnTarget := entry.snapshot.selectedAggregateKeys
-		if returnKind == IdentityTransaction {
-			returnTarget = entry.snapshot.selectedTransactionIDs
-		}
-		payload, err := service.smallestSelectionPayload(returnState, returnKind, returnTarget)
-		if err != nil {
-			return old, err
-		}
-		returns[index] = payload
-	}
-
-	kind := identityKindForState(state.Current)
+	kind := identityKindForState(state)
 	target := session.SelectedAggregateKeys
 	if kind == IdentityTransaction {
 		target = session.SelectedTransactionIDs
 	}
-	if len(target) == 0 && len(returns) == 0 {
+	if len(target) == 0 {
 		return EmptySelection(), nil
 	}
-	return service.smallestSelectionWithReturns(
-		state.Current, old, oldDocument, kind, target, returns,
-	)
+	return service.smallestSelection(state, old, kind, target)
 }
 
 func rejectedTransition(

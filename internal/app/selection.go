@@ -88,15 +88,14 @@ const (
 )
 
 type selectionDocument struct {
-	Version  uint8              `json:"v"`
-	Kind     IdentityKind       `json:"kind"`
-	Base     selectionBaseKind  `json:"base"`
-	Revision *uint64            `json:"revision,omitempty"`
-	IDs      []string           `json:"ids,omitempty"`
-	State    *AnalyticalState   `json:"state,omitempty"`
-	Include  []string           `json:"include,omitempty"`
-	Exclude  []string           `json:"exclude,omitempty"`
-	Returns  []selectionPayload `json:"returns,omitempty"`
+	Version  uint8             `json:"v"`
+	Kind     IdentityKind      `json:"kind"`
+	Base     selectionBaseKind `json:"base"`
+	Revision *uint64           `json:"revision,omitempty"`
+	IDs      []string          `json:"ids,omitempty"`
+	State    *AnalyticalState  `json:"state,omitempty"`
+	Include  []string          `json:"include,omitempty"`
+	Exclude  []string          `json:"exclude,omitempty"`
 }
 
 type selectionPayload struct {
@@ -218,15 +217,7 @@ func (document selectionDocument) validate() error {
 	if document.Version != 1 {
 		return errors.New("unsupported selection version")
 	}
-	if err := document.payload().validate(); err != nil {
-		return err
-	}
-	for index, payload := range document.Returns {
-		if err := payload.validate(); err != nil {
-			return fmt.Errorf("invalid return selection %d: %w", index, err)
-		}
-	}
-	return nil
+	return document.payload().validate()
 }
 
 func (payload selectionPayload) validate() error {
@@ -274,20 +265,14 @@ func (payload selectionPayload) validate() error {
 }
 
 func (document selectionDocument) validateBounds() error {
-	payloads := append([]selectionPayload{document.payload()}, document.Returns...)
-	identityCount := 0
-	for _, payload := range payloads {
-		identityCount += len(payload.IDs) + len(payload.Include) + len(payload.Exclude)
-	}
-	if identityCount > MaxSelectionIdentities {
+	groups := [][]string{document.IDs, document.Include, document.Exclude}
+	if len(document.IDs)+len(document.Include)+len(document.Exclude) > MaxSelectionIdentities {
 		return errors.New("selection contains too many identities")
 	}
-	for _, payload := range payloads {
-		for _, identities := range [][]string{payload.IDs, payload.Include, payload.Exclude} {
-			for _, identity := range identities {
-				if len(identity) > MaxSelectionIdentityBytes {
-					return errors.New("selection identity exceeds limit")
-				}
+	for _, identities := range groups {
+		for _, identity := range identities {
+			if len(identity) > MaxSelectionIdentityBytes {
+				return errors.New("selection identity exceeds limit")
 			}
 		}
 	}
@@ -456,26 +441,12 @@ func (service *Service) smallestSelection(
 	if err != nil {
 		return oldValue, err
 	}
-	return service.smallestSelectionWithReturns(
-		state, oldValue, oldDocument, kind, target, oldDocument.Returns,
-	)
-}
-
-func (service *Service) smallestSelectionWithReturns(
-	state AnalyticalState,
-	oldValue SelectionValue,
-	oldDocument selectionDocument,
-	kind IdentityKind,
-	target map[string]struct{},
-	returns []selectionPayload,
-) (SelectionValue, error) {
 	candidates := []selectionDocument{{
 		Version:  1,
 		Kind:     kind,
 		Base:     selectionBaseExplicit,
 		Revision: cloneUint64(oldDocument.Revision),
 		IDs:      sortedIdentitySet(target),
-		Returns:  cloneSelectionPayloads(returns),
 	}}
 
 	_, currentBase, err := service.identitiesForState(state)
@@ -492,7 +463,6 @@ func (service *Service) smallestSelectionWithReturns(
 		target,
 	)
 	currentCandidate.Revision = cloneUint64(oldDocument.Revision)
-	currentCandidate.Returns = cloneSelectionPayloads(returns)
 	candidates = append(candidates, currentCandidate)
 
 	if oldDocument.Kind == kind && !oldDocument.isUniversalEmpty() {
@@ -509,7 +479,6 @@ func (service *Service) smallestSelectionWithReturns(
 			target,
 		)
 		oldCandidate.Revision = cloneUint64(oldDocument.Revision)
-		oldCandidate.Returns = cloneSelectionPayloads(returns)
 		candidates = append(candidates, oldCandidate)
 	}
 
@@ -535,28 +504,6 @@ func (service *Service) smallestSelectionWithReturns(
 		return oldValue, tooLargeSelection(errors.New("no exact selection representation fits"))
 	}
 	return chooseSmallestSelection(values), nil
-}
-
-func (service *Service) smallestSelectionPayload(
-	state AnalyticalState,
-	kind IdentityKind,
-	target map[string]struct{},
-) (selectionPayload, error) {
-	emptyDocument, err := decodeSelection(EmptySelection())
-	if err != nil {
-		return selectionPayload{}, err
-	}
-	value, err := service.smallestSelectionWithReturns(
-		state, EmptySelection(), emptyDocument, kind, target, nil,
-	)
-	if err != nil {
-		return selectionPayload{}, err
-	}
-	document, err := decodeSelection(value)
-	if err != nil {
-		return selectionPayload{}, err
-	}
-	return document.payload(), nil
 }
 
 func chooseSmallestSelection(candidates []encodedSelectionCandidate) SelectionValue {
@@ -650,29 +597,12 @@ func (service *Service) identitiesForState(
 }
 
 func (document selectionDocument) isUniversalEmpty() bool {
-	return document.payload().isUniversalEmpty() && len(document.Returns) == 0
+	return document.payload().isUniversalEmpty()
 }
 
 func (payload selectionPayload) isUniversalEmpty() bool {
 	return payload.Base == selectionBaseExplicit && payload.State == nil &&
 		len(payload.IDs) == 0 && len(payload.Include) == 0 && len(payload.Exclude) == 0
-}
-
-func cloneSelectionPayloads(payloads []selectionPayload) []selectionPayload {
-	cloned := make([]selectionPayload, len(payloads))
-	for index, payload := range payloads {
-		cloned[index] = selectionPayload{
-			Kind: payload.Kind, Base: payload.Base,
-			IDs:     append([]string(nil), payload.IDs...),
-			Include: append([]string(nil), payload.Include...),
-			Exclude: append([]string(nil), payload.Exclude...),
-		}
-		if payload.State != nil {
-			state := payload.State.Clone()
-			cloned[index].State = &state
-		}
-	}
-	return cloned
 }
 
 // BindSelectionRevision records the profile revision that defines one nonempty exact selection.

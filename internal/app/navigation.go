@@ -151,8 +151,6 @@ func (session *Session) applyTimeRange(dateRange *domain.DateRange) {
 	for index := range session.history {
 		snapshot := &session.history[index].snapshot
 		snapshot.drilldowns = removeTimeDrilldowns(snapshot.drilldowns, snapshot.searchAnchor)
-		clear(snapshot.selectedTransactionIDs)
-		clear(snapshot.selectedAggregateKeys)
 	}
 }
 

@@ -279,9 +279,7 @@ func TestTransitionViewResolvesDrillAndSelectionTargetsByIdentity(t *testing.T) 
 	currentSelection, err := service.ResolveSelection(next.Current, nextSelection)
 	require.NoError(t, err)
 	assert.Empty(t, currentSelection.IDs)
-	selectionDocument, err := decodeSelection(nextSelection)
-	require.NoError(t, err)
-	assert.Len(t, selectionDocument.Returns, 1)
+	assert.Equal(t, EmptySelection(), nextSelection)
 	assert.Equal(t, next, detail.State)
 
 	prior := state.Clone()
@@ -421,14 +419,12 @@ func TestTransitionViewSearchAndFiltersClearSelection(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			next, nextSelection, projection, err := service.TransitionView(
+			_, nextSelection, projection, err := service.TransitionView(
 				state, selection, test.transition, WindowRequest{},
 			)
 
 			require.NoError(t, err, test.name)
-			resolved, err := service.ResolveSelection(next.Current, nextSelection)
-			require.NoError(t, err)
-			assert.Empty(t, resolved.IDs, test.name)
+			assert.Equal(t, EmptySelection(), nextSelection, test.name)
 			assert.Equal(t, test.rows, projection.TotalRows, test.name)
 			for _, row := range projection.DetailRows {
 				assert.False(t, row.Row.Flags.Selected, test.name)
@@ -458,9 +454,7 @@ func TestTransitionViewBackClearsSelectionBeforeSearch(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, searched, cleared, "the first Esc only clears the selection")
-	resolved, err := service.ResolveSelection(cleared.Current, clearedSelection)
-	require.NoError(t, err)
-	assert.Empty(t, resolved.IDs)
+	assert.Equal(t, EmptySelection(), clearedSelection)
 	require.Len(t, projection.DetailRows, 1)
 	assert.False(t, projection.DetailRows[0].Row.Flags.Selected)
 

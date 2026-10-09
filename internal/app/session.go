@@ -48,20 +48,18 @@ type navigationMarker struct {
 }
 
 type sessionSnapshot struct {
-	mode                   domain.ResultMode
-	dimension              domain.Dimension
-	subGrouping            *domain.Dimension
-	timeGranularity        domain.TimeGranularity
-	drilldowns             []domain.Drilldown
-	dateRange              *domain.DateRange
-	search                 string
-	showHidden             bool
-	showTransfers          bool
-	currency               *domain.CurrencyScope
-	sort                   domain.SortSpec
-	selectedTransactionIDs map[string]struct{}
-	selectedAggregateKeys  map[string]struct{}
-	searchAnchor           *navigationMarker
+	mode            domain.ResultMode
+	dimension       domain.Dimension
+	subGrouping     *domain.Dimension
+	timeGranularity domain.TimeGranularity
+	drilldowns      []domain.Drilldown
+	dateRange       *domain.DateRange
+	search          string
+	showHidden      bool
+	showTransfers   bool
+	currency        *domain.CurrencyScope
+	sort            domain.SortSpec
+	searchAnchor    *navigationMarker
 }
 
 // Session is renderer-neutral UI state. All mutable nested values are privately copied.
@@ -311,20 +309,18 @@ func (session *Session) ToggleSelectAll(result domain.QueryResult) {
 
 func (session *Session) snapshot() sessionSnapshot {
 	return sessionSnapshot{
-		mode:                   session.Mode,
-		dimension:              session.Dimension,
-		subGrouping:            cloneDimension(session.SubGrouping),
-		timeGranularity:        session.TimeGranularity,
-		drilldowns:             cloneDrilldowns(session.Drilldowns),
-		dateRange:              cloneDateRange(session.DateRange),
-		search:                 session.Search,
-		showHidden:             session.ShowHidden,
-		showTransfers:          session.ShowTransfers,
-		currency:               cloneCurrencyScope(session.Currency),
-		sort:                   session.Sort,
-		selectedTransactionIDs: cloneSet(session.SelectedTransactionIDs),
-		selectedAggregateKeys:  cloneSet(session.SelectedAggregateKeys),
-		searchAnchor:           cloneNavigationMarker(session.searchAnchor),
+		mode:            session.Mode,
+		dimension:       session.Dimension,
+		subGrouping:     cloneDimension(session.SubGrouping),
+		timeGranularity: session.TimeGranularity,
+		drilldowns:      cloneDrilldowns(session.Drilldowns),
+		dateRange:       cloneDateRange(session.DateRange),
+		search:          session.Search,
+		showHidden:      session.ShowHidden,
+		showTransfers:   session.ShowTransfers,
+		currency:        cloneCurrencyScope(session.Currency),
+		sort:            session.Sort,
+		searchAnchor:    cloneNavigationMarker(session.searchAnchor),
 	}
 }
 
@@ -340,8 +336,6 @@ func (session *Session) restore(snapshot sessionSnapshot) {
 	session.ShowTransfers = snapshot.showTransfers
 	session.Currency = cloneCurrencyScope(snapshot.currency)
 	session.Sort = snapshot.sort
-	session.SelectedTransactionIDs = cloneSet(snapshot.selectedTransactionIDs)
-	session.SelectedAggregateKeys = cloneSet(snapshot.selectedAggregateKeys)
 	session.searchAnchor = cloneNavigationMarker(snapshot.searchAnchor)
 }
 
@@ -495,8 +489,6 @@ func cloneSessionSnapshot(snapshot sessionSnapshot) sessionSnapshot {
 	snapshot.drilldowns = cloneDrilldowns(snapshot.drilldowns)
 	snapshot.dateRange = cloneDateRange(snapshot.dateRange)
 	snapshot.currency = cloneCurrencyScope(snapshot.currency)
-	snapshot.selectedTransactionIDs = cloneSet(snapshot.selectedTransactionIDs)
-	snapshot.selectedAggregateKeys = cloneSet(snapshot.selectedAggregateKeys)
 	snapshot.searchAnchor = cloneNavigationMarker(snapshot.searchAnchor)
 	return snapshot
 }
