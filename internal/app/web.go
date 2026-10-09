@@ -138,6 +138,7 @@ type WebProjection struct {
 	State             ViewState
 	Selection         SelectionValue
 	SelectionCount    int
+	SelectionSummary  []domain.CurrencyStats
 	Breadcrumbs       []BreadcrumbSegment
 	BreadcrumbText    string
 	Filters           Filters
@@ -196,6 +197,10 @@ func (service *Service) projectViewLocked(
 		return WebProjection{}, err
 	}
 	decorateWebSelection(&result, snapshot)
+	summary, err := selectionSummary(result)
+	if err != nil {
+		return WebProjection{}, invalidWebRequest(err)
+	}
 
 	actions := webActionIDs()
 	var revision uint64
@@ -214,7 +219,9 @@ func (service *Service) projectViewLocked(
 	projection := WebProjection{
 		Revision: revision, ProfileKind: service.ProfileKind(), Pending: pending, Capabilities: capabilities,
 		State: state.Clone(), Selection: selection, SelectionCount: len(snapshot.IDs),
-		Breadcrumbs: breadcrumbs, BreadcrumbText: resolvedSession.Breadcrumb(result.DateRange),
+		SelectionSummary: summary,
+		Breadcrumbs:      breadcrumbs,
+		BreadcrumbText:   resolvedSession.Breadcrumb(result.DateRange),
 		Filters: Filters{
 			DateRange:  cloneDateRange(state.Current.DateRange),
 			ShowHidden: state.Current.ShowHidden, ShowTransfers: state.Current.ShowTransfers,
