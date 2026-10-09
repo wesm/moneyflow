@@ -253,8 +253,37 @@ test('x in a grouped view explains why it cannot delete', async ({ page, server 
   await page.keyboard.press('x')
   await expect(notice).toHaveText('Open the group to delete its transactions.')
   await expect(page.getByRole('dialog', { name: 'Confirm deletion' })).toHaveCount(0)
+  // Well under the notice's 4 s, so only the next action can have cleared it.
+  const cleared = { timeout: 1000 }
   await page.keyboard.press('j')
-  await expect(notice).toHaveText('')
+  await expect(notice).toHaveText('', cleared)
+
+  await page.keyboard.press('x')
+  await expect(notice).toHaveText('Open the group to delete its transactions.')
+  const row = await activeRow(page)
+  const merchant = await cell(row, 'name').innerText()
+  await cell(row, 'count').dblclick()
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Merchants', `› ${merchant}`])
+  await expect(notice).toHaveText('', cleared)
+})
+
+test('two quick box clicks keep both rows selected', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  // A slow toggle response gives the second click the chance to race the first.
+  await page.route('**/view/transition', async (route) => {
+    if (route.request().postDataJSON().action === 'selection.toggle') {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
+    await route.continue()
+  })
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const third = grid.locator('[role="row"][aria-rowindex="4"]')
+  const fifth = grid.locator('[role="row"][aria-rowindex="6"]')
+  await cell(third, 'select').click()
+  await cell(fifth, 'select').click()
+  await expect(third).toHaveAttribute('aria-selected', 'true')
+  await expect(fifth).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
 })
 
 test('Enter opens Info on a transaction row and drills a grouped row', async ({ page, server }) => {

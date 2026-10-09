@@ -33,7 +33,7 @@
   import type { NavRun } from '../lib/shell/nav-items'
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
-  import { connectionState, writeProgress } from '../lib/shell/status.svelte'
+  import { connectionState, status, writeProgress } from '../lib/shell/status.svelte'
   interface Props {
     controller: ViewController
     onreconnect?: (() => void) | undefined
@@ -85,11 +85,15 @@
     overlays.close('keep')
     void tick().then(work)
   }
-  function queueApply(action: string, dimension?: Dimension): void {
-    const run = () => apply(action, dimension)
-    transitionTail = transitionTail.then(run, run)
+  /** Runs view transitions one at a time, so each starts from the result of the last. */
+  function queue(work: () => Promise<void>): void {
+    transitionTail = transitionTail.then(work, work)
   }
+  const queueApply = (action: string, dimension?: Dimension) =>
+    queue(() => apply(action, dimension))
+  const queueSend = (request: TransitionAction) => queue(() => send(request))
   async function send(request: TransitionAction): Promise<void> {
+    status.clear()
     await controller.apply(request)
     focusGrid()
   }
@@ -162,7 +166,7 @@
       cursorIndex={controller.cursorIndex}
       oncursor={(index) => void controller.moveCursorTo(index)}
       ondrill={(identity) =>
-        void send({ action: 'view.drill', target: { identity, kind: 'aggregate' } })}
+        queueSend({ action: 'view.drill', target: { identity, kind: 'aggregate' } })}
     />
   {/snippet}
   <div class="app-shell">
@@ -205,7 +209,7 @@
           >
             <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
             <div class="app-shell__table" bind:this={grid}>
-              <WorkspaceBody {projection} {actions} onapply={(request) => void send(request)} />
+              <WorkspaceBody {projection} {actions} onapply={queueSend} />
             </div>
             {#if charts.aside}
               <aside aria-label="Visualizations">

@@ -22,7 +22,7 @@ Use arrows or `j`/`k` to move. In the TUI, Page Up/Page Down move by a visible p
 the top. `s` changes the sort field. In the browser, click a sortable column header to sort by
 it, and click it again to reverse the order.
 
-In the browser, a click on a row moves the cursor and a click on its box selects it; a
+In the browser, a click on a row moves the cursor and a click on its box selects or clears it; a
 double-click opens a group, edits a transaction's Merchant or Category, or opens the
 transaction's information from any other cell.
 

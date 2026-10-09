@@ -142,10 +142,21 @@
     onkeydown={keydown}
     onclick={click}
     ondblclick={doubleClick}
+    onmousedown={(event) => {
+      // The second press of a double-click would otherwise select a word of text.
+      if (event.detail > 1) event.preventDefault()
+    }}
     onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
     bind:clientHeight={viewport}
   >
-    <GridHeader {columns} view={projection.view} {onsort} {ontoggleall} />
+    <GridHeader
+      {columns}
+      view={projection.view}
+      allSelected={projection.selection_count > 0 &&
+        projection.selection_count === projection.total_rows}
+      {onsort}
+      {ontoggleall}
+    />
     <div class="mf-table__spacer" style:height={`${slice.topPad}px`} aria-hidden="true"></div>
     {#each visible as row, offset (row.identity)}
       {@const divider = dividers ? incomeDivider(aggregates, slice.start + offset) : null}

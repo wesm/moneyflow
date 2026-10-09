@@ -8,11 +8,13 @@
   interface Props {
     columns: Column[]
     view: ViewProjection['view']
+    /** Every matching row is selected, so the header box shows checked. */
+    allSelected: boolean
     onsort: (field: SortField) => void
     ontoggleall: () => void
   }
 
-  let { columns, view, onsort, ontoggleall }: Props = $props()
+  let { columns, view, allSelected, onsort, ontoggleall }: Props = $props()
   /** Columns whose content explains itself; their headers are named for assistive technology. */
   const unlabelled = new Set<ColumnKey>(['net_bar', 'flags'])
 
@@ -32,7 +34,7 @@
         <span class="mf-table__select-all" {@attach outOfTabOrder}>
           <IconButton size="sm" ariaLabel={column.label} onclick={ontoggleall}>
             <!-- kit-ui-check-ignore: kit Checkbox lacks tabindex (upstream candidate) -->
-            <span class="mf-check" aria-hidden="true"></span>
+            <span class={['mf-check', allSelected && 'mf-check--on']} aria-hidden="true"></span>
           </IconButton>
         </span>
       {:else if field}

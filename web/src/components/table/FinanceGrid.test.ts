@@ -109,6 +109,36 @@ describe('FinanceGrid', () => {
     expect(events.oncursor).toHaveBeenCalledTimes(1)
   })
 
+  it('checks the header box only while every matching row is selected', async () => {
+    const view = render(FinanceGrid, {
+      projection: grouped({ selection_count: 0 }),
+      cursorIndex: 0,
+      compact: false,
+      ...callbacks(),
+    })
+    const box = () =>
+      screen.getByRole('button', { name: 'Select all matching' }).querySelector('.mf-check')!
+    expect(box().classList.contains('mf-check--on')).toBe(false)
+    await view.rerender({ projection: grouped({ selection_count: 1 }) })
+    expect(box().classList.contains('mf-check--on')).toBe(true)
+    await view.rerender({
+      projection: grouped({
+        selection_count: 1,
+        total_rows: 2,
+        window: { offset: 0, limit: 200, count: 2 },
+        aggregate_rows: [testAggregateRow(), testAggregateRow({ index: 1, identity: 'agg-1' })],
+      }),
+    })
+    expect(box().classList.contains('mf-check--on')).toBe(false)
+  })
+
+  it('keeps a double-click from selecting text but lets a single press through', async () => {
+    render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: false, ...callbacks() })
+    const name = cell(screen.getByRole('row', { name: /Example Merchant/ }), 'name')!
+    expect(await fireEvent.mouseDown(name, { detail: 1 })).toBe(true)
+    expect(await fireEvent.mouseDown(name, { detail: 2 })).toBe(false)
+  })
+
   it('double-clicks a grouped row to drill from any cell but the box', async () => {
     const events = callbacks()
     render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: false, ...events })
