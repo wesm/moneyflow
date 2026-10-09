@@ -17,6 +17,7 @@ function aggregate(overrides: Partial<ViewProjection> = {}): ViewProjection {
       time_granularity: 'year',
       sort_field: 'amount',
       sort_direction: 'desc',
+      sort_fields: ['merchant', 'count', 'amount'],
     },
     canonical_query: 'v=1',
     capabilities: capabilities(),

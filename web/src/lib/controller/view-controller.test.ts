@@ -1080,6 +1080,7 @@ function projection(
       time_granularity: 'year',
       sort_field: 'date',
       sort_direction: 'desc',
+      sort_fields: ['date', 'merchant', 'category', 'account', 'amount'],
     },
     selection: selection as ViewProjection['selection'],
     selection_count: 0,

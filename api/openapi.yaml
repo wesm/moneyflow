@@ -2805,6 +2805,19 @@ components:
           type: string
         sort_field:
           type: string
+        sort_fields:
+          items:
+            enum:
+              - count
+              - amount
+              - date
+              - merchant
+              - category
+              - group
+              - account
+              - time_period
+            type: string
+          type: array
         sub_grouping:
           type: string
         time_granularity:
@@ -2815,6 +2828,7 @@ components:
         - time_granularity
         - sort_field
         - sort_direction
+        - sort_fields
       type: object
     Warning:
       additionalProperties: false

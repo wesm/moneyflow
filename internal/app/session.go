@@ -373,6 +373,11 @@ func (session *Session) clearSelections() {
 	session.SelectedAggregateKeys = make(map[string]struct{})
 }
 
+// SortFields lists the fields the view's table can sort by, in the order the sort key cycles.
+func SortFields(state AnalyticalState) []domain.SortField {
+	return sessionFromAnalyticalState(state).sortCycle()
+}
+
 func (session Session) sortCycle() []domain.SortField {
 	if session.SubGrouping == nil && session.Mode == domain.ResultModeDetail {
 		return []domain.SortField{

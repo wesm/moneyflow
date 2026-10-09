@@ -268,3 +268,57 @@ func TestSessionSelectAllVisibleOnly(t *testing.T) {
 	session.ToggleSelectAll(detail)
 	assert.Empty(t, session.SelectedTransactionIDs)
 }
+
+func TestSortFieldsListTheSortableColumnsInCycleOrder(t *testing.T) {
+	t.Parallel()
+
+	merchant := domain.DimensionMerchant
+	category := domain.DimensionCategory
+	tests := []struct {
+		name  string
+		edit  func(*AnalyticalState)
+		wants []domain.SortField
+	}{
+		{
+			name: "grouped",
+			edit: func(state *AnalyticalState) { state.Dimension = domain.DimensionAccount },
+			wants: []domain.SortField{
+				domain.SortFieldAccount, domain.SortFieldCount, domain.SortFieldAmount,
+			},
+		},
+		{
+			name: "sub-grouped uses the sub-grouping's label field",
+			edit: func(state *AnalyticalState) {
+				state.Dimension = merchant
+				state.SubGrouping = &category
+			},
+			wants: []domain.SortField{
+				domain.SortFieldCategory, domain.SortFieldCount, domain.SortFieldAmount,
+			},
+		},
+		{
+			name: "time",
+			edit: func(state *AnalyticalState) { state.Dimension = domain.DimensionTime },
+			wants: []domain.SortField{
+				domain.SortFieldTimePeriod, domain.SortFieldCount, domain.SortFieldAmount,
+			},
+		},
+		{
+			name: "transactions",
+			edit: func(state *AnalyticalState) { state.Mode = domain.ResultModeDetail },
+			wants: []domain.SortField{
+				domain.SortFieldDate, domain.SortFieldMerchant, domain.SortFieldCategory,
+				domain.SortFieldAccount, domain.SortFieldAmount,
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			state := DefaultViewState().Current
+			test.edit(&state)
+
+			assert.Equal(t, test.wants, SortFields(state))
+		})
+	}
+}

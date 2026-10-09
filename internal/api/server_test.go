@@ -595,6 +595,22 @@ func TestServerAggregateRowsCarryCategoryGroupAndTimeNetRatio(t *testing.T) {
 	assert.Empty(t, windowed.AggregateRows[0].Group)
 }
 
+func TestServerViewListsSortableFields(t *testing.T) {
+	t.Parallel()
+	server := newPersistentAPITestServer(t)
+	state := app.DefaultViewState()
+	state.Current.Dimension = domain.DimensionMerchant
+
+	grouped := projectState(t, server, state)
+	state.Current.Mode = domain.ResultModeDetail
+	detail := projectState(t, server, state)
+
+	assert.Equal(t, []string{"merchant", "count", "amount"}, grouped.View.SortFields)
+	assert.Equal(t,
+		[]string{"date", "merchant", "category", "account", "amount"}, detail.View.SortFields,
+	)
+}
+
 func TestServerDetailRowsCarryStagedValuesForPendingEdits(t *testing.T) {
 	t.Parallel()
 	server := newPersistentAPITestServer(t)

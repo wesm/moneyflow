@@ -31,6 +31,7 @@ function view(mode: 'aggregate' | 'detail', sub_grouping?: string): ViewProjecti
     time_granularity: 'year',
     sort_field: 'amount',
     sort_direction: 'desc',
+    sort_fields: ['merchant', 'count', 'amount'],
     ...(sub_grouping === undefined ? {} : { sub_grouping }),
   }
 }

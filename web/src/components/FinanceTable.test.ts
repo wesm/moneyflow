@@ -22,6 +22,7 @@ describe('FinanceTable', () => {
           time_granularity: 'year',
           sort_field: 'date',
           sort_direction: 'desc',
+          sort_fields: ['date', 'merchant', 'category', 'account', 'amount'],
         },
       }),
       cursorIndex: 0,
@@ -149,6 +150,7 @@ describe('FinanceTable', () => {
           time_granularity: 'month',
           sort_field: 'time_period',
           sort_direction: 'asc',
+          sort_fields: ['time_period', 'count', 'amount'],
         },
         detail_rows: null,
         aggregate_rows: [

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/store"
 )
@@ -73,9 +74,27 @@ func TestDeleteCapabilityRequiresDetailState(t *testing.T) {
 	require.NoError(t, err)
 	aggregate := capabilitiesByAction(service.CapabilitiesForState(app.DefaultViewState()))
 	assert.False(t, aggregate[app.ActionDeleteTransaction].Available)
-	assert.NotEmpty(t, aggregate[app.ActionDeleteTransaction].Reason)
+	assert.Equal(t, "Open the group to delete its transactions.",
+		aggregate[app.ActionDeleteTransaction].Reason)
 	detail := capabilitiesByAction(service.CapabilitiesForState(detailViewState()))
 	assert.True(t, detail[app.ActionDeleteTransaction].Available)
+}
+
+func TestDeleteCapabilityReasonForSubGroupedView(t *testing.T) {
+	t.Parallel()
+
+	service, err := app.NewProfileService(context.Background(), newMemoryProfile(t, 5))
+	require.NoError(t, err)
+	session := app.NewSession()
+	session.Dimension = domain.DimensionMerchant
+	subGrouping := domain.DimensionCategory
+	session.SubGrouping = &subGrouping
+
+	capabilities := capabilitiesByAction(service.CapabilitiesForState(session.ViewState()))
+
+	assert.False(t, capabilities[app.ActionDeleteTransaction].Available)
+	assert.Equal(t, "Open the group to delete its transactions.",
+		capabilities[app.ActionDeleteTransaction].Reason)
 }
 
 func TestProviderCapabilitiesPrepareWriteBatchAndDisableFurtherEditing(t *testing.T) {

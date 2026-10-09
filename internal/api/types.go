@@ -244,7 +244,9 @@ type ViewMetadata struct {
 	Search          string `json:"search,omitempty"`
 	SortField       string `json:"sort_field"`
 	SortDirection   string `json:"sort_direction"`
-	SubGrouping     string `json:"sub_grouping,omitempty"`
+	// SortFields are the fields the view's table can sort by, in the order the sort key cycles.
+	SortFields  []string `json:"sort_fields" nullable:"false" enum:"count,amount,date,merchant,category,group,account,time_period"`
+	SubGrouping string   `json:"sub_grouping,omitempty"`
 	// Currency is the single currency the view is scoped to; absent when it shows all.
 	Currency *CurrencyScope `json:"currency,omitempty"`
 }
@@ -356,6 +358,9 @@ func viewMetadataToWire(state app.AnalyticalState) ViewMetadata {
 		Search:          state.Search,
 		SortField:       string(state.Sort.Field),
 		SortDirection:   string(state.Sort.Direction),
+	}
+	for _, field := range app.SortFields(state) {
+		view.SortFields = append(view.SortFields, string(field))
 	}
 	if state.SubGrouping != nil {
 		view.SubGrouping = string(*state.SubGrouping)

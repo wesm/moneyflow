@@ -1778,6 +1778,16 @@ export interface components {
       search?: string
       sort_direction: string
       sort_field: string
+      sort_fields: (
+        | 'count'
+        | 'amount'
+        | 'date'
+        | 'merchant'
+        | 'category'
+        | 'group'
+        | 'account'
+        | 'time_period'
+      )[]
       sub_grouping?: string
       time_granularity: string
     }
