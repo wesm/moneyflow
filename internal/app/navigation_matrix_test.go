@@ -502,3 +502,269 @@ func TestEscapeKeepsClearedSearchWhenUndoingSubGrouping(t *testing.T) {
 	assert.Empty(t, session.Search, "undoing the sub-grouping does not restore the cleared search")
 	assert.Len(t, session.Drilldowns, 1)
 }
+
+func TestMatrixSetGroupingClearsDrillSubGroupingHistoryAndSelection(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "example")
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	session.CycleSubGrouping()
+	session.Sort = sortSpec(domain.SortFieldCount, domain.SortDirectionAsc)
+	session.ToggleAggregateSelection("category-selected")
+	want := columnsOf(session)
+
+	require.NoError(t, session.SetGrouping(domain.DimensionAccount))
+
+	assert.Equal(t, domain.DimensionAccount, session.Dimension)
+	assert.Equal(t, domain.ResultModeAggregate, session.Mode)
+	want.drilldowns = nil
+	want.subGrouping = nil
+	want.selected = 0
+	assert.Equal(t, want, columnsOf(session), "a count sort survives a grouping change")
+	assert.Empty(t, session.ViewState().Returns, "Esc does not return from a direct grouping")
+	_, ok := session.Back()
+	require.True(t, ok)
+	assert.Empty(t, session.Search, "Esc clears the search, which now belongs to the top level")
+	_, ok = session.Back()
+	assert.False(t, ok)
+}
+
+func TestMatrixSetGroupingFromAllTransactionsReturnsToAggregate(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "")
+	session.ShowAllDetail()
+	require.Equal(t, dateDescending(), session.Sort)
+
+	require.NoError(t, session.SetGrouping(domain.DimensionTime))
+
+	assert.Equal(t, domain.ResultModeAggregate, session.Mode)
+	assert.Equal(t, domain.DimensionTime, session.Dimension)
+	assert.Equal(t, sortSpec(domain.SortFieldTimePeriod, domain.SortDirectionAsc), session.Sort)
+	assert.Empty(t, session.ViewState().Returns)
+}
+
+func TestMatrixSetGroupingRejectsUnknownDimension(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "example")
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	before := session.Clone()
+
+	require.Error(t, session.SetGrouping(domain.Dimension("payee")))
+
+	assert.Equal(t, before.ViewState(), session.ViewState())
+	assert.Equal(t, columnsOf(before), columnsOf(session))
+}
+
+func TestMatrixSetSubGroupingInsideDrillPushesUndoableEntry(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "example")
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	session.ToggleTransactionSelection("txn-1")
+	origin := session.Clone()
+	want := columnsOf(session)
+
+	require.NoError(t, session.SetSubGrouping(domain.DimensionAccount))
+
+	want.subGrouping = new(domain.DimensionAccount)
+	want.sort = amountDescending()
+	want.selected = 0
+	assert.Equal(t, want, columnsOf(session))
+
+	require.NoError(t, session.SetSubGrouping(domain.DimensionTime))
+	assert.Equal(t, domain.DimensionTime, *session.SubGrouping)
+	assert.Equal(t, sortSpec(domain.SortFieldTimePeriod, domain.SortDirectionAsc), session.Sort)
+
+	_, ok := session.Back()
+	require.True(t, ok)
+	assert.Equal(t, origin.ViewState(), session.ViewState(), "one Esc undoes every sub-grouping")
+}
+
+func TestMatrixSetSubGroupingRejectsUnavailableDimensionsAndTopLevel(t *testing.T) {
+	t.Parallel()
+	top := matrixSession(t, "example")
+	topBefore := top.Clone()
+	require.Error(t, top.SetSubGrouping(domain.DimensionCategory), "no drill")
+	assert.Equal(t, topBefore.ViewState(), top.ViewState())
+	assert.Equal(t, columnsOf(topBefore), columnsOf(top))
+
+	drilled := matrixSession(t, "example")
+	drillMatrixRow(t, &drilled, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	before := drilled.Clone()
+	require.Error(t, drilled.SetSubGrouping(domain.DimensionMerchant), "already in the drill path")
+	require.Error(t, drilled.SetSubGrouping(domain.Dimension("payee")))
+	assert.Equal(t, before.ViewState(), drilled.ViewState())
+	assert.Equal(t, columnsOf(before), columnsOf(drilled))
+}
+
+func TestMatrixSetCurrencyClearsDrillSubGroupingHistoryAndSelection(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "example")
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	session.CycleSubGrouping()
+	session.ToggleAggregateSelection("category-selected")
+	session.Sort = sortSpec(domain.SortFieldCount, domain.SortDirectionAsc)
+	want := columnsOf(session)
+
+	require.NoError(t, session.SetCurrency(&domain.CurrencyScope{Currency: "EUR", Scale: 2}))
+
+	assert.Equal(t, domain.ResultModeAggregate, session.Mode)
+	want.drilldowns = nil
+	want.subGrouping = nil
+	want.currency = &domain.CurrencyScope{Currency: "EUR", Scale: 2}
+	want.selected = 0
+	assert.Equal(t, want, columnsOf(session))
+	assert.Empty(t, session.ViewState().Returns, "Esc does not undo a currency change")
+	assert.NoError(t, session.ViewState().Validate())
+}
+
+func TestMatrixSetCurrencyKeepsAllTransactionsView(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "")
+	session.ShowAllDetail()
+
+	require.NoError(t, session.SetCurrency(&domain.CurrencyScope{Currency: "EUR", Scale: 2}))
+
+	assert.Equal(t, domain.ResultModeDetail, session.Mode)
+	assert.Equal(t, dateDescending(), session.Sort)
+}
+
+func TestMatrixSetCurrencyRejectsInvalidCode(t *testing.T) {
+	t.Parallel()
+	for _, code := range []domain.Currency{"", "usd", "US", "USDX", "U1D"} {
+		session := matrixSession(t, "example")
+		drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+		before := session.Clone()
+
+		require.Error(t, session.SetCurrency(&domain.CurrencyScope{Currency: code, Scale: 2}), code)
+
+		assert.Equal(t, before.ViewState(), session.ViewState(), code)
+		assert.Equal(t, columnsOf(before), columnsOf(session), code)
+	}
+}
+
+func TestMatrixSetSortReversesActiveFieldAndKeepsSelection(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "example")
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	session.ToggleTransactionSelection("txn-1")
+	require.Equal(t, dateDescending(), session.Sort)
+	want := columnsOf(session)
+
+	require.NoError(t, session.SetSort(domain.SortFieldDate))
+
+	want.sort = sortSpec(domain.SortFieldDate, domain.SortDirectionAsc)
+	assert.Equal(t, want, columnsOf(session))
+	_, ok := session.Back()
+	require.True(t, ok)
+	assert.Equal(t, want.sort, session.Sort, "Esc clears the selection and keeps the sort")
+}
+
+func TestMatrixSetSortAppliesDefaultDirectionForNewField(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		setup func(*Session)
+		field domain.SortField
+		want  domain.SortDirection
+	}{
+		{"detail merchant", func(s *Session) { s.ShowAllDetail() },
+			domain.SortFieldMerchant, domain.SortDirectionAsc},
+		{"detail category", func(s *Session) { s.ShowAllDetail() },
+			domain.SortFieldCategory, domain.SortDirectionAsc},
+		{"detail account", func(s *Session) { s.ShowAllDetail() },
+			domain.SortFieldAccount, domain.SortDirectionAsc},
+		{"detail amount", func(s *Session) {
+			s.ShowAllDetail()
+			s.Sort = sortSpec(domain.SortFieldMerchant, domain.SortDirectionAsc)
+		}, domain.SortFieldAmount, domain.SortDirectionDesc},
+		{"aggregate count", func(s *Session) {
+			s.Sort = sortSpec(domain.SortFieldMerchant, domain.SortDirectionAsc)
+		}, domain.SortFieldCount, domain.SortDirectionDesc},
+		{"aggregate name", func(*Session) {},
+			domain.SortFieldMerchant, domain.SortDirectionAsc},
+		{"group name", func(s *Session) { s.Dimension = domain.DimensionGroup },
+			domain.SortFieldGroup, domain.SortDirectionAsc},
+		{"time period", func(s *Session) { s.Dimension = domain.DimensionTime },
+			domain.SortFieldTimePeriod, domain.SortDirectionAsc},
+		{"time period after amount", func(s *Session) {
+			s.Dimension = domain.DimensionTime
+			s.Sort = sortSpec(domain.SortFieldAmount, domain.SortDirectionDesc)
+		}, domain.SortFieldTimePeriod, domain.SortDirectionAsc},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			session := NewSession()
+			test.setup(&session)
+
+			require.NoError(t, session.SetSort(test.field))
+
+			assert.Equal(t, sortSpec(test.field, test.want), session.Sort)
+		})
+	}
+	detail := NewSession()
+	detail.ShowAllDetail()
+	require.NoError(t, detail.SetSort(domain.SortFieldDate))
+	require.NoError(t, detail.SetSort(domain.SortFieldDate))
+	assert.Equal(t, dateDescending(), detail.Sort, "a second request reverses back")
+}
+
+func TestMatrixSetSortRejectsFieldsOutsideTheView(t *testing.T) {
+	t.Parallel()
+	aggregate := NewSession()
+	detail := NewSession()
+	detail.ShowAllDetail()
+	for _, test := range []struct {
+		name    string
+		session Session
+		field   domain.SortField
+	}{
+		{"date in aggregate", aggregate, domain.SortFieldDate},
+		{"category in merchant view", aggregate, domain.SortFieldCategory},
+		{"count in detail", detail, domain.SortFieldCount},
+		{"time period in detail", detail, domain.SortFieldTimePeriod},
+		{"unknown", detail, domain.SortField("rank")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session := test.session.Clone()
+			before := session.Sort
+
+			require.Error(t, session.SetSort(test.field))
+
+			assert.Equal(t, before, session.Sort)
+		})
+	}
+}
+
+func TestMatrixDirectTopLevelChangesAdoptASearchAppliedInsideTheDrill(t *testing.T) {
+	t.Parallel()
+	setters := map[string]func(*Session) error{
+		"grouping": func(s *Session) error { return s.SetGrouping(domain.DimensionCategory) },
+		"currency": func(s *Session) error {
+			return s.SetCurrency(&domain.CurrencyScope{Currency: "EUR", Scale: 2})
+		},
+	}
+	for name, set := range setters {
+		t.Run(name, func(t *testing.T) {
+			session := NewSession()
+			drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+			session.SetSearch("grocer")
+
+			require.NoError(t, set(&session))
+
+			assert.Equal(t, "grocer", session.Search, "the search is kept")
+			_, ok := session.Back()
+			require.True(t, ok, "Esc clears the search now at the top level")
+			assert.Empty(t, session.Search)
+		})
+	}
+}
+
+func TestMatrixSetGroupingFromAllTransactionsUsesTheAggregateSortDefault(t *testing.T) {
+	t.Parallel()
+	session := NewSession()
+	session.ShowAllDetail()
+	session.Sort = sortSpec(domain.SortFieldMerchant, domain.SortDirectionAsc)
+
+	require.NoError(t, session.SetGrouping(domain.DimensionCategory))
+
+	assert.Equal(t, amountDescending(), session.Sort)
+}

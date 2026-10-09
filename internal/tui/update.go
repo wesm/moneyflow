@@ -159,6 +159,8 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 	case app.ActionCycleGrouping:
 		model.session.CycleGrouping()
 		model.resetAndRefresh()
+	case app.ActionSetGrouping:
+		model.setGrouping(message)
 	case app.ActionShowDetail:
 		model.session.ShowAllDetail()
 		model.resetAndRefresh()
@@ -312,6 +314,22 @@ func (model *Model) refreshForInteraction() bool {
 		}
 	}
 	return false
+}
+
+var groupingKeys = map[string]domain.Dimension{
+	"1": domain.DimensionMerchant,
+	"2": domain.DimensionCategory,
+	"3": domain.DimensionGroup,
+	"4": domain.DimensionAccount,
+	"5": domain.DimensionTime,
+}
+
+func (model *Model) setGrouping(message tea.KeyPressMsg) {
+	if err := model.session.SetGrouping(groupingKeys[message.Keystroke()]); err != nil {
+		model.err = err
+		return
+	}
+	model.resetAndRefresh()
 }
 
 func (model *Model) drill() {

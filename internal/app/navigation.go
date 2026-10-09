@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -79,6 +80,121 @@ func (session *Session) CycleSubGrouping() {
 		session.Sort = sortForAggregateTransition(dimension, session.Sort)
 	}
 	session.clearSelections()
+}
+
+// SetGrouping shows the top-level aggregate for dimension. It leaves any drill path,
+// sub-grouping, selection, and back history, and keeps the period, search, currency, and
+// filters. The sort follows the same rule as cycling the grouping at the top level.
+func (session *Session) SetGrouping(dimension domain.Dimension) error {
+	if !slices.Contains(dimensionOrder, dimension) {
+		return fmt.Errorf("set grouping: unknown dimension %q", dimension)
+	}
+	fromDetail := session.fromDetailView()
+	session.Mode = domain.ResultModeAggregate
+	session.Dimension = dimension
+	session.leaveDrillPath()
+	session.Sort = topLevelSort(dimension, session.Sort, fromDetail)
+	session.rebaseSearchAnchor()
+	return nil
+}
+
+// SetSubGrouping breaks the drilled rows down by dimension. Back undoes it, as it undoes
+// cycling the sub-grouping.
+func (session *Session) SetSubGrouping(dimension domain.Dimension) error {
+	if len(session.Drilldowns) == 0 {
+		return errors.New("set sub-grouping: the view is not drilled into a row")
+	}
+	if !slices.Contains(session.availableSubGroupings(), dimension) {
+		return fmt.Errorf("set sub-grouping: %q is not available below the drill path", dimension)
+	}
+	if session.SubGrouping == nil {
+		session.pushHistory(historySubGrouping, ViewPosition{})
+	}
+	session.SubGrouping = &dimension
+	session.Sort = sortForAggregateTransition(dimension, session.Sort)
+	session.clearSelections()
+	return nil
+}
+
+// SetCurrency restricts the view to one currency and scale, or to all currencies when
+// scope is nil. Drill identities include the currency, so the drill path, sub-grouping,
+// selection, and back history are cleared.
+func (session *Session) SetCurrency(scope *domain.CurrencyScope) error {
+	if scope != nil && !domain.IsValidCurrency(scope.Currency) {
+		return fmt.Errorf("set currency: %q is not a three-letter uppercase code", scope.Currency)
+	}
+	fromDetail := session.fromDetailView()
+	hadDrill := len(session.Drilldowns) > 0
+	hadSubGrouping := session.SubGrouping != nil
+	session.Currency = cloneCurrencyScope(scope)
+	session.leaveDrillPath()
+	switch {
+	case hadDrill:
+		session.Mode = domain.ResultModeAggregate
+		session.Sort = topLevelSort(session.Dimension, session.Sort, fromDetail)
+	case hadSubGrouping:
+		session.Sort = sortForDetailTransition(session.Dimension, session.Sort)
+	}
+	session.rebaseSearchAnchor()
+	return nil
+}
+
+// SetSort sorts by field. The active field reverses its direction. A new field starts with
+// its default direction: ascending for names and time periods, descending otherwise.
+func (session *Session) SetSort(field domain.SortField) error {
+	if !slices.Contains(session.sortCycle(), field) {
+		return fmt.Errorf("set sort: %q is not a sort field of this view", field)
+	}
+	if field == session.Sort.Field {
+		session.ReverseSort()
+		return nil
+	}
+	session.Sort = domain.SortSpec{Field: field, Direction: defaultSortDirection(field)}
+	return nil
+}
+
+func defaultSortDirection(field domain.SortField) domain.SortDirection {
+	switch field {
+	case domain.SortFieldDate, domain.SortFieldCount, domain.SortFieldAmount:
+		return domain.SortDirectionDesc
+	default:
+		return domain.SortDirectionAsc
+	}
+}
+
+func (session *Session) fromDetailView() bool {
+	return session.Mode == domain.ResultModeDetail && session.SubGrouping == nil
+}
+
+func (session *Session) leaveDrillPath() {
+	session.Drilldowns = nil
+	session.SubGrouping = nil
+	session.history = nil
+	session.clearSelections()
+}
+
+// rebaseSearchAnchor makes a kept search belong to the level the session is now at, so
+// Back can clear it.
+func (session *Session) rebaseSearchAnchor() {
+	if session.Search == "" {
+		session.searchAnchor = nil
+		return
+	}
+	marker := session.marker()
+	session.searchAnchor = &marker
+}
+
+// topLevelSort picks the sort for a top-level aggregate. A detail sort field has no
+// aggregate meaning, so it starts from the amount default.
+func topLevelSort(
+	dimension domain.Dimension,
+	current domain.SortSpec,
+	fromDetail bool,
+) domain.SortSpec {
+	if fromDetail {
+		current = amountDescending()
+	}
+	return sortForTopLevelTransition(dimension, current)
 }
 
 // JumpToTime groups the current scope by time without discarding filters.

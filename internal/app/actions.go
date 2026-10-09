@@ -28,6 +28,12 @@ const (
 	ActionCursorHome ActionID = "cursor.home"
 	// ActionCycleGrouping cycles the active aggregate grouping.
 	ActionCycleGrouping ActionID = "view.cycle-grouping"
+	// ActionSetGrouping shows one named top-level grouping.
+	ActionSetGrouping ActionID = "view.set-grouping"
+	// ActionSetSubGrouping breaks the drilled rows down by one named dimension.
+	ActionSetSubGrouping ActionID = "view.set-subgrouping"
+	// ActionSetCurrency restricts the view to one currency and scale.
+	ActionSetCurrency ActionID = "view.set-currency"
 	// ActionShowDetail opens the all-transactions detail view.
 	ActionShowDetail ActionID = "view.show-detail"
 	// ActionFindDuplicates opens duplicate discovery when available.
@@ -52,6 +58,8 @@ const (
 	ActionCycleSort ActionID = "sort.cycle"
 	// ActionReverseSort reverses the active sort direction.
 	ActionReverseSort ActionID = "sort.reverse"
+	// ActionSetSort sorts by one named field.
+	ActionSetSort ActionID = "sort.set"
 	// ActionShowInfo opens transaction information when available.
 	ActionShowInfo ActionID = "transaction.show-info"
 	// ActionEditMerchant edits merchant values when available.
@@ -113,6 +121,9 @@ var readOnlyActions = []ActionDefinition{
 	{ActionCursorDown, []string{"down", "j"}, "↓/j", "Move cursor down", "", ScopeCursor, true, true},
 	{ActionCursorHome, []string{"home"}, "home", "Move to first row", "", ScopeCursor, true, true},
 	{ActionCycleGrouping, []string{"g"}, "g", "Cycle grouping (Merchant→Category→Group→Account→Time)", "Views", ScopeAnalytical, true, true},
+	{ActionSetGrouping, []string{"1", "2", "3", "4", "5"}, "1-5", "Group by Merchant, Category, Group, Account, or Time", "Views", ScopeAnalytical, true, true},
+	{ActionSetSubGrouping, nil, "", "Break down the drilled rows by a dimension", "", ScopeAnalytical, true, true},
+	{ActionSetCurrency, nil, "", "Show one currency", "", ScopeAnalytical, true, true},
 	{ActionShowDetail, []string{"d"}, "d", "View all transactions (detail view)", "Views", ScopeAnalytical, true, true},
 	{ActionFindDuplicates, []string{"D"}, "D", "Find duplicate transactions", "Views", ScopeAnalytical, true, true},
 	{ActionSwitchAccounts, []string{"A"}, "A", "View account aggregation (direct)", "Views", ScopeAnalytical, true, true},
@@ -125,6 +136,7 @@ var readOnlyActions = []ActionDefinition{
 	{ActionNextPeriod, []string{"right"}, "→", "Next time period (when drilled into time)", "Time", ScopeAnalytical, true, true},
 	{ActionCycleSort, []string{"s"}, "s", "Toggle sort field (count/amount/date)", "Sorting", ScopeAnalytical, true, true},
 	{ActionReverseSort, []string{"v"}, "v", "Reverse sort direction", "Sorting", ScopeAnalytical, true, true},
+	{ActionSetSort, nil, "", "Sort by a column", "", ScopeAnalytical, true, true},
 	{ActionShowInfo, []string{"i"}, "i", "Show transaction info/details", "Actions", ScopeOverlay, true, true},
 	{ActionEditMerchant, []string{"m"}, "m", "Edit merchant name (or bulk rename)", "Actions", ScopeAnalytical, false, true},
 	{ActionEditCategory, []string{"c"}, "c", "Change category (or bulk change)", "Actions", ScopeAnalytical, false, true},

@@ -264,3 +264,42 @@ func TestSearchAndFiltersClearSelection(t *testing.T) {
 	assert.Zero(t, selectedSessionCount(model.session))
 	assert.Equal(t, app.EmptySelection(), model.selection)
 }
+
+func TestNumberKeysSelectTheTopLevelGrouping(t *testing.T) {
+	t.Parallel()
+
+	want := map[rune]domain.Dimension{
+		'1': domain.DimensionMerchant, '2': domain.DimensionCategory, '3': domain.DimensionGroup,
+		'4': domain.DimensionAccount, '5': domain.DimensionTime,
+	}
+	for key, dimension := range want {
+		t.Run(string(key), func(t *testing.T) {
+			model := newTestModel(t, app.NewSession())
+			model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+			model = press(t, model, keyRune('g'))
+			require.NotNil(t, model.session.SubGrouping)
+			model = press(t, model, keyRune('j'))
+
+			model = press(t, model, keyRune(key))
+
+			assert.Equal(t, dimension, model.session.Dimension)
+			assert.Equal(t, domain.ResultModeAggregate, model.session.Mode)
+			assert.Empty(t, model.session.Drilldowns)
+			assert.Nil(t, model.session.SubGrouping)
+			assert.Zero(t, model.cursor)
+			assert.NotEmpty(t, model.result.AggregateRows)
+		})
+	}
+}
+
+func TestNumberKeysTypeIntoTheSearchOverlayInsteadOfRegrouping(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(t, app.NewSession())
+	model = press(t, model, keyRune('/'))
+	require.Equal(t, overlaySearch, model.overlay)
+
+	model = press(t, model, keyRune('3'))
+
+	assert.Equal(t, domain.DimensionMerchant, model.session.Dimension)
+}

@@ -11,6 +11,7 @@ capabilities can disable actions. Terminal shortcuts do not override your termin
 | Page Up / Page Down | Move a page in the TUI |
 | `T` / `B` | First / last row in the TUI |
 | `g` | Cycle grouping |
+| `1`–`5` | In the TUI, group by Merchant, Category, Group, Account, or Time |
 | `d` | Show transaction detail view |
 | `A` | Group by account |
 | Enter / Esc | Drill into a row / return |

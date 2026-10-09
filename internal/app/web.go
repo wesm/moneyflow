@@ -70,10 +70,13 @@ type RowTarget struct {
 
 // TransitionRequest applies exactly one renderer-neutral action.
 type TransitionRequest struct {
-	Action  ActionID
-	Target  *RowTarget
-	Search  *string
-	Filters *Filters
+	Action    ActionID
+	Target    *RowTarget
+	Search    *string
+	Filters   *Filters
+	Dimension *domain.Dimension
+	Currency  *domain.CurrencyScope
+	SortField *domain.SortField
 }
 
 // Window describes the returned row range.
@@ -415,13 +418,43 @@ func (service *Service) transitionViewLocked(
 	return nextState, nextSelection, projection, nil
 }
 
+// transitionArguments records which optional TransitionRequest fields are set.
+type transitionArguments struct {
+	target, search, filters, dimension, currency, sortField bool
+}
+
+func argumentsOf(transition TransitionRequest) transitionArguments {
+	return transitionArguments{
+		target:    transition.Target != nil,
+		search:    transition.Search != nil,
+		filters:   transition.Filters != nil,
+		dimension: transition.Dimension != nil,
+		currency:  transition.Currency != nil,
+		sortField: transition.SortField != nil,
+	}
+}
+
+func requiredArguments(action ActionID) transitionArguments {
+	switch action {
+	case ActionDrill, ActionToggleSelection:
+		return transitionArguments{target: true}
+	case ActionApplySearch:
+		return transitionArguments{search: true}
+	case ActionApplyFilters:
+		return transitionArguments{filters: true}
+	case ActionSetGrouping, ActionSetSubGrouping:
+		return transitionArguments{dimension: true}
+	case ActionSetCurrency:
+		return transitionArguments{currency: true}
+	case ActionSetSort:
+		return transitionArguments{sortField: true}
+	default:
+		return transitionArguments{}
+	}
+}
+
 func validateTransitionArguments(transition TransitionRequest) error {
-	wantTarget := transition.Action == ActionDrill || transition.Action == ActionToggleSelection
-	wantSearch := transition.Action == ActionApplySearch
-	wantFilters := transition.Action == ActionApplyFilters
-	if (transition.Target != nil) != wantTarget ||
-		(transition.Search != nil) != wantSearch ||
-		(transition.Filters != nil) != wantFilters {
+	if argumentsOf(transition) != requiredArguments(transition.Action) {
 		return invalidWebRequest(errors.New("action arguments do not match action"))
 	}
 	if transition.Search != nil &&
@@ -496,7 +529,27 @@ func (service *Service) applyAnalyticalTransition(
 			return invalidWebRequest(err)
 		}
 	default:
-		return invalidWebRequest(errors.New("unsupported analytical action"))
+		return applyDirectTransition(session, transition)
+	}
+	return nil
+}
+
+func applyDirectTransition(session *Session, transition TransitionRequest) error {
+	var err error
+	switch transition.Action {
+	case ActionSetGrouping:
+		err = session.SetGrouping(*transition.Dimension)
+	case ActionSetSubGrouping:
+		err = session.SetSubGrouping(*transition.Dimension)
+	case ActionSetCurrency:
+		err = session.SetCurrency(transition.Currency)
+	case ActionSetSort:
+		err = session.SetSort(*transition.SortField)
+	default:
+		err = errors.New("unsupported analytical action")
+	}
+	if err != nil {
+		return invalidWebRequest(err)
 	}
 	return nil
 }

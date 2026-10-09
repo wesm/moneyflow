@@ -601,6 +601,218 @@ func TestTransitionViewRejectsWrongArgumentsNoChangeAndInvalidRegex(t *testing.T
 	assert.Equal(t, selection, nextSelection)
 }
 
+func drilledFirstMerchant(t *testing.T, service *Service) (ViewState, SelectionValue) {
+	t.Helper()
+	state := DefaultViewState()
+	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	require.NotEmpty(t, projection.AggregateRows)
+	drilled, selection, _, err := service.TransitionView(
+		state,
+		EmptySelection(),
+		TransitionRequest{
+			Action: ActionDrill,
+			Target: &RowTarget{Kind: IdentityAggregate, Identity: projection.AggregateRows[0].Identity},
+		},
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	return drilled, selection
+}
+
+func TestTransitionViewSetsGroupingFromAnywhere(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 3)
+	drilled, selection := drilledFirstMerchant(t, service)
+	dimension := domain.DimensionAccount
+
+	next, nextSelection, projection, err := service.TransitionView(
+		drilled, selection,
+		TransitionRequest{Action: ActionSetGrouping, Dimension: &dimension},
+		WindowRequest{},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.DimensionAccount, next.Current.Dimension)
+	assert.Equal(t, domain.ResultModeAggregate, next.Current.Mode)
+	assert.Empty(t, next.Current.Drilldowns)
+	assert.Empty(t, next.Returns)
+	assert.Equal(t, EmptySelection(), nextSelection)
+	assert.Equal(t, next, projection.State)
+
+	_, _, _, err = service.TransitionView(
+		next, nextSelection,
+		TransitionRequest{Action: ActionSetGrouping, Dimension: &dimension},
+		WindowRequest{},
+	)
+	assertWebCode(t, err, WebNoChange)
+	unknown := domain.Dimension("payee")
+	_, _, _, err = service.TransitionView(
+		next, nextSelection,
+		TransitionRequest{Action: ActionSetGrouping, Dimension: &unknown},
+		WindowRequest{},
+	)
+	assertWebCode(t, err, WebInvalidRequest)
+}
+
+func TestTransitionViewSetsSubGroupingOnlyInsideADrill(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 3)
+	drilled, selection := drilledFirstMerchant(t, service)
+	dimension := domain.DimensionCategory
+
+	next, _, _, err := service.TransitionView(
+		drilled, selection,
+		TransitionRequest{Action: ActionSetSubGrouping, Dimension: &dimension},
+		WindowRequest{},
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, next.Current.SubGrouping)
+	assert.Equal(t, domain.DimensionCategory, *next.Current.SubGrouping)
+	require.Len(t, next.Current.Drilldowns, 1)
+	backed, _, _, err := service.TransitionView(
+		next, EmptySelection(), TransitionRequest{Action: ActionBack}, WindowRequest{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, drilled.Current, backed.Current, "Esc undoes the sub-grouping")
+
+	top := DefaultViewState()
+	for _, rejected := range []domain.Dimension{domain.DimensionCategory, "payee"} {
+		request := TransitionRequest{Action: ActionSetSubGrouping, Dimension: &rejected}
+		_, _, _, err = service.TransitionView(top, EmptySelection(), request, WindowRequest{})
+		assertWebCode(t, err, WebInvalidRequest)
+	}
+	used := domain.DimensionMerchant
+	_, _, _, err = service.TransitionView(
+		drilled, selection,
+		TransitionRequest{Action: ActionSetSubGrouping, Dimension: &used},
+		WindowRequest{},
+	)
+	assertWebCode(t, err, WebInvalidRequest)
+}
+
+func TestTransitionViewSetsCurrencyAndClearsDrill(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 3)
+	drilled, selection := drilledFirstMerchant(t, service)
+	scope := domain.CurrencyScope{Currency: "USD", Scale: 2}
+
+	next, nextSelection, projection, err := service.TransitionView(
+		drilled, selection,
+		TransitionRequest{Action: ActionSetCurrency, Currency: &scope},
+		WindowRequest{},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, &scope, next.Current.Currency)
+	assert.Empty(t, next.Current.Drilldowns)
+	assert.Empty(t, next.Returns)
+	assert.Equal(t, EmptySelection(), nextSelection)
+	assert.NotEmpty(t, projection.AggregateRows)
+
+	bad := domain.CurrencyScope{Currency: "usd", Scale: 2}
+	rejected, _, _, err := service.TransitionView(
+		next, nextSelection,
+		TransitionRequest{Action: ActionSetCurrency, Currency: &bad},
+		WindowRequest{},
+	)
+	assertWebCode(t, err, WebInvalidRequest)
+	assert.Equal(t, next, rejected)
+}
+
+func TestTransitionViewSetsSortAndReversesTheActiveField(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 3)
+	state := DefaultViewState()
+	field := domain.SortFieldCount
+
+	next, _, _, err := service.TransitionView(
+		state, EmptySelection(),
+		TransitionRequest{Action: ActionSetSort, SortField: &field},
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, sortSpec(domain.SortFieldCount, domain.SortDirectionDesc), next.Current.Sort)
+
+	reversed, _, _, err := service.TransitionView(
+		next, EmptySelection(),
+		TransitionRequest{Action: ActionSetSort, SortField: &field},
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, sortSpec(domain.SortFieldCount, domain.SortDirectionAsc), reversed.Current.Sort)
+
+	invalid := domain.SortFieldDate
+	rejected, _, _, err := service.TransitionView(
+		reversed, EmptySelection(),
+		TransitionRequest{Action: ActionSetSort, SortField: &invalid},
+		WindowRequest{},
+	)
+	assertWebCode(t, err, WebInvalidRequest)
+	assert.Equal(t, reversed, rejected)
+}
+
+func TestTransitionViewKeepsSelectionWhenSettingSort(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 3)
+	state := DefaultViewState()
+	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	_, selection, _, err := service.TransitionView(
+		state, EmptySelection(),
+		TransitionRequest{
+			Action: ActionToggleSelection,
+			Target: &RowTarget{Kind: IdentityAggregate, Identity: projection.AggregateRows[0].Identity},
+		},
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	field := domain.SortFieldCount
+
+	_, nextSelection, _, err := service.TransitionView(
+		state, selection,
+		TransitionRequest{Action: ActionSetSort, SortField: &field},
+		WindowRequest{},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, selection, nextSelection)
+}
+
+func TestTransitionViewRejectsDirectActionsWithWrongArguments(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 2)
+	state := DefaultViewState()
+	dimension := domain.DimensionCategory
+	scope := domain.CurrencyScope{Currency: "USD", Scale: 2}
+	field := domain.SortFieldCount
+	tests := []TransitionRequest{
+		{Action: ActionSetGrouping},
+		{Action: ActionSetSubGrouping},
+		{Action: ActionSetCurrency},
+		{Action: ActionSetSort},
+		{Action: ActionSetGrouping, Dimension: &dimension, Currency: &scope},
+		{Action: ActionSetCurrency, Currency: &scope, SortField: &field},
+		{Action: ActionSetSort, SortField: &field, Dimension: &dimension},
+		{Action: ActionCycleGrouping, Dimension: &dimension},
+		{Action: ActionCycleSort, SortField: &field},
+		{Action: ActionBack, Currency: &scope},
+	}
+	for _, transition := range tests {
+		next, _, _, err := service.TransitionView(state, EmptySelection(), transition, WindowRequest{})
+		require.Error(t, err, transition.Action)
+		assertWebCode(t, err, WebInvalidRequest)
+		assert.Equal(t, state, next)
+	}
+}
+
 func BenchmarkProjectView100K(b *testing.B) {
 	transactions := fixture.Generate(20260812, 100_000)
 	service, err := NewService(transactions)
