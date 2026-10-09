@@ -157,3 +157,22 @@ test('Esc falls back to a Go-derived parent when owned history is unavailable', 
   await page.keyboard.press('Escape')
   await expect(breadcrumb(page)).toHaveText('Merchants')
 })
+
+test('a drilled link without a currency opens at its drill in the busiest currency', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  await page.keyboard.press('Enter')
+  await expect(breadcrumb(page)).toContainText(merchant)
+  const drilled = new URL(page.url())
+  expect(drilled.searchParams.get('drill')).toMatch(/^merchant:USD:2:/)
+  drilled.searchParams.delete('cur')
+
+  await openMoneyflow(page, server, drilled.searchParams.toString())
+
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Merchants', `› ${merchant}`])
+  await expect(page).toHaveURL(/[?&]cur=USD%3A2(&|$)/)
+  await expect(page).toHaveURL(/[?&]drill=merchant%3AUSD%3A2%3A/)
+})

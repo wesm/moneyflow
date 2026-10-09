@@ -694,29 +694,40 @@ func TestTransitionViewSetsSubGroupingOnlyInsideADrill(t *testing.T) {
 	assertWebCode(t, err, WebInvalidRequest)
 }
 
-func TestTransitionViewSetsCurrencyAndClearsDrill(t *testing.T) {
+func TestTransitionViewSetsCurrencyAndClearsADrillInAnotherCurrency(t *testing.T) {
 	t.Parallel()
 
 	service := selectionService(t, 3)
 	drilled, selection := drilledFirstMerchant(t, service)
-	scope := domain.CurrencyScope{Currency: "USD", Scale: 2}
+	usd := domain.CurrencyScope{Currency: "USD", Scale: 2}
+	eur := domain.CurrencyScope{Currency: "EUR", Scale: 2}
 
-	next, nextSelection, projection, err := service.TransitionView(
+	kept, keptSelection, _, err := service.TransitionView(
 		drilled, selection,
-		TransitionRequest{Action: ActionSetCurrency, Currency: &scope},
+		TransitionRequest{Action: ActionSetCurrency, Currency: &usd},
 		WindowRequest{},
 	)
-
 	require.NoError(t, err)
-	assert.Equal(t, &scope, next.Current.Currency)
+	assert.Equal(t, &usd, kept.Current.Currency)
+	assert.Equal(t, drilled.Current.Drilldowns, kept.Current.Drilldowns,
+		"the first currency keeps a drill already in it")
+	assert.Len(t, kept.Returns, len(drilled.Returns))
+	assert.Equal(t, EmptySelection(), keptSelection)
+
+	next, nextSelection, _, err := service.TransitionView(
+		kept, keptSelection,
+		TransitionRequest{Action: ActionSetCurrency, Currency: &eur},
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, &eur, next.Current.Currency)
 	assert.Empty(t, next.Current.Drilldowns)
 	assert.Empty(t, next.Returns)
 	assert.Equal(t, EmptySelection(), nextSelection)
-	assert.NotEmpty(t, projection.AggregateRows)
 
 	_, _, _, err = service.TransitionView(
 		next, nextSelection,
-		TransitionRequest{Action: ActionSetCurrency, Currency: &scope},
+		TransitionRequest{Action: ActionSetCurrency, Currency: &eur},
 		WindowRequest{},
 	)
 	assertWebCode(t, err, WebNoChange)

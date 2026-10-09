@@ -617,6 +617,51 @@ func TestMatrixSetCurrencyClearsDrillSubGroupingHistoryAndSelection(t *testing.T
 	assert.NoError(t, session.ViewState().Validate())
 }
 
+func TestMatrixFirstSetCurrencyKeepsADrillAlreadyInThatCurrency(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "")
+	session.Currency = nil
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	require.NoError(t, session.SetSubGrouping(domain.DimensionCategory))
+	session.ToggleAggregateSelection("category-selected")
+	want := columnsOf(session)
+	usd := &domain.CurrencyScope{Currency: "USD", Scale: 2}
+
+	require.NoError(t, session.SetCurrency(usd))
+
+	want.currency = usd
+	want.selected = 0
+	assert.Equal(t, want, columnsOf(session), "the drill and sub-grouping are kept")
+	assert.Equal(t, domain.ResultModeDetail, session.Mode)
+	assert.NoError(t, session.ViewState().Validate())
+	require.Len(t, session.ViewState().Returns, 2, "Esc still walks back up the drill")
+	for {
+		if _, stepped := session.Back(); !stepped {
+			break
+		}
+		assert.Equal(t, usd, session.Currency, "Back keeps the chosen currency")
+	}
+	assert.Empty(t, session.Drilldowns)
+}
+
+func TestMatrixFirstSetCurrencyClearsADrillInAnotherCurrency(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "")
+	session.Currency = nil
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	for _, scope := range []domain.CurrencyScope{
+		{Currency: "EUR", Scale: 2}, {Currency: "USD", Scale: 3},
+	} {
+		changed := session.Clone()
+
+		require.NoError(t, changed.SetCurrency(&scope))
+
+		assert.Empty(t, changed.Drilldowns, scope)
+		assert.Equal(t, domain.ResultModeAggregate, changed.Mode, scope)
+		assert.Empty(t, changed.ViewState().Returns, scope)
+	}
+}
+
 func TestMatrixSetCurrencyKeepsAllTransactionsView(t *testing.T) {
 	t.Parallel()
 	session := matrixSession(t, "")

@@ -117,7 +117,9 @@ func (session *Session) SetSubGrouping(dimension domain.Dimension) error {
 }
 
 // SetCurrency restricts the view to one currency and scale. Drill identities include the
-// currency, so the drill path, sub-grouping, selection, and back history are cleared.
+// currency, so the drill path, sub-grouping, selection, and back history are cleared. The
+// first currency chosen for a drill already in that currency keeps the drill and its history,
+// so a link to a drilled view that names no currency still opens at its drill.
 func (session *Session) SetCurrency(scope *domain.CurrencyScope) error {
 	if scope == nil {
 		return errors.New("set currency: a currency is required")
@@ -126,6 +128,14 @@ func (session *Session) SetCurrency(scope *domain.CurrencyScope) error {
 		return fmt.Errorf("set currency: %q is not a three-letter uppercase code", scope.Currency)
 	}
 	if session.Currency != nil && *session.Currency == *scope {
+		return nil
+	}
+	if session.Currency == nil && session.drillPathIn(*scope) {
+		session.Currency = cloneCurrencyScope(scope)
+		for index := range session.history {
+			session.history[index].snapshot.currency = cloneCurrencyScope(scope)
+		}
+		session.clearSelections()
 		return nil
 	}
 	fromDetail := session.fromDetailView()
@@ -179,6 +189,19 @@ func defaultSortDirection(field domain.SortField) domain.SortDirection {
 	default:
 		return domain.SortDirectionAsc
 	}
+}
+
+// drillPathIn reports whether the session has a drill path whose every frame is in scope.
+func (session *Session) drillPathIn(scope domain.CurrencyScope) bool {
+	if len(session.Drilldowns) == 0 {
+		return false
+	}
+	for _, drilldown := range session.Drilldowns {
+		if drilldown.Currency != scope.Currency || drilldown.Scale != scope.Scale {
+			return false
+		}
+	}
+	return true
 }
 
 func (session *Session) fromDetailView() bool {
