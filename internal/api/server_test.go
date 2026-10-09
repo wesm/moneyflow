@@ -867,3 +867,36 @@ func TestServerRejectsANegativeBreadcrumbDepthInTheSchema(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusUnprocessableEntity, response.Code, response.Body.String())
 }
+
+func TestServerResetsAStaleSelectionOnATransition(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	response := transitionFrom(t, server, "v=1", TransitionBody{
+		Selection: "invalid",
+		Action:    app.ActionDrill,
+		Target: &TransitionTarget{
+			Kind: app.IdentityAggregate, Identity: firstAggregateIdentity(t, server),
+		},
+	})
+
+	drilled := decodeProjection(t, response)
+	require.Len(t, drilled.Warnings, 1)
+	assert.Equal(t, string(app.SelectionReset), drilled.Warnings[0].Code)
+	assert.Equal(t, string(app.EmptySelection()), drilled.Selection)
+	assert.NotEmpty(t, drilled.DetailRows, "the drill still happened")
+}
+
+func TestServerKeepsOtherTransitionProblemsWithAStaleSelection(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	response := transitionFrom(t, server, "v=1", TransitionBody{
+		Selection: "invalid", Action: app.ActionBack,
+	})
+
+	assert.Equal(t, http.StatusConflict, response.Code, response.Body.String())
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	assert.Equal(t, "no_change", problem.Code)
+}

@@ -391,10 +391,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 				selection,
 				app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit},
 			)
-			warnings = []Warning{{
-				Code:   string(app.SelectionReset),
-				Detail: "The saved selection was invalid and has been reset.",
-			}}
+			warnings = selectionResetWarnings()
 		}
 		if err != nil {
 			return nil, problemFromError(err)
@@ -423,12 +420,15 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		nextState, _, projection, err := service.TransitionView(
-			state,
-			selection,
-			transition,
-			app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit},
-		)
+		window := app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit}
+		nextState, _, projection, err := service.TransitionView(state, selection, transition, window)
+		warnings := []Warning(nil)
+		if isInvalidHydrationSelection(err) {
+			nextState, _, projection, err = service.TransitionView(
+				state, app.EmptySelection(), transition, window,
+			)
+			warnings = selectionResetWarnings()
+		}
 		if err != nil {
 			return nil, problemFromError(err)
 		}
@@ -436,7 +436,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		return &projectionOutput{Body: projectionToWire(projection, canonical, nil)}, nil
+		return &projectionOutput{Body: projectionToWire(projection, canonical, warnings)}, nil
 	})
 
 	mux.HandleFunc("GET "+server.basePath+"openapi.json", func(response http.ResponseWriter, _ *http.Request) {
@@ -689,6 +689,13 @@ func problemFromProviderError(
 		problem.Provider = &status
 	}
 	return problem
+}
+
+func selectionResetWarnings() []Warning {
+	return []Warning{{
+		Code:   string(app.SelectionReset),
+		Detail: "The saved selection was invalid and has been reset.",
+	}}
 }
 
 func isInvalidHydrationSelection(err error) bool {
