@@ -57,6 +57,27 @@ describe('browser view controller', () => {
     expect(replacements).toHaveBeenCalled()
   })
 
+  it('forwards the dimension, currency, sort field, period, and depth to the transition', async () => {
+    const client = clientWith()
+    const controller = controllerFor(client)
+    await controller.hydrate()
+    const requests = [
+      { action: 'view.set-grouping', dimension: 'category' },
+      { action: 'view.set-currency', currency: { currency: 'EUR', scale: 2 } },
+      { action: 'sort.set', sort_field: 'amount' },
+      { action: 'time.set-period', period: { start: '2024-01-01', end: '2024-01-31' } },
+      { action: 'view.back-to', depth: 0 },
+    ] as const
+
+    for (const request of requests) {
+      await controller.apply(request)
+      expect(client.transition).toHaveBeenLastCalledWith(
+        expect.objectContaining(request),
+        expect.any(AbortSignal),
+      )
+    }
+  })
+
   it('uses verified owned history for Esc and replaces with the server parent otherwise', async () => {
     const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
     const controller = controllerFor(

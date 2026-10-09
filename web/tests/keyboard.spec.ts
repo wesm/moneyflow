@@ -42,6 +42,20 @@ test('the active row stays fully visible while moving past the fold and back', a
   }
 })
 
+test('keys 1 to 5 group by merchant, category, group, account, and time', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  const groupings = ['merchant', 'category', 'group', 'account', 'time']
+  for (const [index, grouping] of groupings.entries()) {
+    await page.keyboard.press(String(index + 1))
+    await expect(refinement(page)).toContainText(`Group: ${grouping}`)
+  }
+  await page.keyboard.press('2')
+  await expect(refinement(page)).toContainText('Group: category')
+})
+
 test('cycles every grouping, account direct view, detail, drill, subgroup, and back', async ({
   page,
   server,

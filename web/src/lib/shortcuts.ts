@@ -1,6 +1,7 @@
 import { createShortcutManager, type ShortcutManager } from '@kenn-io/kit-ui'
-import type { ViewProjection } from './api/client'
+import type { TransitionBody, ViewProjection } from './api/client'
 
+export type Dimension = NonNullable<TransitionBody['dimension']>
 type Capability = NonNullable<ViewProjection['capabilities']>[number]
 export type LocalAction =
   | 'cursor.up'
@@ -28,6 +29,12 @@ const bindings = [
   { id: 'cursor.down', display: '↓/j', combos: ['arrowdown', 'j'], local: true },
   { id: 'cursor.home', display: 'home', combos: ['home'], local: true },
   { id: 'view.cycle-grouping', display: 'g', combos: ['g'] },
+  {
+    id: 'view.set-grouping',
+    display: '1-5',
+    combos: ['1', '2', '3', '4', '5'],
+    dimensions: ['merchant', 'category', 'group', 'account', 'time'],
+  },
   { id: 'view.show-detail', display: 'd', combos: ['d'] },
   {
     id: 'view.find-duplicates',
@@ -124,11 +131,20 @@ export function validateCapabilities(capabilities: Capability[]): void {
       throw new Error(`server capability ${binding.id} conflicts with the browser shortcut table`)
     }
   }
+  const bound = new Set<string>(bindings.map((binding) => binding.id))
+  for (const capability of capabilities) {
+    if (capability.key_display && !bound.has(capability.id)) {
+      throw new Error(`server capability ${capability.id} has no browser shortcut`)
+    }
+  }
 }
 
 export function createMoneyflowShortcuts(
   capabilities: Capability[],
-  handlers: { local(action: LocalAction): void; apply(action: string): void },
+  handlers: {
+    local(action: LocalAction): void
+    apply(action: string, dimension?: Dimension): void
+  },
 ): { manager: ShortcutManager; destroy(): void } {
   validateCapabilities(capabilities)
   const available = new Set(
@@ -138,11 +154,13 @@ export function createMoneyflowShortcuts(
   const cleanup: Array<() => void> = []
   for (const binding of bindings) {
     if (!available.has(binding.id)) continue
-    for (const combo of binding.combos) {
+    for (const [index, combo] of binding.combos.entries()) {
       cleanup.push(
         manager.register(combo, () => {
           if ('local' in binding) {
             handlers.local(('localID' in binding ? binding.localID : binding.id) as LocalAction)
+          } else if ('dimensions' in binding) {
+            handlers.apply(binding.id, binding.dimensions[index])
           } else handlers.apply(binding.id)
         }),
       )

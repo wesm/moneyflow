@@ -25,6 +25,11 @@ export interface TransitionAction {
   target?: TransitionBody['target']
   search?: TransitionBody['search']
   filters?: TransitionBody['filters']
+  dimension?: TransitionBody['dimension']
+  currency?: TransitionBody['currency']
+  sort_field?: TransitionBody['sort_field']
+  period?: TransitionBody['period']
+  depth?: TransitionBody['depth']
 }
 
 export interface ControllerProblem {
@@ -212,6 +217,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       ...(action.target === undefined ? {} : { target: action.target }),
       ...(action.search === undefined ? {} : { search: action.search }),
       ...(action.filters === undefined ? {} : { filters: action.filters }),
+      ...(action.dimension === undefined ? {} : { dimension: action.dimension }),
+      ...(action.currency === undefined ? {} : { currency: action.currency }),
+      ...(action.sort_field === undefined ? {} : { sort_field: action.sort_field }),
+      ...(action.period === undefined ? {} : { period: action.period }),
+      ...(action.depth === undefined ? {} : { depth: action.depth }),
     }
     const run = async () => {
       return await requestProjection(

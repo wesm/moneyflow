@@ -7,6 +7,7 @@ const capabilities = [
   ['cursor.down', '↓/j'],
   ['cursor.home', 'home'],
   ['view.cycle-grouping', 'g'],
+  ['view.set-grouping', '1-5'],
   ['view.show-detail', 'd'],
   ['view.find-duplicates', 'D'],
   ['view.switch-accounts', 'A'],
@@ -19,6 +20,7 @@ const capabilities = [
   ['sort.reverse', 'v'],
   ['selection.toggle', 'space'],
   ['selection.toggle-all', 'ctrl+a'],
+  ['transaction.show-info', 'i'],
   ['overlay.filters', 'f'],
   ['overlay.search', '/'],
   ['overlay.help', '?'],
@@ -30,6 +32,7 @@ const capabilities = [
   ['transaction.delete', 'x'],
   ['changes.undo', 'u'],
   ['changes.redo', 'U'],
+  ['transactions.export', 'E'],
   ['changes.review', 'w'],
   ['provider.refresh', 'r'],
 ].map(([id, key_display]) => ({
@@ -93,6 +96,29 @@ describe('Moneyflow browser shortcuts', () => {
         { id: 'cursor.up', key_display: 'j', description: 'wrong', category: '', available: true },
       ]),
     ).toThrow('conflicts')
+  })
+
+  it('groups by the dimension that the pressed number selects', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    const dimensions = ['merchant', 'category', 'group', 'account', 'time']
+
+    for (const [index, dimension] of dimensions.entries()) {
+      expect(shortcuts.manager.handleKeydown(keyboard(String(index + 1)))).toBe(true)
+      expect(handlers.apply).toHaveBeenLastCalledWith('view.set-grouping', dimension)
+    }
+    expect(shortcuts.manager.handleKeydown(keyboard('6'))).toBe(false)
+    shortcuts.destroy()
+  })
+
+  it('rejects a server key with no browser binding', () => {
+    expect(() =>
+      validateCapabilities([
+        ...capabilities,
+        { id: 'view.new-key', key_display: 'z', description: 'new', category: '', available: true },
+      ]),
+    ).toThrow('view.new-key')
+    expect(() => validateCapabilities(capabilities)).not.toThrow()
   })
 
   it('suspends table letter keys while an overlay scope is active', () => {

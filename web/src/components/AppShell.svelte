@@ -31,6 +31,7 @@
   import {
     createMoneyflowShortcuts,
     handleMoneyflowKeydown,
+    type Dimension,
     type LocalAction,
   } from '../lib/shortcuts'
   import type { ViewController } from '../lib/controller/view-controller.svelte'
@@ -134,7 +135,7 @@
       ? { identity: row.identity, kind: projection?.detail_rows ? 'transaction' : 'aggregate' }
       : undefined
   }
-  async function apply(action: string): Promise<void> {
+  async function apply(action: string, dimension?: Dimension): Promise<void> {
     if (action === 'view.drill' || action === 'selection.toggle') {
       const row = [...(projection?.detail_rows ?? []), ...(projection?.aggregate_rows ?? [])].find(
         (candidate) => candidate.index === controller.cursorIndex,
@@ -144,11 +145,11 @@
         return
       }
     }
-    await controller.apply({ action })
+    await controller.apply({ action, ...(dimension === undefined ? {} : { dimension }) })
     focusGrid()
   }
-  function queueApply(action: string): void {
-    const run = () => apply(action)
+  function queueApply(action: string, dimension?: Dimension): void {
+    const run = () => apply(action, dimension)
     transitionTail = transitionTail.then(run, run)
   }
   async function target(
