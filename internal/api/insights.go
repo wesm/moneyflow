@@ -25,12 +25,6 @@ type InsightsBody struct {
 	Summary bool     `json:"summary,omitempty"`
 }
 
-// InsightsDateRange is an inclusive pair of ISO calendar dates.
-type InsightsDateRange struct {
-	Start string `json:"start" format:"date"`
-	End   string `json:"end" format:"date"`
-}
-
 // InsightsPeriodRange is one chart period. Value arrays elsewhere align with these entries.
 type InsightsPeriodRange struct {
 	Period Period `json:"period"`
@@ -54,15 +48,15 @@ type InsightsHeatmap struct {
 type InsightsRanges struct {
 	Kind string `json:"kind" enum:"day,month,year,custom,all"`
 	// Scope is absent for All.
-	Scope              *InsightsDateRange    `json:"scope,omitempty"`
+	Scope              *DateRange            `json:"scope,omitempty"`
 	ContextGranularity string                `json:"context_granularity" enum:"year,month,day"`
 	Context            []InsightsPeriodRange `json:"context" nullable:"false"`
 	// Trend is empty in the Time grouping.
 	Trend []InsightsPeriodRange `json:"trend" nullable:"false"`
 	// Comparison and ComparisonLabel are absent for All.
-	Comparison      *InsightsDateRange `json:"comparison,omitempty"`
-	ComparisonLabel string             `json:"comparison_label,omitempty"`
-	Heatmap         *InsightsHeatmap   `json:"heatmap,omitempty"`
+	Comparison      *DateRange       `json:"comparison,omitempty"`
+	ComparisonLabel string           `json:"comparison_label,omitempty"`
+	Heatmap         *InsightsHeatmap `json:"heatmap,omitempty"`
 }
 
 // InsightsChange is one server-computed comparison.
@@ -400,11 +394,11 @@ func cellsToWire(cells []analytics.CrossTabCell) InsightsInOut {
 	return wire
 }
 
-func optionalDateRange(dates *domain.DateRange) *InsightsDateRange {
+func optionalDateRange(dates *domain.DateRange) *DateRange {
 	if dates == nil {
 		return nil
 	}
-	return &InsightsDateRange{Start: dates.Start.String(), End: dates.End.String()}
+	return &DateRange{Start: dates.Start.String(), End: dates.End.String()}
 }
 
 func optionalChange(change *analytics.Change) *InsightsChange {

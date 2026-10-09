@@ -46,8 +46,8 @@ type TransitionTarget struct {
 	Identity string           `json:"identity" maxLength:"4096"`
 }
 
-// TransitionDateRange is an inclusive pair of ISO calendar dates.
-type TransitionDateRange struct {
+// DateRange is an inclusive pair of ISO calendar dates.
+type DateRange struct {
 	Start string `json:"start" format:"date"`
 	End   string `json:"end" format:"date"`
 }
@@ -61,9 +61,9 @@ type TransitionPeriod struct {
 
 // TransitionFilters contains staged predicates accepted by filters.apply.
 type TransitionFilters struct {
-	DateRange     *TransitionDateRange `json:"date_range,omitempty"`
-	ShowHidden    bool                 `json:"show_hidden"`
-	ShowTransfers bool                 `json:"show_transfers"`
+	DateRange     *DateRange `json:"date_range,omitempty"`
+	ShowHidden    bool       `json:"show_hidden"`
+	ShowTransfers bool       `json:"show_transfers"`
 }
 
 // TransitionBody asks the server to apply exactly one renderer-neutral action.
@@ -464,10 +464,8 @@ func aggregateRowToWire(row app.WebAggregateRow) AggregateRow {
 		SavingsRateTenths: row.SavingsRateTenths,
 	}
 	if row.Row.Period != nil {
-		wire.Period = &Period{
-			Granularity: string(row.Row.Period.Granularity), Year: row.Row.Period.Year,
-			Month: row.Row.Period.Month, Day: row.Row.Period.Day,
-		}
+		period := periodToWire(*row.Row.Period)
+		wire.Period = &period
 	}
 	return wire
 }

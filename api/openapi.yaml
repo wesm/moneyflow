@@ -422,6 +422,19 @@ components:
         - currency
         - scale
       type: object
+    DateRange:
+      additionalProperties: false
+      properties:
+        end:
+          format: date
+          type: string
+        start:
+          format: date
+          type: string
+      required:
+        - start
+        - end
+      type: object
     DetailRow:
       additionalProperties: false
       properties:
@@ -943,19 +956,6 @@ components:
         - net
         - share_tenths
       type: object
-    InsightsDateRange:
-      additionalProperties: false
-      properties:
-        end:
-          format: date
-          type: string
-        start:
-          format: date
-          type: string
-      required:
-        - start
-        - end
-      type: object
     InsightsHeatmap:
       additionalProperties: false
       properties:
@@ -1037,7 +1037,7 @@ components:
       additionalProperties: false
       properties:
         comparison:
-          $ref: "#/components/schemas/InsightsDateRange"
+          $ref: "#/components/schemas/DateRange"
         comparison_label:
           type: string
         context:
@@ -1061,7 +1061,7 @@ components:
             - all
           type: string
         scope:
-          $ref: "#/components/schemas/InsightsDateRange"
+          $ref: "#/components/schemas/DateRange"
         trend:
           items:
             $ref: "#/components/schemas/InsightsPeriodRange"
@@ -2729,24 +2729,11 @@ components:
         - action
         - window
       type: object
-    TransitionDateRange:
-      additionalProperties: false
-      properties:
-        end:
-          format: date
-          type: string
-        start:
-          format: date
-          type: string
-      required:
-        - start
-        - end
-      type: object
     TransitionFilters:
       additionalProperties: false
       properties:
         date_range:
-          $ref: "#/components/schemas/TransitionDateRange"
+          $ref: "#/components/schemas/DateRange"
         show_hidden:
           type: boolean
         show_transfers:

@@ -210,7 +210,7 @@ func TestServerAppliesISODateFilters(t *testing.T) {
 	response := requestJSON(t, server, "/api/v1/view/transition", TransitionBody{
 		Query: "v=1", Action: app.ActionApplyFilters,
 		Filters: &TransitionFilters{
-			DateRange:  &TransitionDateRange{Start: "2024-01-01", End: "2024-01-31"},
+			DateRange:  &DateRange{Start: "2024-01-01", End: "2024-01-31"},
 			ShowHidden: true,
 		},
 		Window: Window{Limit: 200},

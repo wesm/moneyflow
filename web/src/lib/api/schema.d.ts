@@ -894,6 +894,12 @@ export interface components {
       /** Format: int32 */
       scale: number
     }
+    DateRange: {
+      /** Format: date */
+      end: string
+      /** Format: date */
+      start: string
+    }
     DetailRow: {
       account: string
       amazon_match?: components['schemas']['AmazonMatchIndicator']
@@ -1094,12 +1100,6 @@ export interface components {
       /** Format: int64 */
       share_tenths: number
     }
-    InsightsDateRange: {
-      /** Format: date */
-      end: string
-      /** Format: date */
-      start: string
-    }
     InsightsHeatmap: {
       /** Format: date */
       end: string
@@ -1132,7 +1132,7 @@ export interface components {
       start: string
     }
     InsightsRanges: {
-      comparison?: components['schemas']['InsightsDateRange']
+      comparison?: components['schemas']['DateRange']
       comparison_label?: string
       context: components['schemas']['InsightsPeriodRange'][]
       /** @enum {string} */
@@ -1140,7 +1140,7 @@ export interface components {
       heatmap?: components['schemas']['InsightsHeatmap']
       /** @enum {string} */
       kind: 'day' | 'month' | 'year' | 'custom' | 'all'
-      scope?: components['schemas']['InsightsDateRange']
+      scope?: components['schemas']['DateRange']
       trend: components['schemas']['InsightsPeriodRange'][]
     }
     InsightsResponse: {
@@ -1746,14 +1746,8 @@ export interface components {
       target?: components['schemas']['TransitionTarget']
       window: components['schemas']['Window']
     }
-    TransitionDateRange: {
-      /** Format: date */
-      end: string
-      /** Format: date */
-      start: string
-    }
     TransitionFilters: {
-      date_range?: components['schemas']['TransitionDateRange']
+      date_range?: components['schemas']['DateRange']
       show_hidden: boolean
       show_transfers: boolean
     }

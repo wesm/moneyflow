@@ -128,7 +128,7 @@ func TestServerInsightsServeTheMetricsWorkedExample(t *testing.T) {
 
 	ranges := insights.Ranges
 	assert.Equal(t, "month", ranges.Kind)
-	assert.Equal(t, &InsightsDateRange{Start: "2026-09-01", End: "2026-09-30"}, ranges.Scope)
+	assert.Equal(t, &DateRange{Start: "2026-09-01", End: "2026-09-30"}, ranges.Scope)
 	assert.Equal(t, "month", ranges.ContextGranularity)
 	require.Len(t, ranges.Context, 13)
 	assert.Equal(t, InsightsPeriodRange{
@@ -138,7 +138,7 @@ func TestServerInsightsServeTheMetricsWorkedExample(t *testing.T) {
 	require.Len(t, ranges.Trend, 12)
 	assert.Equal(t, "2025-10-01", ranges.Trend[0].Start)
 	assert.True(t, ranges.Trend[0].Absent, "months before the first transaction are absent")
-	assert.Equal(t, &InsightsDateRange{Start: "2026-08-01", End: "2026-08-31"}, ranges.Comparison)
+	assert.Equal(t, &DateRange{Start: "2026-08-01", End: "2026-08-31"}, ranges.Comparison)
 	assert.Equal(t, "vs Aug", ranges.ComparisonLabel)
 	assert.Equal(t, &InsightsHeatmap{Layout: "months", Start: "2026-09-01", End: "2026-09-30"},
 		ranges.Heatmap)
