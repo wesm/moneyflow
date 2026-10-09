@@ -343,6 +343,20 @@ test('narrow layout keeps the same keyboard refinement surface', async ({ page, 
   await expect(page.getByRole('searchbox', { name: 'Search transactions' })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+  await expect(page.getByRole('searchbox', { name: 'Search transactions' })).toBeHidden()
+
+  // f opens the Filters menu inside the View sheet; Esc closes one layer at a time and
+  // never reaches the grid's Esc, which would clear the selection.
+  await page.keyboard.press('f')
+  const sheet = page.getByRole('dialog', { name: 'View' })
+  await expect(sheet.getByRole('button', { name: 'Show transfers' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(sheet.getByRole('button', { name: 'Show transfers' })).toBeHidden()
+  await expect(sheet).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(sheet).toBeHidden()
+  await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+  await expect(await activeRow(page)).toHaveAttribute('aria-selected', 'true')
 })
 
 test('duplicate review remains keyboard driven and restores the finance grid', async ({ page }) => {

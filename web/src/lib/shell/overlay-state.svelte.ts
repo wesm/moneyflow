@@ -15,6 +15,8 @@ export type Overlay =
   | 'export'
   | 'information'
   | 'period'
+  | 'navigation'
+  | 'view'
 
 export interface OverlayHost {
   /** Pushes a shortcut scope and returns the function that pops it. */

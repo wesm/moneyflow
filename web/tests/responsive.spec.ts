@@ -1,3 +1,5 @@
+import type { Locator, Page } from '@playwright/test'
+
 import { activeRow, expect, openMoneyflow, test } from './fixtures'
 
 test('desktop and medium layouts preserve table primacy and chart linkage', async ({
@@ -114,4 +116,147 @@ test('the sidebar groups by its entries and the rail names them in tooltips', as
   await expect(page.getByRole('separator', { name: 'Resize sidebar' })).toHaveCount(0)
   await nav.getByRole('button', { name: 'Merchants' }).hover()
   await expect(page.getByRole('tooltip')).toHaveText('Merchants · 1')
+})
+
+const phone = { width: 390, height: 844 }
+
+async function expectNoHorizontalScroll(page: Page): Promise<void> {
+  expect(await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth)).toBe(
+    true,
+  )
+}
+
+/** Every visible control inside `container` is at least 44 px tall and, if square, wide. */
+async function expectTouchTargets(container: Locator): Promise<void> {
+  const small = await container.evaluate((root) => {
+    const selector = 'button, [role="radio"], [role="combobox"], label.kit-toggle, .kit-text-input'
+    return Array.from(root.querySelectorAll<HTMLElement>(selector))
+      .filter((element) => element.getClientRects().length > 0)
+      .map((element) => ({
+        name: element.textContent?.trim() || element.ariaLabel,
+        box: element.getBoundingClientRect(),
+      }))
+      .filter(({ box }) => box.height < 44 || box.width < 44)
+      .map(({ name, box }) => `${name} ${Math.round(box.width)}×${Math.round(box.height)}`)
+  })
+  expect(small).toEqual([])
+}
+
+const focusInside = (dialog: Locator) =>
+  dialog.evaluate((node) => node.contains(document.activeElement))
+
+test('the phone drawer holds the sidebar, traps focus, and closes on Esc', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize(phone)
+  await openMoneyflow(page, server)
+  await expectNoHorizontalScroll(page)
+  const url = page.url()
+  const menu = page.getByRole('button', { name: 'Open navigation' })
+  await menu.click()
+  const drawer = page.getByRole('dialog', { name: 'Navigation' })
+  await expect(drawer.getByRole('navigation', { name: 'Workspace' })).toBeVisible()
+  await expect(page.getByText(/0 pending/)).toHaveCount(1)
+  await expectTouchTargets(drawer)
+  for (let press = 0; press < 20; press += 1) {
+    await page.keyboard.press('Tab')
+    expect(await focusInside(drawer)).toBe(true)
+  }
+  await page.keyboard.press('Shift+Tab')
+  expect(await focusInside(drawer)).toBe(true)
+  await expectNoHorizontalScroll(page)
+
+  await page.keyboard.press('Escape')
+  await expect(drawer).toBeHidden()
+  await expect(menu).toBeFocused()
+  await expect(page).toHaveURL(url)
+
+  await menu.click()
+  await drawer.getByRole('button', { name: 'Categories', exact: true }).click()
+  await expect(drawer).toBeHidden()
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveText('Categories')
+  await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+})
+
+test('the View sheet changes the period and filters at phone width', async ({ page, server }) => {
+  await page.setViewportSize(phone)
+  await openMoneyflow(page, server)
+  const banner = page.getByRole('banner')
+  await expect(banner.getByRole('radiogroup', { name: 'Period', exact: true })).toHaveCount(0)
+  await expectTouchTargets(banner)
+  const view = banner.getByRole('button', { name: 'View', exact: true })
+  await view.click()
+  const sheet = page.getByRole('dialog', { name: 'View' })
+  await sheet.getByRole('radio', { name: 'Month' }).click()
+  await expect(banner.locator('button[aria-haspopup="dialog"][aria-keyshortcuts="t"]')).toHaveText(
+    'Oct 2026',
+  )
+  await expect(sheet.getByRole('radio', { name: 'Month' })).toBeChecked()
+
+  await sheet.getByRole('button', { name: 'Filters' }).click()
+  await page.getByRole('button', { name: 'Show transfers' }).click()
+  await expect(page).toHaveURL(/[?&]transfers=/)
+  await expectTouchTargets(sheet)
+  await expectNoHorizontalScroll(page)
+
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Show transfers' })).toBeHidden()
+  await expect(sheet).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(sheet).toBeHidden()
+  await expect(view).toBeFocused()
+})
+
+test('the phone search icon reveals the field, which stays while a search applies', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize(phone)
+  await openMoneyflow(page, server)
+  const searchbox = page.getByRole('searchbox', { name: 'Search transactions' })
+  await expect(searchbox).toBeHidden()
+  const icon = page.getByRole('button', { name: 'Search', exact: true })
+  await icon.click()
+  await expect(searchbox).toBeFocused()
+  const box = (await searchbox.boundingBox())!
+  expect(box.width).toBeGreaterThan(phone.width / 2)
+  await expectTouchTargets(page.getByRole('banner'))
+  await searchbox.fill('noodle')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
+  await page.keyboard.press('Enter')
+  await expect(icon).toBeFocused()
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
+  await expect(searchbox).toHaveValue('noodle')
+  await expectNoHorizontalScroll(page)
+
+  await page.getByRole('button', { name: 'Clear search' }).click()
+  await page.keyboard.press('Enter')
+  await expect(page).not.toHaveURL(/[?&]q=/)
+  await expect(searchbox).toBeHidden()
+  await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+
+  await icon.click()
+  await expect(searchbox).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(searchbox).toBeHidden()
+  await expect(icon).toBeFocused()
+
+  const charts = page.getByRole('switch', { name: 'Charts' })
+  await charts.check()
+  await expect(page.getByRole('dialog', { name: 'Moneyflow visualizations' })).toBeVisible()
+})
+
+test('just above the phone breakpoint the rail frame keeps the controls inline', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 700, height: 800 })
+  await openMoneyflow(page, server)
+  await expect(page.getByRole('button', { name: 'Open navigation' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'View', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible()
+  await expect(page.getByRole('radiogroup', { name: 'Period', exact: true })).toBeVisible()
+  await expect(page.getByRole('searchbox', { name: 'Search transactions' })).toBeVisible()
+  await expectNoHorizontalScroll(page)
 })

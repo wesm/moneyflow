@@ -1,20 +1,18 @@
 <script lang="ts">
-  import { IconButton, SegmentedControl } from '@kenn-io/kit-ui'
+  import { IconButton } from '@kenn-io/kit-ui'
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left'
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right'
 
   import PeriodChooser from './PeriodChooser.svelte'
+  import PeriodSegments from './PeriodSegments.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import type { TransitionAction } from '../../lib/controller/view-controller.svelte'
   import {
     activeCurrency,
-    anchorDate,
     canShiftPeriod,
-    periodContaining,
     periodLabel,
     scopeKind,
     type Period,
-    type PeriodKind,
   } from '../../lib/shell/period'
 
   interface Props {
@@ -24,29 +22,19 @@
     /** Closes the chooser; 'keep' leaves focus where a pointer press put it. */
     onclose: (focus?: 'keep') => void
     onapply: (action: TransitionAction) => void
+    /** Shows the Day, Month, Year, and All segments; at phone width they move to the View sheet. */
+    segments?: boolean
   }
 
-  let { projection, chooserOpen, onchoose, onclose, onapply }: Props = $props()
+  let { projection, chooserOpen, onchoose, onclose, onapply, segments = true }: Props = $props()
   let labelButton = $state<HTMLButtonElement>()
 
   const range = $derived(projection.filters.date_range)
   const kind = $derived(scopeKind(range))
   const currency = $derived(activeCurrency(projection))
-  const segments = [
-    { value: 'day', label: 'Day' },
-    { value: 'month', label: 'Month' },
-    { value: 'year', label: 'Year' },
-    { value: 'all', label: 'All' },
-  ]
 
   function setPeriod(period: Period | undefined): void {
     onapply(period ? { action: 'time.set-period', period } : { action: 'time.clear-period' })
-  }
-
-  function chooseSegment(value: string): void {
-    if (value === 'all') return setPeriod(undefined)
-    const anchor = anchorDate(range, currency?.latest)
-    if (anchor) setPeriod(periodContaining(anchor, value as PeriodKind))
   }
 
   function pick(period: Period | undefined): void {
@@ -85,13 +73,7 @@
   >
     <ChevronRightIcon size={14} aria-hidden="true" />
   </IconButton>
-  <SegmentedControl
-    ariaLabel="Period"
-    options={segments}
-    value={kind === 'custom' ? '' : kind}
-    disabled={!currency}
-    onchange={chooseSegment}
-  />
+  {#if segments}<PeriodSegments {projection} {onapply} />{/if}
 </div>
 {#if chooserOpen && labelButton && currency}
   <PeriodChooser

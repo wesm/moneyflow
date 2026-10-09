@@ -149,3 +149,22 @@ for (const theme of themes) {
     )
   })
 }
+
+for (const theme of themes) {
+  for (const surface of [
+    { opener: 'Open navigation', dialog: 'Navigation' },
+    { opener: 'View', dialog: 'View' },
+  ]) {
+    test(`phone ${surface.dialog} ${theme} visual contract`, async ({ page, server }) => {
+      await page.setViewportSize(viewports[2])
+      await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
+      await openMoneyflow(page, server)
+      await page.getByRole('button', { name: surface.opener, exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: surface.dialog })
+      await expect(dialog).toBeVisible()
+      await expectLayoutContract(page, viewports[2])
+      await expectThemeContract(page, theme)
+      await expectFullyWithinViewport(dialog, viewports[2])
+    })
+  }
+}

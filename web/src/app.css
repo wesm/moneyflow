@@ -645,6 +645,8 @@ input {
 .mf-status-line {
   --status-bar-height: 28px;
   flex: none;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--bg-surface);
 }
 .mf-status-line__hints,
 .mf-status-line__state {
@@ -679,6 +681,136 @@ input {
   color: var(--text-secondary);
   text-overflow: ellipsis;
 }
+/* kit-ui has no left drawer or bottom sheet (upstream candidates): NavDrawer and BottomSheet
+   compose its focus trap and overlay helpers with these styles. */
+.mf-nav-drawer,
+.mf-sheet {
+  position: fixed;
+  inset: 0; /* kit-ui-check-ignore: kit-ui has no left drawer or bottom sheet component */
+  z-index: var(--z-overlay);
+  display: flex;
+  background: var(--overlay-bg);
+}
+.mf-sheet {
+  align-items: flex-end;
+}
+.mf-nav-drawer__panel {
+  box-sizing: border-box;
+  position: relative;
+  width: min(18rem, calc(100vw - 3rem));
+  height: 100%;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-right: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+  animation: mf-slide-from-left var(--transition-medium) var(--transition-ease, ease-out);
+}
+/* Touch targets: these out-rank kit's scoped component rules, which tie at two classes. */
+.mf-nav-drawer .mf-nav-item {
+  height: 44px;
+}
+.mf-nav-drawer .mf-nav-drawer__panel .kit-icon-button,
+.mf-nav-drawer .mf-nav-drawer__panel .kit-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.mf-sheet .mf-sheet__body .kit-segmented__btn,
+.mf-sheet .mf-sheet__body .kit-select-dropdown__trigger,
+.mf-sheet .mf-sheet__body .kit-filter-dropdown__btn,
+.mf-sheet .mf-sheet__body .kit-filter-dropdown__item,
+.mf-sheet .mf-sheet__body .kit-select-dropdown__option {
+  min-height: 44px;
+}
+.mf-nav-drawer__close {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-2);
+}
+.mf-sheet__panel {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 85%;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-top: 1px solid var(--border-default);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+  /* A fade, not a slide: a transform would become the containing block for kit's fixed
+     popovers inside the sheet and misplace them while it runs. */
+  animation: mf-fade-in var(--transition-medium) var(--transition-ease, ease-out);
+}
+.mf-sheet__header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-6);
+  border-bottom: 1px solid var(--border-muted);
+}
+.mf-sheet__title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+.mf-sheet__body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6) var(--space-6);
+}
+.mf-sheet__footer {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border-muted);
+}
+.mf-touch-target.kit-icon-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.mf-view-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.mf-view-sheet__row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+.mf-view-sheet__label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.mf-view-sheet .mf-break-down__label {
+  display: none;
+}
+.mf-view-sheet .kit-select-dropdown,
+.mf-view-sheet .kit-filter-dropdown {
+  width: 100%;
+}
+.mf-view-sheet .mf-break-down {
+  overflow-x: auto;
+}
+@keyframes mf-slide-from-left {
+  from {
+    transform: translateX(-100%);
+  }
+}
+@keyframes mf-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
 .finance-grid {
   height: 100%;
   overflow: auto;
@@ -960,18 +1092,51 @@ input {
   }
 }
 @media (max-width: 640px) {
-  .mf-command-bar__leading {
+  /* Phone frame: two command bar rows, with 44 px touch targets. */
+  .mf-command-bar {
+    gap: 0;
+    padding: var(--space-1) var(--space-2);
+  }
+  .mf-command-bar__leading,
+  .mf-command-bar__controls {
     flex-basis: 100%;
+    flex-wrap: nowrap;
+    gap: var(--space-2);
   }
-  .mf-period .kit-segmented {
-    display: none;
+  .mf-command-bar__controls {
+    margin-left: 0;
+    justify-content: flex-start;
   }
-  .mf-break-down {
-    max-width: 100%;
-    overflow-x: auto;
+  .mf-command-bar__leading .mf-breadcrumbs {
+    flex: 1;
   }
-  .mf-break-down__label {
-    display: none;
+  .mf-breadcrumbs__link {
+    min-height: 44px;
+  }
+  .mf-command-bar .kit-icon-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .mf-command-bar .mf-period__label {
+    min-height: 44px;
+  }
+  .mf-charts-switch {
+    min-height: 44px;
+    padding-right: var(--space-3);
+  }
+  .mf-command-bar .kit-button.mf-view-button {
+    min-height: 44px;
+    margin-left: auto;
+  }
+  .mf-command-bar__search {
+    flex-basis: 100%;
+    padding-bottom: var(--space-2);
+  }
+  /* At least 16 px on touch devices (kit's md size), so iOS does not zoom into the field. */
+  .mf-command-bar .mf-command-bar__search .kit-search-input {
+    width: 100%;
+    height: 44px;
+    font-size: var(--font-size-md);
   }
   .app-shell__main {
     grid-template-columns: minmax(0, 1fr);
@@ -984,6 +1149,10 @@ input {
 @media (prefers-reduced-motion: reduce) {
   .chart-mark {
     transition: none;
+  }
+  .mf-nav-drawer__panel,
+  .mf-sheet__panel {
+    animation: none;
   }
 }
 

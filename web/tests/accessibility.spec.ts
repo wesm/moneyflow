@@ -103,6 +103,32 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} phone drawer, View sheet, and search pass axe`, async ({ page, server }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openMoneyflow(page, server)
+    await page.getByRole('button', { name: 'Open navigation' }).click()
+    await expect(page.getByRole('dialog', { name: 'Navigation' })).toBeVisible()
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
+
+    await page.getByRole('grid', { name: 'Financial results' }).focus()
+    await page.keyboard.press('Enter')
+    await page.getByRole('button', { name: 'View', exact: true }).click()
+    const sheet = page.getByRole('dialog', { name: 'View' })
+    await expect(sheet.getByRole('radiogroup', { name: 'Break down by' })).toBeVisible()
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
+    await expect(sheet).toBeHidden()
+
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
+    await expect(page.getByRole('searchbox', { name: 'Search transactions' })).toBeFocused()
+    await expectNoAxeViolations(page)
+  })
+}
+
 test('duplicate review and deletion confirmation pass axe and trap focus', async ({ page }) => {
   const server = await startE2EServer({
     fixturePath: 'testdata/fixtures/duplicate_transactions.json',

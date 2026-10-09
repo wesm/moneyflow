@@ -21,6 +21,15 @@ describe('CommandBar', () => {
     expect(screen.getByText('Period')).not.toBeNull()
   })
 
+  it('renders the row below the bar last', () => {
+    const { container } = render(CommandBar, {
+      leading: snippet('Trail'),
+      center: snippet('Period'),
+      below: snippet('Search'),
+    })
+    expect(container.textContent?.replace(/\s+/g, '')).toBe('TrailPeriodSearch')
+  })
+
   it('renders without optional content', () => {
     const { container } = render(CommandBar, { leading: snippet('Trail') })
     expect(container.textContent?.trim()).toBe('Trail')

@@ -11,9 +11,11 @@
     onbreakdown: (dimension: Dimension) => void
     /** Undoes the breakdown and shows the drilled transactions. */
     ontransactions: () => void
+    /** Fills the row, as in the View sheet. */
+    block?: boolean
   }
 
-  let { projection, onbreakdown, ontransactions }: Props = $props()
+  let { projection, onbreakdown, ontransactions, block = false }: Props = $props()
   const options = $derived(breakDownOptions(projection))
 
   function choose(value: string): void {
@@ -27,6 +29,7 @@
     <span class="mf-break-down__label" aria-hidden="true">Break down by</span>
     <SegmentedControl
       ariaLabel="Break down by"
+      {block}
       {options}
       value={projection.view.sub_grouping ?? 'transactions'}
       onchange={choose}

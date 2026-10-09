@@ -8,9 +8,11 @@
     center?: Snippet | undefined
     /** Display switches at the right edge. */
     trailing?: Snippet | undefined
+    /** A full-width row under the bar, such as the search field at phone width. */
+    below?: Snippet | undefined
   }
 
-  let { leading, center, trailing }: Props = $props()
+  let { leading, center, trailing, below }: Props = $props()
 </script>
 
 <!-- kit CollapsibleSidebar wraps the main area in a <section>, where <header> is no banner. -->
@@ -22,4 +24,5 @@
       {#if trailing}<div class="mf-command-bar__trailing">{@render trailing()}</div>{/if}
     </div>
   {/if}
+  {#if below}{@render below()}{/if}
 </div>

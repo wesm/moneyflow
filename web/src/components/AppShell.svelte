@@ -1,10 +1,11 @@
 <script lang="ts">
   import { CollapsibleSidebar, MEDIA } from '@kenn-io/kit-ui'
   import { MediaQuery } from 'svelte/reactivity'
-  import { onMount, untrack } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import ProviderConfirmation from './ProviderConfirmation.svelte'
   import ChartDrawer from './shell/ChartDrawer.svelte'
   import ChartRail from './shell/ChartRail.svelte'
+  import NavDrawer from './shell/NavDrawer.svelte'
   import ShellAnnouncements from './shell/ShellAnnouncements.svelte'
   import ShellCommandBar from './shell/ShellCommandBar.svelte'
   import ShellOverlays from './shell/ShellOverlays.svelte'
@@ -63,8 +64,8 @@
     overlays,
     afterTransitions: () => transitionTail,
     importAmazon: () => onamazonimport?.(),
-    focusSearch: () => commandBar?.focusSearch(),
-    openFilters: () => commandBar?.openFilters(),
+    focusSearch: () => void commandBar?.focusSearch(),
+    openFilters: () => void commandBar?.openFilters(),
   }
   const localActionTable = localActions(actions)
   const local = (action: LocalAction) => localActionTable[action]()
@@ -79,6 +80,11 @@
     if (entry.kind === 'local') local(entry.action)
     else
       queueApply(entry.action, entry.action === 'view.set-grouping' ? entry.dimension : undefined)
+  }
+  /** Runs a drawer entry once the drawer has closed, so an overlay it opens owns focus. */
+  function fromDrawer(work: () => void): void {
+    overlays.close('keep')
+    void tick().then(work)
   }
   function queueApply(action: string, dimension?: Dimension): void {
     const run = () => apply(action, dimension)
@@ -98,7 +104,10 @@
     focusGrid()
   }
   $effect(() => {
-    if (!compact.current && charts.dialogOpen) charts.setDialog(false)
+    if (compact.current) return
+    if (charts.dialogOpen) charts.setDialog(false)
+    const open = overlays.current
+    if (open === 'navigation' || open === 'view') overlays.close('keep')
   })
   $effect(() => {
     if (charts.checked) untrack(() => charts.rail.load())
@@ -137,6 +146,18 @@
 </script>
 
 {#if projection}
+  {#snippet navigation(then: (work: () => void) => void)}
+    <Sidebar
+      {projection}
+      pending={controller.editing.state.pending}
+      {write}
+      provider={controller.provider}
+      onrun={(entry) => then(() => run(entry))}
+      onreview={() => then(() => local('edit.review'))}
+      onwrite={() => then(() => overlays.open('write'))}
+      {onreconnect}
+    />
+  {/snippet}
   {#snippet chartRail()}
     <ChartRail
       loader={charts.rail}
@@ -155,16 +176,7 @@
       mainOverflow="hidden"
     >
       {#snippet sidebar()}
-        <Sidebar
-          {projection}
-          pending={controller.editing.state.pending}
-          {write}
-          provider={controller.provider}
-          onrun={run}
-          onreview={() => local('edit.review')}
-          onwrite={() => overlays.open('write')}
-          {onreconnect}
-        />
+        {@render navigation((work) => work())}
       {/snippet}
       <div class="app-shell__frame">
         {#if !fullSidebar.current && !compact.current}
@@ -185,6 +197,7 @@
             {projection}
             {overlays}
             {charts}
+            compact={compact.current}
             onfocusgrid={focusGrid}
           />
           <main
@@ -213,7 +226,7 @@
             hints={keyHints(projection, overlays.current !== undefined || charts.dialogOpen)}
             connection={connectionState(controller.problem, controller.loading)}
             revision={controller.editing.state.revision.toString(10)}
-            pending={fullSidebar.current
+            pending={fullSidebar.current || overlays.current === 'navigation'
               ? undefined
               : pendingText(controller.editing.state.pending)}
             compact={compact.current}
@@ -231,6 +244,12 @@
     onconfirmdelete={() => void confirmDirectDelete(actions)}
     {onreconnect}
   />
+  <NavDrawer
+    open={compact.current && overlays.current === 'navigation'}
+    onclose={() => overlays.close()}
+  >
+    {@render navigation(fromDrawer)}
+  </NavDrawer>
   <ProviderConfirmation controller={controller.provider} />
   <ChartDrawer open={compact.current && charts.dialogOpen} onclose={() => charts.setDialog(false)}>
     {@render chartRail()}

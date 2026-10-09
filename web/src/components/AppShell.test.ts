@@ -298,15 +298,138 @@ describe('AppShell', () => {
     expect(pending[0]?.closest('footer')).not.toBeNull()
   })
 
-  it('renders no sidebar or rail below 640 px', () => {
-    const restore = stubMedia((query) => query.includes('640px'))
-    try {
-      render(AppShell, { controller: stubController() })
-      expect(screen.queryByRole('navigation', { name: 'Workspace' })).toBeNull()
-      expect(screen.getAllByText(/1 pending/)).toHaveLength(1)
-    } finally {
-      restore()
-    }
+  it('opens the sidebar in a drawer below 640 px and returns focus to the menu button', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const frames = captureFrames()
+    const controller = stubController()
+    render(AppShell, { controller })
+    expect(screen.queryByRole('navigation', { name: 'Workspace' })).toBeNull()
+    expect(screen.getAllByText(/1 pending/)).toHaveLength(1)
+
+    const menu = screen.getByRole('button', { name: 'Open navigation' })
+    menu.focus()
+    await fireEvent.click(menu)
+    const drawer = screen.getByRole('dialog', { name: 'Navigation' })
+    expect(within(drawer).getByRole('navigation', { name: 'Workspace' })).not.toBeNull()
+    expect(drawer.contains(document.activeElement)).toBe(true)
+    expect(screen.getAllByText(/1 pending/)).toHaveLength(1)
+    await fireEvent.keyDown(window, { key: 'j' })
+    expect(controller.moveCursor).not.toHaveBeenCalled()
+
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await frames.flush()
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
+    expect(document.activeElement).toBe(menu)
+    expect(controller.apply).not.toHaveBeenCalledWith({ action: 'view.back' })
+  })
+
+  it('closes the drawer when an entry is chosen and runs the entry', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const controller = stubController()
+    render(AppShell, { controller })
+    await fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    const drawer = screen.getByRole('dialog', { name: 'Navigation' })
+    await fireEvent.click(within(drawer).getByRole('button', { name: 'Categories' }))
+    await vi.waitFor(() =>
+      expect(controller.apply).toHaveBeenCalledWith({
+        action: 'view.set-grouping',
+        dimension: 'category',
+      }),
+    )
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Duplicates' }))
+    await vi.waitFor(() =>
+      expect(screen.getByRole('dialog', { name: 'Duplicate transactions' })).not.toBeNull(),
+    )
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
+  })
+
+  it('moves the view controls into a View sheet below 640 px', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const frames = captureFrames()
+    const usd = { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' }
+    const eur = { currency: 'EUR', scale: 2, count: 1, first: '2025-05-01', latest: '2025-05-01' }
+    const controller = stubController(
+      testProjection({
+        currencies: [usd, eur],
+        view: { ...testProjection().view, currency: { currency: 'USD', scale: 2 } },
+      }),
+    )
+    render(AppShell, { controller })
+    const banner = screen.getByRole('banner')
+    expect(within(banner).queryByRole('radiogroup', { name: 'Period' })).toBeNull()
+    expect(within(banner).queryByRole('button', { name: 'Filters' })).toBeNull()
+    expect(within(banner).getByRole('button', { name: 'Previous period' })).not.toBeNull()
+
+    const view = within(banner).getByRole('button', { name: 'View' })
+    view.focus()
+    await fireEvent.click(view)
+    const sheet = screen.getByRole('dialog', { name: 'View' })
+    await fireEvent.click(within(sheet).getByRole('radio', { name: 'Month' }))
+    expect(controller.apply).toHaveBeenCalledWith({
+      action: 'time.set-period',
+      period: { start: '2026-10-01', end: '2026-10-31' },
+    })
+    expect(within(sheet).getByRole('combobox', { name: /^Currency/ })).not.toBeNull()
+    expect(within(sheet).getByRole('button', { name: 'Filters' })).not.toBeNull()
+
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await frames.flush()
+    expect(screen.queryByRole('dialog', { name: 'View' })).toBeNull()
+    expect(document.activeElement).toBe(view)
+  })
+
+  it('opens the Filters menu inside the View sheet on f below 640 px', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    render(AppShell, { controller: stubController() })
+    await fireEvent.keyDown(window, { key: 'f' })
+    const sheet = screen.getByRole('dialog', { name: 'View' })
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(within(sheet).getByRole('button', { name: 'Filters' })),
+    )
+    expect(await screen.findByRole('button', { name: 'Show hidden transactions' })).not.toBeNull()
+  })
+
+  it('keeps an applied search in view below 640 px', () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const projection = testProjection()
+    render(AppShell, {
+      controller: stubController(
+        testProjection({ view: { ...projection.view, search: 'noodle' } }),
+      ),
+    })
+    const field = screen.getByRole('searchbox', { name: 'Search transactions' }) as HTMLInputElement
+    expect(field.value).toBe('noodle')
+    expect(screen.getByRole('button', { name: 'Search' }).getAttribute('aria-expanded')).toBe(
+      'true',
+    )
+  })
+
+  it('reveals search from its icon and returns focus to the icon below 640 px', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    render(AppShell, { controller: stubController() })
+    expect(screen.queryByRole('searchbox', { name: 'Search transactions' })).toBeNull()
+
+    const icon = screen.getByRole('button', { name: 'Search' })
+    icon.focus()
+    await fireEvent.click(icon)
+    const field = await screen.findByRole('searchbox', { name: 'Search transactions' })
+    expect(document.activeElement).toBe(field)
+    expect(icon.getAttribute('aria-expanded')).toBe('true')
+
+    await fireEvent.keyDown(field, { key: 'Escape' })
+    await vi.waitFor(() => expect(document.activeElement).toBe(icon))
+    expect(screen.queryByRole('searchbox', { name: 'Search transactions' })).toBeNull()
+
+    await fireEvent.keyDown(window, { key: '/' })
+    const keyed = await screen.findByRole('searchbox', { name: 'Search transactions' })
+    expect(document.activeElement).toBe(keyed)
+    await fireEvent.keyDown(keyed, { key: 'Escape' })
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' })),
+    )
   })
 
   it('reports the connection and profile revision in the status line', async () => {
