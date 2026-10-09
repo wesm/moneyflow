@@ -182,13 +182,11 @@ func decodeAnalytical(values url.Values) (app.AnalyticalState, error) {
 		}
 		state.ShowTransfers = parsed
 	}
-	if value, ok := scalar(values, "cur"); ok {
-		scope, err := parseCurrencyScope(value)
-		if err != nil {
-			return app.AnalyticalState{}, err
-		}
-		state.Currency = &scope
+	currency, err := decodeCurrency(values)
+	if err != nil {
+		return app.AnalyticalState{}, err
 	}
+	state.Currency = currency
 	if value, ok := scalar(values, "q"); ok {
 		state.Search = value
 	}
@@ -218,6 +216,23 @@ func decodeAnalytical(values url.Values) (app.AnalyticalState, error) {
 	return state, nil
 }
 
+// decodeCurrency parses the optional currency scope. The service derives a currency-scoped
+// view's time granularity, so the two cannot both be present.
+func decodeCurrency(values url.Values) (*domain.CurrencyScope, error) {
+	value, ok := scalar(values, "cur")
+	if !ok {
+		return nil, nil
+	}
+	if _, hasTime := scalar(values, "time"); hasTime {
+		return nil, errors.New("time granularity is derived for a currency-scoped view")
+	}
+	scope, err := parseCurrencyScope(value)
+	if err != nil {
+		return nil, err
+	}
+	return &scope, nil
+}
+
 func encodeViewState(state app.ViewState) (string, error) {
 	values, err := encodeAnalytical(state.Current)
 	if err != nil {
@@ -245,7 +260,7 @@ func encodeAnalytical(state app.AnalyticalState) (url.Values, error) {
 	if state.SubGrouping != nil {
 		values.Set("subgroup", string(*state.SubGrouping))
 	}
-	if state.TimeGranularity != domain.TimeGranularityYear {
+	if encodesTimeGranularity(state) {
 		values.Set("time", string(state.TimeGranularity))
 	}
 	if state.DateRange != nil {
@@ -278,6 +293,12 @@ func encodeAnalytical(state app.AnalyticalState) (url.Values, error) {
 		values.Set("sort", string(state.Sort.Field)+":"+string(state.Sort.Direction))
 	}
 	return values, nil
+}
+
+// encodesTimeGranularity reports whether the granularity is view state. The service derives
+// a currency-scoped view's granularity, and Year is the default.
+func encodesTimeGranularity(state app.AnalyticalState) bool {
+	return state.Currency == nil && state.TimeGranularity != domain.TimeGranularityYear
 }
 
 func validateFields(values url.Values, topLevel bool) error {

@@ -255,6 +255,13 @@ func validateInsightsKeys(keys []string, grouping domain.Dimension) error {
 	return nil
 }
 
+// TimeScope returns the period a view covers: its date range, narrowed by any time
+// drill-down. A drill-down outside the range leaves the range, as the charts do.
+func TimeScope(query domain.QuerySpec) (*domain.DateRange, error) {
+	_, scope, err := effectiveScope(query)
+	return scope, err
+}
+
 // effectiveScope removes date bounds from the filter query and folds any time drill-down into
 // the scope, so a drill into September of 2026 scopes the charts to that month. A drill-down
 // outside the date range leaves an empty view, as in the table: the scope stays the date range

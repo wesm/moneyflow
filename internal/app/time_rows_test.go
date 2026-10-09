@@ -20,12 +20,16 @@ func timeRowsService(t *testing.T, transactions ...domain.Transaction) *Service 
 	return service
 }
 
-// workedExampleService has its first transaction on 2024-01-01 and Latest on 2026-10-07.
+// workedExampleService has its first USD transaction on first and Latest on 2026-10-07. A
+// EUR transaction before every USD one proves that All uses the active currency's dates.
 func workedExampleService(t *testing.T, first string) *Service {
 	t.Helper()
+	euro := appTransaction(t, "euro", "2019-06-01", "-3.00", "Example", "Category", "Group")
+	euro.Amount.Currency = "EUR"
 	return timeRowsService(t,
 		appTransaction(t, "first", first, "-1.00", "Example", "Category", "Group"),
 		appTransaction(t, "latest", "2026-10-07", "-2.00", "Example", "Category", "Group"),
+		euro,
 	)
 }
 
@@ -179,7 +183,7 @@ func TestProjectViewSortsAndWindowsTimeRows(t *testing.T) {
 	assert.Equal(t, projection.AggregateRows[0].Identity, projection.Chart.Marks[0].Identity)
 }
 
-func TestProjectViewKeepsDataRowsWhenTimeRowsDoNotApply(t *testing.T) {
+func TestProjectViewKeepsDataRowsWithoutACurrency(t *testing.T) {
 	t.Parallel()
 
 	service := timeRowsService(t,
@@ -202,23 +206,12 @@ func TestProjectViewKeepsDataRowsWhenTimeRowsDoNotApply(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"2026-09-02", "2026-09-03"}, timeRowKeys(projection.AggregateRows))
 
-	timeDrill := state.Clone()
-	timeDrill.Current.DateRange = matrixRange(t, "2026-01-01", "2026-12-31")
-	timeDrill.Current.TimeGranularity = domain.TimeGranularityMonth
-	timeDrill.Current.Drilldowns = []domain.Drilldown{{
-		Dimension: domain.DimensionTime, Currency: "USD", Scale: 2,
-		Period: &domain.Period{Granularity: domain.TimeGranularityMonth, Year: 2026, Month: 9},
-	}}
-	projection, err = service.ProjectView(timeDrill, EmptySelection(), WindowRequest{})
+	allCurrencies.Current.TimeGranularity = domain.TimeGranularityYear
+	projection, err = service.ProjectView(allCurrencies, EmptySelection(), WindowRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"2026-09"}, timeRowKeys(projection.AggregateRows),
-		"a time drill-down narrows the rows below the period")
-
-	otherGranularity := state.Clone()
-	otherGranularity.Current.TimeGranularity = domain.TimeGranularityYear
-	projection, err = service.ProjectView(otherGranularity, EmptySelection(), WindowRequest{})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"2026"}, timeRowKeys(projection.AggregateRows))
+	assert.Equal(t, []string{"2026"}, timeRowKeys(projection.AggregateRows),
+		"without a currency the stored granularity stays")
+	assert.Equal(t, domain.TimeGranularityYear, projection.State.Current.TimeGranularity)
 }
 
 func TestProjectViewSetsTimeRowSavingsRates(t *testing.T) {
@@ -316,8 +309,6 @@ func TestSetPeriodFollowsThePeriodChangeRow(t *testing.T) {
 	require.Len(t, next.Returns, 1)
 	back := next.Returns[0].State
 	assert.Equal(t, next.Current.DateRange, back.DateRange, "back history uses the new period")
-	assert.Equal(t, domain.TimeGranularityDay, back.TimeGranularity,
-		"back history uses the new period's granularity")
 
 	_, _, _, err = service.TransitionView(next, EmptySelection(), TransitionRequest{
 		Action: ActionSetPeriod,
@@ -344,6 +335,101 @@ func TestSetPeriodRejectsMissingOrInvalidPeriods(t *testing.T) {
 		assertWebCode(t, err, WebInvalidRequest)
 		assert.Equal(t, state, next)
 	}
+}
+
+func TestCurrencyTimeViewsDeriveTheirGranularity(t *testing.T) {
+	t.Parallel()
+
+	service := workedExampleService(t, "2024-01-01")
+	projection, err := service.ProjectView(timeGroupingState(), EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, domain.TimeGranularityMonth, projection.State.Current.TimeGranularity)
+	assert.Len(t, projection.AggregateRows, 34, "All lists months without a period action")
+
+	stale := timeGroupingState()
+	stale.Current.DateRange = matrixRange(t, "2026-09-01", "2026-09-30")
+	projection, err = service.ProjectView(stale, EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, domain.TimeGranularityDay, projection.State.Current.TimeGranularity)
+	assert.Len(t, projection.AggregateRows, 30, "a stored year granularity is replaced")
+
+	noCurrency := timeGroupingState()
+	noCurrency.Current.Currency = nil
+	scope := domain.CurrencyScope{Currency: "USD", Scale: 2}
+	next, _, projection, err := service.TransitionView(noCurrency, EmptySelection(),
+		TransitionRequest{Action: ActionSetCurrency, Currency: &scope}, WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, domain.TimeGranularityMonth, next.Current.TimeGranularity)
+	assert.Len(t, projection.AggregateRows, 34)
+}
+
+func TestTransitionsCompareDerivedStates(t *testing.T) {
+	t.Parallel()
+
+	service := workedExampleService(t, "2024-01-01")
+	stale := timeGroupingState()
+	stale.Current.DateRange = matrixRange(t, "2026-09-01", "2026-09-30")
+	_, _, _, err := service.TransitionView(stale, EmptySelection(), TransitionRequest{
+		Action: ActionSetPeriod,
+		Period: &PeriodTarget{Range: matrixRange(t, "2026-09-01", "2026-09-30")},
+	}, WindowRequest{})
+	assertWebCode(t, err, WebNoChange)
+}
+
+func TestTimeSubGroupingInsideATimeDrillUsesTheDrillPeriod(t *testing.T) {
+	t.Parallel()
+
+	service := timeRowsService(t,
+		appTransaction(t, "spend", "2026-09-02", "-50.00", "Example", "Category", "Group"),
+		appTransaction(t, "earn", "2026-09-03", "20.00", "Example", "Category", "Group"),
+	)
+	state := timeGroupingState()
+	state.Current.DateRange = matrixRange(t, "2026-01-01", "2026-12-31")
+	state.Current.Mode = domain.ResultModeDetail
+	state.Current.SubGrouping = new(domain.DimensionTime)
+	state.Current.Drilldowns = []domain.Drilldown{{
+		Dimension: domain.DimensionTime, Currency: "USD", Scale: 2,
+		Period: &domain.Period{Granularity: domain.TimeGranularityMonth, Year: 2026, Month: 9},
+	}}
+	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, domain.TimeGranularityDay, projection.State.Current.TimeGranularity)
+	keys := timeRowKeys(projection.AggregateRows)
+	require.Len(t, keys, 30, "the rows cover the drilled month, not the year")
+	assert.Equal(t, "2026-09-01", keys[0])
+	assert.Equal(t, "2026-09-30", keys[29])
+}
+
+func TestBackDerivesTheGranularityOfTheRestoredView(t *testing.T) {
+	t.Parallel()
+
+	service := workedExampleService(t, "2024-01-01")
+	state := timeGroupingState()
+	state.Current.DateRange = matrixRange(t, "2026-09-01", "2026-09-30")
+	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	require.Len(t, projection.AggregateRows, 30)
+	drilled, _, _, err := service.TransitionView(state, EmptySelection(), TransitionRequest{
+		Action: ActionDrill,
+		Target: &RowTarget{Kind: IdentityAggregate, Identity: projection.AggregateRows[6].Identity},
+	}, WindowRequest{})
+	require.NoError(t, err)
+	year, _ := setWebPeriod(t, service, drilled, matrixRange(t, "2025-01-01", "2025-12-31"))
+	back, _, projection, err := service.TransitionView(
+		year, EmptySelection(), TransitionRequest{Action: ActionBack}, WindowRequest{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ResultModeAggregate, back.Current.Mode)
+	assert.Equal(t, domain.TimeGranularityMonth, back.Current.TimeGranularity)
+	assert.Len(t, projection.AggregateRows, 12)
+}
+
+func TestApplyPeriodTransitionRejectsOtherActions(t *testing.T) {
+	t.Parallel()
+
+	session := NewSession()
+	err := applyPeriodTransition(&session, TransitionRequest{Action: ActionCycleSort})
+	assertWebCode(t, err, WebInvalidRequest)
 }
 
 func TestTerminalPeriodChangesKeepTheGranularity(t *testing.T) {

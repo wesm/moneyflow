@@ -289,15 +289,6 @@ func (session *Session) ClearPeriod() bool {
 	return true
 }
 
-// setPeriodGranularity sets the Time-grouping granularity in the view and in back history,
-// which shares the period that the granularity follows.
-func (session *Session) setPeriodGranularity(granularity domain.TimeGranularity) {
-	session.TimeGranularity = granularity
-	for index := range session.history {
-		session.history[index].snapshot.timeGranularity = granularity
-	}
-}
-
 func (session *Session) applyTimeRange(dateRange *domain.DateRange) {
 	session.applyFilters(Filters{
 		DateRange: dateRange, ShowHidden: session.ShowHidden, ShowTransfers: session.ShowTransfers,

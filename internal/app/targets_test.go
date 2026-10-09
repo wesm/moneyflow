@@ -76,6 +76,34 @@ func TestResolveTargetsExpandsFocusedAggregateOnce(t *testing.T) {
 	assert.False(t, targets.FromSelection)
 }
 
+func TestResolveTargetsFindsTimeRowsAtTheDerivedGranularity(t *testing.T) {
+	t.Parallel()
+
+	effective := effectiveForMutation(t, 5)
+	state := app.DefaultViewState()
+	state.Current.Dimension = domain.DimensionTime
+	state.Current.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+	state.Current.Sort = domain.SortSpec{
+		Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc,
+	}
+	start, err := domain.ParseDate("2026-08-01")
+	require.NoError(t, err)
+	end, err := domain.ParseDate("2026-08-31")
+	require.NoError(t, err)
+	state.Current.DateRange = &domain.DateRange{Start: start, End: end}
+	day := app.AggregateIdentity(domain.AggregateRow{
+		Dimension: domain.DimensionTime, Key: "2026-08-14",
+		Total: domain.Money{Currency: "USD", Scale: 2},
+	})
+
+	targets, err := app.ResolveTargets(effective, app.MutationRequest{
+		ExpectedRevision: 5, State: state, Selection: app.EmptySelection(),
+		Target: &app.RowTarget{Kind: app.IdentityAggregate, Identity: day},
+	})
+	require.NoError(t, err, "a month's Time rows are days, whatever granularity the URL had")
+	assert.Equal(t, []domain.EntityID{"transaction_a", "transaction_b"}, targets.TransactionIDs)
+}
+
 func TestResolveTargetsKeepsCommittedAggregateScopeAfterPendingMerge(t *testing.T) {
 	t.Parallel()
 

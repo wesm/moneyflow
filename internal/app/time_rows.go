@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 
 	"github.com/wesm/moneyflow/internal/analytics"
@@ -9,50 +10,106 @@ import (
 )
 
 // applyPeriodTransition changes the period as the navigation matrix's period-change row
-// says, then sets the Time-row granularity that the new period gives. The terminal keeps its
-// own granularity control and does not use this.
-func (service *Service) applyPeriodTransition(
-	session *Session, transition TransitionRequest,
-) error {
-	var err error
+// says. A currency-scoped Time grouping gets the granularity of its new period when the
+// transition derives the next state.
+func applyPeriodTransition(session *Session, transition TransitionRequest) error {
 	switch transition.Action {
 	case ActionClearTime:
 		if !session.ClearPeriod() {
 			return noChangeWeb(errors.New("view has no active time period"))
 		}
+		return nil
 	case ActionPreviousPeriod:
-		err = shiftWebPeriod(session, -1, "view has no previous time period")
+		return shiftWebPeriod(session, -1, "view has no previous time period")
 	case ActionNextPeriod:
-		err = shiftWebPeriod(session, 1, "view has no next time period")
+		return shiftWebPeriod(session, 1, "view has no next time period")
+	case ActionSetPeriod:
+		if err := session.SetTimeRange(transition.Period.Range); err != nil {
+			return invalidWebRequest(err)
+		}
+		return nil
 	default:
-		if setErr := session.SetTimeRange(transition.Period.Range); setErr != nil {
-			err = invalidWebRequest(setErr)
+		return invalidWebRequest(fmt.Errorf("%q is not a period action", transition.Action))
+	}
+}
+
+// derivesTimeGranularity reports whether a view's Time-row granularity follows from its
+// period instead of stored state. The browser always scopes a view to one currency; the
+// terminal and MCP clients do not, so they keep their own granularity.
+func derivesTimeGranularity(state AnalyticalState) bool {
+	grouping := state.Dimension
+	if state.SubGrouping != nil {
+		grouping = *state.SubGrouping
+	}
+	return state.Currency != nil && grouping == domain.DimensionTime
+}
+
+// deriveTimeRows sets a currency-scoped Time grouping's granularity from its period, which
+// is the date range narrowed by any time drill-down, and returns the periods its rows cover.
+// Other views are unchanged and get no periods. Deriving twice gives the same state.
+func (service *Service) deriveTimeRows(
+	state *AnalyticalState, currencies []domain.CurrencyCount,
+) ([]analytics.PeriodRange, error) {
+	if !derivesTimeGranularity(*state) {
+		return nil, nil
+	}
+	scope, err := analytics.TimeScope(analyticalQuerySpec(*state))
+	if err != nil {
+		return nil, fmt.Errorf("time rows: %w", err)
+	}
+	today, err := service.today()
+	if err != nil {
+		return nil, fmt.Errorf("time rows: today: %w", err)
+	}
+	input := analytics.RangeInput{Scope: scope, Today: today, TimeGrouping: true}
+	input.First, input.Latest = currencyDates(currencies, *state.Currency)
+	ranges, err := analytics.ResolveRanges(input)
+	if err != nil {
+		return nil, fmt.Errorf("time rows: %w", err)
+	}
+	state.TimeGranularity = ranges.ContextGranularity
+	return ranges.Context, nil
+}
+
+// deriveViewState derives the current view's granularity. Back history keeps its stored
+// granularity; a view restored by Back is derived when it becomes current.
+func (service *Service) deriveViewState(
+	state ViewState, currencies []domain.CurrencyCount,
+) (ViewState, error) {
+	derived := state.Clone()
+	if _, err := service.deriveTimeRows(&derived.Current, currencies); err != nil {
+		return ViewState{}, invalidWebRequest(err)
+	}
+	return derived, nil
+}
+
+func currencyDates(
+	currencies []domain.CurrencyCount, scope domain.CurrencyScope,
+) (domain.Date, domain.Date) {
+	for _, candidate := range currencies {
+		if candidate.Currency == scope.Currency && candidate.Scale == scope.Scale {
+			return candidate.First, candidate.Latest
 		}
 	}
-	if err != nil {
-		return err
-	}
-	ranges, err := service.timeRowRanges(
-		session.DateRange, session.Currency, service.currencies(),
-	)
-	if err != nil {
-		return invalidWebRequest(err)
-	}
-	session.setPeriodGranularity(ranges.ContextGranularity)
-	return nil
+	return domain.Date{}, domain.Date{}
 }
 
 // webQuery evaluates a view with the rows the browser shows, so an identity from a projected
 // row resolves here too.
 func (service *Service) webQuery(state AnalyticalState) (domain.QueryResult, error) {
-	result, err := service.Query(sessionFromAnalyticalState(state))
-	if err != nil || !listsTimeRowsFromRange(analyticalQuerySpec(state)) {
-		return result, err
+	var periods []analytics.PeriodRange
+	if derivesTimeGranularity(state) {
+		var err error
+		if periods, err = service.deriveTimeRows(&state, service.currencies()); err != nil {
+			return domain.QueryResult{}, err
+		}
 	}
-	result.AggregateRows, err = service.withTimeRows(
-		state, result.AggregateRows, service.currencies(),
-	)
-	return result, err
+	result, err := service.Query(sessionFromAnalyticalState(state))
+	if err != nil {
+		return domain.QueryResult{}, err
+	}
+	result.AggregateRows = mergeTimeRows(state, result.AggregateRows, periods)
+	return result, nil
 }
 
 // currencies lists the profile's currencies with their first and latest transaction dates.
@@ -62,44 +119,22 @@ func (service *Service) currencies() []domain.CurrencyCount {
 	return analytics.Currencies(service.browseTransactionsLocked())
 }
 
-// withTimeRows lists every period of a Time grouping's range, including periods without
-// transactions, when the view's granularity is the one its period gives. Data rows outside
-// the range stay. Other views keep their rows.
-func (service *Service) withTimeRows(
-	state AnalyticalState, rows []domain.AggregateRow, currencies []domain.CurrencyCount,
-) ([]domain.AggregateRow, error) {
-	query := analyticalQuerySpec(state)
-	if !listsTimeRowsFromRange(query) {
-		return rows, nil
-	}
-	ranges, err := service.timeRowRanges(query.DateRange, query.Currency, currencies)
-	if err != nil {
-		return nil, err
-	}
-	if ranges.ContextGranularity != query.TimeGranularity {
-		return rows, nil
-	}
-	return mergeTimeRows(rows, ranges.Context, *query.Currency, query.Sort), nil
-}
-
-// listsTimeRowsFromRange reports whether the view is a one-currency Time grouping whose
-// rows cover its period. A time drill-down narrows the rows below the period.
-func listsTimeRowsFromRange(query domain.QuerySpec) bool {
-	return query.Mode == domain.ResultModeAggregate && query.GroupBy == domain.DimensionTime &&
-		query.Currency != nil && !slices.ContainsFunc(query.Drilldowns, isTimeDrilldown)
-}
-
+// mergeTimeRows lists every period of a Time grouping, including periods without
+// transactions, in the view's sort. Data rows outside the periods stay.
 func mergeTimeRows(
-	rows []domain.AggregateRow, periods []analytics.PeriodRange,
-	scope domain.CurrencyScope, sort domain.SortSpec,
+	state AnalyticalState, rows []domain.AggregateRow, periods []analytics.PeriodRange,
 ) []domain.AggregateRow {
+	query := analyticalQuerySpec(state)
+	if len(periods) == 0 || query.Mode != domain.ResultModeAggregate {
+		return rows
+	}
 	listed := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		listed[row.Key] = struct{}{}
 	}
 	merged := slices.Clip(rows)
 	for _, period := range periods {
-		row := analytics.EmptyTimeRow(period.Period, scope)
+		row := analytics.EmptyTimeRow(period.Period, *query.Currency)
 		if _, exists := listed[row.Key]; !exists {
 			merged = append(merged, row)
 		}
@@ -107,26 +142,7 @@ func mergeTimeRows(
 	if len(merged) == len(rows) {
 		return rows
 	}
-	return analytics.SortAggregateRows(merged, sort)
-}
-
-// timeRowRanges resolves a Time grouping's ranges from the service clock and the currency's
-// first and latest transaction dates.
-func (service *Service) timeRowRanges(
-	scope *domain.DateRange, currency *domain.CurrencyScope, currencies []domain.CurrencyCount,
-) (analytics.Ranges, error) {
-	today, err := service.today()
-	if err != nil {
-		return analytics.Ranges{}, err
-	}
-	input := analytics.RangeInput{Scope: scope, Today: today, TimeGrouping: true}
-	for _, candidate := range currencies {
-		if currency != nil && candidate.Currency == currency.Currency &&
-			candidate.Scale == currency.Scale {
-			input.First, input.Latest = candidate.First, candidate.Latest
-		}
-	}
-	return analytics.ResolveRanges(input)
+	return analytics.SortAggregateRows(merged, query.Sort)
 }
 
 // decorateSavingsRates sets each Time row's savings rate.
