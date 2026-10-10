@@ -30,7 +30,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await openMoneyflow(page, server)
-    // The KPI strip and the chart row, whose charts are still skeletons.
+    // The Income tile shows once the insights entry has loaded, so the charts have drawn.
     await expect(page.locator('.mf-kpis').getByText('Income', { exact: true })).toBeVisible()
     await expect(page.getByRole('region', { name: 'Charts' })).toBeVisible()
     await expectNoAxeViolations(page)
@@ -44,6 +44,33 @@ for (const colorScheme of ['light', 'dark'] as const) {
       'descending',
     )
     await expect(page.locator('[aria-live="polite"]')).not.toHaveCount(0)
+  })
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} rising and falling changes pass axe on the cursor and selected rows`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openMoneyflow(
+      page,
+      server,
+      'cur=USD%3A2&from=2026-09-01&group=category&to=2026-09-30&v=1',
+    )
+    await expect(page.locator('.mf-kpis__caption')).toHaveText('vs Aug')
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await expect(grid.locator('.mf-tone--favorable').first()).toBeVisible()
+    await expect(grid.locator('.mf-tone--unfavorable').first()).toBeVisible()
+    const falling = grid.getByRole('row').filter({ has: page.locator('.mf-tone--unfavorable') })
+    await cell(falling.first(), 'vs_prior').click()
+    await expect((await activeRow(page)).locator('.mf-tone--unfavorable')).toBeVisible()
+    await expectNoAxeViolations(page)
+
+    await page.keyboard.press('Space')
+    await expect(await activeRow(page)).toHaveAttribute('aria-selected', 'true')
+    await expectNoAxeViolations(page)
   })
 }
 

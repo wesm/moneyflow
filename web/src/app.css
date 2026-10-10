@@ -1467,10 +1467,10 @@ input {
 }
 /* A change against the comparison range, in the KPI strip and the vs prior column. */
 .mf-tone--favorable {
-  color: var(--mf-in);
+  color: var(--mf-in-text);
 }
 .mf-tone--unfavorable {
-  color: var(--mf-out);
+  color: var(--mf-out-text);
 }
 .mf-kpis__caption {
   /* Always one line under the tiles, so a comparison arriving or leaving shifts nothing. */
