@@ -1318,20 +1318,6 @@ input {
   pointer-events: none;
 }
 
-.editing-form {
-  display: grid;
-  gap: var(--space-3);
-  min-width: min(420px, calc(100vw - 64px));
-}
-
-.editing-form select {
-  min-height: 30px;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-}
-
 .editing-actions {
   display: flex;
   justify-content: flex-end;

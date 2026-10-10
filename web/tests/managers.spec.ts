@@ -1,0 +1,185 @@
+import { expect, test, type Locator, type Page } from '@playwright/test'
+
+import { openMoneyflow } from './fixtures'
+import { startE2EServer } from '../scripts/e2e-server'
+
+/** Types `text` into a step's picker, takes the first suggestion, and confirms the step. */
+async function pickAndConfirm(page: Page, picker: Locator, text: string): Promise<void> {
+  await expect(picker).toBeFocused()
+  await page.keyboard.type(text)
+  await page.keyboard.press('Enter')
+  await expect(picker).toHaveValue(text)
+  await page.keyboard.press('Enter')
+  await expect(picker).toBeHidden()
+}
+
+test('the category manager stages every action from its own keys', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    const view = page.url()
+    await page.keyboard.press('Shift+C')
+    const manager = page.getByRole('dialog', { name: 'Manage categories' })
+    const filter = manager.getByLabel('Filter categories')
+    const list = manager.getByRole('listbox', { name: 'Categories' })
+    const name = manager.getByRole('textbox', { name: 'Name' })
+    await expect(filter).toBeFocused()
+
+    // Letters typed in the filter filter the list; ArrowDown leaves it for the list's keys.
+    await page.keyboard.type('din')
+    await expect(filter).toHaveValue('din')
+    await expect(name).toBeHidden()
+    await expect(list.getByRole('option')).toHaveCount(1)
+    await expect(list.getByRole('option').first()).toHaveAccessibleName(/^Dining, Food, \d+ /)
+    await page.keyboard.press('ArrowDown')
+    await expect(list).toBeFocused()
+
+    await page.keyboard.press('r')
+    await expect(name).toBeFocused()
+    await expect(name).toHaveValue('Dining')
+    await page.keyboard.type('Dining Out')
+    await page.keyboard.press('Enter')
+    await expect(name).toBeHidden()
+    await expect(list).toBeFocused()
+    await expect(list.getByRole('option', { name: /^Dining Out, Food,/ })).toBeVisible()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+
+    // The server refuses a name another category has; Esc then steps out of the step only.
+    await page.keyboard.press('r')
+    await page.keyboard.type('Coffee')
+    await page.keyboard.press('Enter')
+    await expect(manager.getByRole('alert')).toHaveText(
+      'That action is not available for the current target.',
+    )
+    await page.keyboard.press('Escape')
+    await expect(name).toBeHidden()
+    await expect(list).toBeFocused()
+
+    await page.keyboard.press('g')
+    const group = manager.getByRole('combobox', { name: 'Group' })
+    await expect(group).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(manager.getByRole('button', { name: 'Move', exact: true })).toBeDisabled()
+    await pickAndConfirm(page, group, 'Entertainment')
+    await expect(list.getByRole('option', { name: /^Dining Out, Entertainment,/ })).toBeVisible()
+    await expect(page.getByText(/2 pending edit/)).toBeVisible()
+
+    await page.keyboard.press('m')
+    const destination = manager.getByRole('combobox', { name: 'Destination' })
+    await expect(manager.getByRole('heading', { name: 'Merge Dining Out into' })).toBeVisible()
+    await expect(manager.getByRole('button', { name: 'Merge', exact: true })).toBeDisabled()
+    await pickAndConfirm(page, destination, 'Coffee')
+    await expect(page.getByText(/3 pending edit/)).toBeVisible()
+    await expect(list.getByRole('option')).toHaveCount(0)
+
+    // Up from the empty list returns to the filter, where Esc clears it.
+    await page.keyboard.press('ArrowUp')
+    await expect(filter).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(filter).toHaveValue('')
+    await page.keyboard.press('ArrowDown')
+
+    await page.keyboard.press('n')
+    await expect(name).toBeFocused()
+    await expect(manager.getByRole('combobox', { name: /^Category group: / })).toBeVisible()
+    await page.keyboard.type('Pet Care')
+    await page.keyboard.press('Enter')
+    await expect(page.getByText(/4 pending edit/)).toBeVisible()
+    await expect(list.getByRole('option', { name: /^Pet Care,/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+
+    await page.keyboard.press('d')
+    await expect(manager.getByRole('heading', { name: 'Delete Pet Care' })).toBeVisible()
+    await page.keyboard.press('Enter')
+    await expect(manager.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
+    await pickAndConfirm(page, manager.getByRole('combobox', { name: 'Replacement' }), 'Groceries')
+    await expect(page.getByText(/5 pending edit/)).toBeVisible()
+    await expect(list.getByRole('option', { name: /^Pet Care,/ })).toHaveCount(0)
+
+    // A protected category starts no step, and the keys never reach the table.
+    await page.keyboard.press('Home')
+    const first = list.getByRole('option').first()
+    await expect(first).toHaveAttribute('aria-selected', 'true')
+    await expect(first).toHaveAccessibleName(/, protected, /)
+    for (const key of ['r', 'g', 'm', 'd']) await page.keyboard.press(key)
+    await expect(manager.getByRole('heading', { level: 2 })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(manager).toBeHidden()
+    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+    await expect(page).toHaveURL(view)
+  } finally {
+    await server.stop()
+  }
+})
+
+test('the group manager stages every action and has no move', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    const view = page.url()
+    await page.keyboard.press('Shift+G')
+    const manager = page.getByRole('dialog', { name: 'Manage category groups' })
+    const filter = manager.getByLabel('Filter groups')
+    const list = manager.getByRole('listbox', { name: 'Category groups' })
+    const name = manager.getByRole('textbox', { name: 'Name' })
+    await expect(filter).toBeFocused()
+    await expect(manager.getByRole('button', { name: 'Move to group' })).toHaveCount(0)
+
+    await page.keyboard.type('trav')
+    await expect(list.getByRole('option')).toHaveCount(1)
+    await page.keyboard.press('ArrowDown')
+    await expect(list).toBeFocused()
+    await page.keyboard.press('r')
+    await expect(name).toHaveValue('Travel')
+    await page.keyboard.type('Travel Plans')
+    await page.keyboard.press('Enter')
+    await expect(list.getByRole('option', { name: /^Travel Plans,/ })).toBeVisible()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+
+    // g has no group action here, and the drawer keeps it from the table's grouping key.
+    await page.keyboard.press('g')
+    await expect(manager.getByRole('heading', { level: 2 })).toHaveCount(0)
+
+    await page.keyboard.press('m')
+    const destination = manager.getByRole('combobox', { name: 'Destination' })
+    await expect(destination).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(manager.getByRole('button', { name: 'Merge', exact: true })).toBeDisabled()
+    await pickAndConfirm(page, destination, 'Entertainment')
+    await expect(page.getByText(/2 pending edit/)).toBeVisible()
+    await expect(list.getByRole('option')).toHaveCount(0)
+    await page.keyboard.press('ArrowUp')
+    await page.keyboard.press('Escape')
+    await expect(filter).toHaveValue('')
+    await page.keyboard.press('ArrowDown')
+
+    await page.keyboard.press('n')
+    await expect(name).toBeFocused()
+    await expect(manager.getByRole('combobox', { name: /^Category group/ })).toHaveCount(0)
+    await page.keyboard.type('Pets')
+    await page.keyboard.press('Enter')
+    await expect(page.getByText(/3 pending edit/)).toBeVisible()
+    await expect(list.getByRole('option', { name: /^Pets,/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+
+    await page.keyboard.press('d')
+    const replacement = manager.getByRole('combobox', { name: 'Replacement' })
+    await expect(replacement).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(manager.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
+    await pickAndConfirm(page, replacement, 'Shopping')
+    await expect(page.getByText(/4 pending edit/)).toBeVisible()
+    await expect(list.getByRole('option', { name: /^Pets,/ })).toHaveCount(0)
+
+    await page.keyboard.press('Escape')
+    await expect(manager).toBeHidden()
+    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+    await expect(page).toHaveURL(view)
+  } finally {
+    await server.stop()
+  }
+})

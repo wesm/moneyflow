@@ -359,3 +359,39 @@ for (const colorScheme of ['light', 'dark'] as const) {
     }
   })
 }
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} category and group managers pass axe with a step open`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Shift+C')
+    const categories = page.getByRole('dialog', { name: 'Manage categories' })
+    const list = categories.getByRole('listbox', { name: 'Categories' })
+    await expect(list.getByRole('option').first()).toBeVisible()
+    // Past the two protected categories to one a merge can change.
+    for (let index = 0; index < 3; index += 1) await page.keyboard.press('ArrowDown')
+    await expectNoAxeViolations(page)
+
+    await page.keyboard.press('m')
+    await categories.getByRole('combobox', { name: 'Destination' }).pressSequentially('o')
+    await expect(categories.getByRole('listbox', { name: 'Destination' })).toBeVisible()
+    await page.keyboard.press('ArrowDown')
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await expect(categories).toBeHidden()
+
+    await page.keyboard.press('Shift+G')
+    const groups = page.getByRole('dialog', { name: 'Manage category groups' })
+    await expect(groups.getByRole('option').first()).toBeVisible()
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('n')
+    await expect(groups.getByRole('button', { name: 'Create' })).toBeVisible()
+    await expectNoAxeViolations(page)
+  })
+}

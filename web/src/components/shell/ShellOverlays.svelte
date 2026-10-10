@@ -6,12 +6,11 @@
   import HelpDialog from '../HelpDialog.svelte'
   import TransactionInformationDrawer from '../TransactionInformationDrawer.svelte'
   import AnchoredEditor from '../editing/AnchoredEditor.svelte'
-  import CategoryManager from '../editing/CategoryManager.svelte'
   import DeleteConfirm from '../editing/DeleteConfirm.svelte'
   import DuplicateReview from '../editing/DuplicateReview.svelte'
   import ExportDialog from '../editing/ExportDialog.svelte'
-  import GroupManager from '../editing/GroupManager.svelte'
   import EditorBody from '../editing/EditorBody.svelte'
+  import ManagerDrawer from '../editing/ManagerDrawer.svelte'
   import ReviewDrawer from '../editing/ReviewDrawer.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import { providerName } from '../../lib/provider-name'
@@ -71,10 +70,15 @@
   >
     {@render editor(overlay, onclose)}
   </AnchoredEditor>
-{:else if overlay === 'categories'}
-  <CategoryManager controller={controller.editing} {onclose} />
-{:else if overlay === 'groups'}
-  <GroupManager controller={controller.editing} {onclose} />
+{:else if overlay === 'categories' || overlay === 'groups'}
+  {#key overlay}
+    <ManagerDrawer
+      kind={overlay === 'categories' ? 'category' : 'group'}
+      controller={controller.editing}
+      {overlays}
+      {onclose}
+    />
+  {/key}
 {:else if overlay === 'review' || overlay === 'write'}
   <ReviewDrawer
     mode={overlay}
