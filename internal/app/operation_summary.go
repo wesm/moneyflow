@@ -45,9 +45,7 @@ func summarizeCursorOperation(
 	before domain.CommittedProfile,
 	operation domain.Operation,
 ) operationSummary {
-	hides := operation.Type == domain.OperationTransactionHide &&
-		!firstTargetHidden(before, operation.Targets)
-	return summarizeOperation(before, operation, hides, true)
+	return summarizeOperation(before, operation, operationHides(before, operation), true)
 }
 
 func summarizeOperation(
@@ -58,7 +56,7 @@ func summarizeOperation(
 ) operationSummary {
 	return operationSummary{
 		Kind:     operationKind(operation.Type, hides),
-		Label:    ReviewOperationLabel(operation.Type),
+		Label:    ReviewOperationLabel(operation.Type, hides),
 		Affected: countAffected(before, operation),
 		Undoable: undoable,
 	}
@@ -127,6 +125,12 @@ func operationKind(operationType domain.OperationType, hides bool) OperationKind
 	default:
 		return ""
 	}
+}
+
+// operationHides reports whether a hide operation hides its targets in the state it applies to.
+func operationHides(before domain.CommittedProfile, operation domain.Operation) bool {
+	return operation.Type == domain.OperationTransactionHide &&
+		!firstTargetHidden(before, operation.Targets)
 }
 
 // firstTargetHidden reports the state of a toggle's first target. A toggle only ever covers

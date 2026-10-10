@@ -96,7 +96,7 @@ export function testReviewController(overrides: Partial<ReviewController> = {}):
         {
           operation_id: 'operation-b',
           type: 'hide.toggle',
-          label: 'Toggle report visibility',
+          label: 'Hide transactions',
           active: false,
           affected_count: 1,
         },

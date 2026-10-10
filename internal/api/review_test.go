@@ -34,15 +34,18 @@ func TestReviewTypesExposeBoundedSummariesWithoutJournalPayloads(t *testing.T) {
 	assert.NotContains(t, text, "transaction_ids")
 }
 
-func TestReviewTypesDescribeTransactionDeletionForRenderers(t *testing.T) {
+func TestReviewTypesCarryTheServiceLabelForRenderers(t *testing.T) {
 	t.Parallel()
 
 	wire := reviewToWire(app.ReviewProjection{ActiveOperations: []app.ReviewOperation{{
-		OperationID: "operation-delete", Type: domain.OperationTransactionDelete,
-		Active: true, AffectedCount: 1,
+		OperationID: "operation-show", Type: domain.OperationTransactionHide,
+		Label: "Show transactions", Active: true, AffectedCount: 1,
+		Before: "Hidden", After: "Visible",
 	}}})
 	require.Len(t, wire.ActiveOperations, 1)
-	assert.Equal(t, "Delete transaction", wire.ActiveOperations[0].Label)
+	assert.Equal(t, "Show transactions", wire.ActiveOperations[0].Label)
+	assert.Equal(t, "Hidden", wire.ActiveOperations[0].Before)
+	assert.Equal(t, "Visible", wire.ActiveOperations[0].After)
 }
 
 func TestReviewTypesSeparateSummaryAndTargetRequests(t *testing.T) {

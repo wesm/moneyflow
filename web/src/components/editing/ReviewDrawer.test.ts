@@ -136,7 +136,7 @@ describe('ReviewDrawer in review mode', () => {
     expect(category.textContent).toMatch(/→\s*Example Category/)
     expect(category.textContent).toContain('1 transaction')
     expect(within(drawer).getByRole('heading', { name: 'Inactive redo operations' })).toBeTruthy()
-    expect(drawer.textContent).toContain('Toggle report visibility')
+    expect(drawer.textContent).toContain('Hide transactions')
   })
 
   it('counts a structural operation that affects no transactions', () => {

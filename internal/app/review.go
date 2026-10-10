@@ -11,42 +11,37 @@ import (
 // MaxReviewTargetLimit bounds one explicit operation-detail request.
 const MaxReviewTargetLimit = 400
 
+var reviewOperationLabels = map[domain.OperationType]string{
+	domain.OperationMerchantLabel:     "Rename merchant",
+	domain.OperationMerchantMerge:     "Merge merchants",
+	domain.OperationMerchantReassign:  "Reassign merchant",
+	domain.OperationCategoryAssign:    "Change category",
+	domain.OperationCategoryCreate:    "Create category",
+	domain.OperationCategoryLabel:     "Rename category",
+	domain.OperationCategoryMove:      "Move category",
+	domain.OperationCategoryMerge:     "Merge categories",
+	domain.OperationCategoryDelete:    "Delete category",
+	domain.OperationGroupCreate:       "Create group",
+	domain.OperationGroupLabel:        "Rename group",
+	domain.OperationGroupMerge:        "Merge groups",
+	domain.OperationGroupDelete:       "Delete group",
+	domain.OperationTransactionDelete: "Delete transaction",
+}
+
 // ReviewOperationLabel returns the shared renderer-facing label for one journal operation type.
-func ReviewOperationLabel(operationType domain.OperationType) string {
-	switch operationType {
-	case domain.OperationMerchantLabel:
-		return "Rename merchant"
-	case domain.OperationMerchantMerge:
-		return "Merge merchants"
-	case domain.OperationMerchantReassign:
-		return "Reassign merchant"
-	case domain.OperationCategoryAssign:
-		return "Change category"
-	case domain.OperationCategoryCreate:
-		return "Create category"
-	case domain.OperationCategoryLabel:
-		return "Rename category"
-	case domain.OperationCategoryMove:
-		return "Move category"
-	case domain.OperationCategoryMerge:
-		return "Merge categories"
-	case domain.OperationCategoryDelete:
-		return "Delete category"
-	case domain.OperationGroupCreate:
-		return "Create group"
-	case domain.OperationGroupLabel:
-		return "Rename group"
-	case domain.OperationGroupMerge:
-		return "Merge groups"
-	case domain.OperationGroupDelete:
-		return "Delete group"
-	case domain.OperationTransactionHide:
-		return "Toggle report visibility"
-	case domain.OperationTransactionDelete:
-		return "Delete transaction"
-	default:
-		return "Unknown change"
+// A hide operation reads "Hide transactions" when it hides its targets and "Show transactions"
+// when it restores them; hides is ignored for every other type.
+func ReviewOperationLabel(operationType domain.OperationType, hides bool) string {
+	if operationType == domain.OperationTransactionHide {
+		if hides {
+			return "Hide transactions"
+		}
+		return "Show transactions"
 	}
+	if label, ok := reviewOperationLabels[operationType]; ok {
+		return label
+	}
+	return "Unknown change"
 }
 
 // ReviewWindow requests one bounded target window for a named operation.
@@ -61,6 +56,7 @@ type ReviewOperation struct {
 	OperationID    string
 	Sequence       int64
 	Type           domain.OperationType
+	Label          string
 	Active         bool
 	AffectedCount  int
 	Before         string
@@ -173,9 +169,11 @@ func buildReviewProjection(
 		if err != nil {
 			return ReviewProjection{}, nil, false, fmt.Errorf("review operation[%d]: %w", index, err)
 		}
-		before, after, effect := reviewValues(state, next, operation)
+		hides := operationHides(state, operation)
+		before, after, effect := reviewValues(state, next, operation, hides)
 		summary := ReviewOperation{
 			OperationID: operation.ID, Sequence: operation.Sequence, Type: operation.Type,
+			Label:  ReviewOperationLabel(operation.Type, hides),
 			Active: index < snapshot.Cursor, AffectedCount: affectedCount,
 			Before: before, After: after, TaxonomyEffect: effect,
 		}
@@ -228,6 +226,7 @@ func affectedOperationSummary(
 func reviewValues(
 	before, after domain.CommittedProfile,
 	operation domain.Operation,
+	hides bool,
 ) (string, string, string) {
 	switch operation.Type {
 	case domain.OperationMerchantLabel, domain.OperationMerchantMerge:
@@ -246,7 +245,10 @@ func reviewValues(
 	case domain.OperationMerchantReassign:
 		return "", merchantLabel(after, operation.Reassign.DestinationID), "merchant"
 	case domain.OperationTransactionHide:
-		return "visible/hidden", "toggled", ""
+		if hides {
+			return "Visible", "Hidden", ""
+		}
+		return "Hidden", "Visible", ""
 	default:
 		return "", "", ""
 	}

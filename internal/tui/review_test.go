@@ -196,12 +196,13 @@ func TestReviewSummaryScrollsToSelectedOperation(t *testing.T) {
 	for index := 0; index < 40; index++ {
 		model.review.projection.Operations = append(model.review.projection.Operations, app.ReviewOperation{
 			OperationID: "operation", Sequence: int64(index + 1),
-			Type: domain.OperationTransactionHide, Active: true, AffectedCount: 1,
+			Type: domain.OperationTransactionHide, Label: "Hide transactions",
+			Active: true, AffectedCount: 1,
 		})
 	}
 	model.review.selected = 35
 	frame := model.RenderScreen().Frame.RenderANSI()
-	assert.Contains(t, frame, "Toggle report visibility")
+	assert.Contains(t, frame, "Hide transactions")
 }
 
 func TestReviewDashboardNavigationRefreshesBoundedPreview(t *testing.T) {

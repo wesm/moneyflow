@@ -147,7 +147,7 @@ func reviewOperationsToWire(operations []app.ReviewOperation) []ReviewOperation 
 	for _, operation := range operations {
 		result = append(result, ReviewOperation{
 			OperationID: operation.OperationID, Type: string(operation.Type),
-			Label:  app.ReviewOperationLabel(operation.Type),
+			Label:  operation.Label,
 			Active: operation.Active, AffectedCount: operation.AffectedCount,
 			Before: operation.Before, After: operation.After,
 			TaxonomyEffect: operation.TaxonomyEffect,

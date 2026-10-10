@@ -35,7 +35,7 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
     await expect(commit).toBeFocused()
 
     // Enter on a control with its own Enter does that action and does not commit.
-    const operation = review.getByRole('button', { name: /^Toggle report visibility/ })
+    const operation = review.getByRole('button', { name: /^Hide transactions/ })
     await operation.focus()
     await page.keyboard.press('Enter')
     await expect(operation).toHaveAttribute('aria-expanded', 'true')
@@ -77,7 +77,7 @@ test('an expanded operation shows each amount with its currency, right-aligned, 
       await expect(page.getByText(/1 pending edit/).first()).toBeAttached()
       await page.keyboard.press('w')
       const review = page.getByRole('dialog', { name: 'Review pending changes' })
-      await review.getByRole('button', { name: /^Toggle report visibility/ }).click()
+      await review.getByRole('button', { name: /^Hide transactions/ }).click()
       const table = review.getByRole('table', { name: 'Affected transactions' })
       await expect(table.getByRole('columnheader')).toHaveText([
         'Date',
