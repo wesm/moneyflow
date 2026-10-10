@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CollapsibleSidebar, MEDIA } from '@kenn-io/kit-ui'
+  import { CollapsibleSidebar, FlashBanner, MEDIA } from '@kenn-io/kit-ui'
   import { MediaQuery } from 'svelte/reactivity'
   import { onMount, tick, untrack } from 'svelte'
   import ProviderConfirmation from './ProviderConfirmation.svelte'
@@ -227,4 +227,5 @@
   {#if overlays.current !== 'navigation'}
     <ProviderConfirmation controller={controller.provider} />
   {/if}
+  <FlashBanner top="var(--space-4)" />
 {/if}

@@ -1,6 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { MoneyflowProblem, type MutationFetch, type SelectionValue } from '../api/client'
+import {
+  MoneyflowProblem,
+  type MutationFetch,
+  type OperationSummary,
+  type SelectionValue,
+} from '../api/client'
 import { testProjection } from '../../test/projection'
 import { createEditingController, type EditingProjectionHost } from './editing'
 
@@ -61,6 +67,87 @@ describe('browser editing controller', () => {
     expect(sessionStorageWrite).not.toHaveBeenCalled()
     expect(pushes).not.toHaveBeenCalled()
     expect(replacements).not.toHaveBeenCalled()
+  })
+
+  describe('toasts', () => {
+    afterEach(() => dismissFlash())
+
+    async function respondWith(
+      operation: OperationSummary,
+      run: (controller: ReturnType<typeof createEditingController>) => Promise<boolean>,
+    ) {
+      const response = { ...mutationResponse('8', 'mfsel1.x' as SelectionValue), operation }
+      const controller = createEditingController({
+        transport: mutationTransport(response),
+        host: editingHost(
+          testProjection({ revision: '7', canonical_query: response.canonical_query }),
+        ),
+      })
+      await run(controller)
+      return controller
+    }
+
+    const hide: OperationSummary = {
+      kind: 'hide',
+      label: 'Hide transactions',
+      affected: 2,
+      undoable: true,
+    }
+    const target = { kind: 'transaction', identity: 'transaction-1' }
+
+    it('shows one toast for a hide and leaves the screen-reader announcement empty', async () => {
+      const controller = await respondWith(hide, (c) =>
+        c.submit({ action: 'transaction.toggle-hidden', input: {}, target }),
+      )
+
+      expect(getFlashes().map((flash) => flash.message)).toEqual(['Hidden 2 transactions · Undo u'])
+      expect(controller.state.announcement).toBe('')
+    })
+
+    it('toasts the undone operation by its server label', async () => {
+      const controller = await respondWith({ ...hide, label: 'Delete transactions' }, (c) =>
+        c.undo(),
+      )
+
+      expect(getFlashes().map((flash) => flash.message)).toEqual([
+        'Undid Delete transactions · Redo U',
+      ])
+      expect(controller.state.announcement).toBe('')
+    })
+
+    it('toasts a redo', async () => {
+      await respondWith(hide, (c) => c.redo())
+
+      expect(getFlashes().map((flash) => flash.message)).toEqual([
+        'Redid Hide transactions · Undo u',
+      ])
+    })
+
+    it('keeps the announcement and shows no toast for a staged rename', async () => {
+      const rename: OperationSummary = { ...hide, kind: 'rename', label: 'Rename merchant' }
+      const controller = await respondWith(rename, (c) =>
+        c.submit({ action: 'transaction.edit-merchant', input: { scope: 'selection' }, target }),
+      )
+
+      expect(getFlashes()).toEqual([])
+      expect(controller.state.announcement).toBe('Change saved as pending. Selection cleared.')
+    })
+
+    it('keeps an audit warning in the announcement beside a toast', async () => {
+      const response = { ...mutationResponse('8', 'mfsel1.x' as SelectionValue), operation: hide }
+      const warning = 'The audit log could not record completion.'
+      response.projection.warnings = [{ code: 'audit_completion_failed', detail: warning }]
+      const controller = createEditingController({
+        transport: mutationTransport(response),
+        host: editingHost(
+          testProjection({ revision: '7', canonical_query: response.canonical_query }),
+        ),
+      })
+
+      await controller.submit({ action: 'transaction.toggle-hidden', input: {}, target })
+
+      expect(controller.state.announcement).toBe(warning)
+    })
   })
 
   it('suppresses duplicate submissions while one request is in flight', async () => {

@@ -38,12 +38,21 @@ test('every editing workflow starts from its TUI key and restores the table', as
 
     await page.keyboard.press('h')
     await expect(page.getByText(/2 pending edit/)).toBeVisible()
+    await expect(page.getByRole('status').filter({ hasText: /^Hidden 1 transaction/ })).toHaveText(
+      'Hidden 1 transaction · Undo u',
+    )
     await expect((await activeRow(page)).getByLabel('Pending edits')).toBeVisible()
     await page.keyboard.press('u')
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await expect(page.getByText(/1 redo/)).toBeVisible()
+    await expect(page.getByRole('status').filter({ hasText: /^Undid / })).toHaveText(
+      'Undid Toggle report visibility · Redo U',
+    )
     await page.keyboard.press('Shift+U')
     await expect(page.getByText(/2 pending edit/)).toBeVisible()
+    await expect(page.getByRole('status').filter({ hasText: /^Redid / })).toHaveText(
+      'Redid Toggle report visibility · Undo u',
+    )
     await page.keyboard.press('w')
     await expect(page.getByRole('dialog', { name: 'Review pending changes' })).toBeVisible()
     await page.keyboard.press('Escape')
@@ -190,6 +199,9 @@ test('x stages count-only deletion and review keeps commit explicit', async ({ p
     await page.keyboard.press('x')
     await page.keyboard.press('Enter')
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    await expect(page.getByRole('status').filter({ hasText: /^Deleted / })).toHaveText(
+      'Deleted 1 transaction · Undo u',
+    )
     await page.keyboard.press('w')
     const review = page.getByRole('dialog', { name: 'Review pending changes' })
     await expect(review).toContainText('Delete transaction')

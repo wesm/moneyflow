@@ -1,3 +1,4 @@
+import { showFlash } from '@kenn-io/kit-ui'
 import { createSubscriber } from 'svelte/reactivity'
 
 import {
@@ -16,6 +17,7 @@ import {
   type SelectionValue,
   type ViewProjection,
 } from '../api/client'
+import { toastMessage, type ToastAction } from '../editing/toasts'
 
 export type MutationPhase = 'idle' | 'submitting' | 'conflict' | 'failed'
 
@@ -109,7 +111,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
       window: { offset: current.window.offset, limit: current.window.limit },
       ...(intent.target === undefined ? {} : { target: intent.target }),
     }
-    return await mutate('api/v1/mutations', body, 'Change saved as pending.')
+    return await mutate('api/v1/mutations', body, 'Change saved as pending.', 'mutate')
   }
 
   async function undo(): Promise<boolean> {
@@ -131,10 +133,12 @@ export function createEditingController(options: EditingControllerOptions): Edit
       selection: current.selection,
       window: { offset: current.window.offset, limit: current.window.limit },
     }
+    const undoing = path.endsWith('/undo')
     return await mutate(
       path,
       body,
-      path.endsWith('/undo') ? 'Pending change undone.' : 'Pending change redone.',
+      undoing ? 'Pending change undone.' : 'Pending change redone.',
+      undoing ? 'undo' : 'redo',
     )
   }
 
@@ -203,6 +207,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
     path: string,
     body: MutationBody | RevisionBody | CommitBody,
     successMessage: string,
+    toast?: ToastAction,
   ) {
     if (state.phase === 'submitting') return false
     setState({ ...state, phase: 'submitting', announcement: '' })
@@ -224,11 +229,17 @@ export function createEditingController(options: EditingControllerOptions): Edit
       const auditWarning = projection.warnings?.find(
         (warning) => warning.code === 'audit_completion_failed',
       )?.detail
+      // A toast is a status region, so it replaces the sr-only success announcement.
+      const toasted = toast && toastMessage(response.operation, toast)
+      if (toasted) showFlash(toasted)
       setState({
         revision,
         phase: 'idle',
         pending: response.pending,
-        announcement: [mutationAnnouncement(successMessage, response.selection.kind), auditWarning]
+        announcement: [
+          toasted ? '' : mutationAnnouncement(successMessage, response.selection.kind),
+          auditWarning,
+        ]
           .filter(Boolean)
           .join(' '),
         ...(response.provider_write ? { providerWrite: response.provider_write } : {}),
