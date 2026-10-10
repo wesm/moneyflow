@@ -95,13 +95,25 @@ describe('browser editing controller', () => {
     }
     const target = { kind: 'transaction', identity: 'transaction-1' }
 
-    it('shows one toast for a hide and leaves the screen-reader announcement empty', async () => {
+    it('shows one toast for a hide and announces the same text', async () => {
       const controller = await respondWith(hide, (c) =>
         c.submit({ action: 'transaction.toggle-hidden', input: {}, target }),
       )
 
       expect(getFlashes().map((flash) => flash.message)).toEqual(['Hidden 2 transactions · Undo u'])
-      expect(controller.state.announcement).toBe('')
+      expect(controller.state.announcement).toBe('Hidden 2 transactions · Undo u')
+    })
+
+    it('announces a show and a delete with their toast text', async () => {
+      const shown = await respondWith({ ...hide, kind: 'show', label: 'Show transactions' }, (c) =>
+        c.submit({ action: 'transaction.toggle-hidden', input: {}, target }),
+      )
+      expect(shown.state.announcement).toBe('Shown 2 transactions · Undo u')
+      const deleted = await respondWith(
+        { ...hide, kind: 'delete', label: 'Delete transaction', affected: 1 },
+        (c) => c.submit({ action: 'transaction.delete', input: {}, target }),
+      )
+      expect(deleted.state.announcement).toBe('Deleted 1 transaction · Undo u')
     })
 
     it('toasts an undo by the kind of the undone edit', async () => {
@@ -113,15 +125,16 @@ describe('browser editing controller', () => {
       expect(getFlashes().map((flash) => flash.message)).toEqual([
         'Undid delete · 1 transaction · Redo U',
       ])
-      expect(controller.state.announcement).toBe('')
+      expect(controller.state.announcement).toBe('Undid delete · 1 transaction · Redo U')
     })
 
-    it('toasts a redo', async () => {
-      await respondWith(hide, (c) => c.redo())
+    it('toasts and announces a redo', async () => {
+      const controller = await respondWith(hide, (c) => c.redo())
 
       expect(getFlashes().map((flash) => flash.message)).toEqual([
         'Redid hide · 2 transactions · Undo u',
       ])
+      expect(controller.state.announcement).toBe('Redid hide · 2 transactions · Undo u')
     })
 
     it('shows no toast and announces the failure when the mutation is rejected', async () => {
@@ -176,7 +189,7 @@ describe('browser editing controller', () => {
 
       await controller.submit({ action: 'transaction.toggle-hidden', input: {}, target })
 
-      expect(controller.state.announcement).toBe(warning)
+      expect(controller.state.announcement).toBe(`Hidden 2 transactions · Undo u ${warning}`)
     })
   })
 

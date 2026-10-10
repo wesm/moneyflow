@@ -98,6 +98,7 @@
     compact={compact.current}
     anchor={overlays.anchor}
     {overlays}
+    editing={controller.editing}
     onconfirm={onconfirmdelete}
     oncancel={onclose}
     ondismiss={() => overlays.close('keep')}

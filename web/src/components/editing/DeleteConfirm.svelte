@@ -3,6 +3,7 @@
 
   import AnchoredEditor from './AnchoredEditor.svelte'
   import BottomSheet from '../shell/BottomSheet.svelte'
+  import { REQUEST_FAILED, type EditingController } from '../../lib/controller/editing'
   import { transactionCount } from '../../lib/editing/toasts'
   import type { EditorAnchor, OverlayState } from '../../lib/shell/overlay-state.svelte'
 
@@ -14,6 +15,8 @@
     /** On desktop, the cursor row it hangs below or the selection bar it sits above. */
     anchor: EditorAnchor | undefined
     overlays: OverlayState
+    /** Its announcement says why the server refused the delete. */
+    editing: EditingController
     /** Stages the delete. Resolves whether the server accepted it. */
     onconfirm: () => Promise<boolean>
     /** Esc, Cancel, or a press on the phone sheet's scrim. */
@@ -22,18 +25,24 @@
     ondismiss: () => void
   }
 
-  let { count, compact, anchor, overlays, onconfirm, oncancel, ondismiss }: Props = $props()
+  let { count, compact, anchor, overlays, editing, onconfirm, oncancel, ondismiss }: Props =
+    $props()
   const id = 'mf-delete'
   let body = $state<HTMLElement>()
   /** True while staging runs, and for good once it is accepted, so the delete stages once. */
   let staging = false
+  let error = $state('')
 
   async function confirm(): Promise<void> {
     if (staging) return
     staging = true
+    error = ''
     let accepted = false
     try {
       accepted = await onconfirm()
+      if (!accepted) error = editing.state.announcement || REQUEST_FAILED
+    } catch {
+      error = REQUEST_FAILED
     } finally {
       staging = accepted
     }
@@ -63,6 +72,7 @@
   <div class="mf-delete" bind:this={body}>
     <h2 class="kit-sr-only" id={`${id}-title`}>Confirm deletion</h2>
     <p class="mf-delete__question" id={`${id}-count`}>Delete {transactionCount(count)}?</p>
+    {#if error}<p class="editing-error" role="alert">{error}</p>{/if}
     <div class="mf-delete__actions">
       <Button
         class="mf-delete__confirm"

@@ -35,7 +35,7 @@
   let commitRequested = false
   /** True while a commit runs, and for good once one is accepted, so Enter commits once. */
   let committing = false
-  /** Why the last commit request failed without an answer from the server. */
+  /** Why the last commit request failed or the server refused it. */
   let error = $state('')
   let mounted = true
   const surface = () => body?.closest<HTMLElement>('[role="dialog"]') ?? undefined
@@ -78,6 +78,7 @@
     error = ''
     try {
       accepted = await editing.commit(revision)
+      if (!accepted) error = editing.state.announcement || REQUEST_FAILED
     } catch {
       error = REQUEST_FAILED
     } finally {

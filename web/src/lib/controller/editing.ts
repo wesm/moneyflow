@@ -232,7 +232,8 @@ export function createEditingController(options: EditingControllerOptions): Edit
       const auditWarning = projection.warnings?.find(
         (warning) => warning.code === 'audit_completion_failed',
       )?.detail
-      // A toast is a status region, so it replaces the sr-only success announcement.
+      // The toast's status region is inserted with its text, which screen readers may skip, so
+      // the persistent announcement repeats it.
       const toasted = toast && toastMessage(response.operation, toast)
       if (toasted) showFlash(toasted)
       setState({
@@ -240,7 +241,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
         phase: 'idle',
         pending: response.pending,
         announcement: [
-          toasted ? '' : mutationAnnouncement(successMessage, response.selection.kind),
+          toasted || mutationAnnouncement(successMessage, response.selection.kind),
           auditWarning,
         ]
           .filter(Boolean)

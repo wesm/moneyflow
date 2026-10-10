@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import DeleteConfirm from './DeleteConfirm.svelte'
+import { testEditingController } from '../../test/editing'
 import { OverlayState, type EditorAnchor } from '../../lib/shell/overlay-state.svelte'
 
 /** A table row whose Merchant cell starts 200 px in, 100 px from the top. */
@@ -16,14 +17,24 @@ function row(): HTMLElement {
   return element
 }
 
-function setup(options: { count?: number; compact?: boolean; staged?: Promise<boolean> } = {}) {
+interface Setup {
+  count?: number
+  compact?: boolean
+  staged?: () => Promise<boolean>
+  /** The editing controller's announcement after the request. */
+  announcement?: string
+}
+
+function setup(options: Setup = {}) {
   const overlays = new OverlayState({
     pushScope: () => undefined,
     focusGrid: vi.fn(),
     grid: () => undefined,
   })
   const anchor: EditorAnchor = { element: row(), above: false }
-  const onconfirm = vi.fn(() => options.staged ?? Promise.resolve(true))
+  const editing = testEditingController()
+  editing.state.announcement = options.announcement ?? ''
+  const onconfirm = vi.fn(options.staged ?? (() => Promise.resolve(true)))
   const oncancel = vi.fn()
   const ondismiss = vi.fn()
   render(DeleteConfirm, {
@@ -32,6 +43,7 @@ function setup(options: { count?: number; compact?: boolean; staged?: Promise<bo
       compact: options.compact ?? false,
       anchor,
       overlays,
+      editing,
       onconfirm,
       oncancel,
       ondismiss,
@@ -100,7 +112,7 @@ describe('DeleteConfirm', () => {
 
   it('stages once when Enter repeats or comes again while staging runs', async () => {
     const request = pending()
-    const { dialog, onconfirm } = setup({ staged: request.promise })
+    const { dialog, onconfirm } = setup({ staged: () => request.promise })
     await fireEvent.keyDown(dialog, { key: 'Enter' })
     await fireEvent.keyDown(dialog, { key: 'Enter', repeat: true })
     await fireEvent.keyDown(dialog, { key: 'Enter' })
@@ -113,7 +125,7 @@ describe('DeleteConfirm', () => {
   })
 
   it('lets a new Enter, not a repeat, try again after the server refuses', async () => {
-    const { dialog, onconfirm } = setup({ staged: Promise.resolve(false) })
+    const { dialog, onconfirm } = setup({ staged: () => Promise.resolve(false) })
     await fireEvent.keyDown(dialog, { key: 'Enter' })
     await vi.waitFor(() => expect(onconfirm).toHaveBeenCalledTimes(1))
     await Promise.resolve()
@@ -121,6 +133,29 @@ describe('DeleteConfirm', () => {
     expect(onconfirm).toHaveBeenCalledTimes(1)
     await fireEvent.keyDown(dialog, { key: 'Enter' })
     expect(onconfirm).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows why the server refused the delete and stays open', async () => {
+    const announcement =
+      'The profile changed in another session. Review the current data and try again.'
+    const { dialog } = setup({ staged: () => Promise.resolve(false), announcement })
+    await fireEvent.keyDown(dialog, { key: 'Enter' })
+    expect((await screen.findByRole('alert')).textContent).toBe(announcement)
+    expect(dialog.isConnected).toBe(true)
+  })
+
+  it('reports a request that throws, stays open, and lets a new Enter try again', async () => {
+    const staged = vi
+      .fn<() => Promise<boolean>>()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(true)
+    const { dialog, onconfirm } = setup({ staged })
+    await fireEvent.keyDown(dialog, { key: 'Enter' })
+    expect((await screen.findByRole('alert')).textContent).toBe('The profile request failed.')
+    expect(dialog.isConnected).toBe(true)
+    await fireEvent.keyDown(dialog, { key: 'Enter' })
+    await vi.waitFor(() => expect(onconfirm).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
   })
 
   it('leaves Enter on Cancel, and modified Enter, to the browser', async () => {

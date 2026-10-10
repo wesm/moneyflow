@@ -291,6 +291,30 @@ describe('ReviewDrawer in review mode', () => {
     expect(editing.commit).toHaveBeenCalledTimes(2)
   })
 
+  it('shows why the server refused a commit and keeps the drawer open', async () => {
+    const editing = testEditingController({ commit: vi.fn(async () => false) })
+    editing.state.announcement =
+      'The profile changed in another session. Review the current data and try again.'
+    const { onclose } = setup({ editing })
+    const button = await loaded()
+    await fireEvent.keyDown(button, { key: 'Enter' })
+    const drawer = screen.getByRole('dialog', { name: 'Review pending changes' })
+    expect((await within(drawer).findByRole('alert')).textContent).toBe(
+      'The profile changed in another session. Review the current data and try again.',
+    )
+    expect(onclose).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the generic failure when a refused commit has no reason', async () => {
+    setup({ editing: testEditingController({ commit: vi.fn(async () => false) }) })
+    const button = await loaded()
+    await fireEvent.keyDown(button, { key: 'Enter' })
+    const drawer = screen.getByRole('dialog', { name: 'Review pending changes' })
+    expect((await within(drawer).findByRole('alert')).textContent).toBe(
+      'The profile request failed.',
+    )
+  })
+
   it('reports a commit request that throws and lets Enter try again', async () => {
     const commit = vi
       .fn<EditingController['commit']>()
