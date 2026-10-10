@@ -104,13 +104,14 @@ describe('browser editing controller', () => {
       expect(controller.state.announcement).toBe('')
     })
 
-    it('toasts the undone operation by its server label', async () => {
-      const controller = await respondWith({ ...hide, label: 'Delete transactions' }, (c) =>
-        c.undo(),
+    it('toasts an undo by the kind of the undone edit', async () => {
+      const controller = await respondWith(
+        { ...hide, kind: 'delete', label: 'Delete transaction', affected: 1 },
+        (c) => c.undo(),
       )
 
       expect(getFlashes().map((flash) => flash.message)).toEqual([
-        'Undid Delete transactions · Redo U',
+        'Undid delete · 1 transaction · Redo U',
       ])
       expect(controller.state.announcement).toBe('')
     })
@@ -119,8 +120,37 @@ describe('browser editing controller', () => {
       await respondWith(hide, (c) => c.redo())
 
       expect(getFlashes().map((flash) => flash.message)).toEqual([
-        'Redid Hide transactions · Undo u',
+        'Redid hide · 2 transactions · Undo u',
       ])
+    })
+
+    it('shows no toast and announces the failure when the mutation is rejected', async () => {
+      const controller = createEditingController({
+        transport: problemTransport('store_error', '7'),
+        host: editingHost(testProjection({ revision: '7' })),
+      })
+
+      await expect(
+        controller.submit({ action: 'transaction.toggle-hidden', input: {}, target }),
+      ).resolves.toBe(false)
+
+      expect(getFlashes()).toEqual([])
+      expect(controller.state.announcement).toBe('The profile could not save that action.')
+    })
+
+    it('keeps the commit announcement and shows no toast', async () => {
+      const response = { ...mutationResponse('8', 'mfsel1.x' as SelectionValue), operation: hide }
+      const controller = createEditingController({
+        transport: mutationTransport(response),
+        host: editingHost(
+          testProjection({ revision: '7', canonical_query: response.canonical_query }),
+        ),
+      })
+
+      await expect(controller.commit(7n)).resolves.toBe(true)
+
+      expect(getFlashes()).toEqual([])
+      expect(controller.state.announcement).toContain('Changes saved in Moneyflow.')
     })
 
     it('keeps the announcement and shows no toast for a staged rename', async () => {

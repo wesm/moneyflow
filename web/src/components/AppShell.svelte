@@ -19,6 +19,7 @@
   } from '../lib/shortcuts'
   import type { TransitionAction, ViewController } from '../lib/controller/view-controller.svelte'
   import { ChartState } from '../lib/shell/chart-state.svelte'
+  import { trackTop } from '../lib/shell/flash-top'
   import { keyHints } from '../lib/shell/key-hints'
   import {
     confirmDirectDelete,
@@ -39,6 +40,8 @@
   }
   let { controller, onreconnect, onamazonimport }: Props = $props()
   let grid = $state<HTMLElement | undefined>()
+  /** Where the workspace starts below the command bar; toasts sit there. */
+  let workspaceTop = $state(0)
   let commandBar = $state<ShellCommandBar>()
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
   let transitionTail: Promise<void> = Promise.resolve()
@@ -189,7 +192,11 @@
             compact={compact.current}
             onfocusgrid={focusGrid}
           />
-          <main class="app-shell__main" aria-label="Moneyflow workspace">
+          <main
+            class="app-shell__main"
+            aria-label="Moneyflow workspace"
+            use:trackTop={(top) => (workspaceTop = top)}
+          >
             <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
             <div class="app-shell__table" bind:this={grid}>
               <WorkspaceBody {projection} {actions} onapply={queueSend} {charts} />
@@ -227,5 +234,5 @@
   {#if overlays.current !== 'navigation'}
     <ProviderConfirmation controller={controller.provider} />
   {/if}
-  <FlashBanner top="var(--space-4)" />
+  <FlashBanner top="calc({workspaceTop}px + var(--space-4))" />
 {/if}

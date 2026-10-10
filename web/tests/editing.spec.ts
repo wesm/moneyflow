@@ -41,17 +41,23 @@ test('every editing workflow starts from its TUI key and restores the table', as
     await expect(page.getByRole('status').filter({ hasText: /^Hidden 1 transaction/ })).toHaveText(
       'Hidden 1 transaction · Undo u',
     )
+    const toast = await page
+      .getByRole('status')
+      .filter({ hasText: /^Hidden 1 transaction/ })
+      .boundingBox()
+    const bar = await page.getByRole('banner').boundingBox()
+    expect(toast!.y).toBeGreaterThanOrEqual(bar!.y + bar!.height)
     await expect((await activeRow(page)).getByLabel('Pending edits')).toBeVisible()
     await page.keyboard.press('u')
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await expect(page.getByText(/1 redo/)).toBeVisible()
     await expect(page.getByRole('status').filter({ hasText: /^Undid / })).toHaveText(
-      'Undid Toggle report visibility · Redo U',
+      'Undid hide · 1 transaction · Redo U',
     )
     await page.keyboard.press('Shift+U')
     await expect(page.getByText(/2 pending edit/)).toBeVisible()
     await expect(page.getByRole('status').filter({ hasText: /^Redid / })).toHaveText(
-      'Redid Toggle report visibility · Undo u',
+      'Redid hide · 1 transaction · Undo u',
     )
     await page.keyboard.press('w')
     await expect(page.getByRole('dialog', { name: 'Review pending changes' })).toBeVisible()

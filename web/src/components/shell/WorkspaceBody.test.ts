@@ -12,7 +12,10 @@ import { testProjection } from '../../test/projection'
 
 function bodyActions(
   projection: ReturnType<typeof testProjection>,
-  providerPhase: string | undefined,
+  providerPhase?: string,
+  insights: ViewController['insights'] = vi.fn(
+    () => new Promise<InsightsResponse>(() => undefined),
+  ),
 ): { actions: LocalActionContext; charts: ChartState } {
   const controller = {
     projection,
@@ -22,7 +25,7 @@ function bodyActions(
     neighbors: [],
     editing: testEditingController(),
     providerWrite: { state: { status: providerPhase ? { phase: providerPhase } : undefined } },
-    insights: vi.fn(() => new Promise<InsightsResponse>(() => undefined)),
+    insights,
     recheckNewer: vi.fn(async () => undefined),
   } as unknown as ViewController
   const host = { pushScope: () => undefined }
@@ -38,6 +41,29 @@ function bodyActions(
   return { actions, charts: new ChartState({ ...host, compact: () => false }) }
 }
 
+function usdProjection(): ReturnType<typeof testProjection> {
+  const base = testProjection()
+  return testProjection({ view: { ...base.view, currency: { currency: 'USD', scale: 2 } } })
+}
+
+function stubPhoneWidth(): () => void {
+  const original = window.matchMedia
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: (query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }),
+  })
+  return () => Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
+}
+
 describe('WorkspaceBody', () => {
   afterEach(() => {
     cleanup()
@@ -51,32 +77,8 @@ describe('WorkspaceBody', () => {
           signals.push(signal)
         }),
     )
-    const base = testProjection()
-    const projection = testProjection({
-      view: { ...base.view, currency: { currency: 'USD', scale: 2 } },
-    })
-    const controller = {
-      projection,
-      loading: false,
-      cursorIndex: 0,
-      cursorIdentity: undefined,
-      neighbors: [],
-      editing: testEditingController(),
-      providerWrite: { state: {} },
-      insights,
-      recheckNewer: vi.fn(async () => undefined),
-    } as unknown as ViewController
-    const host = { pushScope: () => undefined }
-    const actions: LocalActionContext = {
-      controller,
-      overlays: new OverlayState({ ...host, focusGrid: () => undefined, grid: () => undefined }),
-      afterTransitions: async () => undefined,
-      focusGrid: () => undefined,
-      importAmazon: () => undefined,
-      focusSearch: () => undefined,
-      openFilters: () => undefined,
-    }
-    const charts = new ChartState({ ...host, compact: () => false })
+    const projection = usdProjection()
+    const { actions, charts } = bodyActions(projection, undefined, insights)
 
     const { unmount } = render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
     expect(insights).toHaveBeenCalledTimes(1)
@@ -99,12 +101,38 @@ describe('WorkspaceBody', () => {
     expect(actions.overlays.current).toBe('write')
   })
 
+  it('words the banner by the write phase', () => {
+    const projection = testProjection({ profile_kind: 'ynab' })
+    const { actions, charts } = bodyActions(projection, 'paused')
+
+    render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
+
+    expect(
+      screen.getByText('YNAB write paused · Editing is locked until it resumes or is reconciled'),
+    ).toBeTruthy()
+  })
+
   it('shows no banner when no provider write is active', () => {
     const projection = testProjection()
-    const { actions, charts } = bodyActions(projection, undefined)
+    const { actions, charts } = bodyActions(projection)
 
     render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
 
     expect(screen.queryByText(/Editing is locked/)).toBeNull()
+  })
+
+  it('shows the banner at phone width, where the KPI strip lives in the chart drawer', () => {
+    const restore = stubPhoneWidth()
+    try {
+      const projection = usdProjection()
+      const { actions, charts } = bodyActions(projection, 'writing')
+
+      render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
+
+      expect(screen.getByText(/Editing is locked until the write finishes/)).toBeTruthy()
+      expect(document.querySelector('.mf-workspace > .mf-chart-area')).toBeNull()
+    } finally {
+      restore()
+    }
   })
 })

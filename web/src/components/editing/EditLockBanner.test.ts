@@ -6,20 +6,25 @@ import EditLockBanner from './EditLockBanner.svelte'
 describe('EditLockBanner', () => {
   afterEach(cleanup)
 
-  it('names the provider and says editing stays locked until the write finishes', () => {
-    render(EditLockBanner, { providerName: 'YNAB', onstatus: vi.fn() })
+  it.each([
+    ['writing', 'Writing to YNAB · Editing is locked until the write finishes'],
+    ['reconciling', 'Writing to YNAB · Editing is locked until the write finishes'],
+    ['rate_limited', 'Writing to YNAB · Editing is locked until the write finishes'],
+    ['paused', 'YNAB write paused · Editing is locked until it resumes or is reconciled'],
+    ['attention_required', 'YNAB write needs attention · Editing is locked'],
+    ['reconcile_confirmation_required', 'YNAB write needs attention · Editing is locked'],
+    ['reconnect_required', 'YNAB write needs attention · Editing is locked'],
+  ])('words the %s phase as what people must do', (phase, text) => {
+    render(EditLockBanner, { providerName: 'YNAB', phase, onstatus: vi.fn() })
 
-    expect(
-      screen.getByText('Writing to YNAB · Editing is locked until the write finishes'),
-    ).toBeTruthy()
+    expect(screen.getByText(text)).toBeTruthy()
   })
 
   it('opens write status from its Status w button', async () => {
     const onstatus = vi.fn()
-    render(EditLockBanner, { providerName: 'Monarch', onstatus })
+    render(EditLockBanner, { providerName: 'Monarch', phase: 'writing', onstatus })
 
-    const button = screen.getByRole('button', { name: /^Status\s*w$/ })
-    await fireEvent.click(button)
+    await fireEvent.click(screen.getByRole('button', { name: /^Status\s*w$/ }))
 
     expect(onstatus).toHaveBeenCalledTimes(1)
   })

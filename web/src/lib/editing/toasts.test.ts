@@ -44,7 +44,44 @@ describe('toastMessage', () => {
     }
   })
 
-  it('names the undone and redone operation with the server label', () => {
+  it('words undo and redo of a transaction edit from its kind, not the review label', () => {
+    const label = 'Toggle report visibility'
+    expect(toastMessage(operation({ kind: 'hide', label, affected: 2 }), 'undo')).toBe(
+      'Undid hide · 2 transactions · Redo U',
+    )
+    expect(toastMessage(operation({ kind: 'show', label, affected: 2 }), 'undo')).toBe(
+      'Undid show · 2 transactions · Redo U',
+    )
+    expect(toastMessage(operation({ kind: 'delete', label, affected: 2 }), 'undo')).toBe(
+      'Undid delete · 2 transactions · Redo U',
+    )
+    expect(toastMessage(operation({ kind: 'hide', label, affected: 2 }), 'redo')).toBe(
+      'Redid hide · 2 transactions · Undo u',
+    )
+    expect(toastMessage(operation({ kind: 'show', label, affected: 2 }), 'redo')).toBe(
+      'Redid show · 2 transactions · Undo u',
+    )
+    expect(toastMessage(operation({ kind: 'delete', label, affected: 2 }), 'redo')).toBe(
+      'Redid delete · 2 transactions · Undo u',
+    )
+  })
+
+  it('uses the singular form when undoing or redoing one transaction', () => {
+    expect(toastMessage(operation({ kind: 'hide', affected: 1 }), 'undo')).toBe(
+      'Undid hide · 1 transaction · Redo U',
+    )
+    expect(toastMessage(operation({ kind: 'delete', affected: 1 }), 'redo')).toBe(
+      'Redid delete · 1 transaction · Undo u',
+    )
+  })
+
+  it('leaves out the undo hint on a redo that cannot be undone', () => {
+    expect(toastMessage(operation({ kind: 'hide', affected: 2, undoable: false }), 'redo')).toBe(
+      'Redid hide · 2 transactions',
+    )
+  })
+
+  it('keeps the server label for other kinds', () => {
     const label = 'Rename Example Merchant'
     expect(toastMessage(operation({ kind: 'rename', label }), 'undo')).toBe(
       'Undid Rename Example Merchant · Redo U',

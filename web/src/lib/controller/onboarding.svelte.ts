@@ -2,6 +2,7 @@ import { createSubscriber } from 'svelte/reactivity'
 
 import type { components } from '../api/schema'
 import { createMutationFetch, MoneyflowProblem, requestProfileJSON } from '../api/client'
+import { providerName } from '../provider-name'
 import { apiURL } from './base-path'
 
 export type OnboardingStatus = components['schemas']['OnboardingStatusResponse']
@@ -286,7 +287,7 @@ function pageVisible(): boolean {
 }
 
 function announcementFor(snapshot: OnboardingStatus): string {
-  const provider = snapshot.provider_kind === 'ynab' ? 'YNAB' : 'Monarch'
+  const provider = providerName(snapshot.provider_kind)
   const names: Record<string, string> = {
     inspect: 'Inspecting profile…',
     validate_session: 'Checking saved session…',

@@ -1,5 +1,6 @@
 <script lang="ts" module>
   import type { OnboardingStatus } from '../../lib/controller/onboarding.svelte'
+  import { providerName } from '../../lib/provider-name'
 
   type Progress = NonNullable<OnboardingStatus['progress']>
 
@@ -46,7 +47,7 @@
   const snapshot = $derived(controller.state.snapshot)
   const problem = $derived(controller.state.problem)
   const progress = $derived(snapshot?.progress)
-  const providerName = $derived(snapshot?.provider_kind === 'ynab' ? 'YNAB' : 'Monarch')
+  const provider = $derived(providerName(snapshot?.provider_kind))
 
   $effect(() => {
     if (snapshot?.settings) {
@@ -156,7 +157,7 @@
   </TopBar>
   <main class="profile-main" aria-label="Profile onboarding">
     <section class="profile-panel" aria-labelledby="onboarding-title">
-      <p class="moneyflow-eyebrow">{providerName}</p>
+      <p class="moneyflow-eyebrow">{provider}</p>
       {#if problem}
         <h1 id="onboarding-title">Profile setup was interrupted</h1>
         <Card
@@ -173,7 +174,7 @@
       {:else if !snapshot || ['inspect', 'validate_session'].includes(snapshot.state)}
         <h1 id="onboarding-title">Checking saved session</h1>
         <div class="onboarding-working">
-          <Spinner label={`Checking saved ${providerName} credentials`} />
+          <Spinner label={`Checking saved ${provider} credentials`} />
           <p>Looking for a reusable encrypted session before asking for credentials.</p>
         </div>
       {:else if snapshot.state === 'settings_required'}
@@ -214,7 +215,7 @@
       {:else if snapshot.state === 'unlock_required'}
         <h1 id="onboarding-title">Unlock saved credentials</h1>
         <p>
-          Enter the Moneyflow account password used to protect the local {providerName} credential vault.
+          Enter the Moneyflow account password used to protect the local {provider} credential vault.
         </p>
         <form
           class="profile-form"
@@ -367,13 +368,13 @@
       {:else if ['authenticating', 'importing'].includes(snapshot.state)}
         <h1 id="onboarding-title">
           {snapshot.state === 'authenticating'
-            ? `Authenticating with ${providerName}`
-            : progressTitle(progress?.phase, providerName)}
+            ? `Authenticating with ${provider}`
+            : progressTitle(progress?.phase, provider)}
         </h1>
         <div class="onboarding-working">
           <Spinner label="Provider setup in progress" />
           <p>
-            {progressDescription(progress, providerName)}
+            {progressDescription(progress, provider)}
           </p>
         </div>
         <Button onclick={() => void cancel()}>Cancel</Button>
@@ -388,9 +389,9 @@
             >{/if}
         </div>
       {:else if snapshot.state === 'identity_mismatch'}
-        <h1 id="onboarding-title">Different {providerName} account</h1>
+        <h1 id="onboarding-title">Different {provider} account</h1>
         <p>
-          This profile is bound to a different {providerName} account. Local data was not changed.
+          This profile is bound to a different {provider} account. Local data was not changed.
         </p>
         <div class="profile-actions">
           <Button onclick={() => void cancel()}>Cancel</Button><Button

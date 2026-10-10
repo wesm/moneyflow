@@ -17,6 +17,7 @@
     TransitionAction,
     ViewController,
   } from '../../lib/controller/view-controller.svelte'
+  import { providerName } from '../../lib/provider-name'
   import { InsightsCache } from '../../lib/insights/cache.svelte'
   import { seriesRows } from '../../lib/insights/requests'
   import type { ChartState } from '../../lib/shell/chart-state.svelte'
@@ -55,6 +56,7 @@
   /** The bar covers the scroller's bottom, so the table counts only the rows above it. */
   const covered = $derived(selecting ? barHeight : 0)
   const local = $derived(localActions(actions))
+  const writePhase = $derived(controller.providerWrite.state.status?.phase)
   /** A Clear is queued; another click must not also go back a level. */
   let clearing = false
   const compact = new MediaQuery(MEDIA.compact)
@@ -123,9 +125,10 @@
   bind:clientHeight={viewport}
   onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
 >
-  {#if controller.providerWrite.state.status?.phase}
+  {#if writePhase}
     <EditLockBanner
-      providerName={projection.profile_kind === 'ynab' ? 'YNAB' : 'Monarch'}
+      providerName={providerName(projection.profile_kind)}
+      phase={writePhase}
       onstatus={() => actions.overlays.open('write')}
     />
   {/if}
