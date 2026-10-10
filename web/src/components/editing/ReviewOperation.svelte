@@ -174,12 +174,21 @@
     padding: var(--space-2) var(--space-4) var(--space-2) 0;
     border-bottom: 1px solid var(--border-muted);
   }
-  /* As the table shows amounts: right-aligned figures on one line. */
+  /* Dates and amounts keep to one line; names wrap, even inside a long word, so a row fits. */
+  .mf-review-op__table td {
+    overflow-wrap: anywhere;
+  }
+  .mf-review-op__table td:first-child,
+  .mf-review-op__table .mf-review-op__amount {
+    white-space: nowrap;
+  }
+  /* As the table shows amounts: right-aligned figures. */
   .mf-review-op__table .mf-review-op__amount {
     padding-inline-end: 0;
-    font-family: var(--font-mono);
     text-align: right;
-    white-space: nowrap;
+  }
+  .mf-review-op__table td.mf-review-op__amount {
+    font-family: var(--font-mono);
   }
   .mf-review-op__paging {
     display: flex;

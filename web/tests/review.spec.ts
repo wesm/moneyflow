@@ -88,6 +88,16 @@ test('an expanded operation shows each amount with its currency, right-aligned, 
       const amount = table.getByRole('row').nth(1).getByRole('cell').last()
       await expect(amount).toHaveText('-2,150.00 USD')
       await expect(amount).toHaveCSS('text-align', 'right')
+      // The date and the amount each keep to one line.
+      const lines = (cell: typeof amount) =>
+        cell.evaluate((node) => {
+          const range = document.createRange()
+          range.selectNodeContents(node)
+          return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size
+        })
+      const date = table.getByRole('row').nth(1).getByRole('cell').first()
+      expect(await lines(date), `${width} px`).toBe(1)
+      expect(await lines(amount), `${width} px`).toBe(1)
       // The table and its rows fit the drawer without scrolling sideways.
       const overflow = await table.evaluate((node) => {
         const box = node.parentElement!.getBoundingClientRect()
