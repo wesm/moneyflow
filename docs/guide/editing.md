@@ -70,7 +70,7 @@ explains unavailable actions. See [Monarch](monarch.md), [YNAB](ynab.md),
 
 ## Edit in the browser
 
-**Unreleased.** The browser editor stages the same pending edits as the TUI. Nothing reaches a
+**Unreleased:** The browser editor stages the same pending edits as the TUI. Nothing reaches a
 provider until you [review and commit](#review-and-commit).
 
 ### Open the editor
@@ -120,8 +120,8 @@ On a new category's group step, Enter opens the group list and `Ctrl+Enter` stag
 Esc returns to the name field.
 
 Cancelling returns focus to the control that opened the editor. Pressing outside the editor on
-a larger screen closes it and leaves focus where you pressed. After a change is staged, the cursor stays on the
-edited row's position, so `j` moves on to the next row.
+a larger screen closes it and leaves focus where you pressed. After a change is staged, the
+cursor stays on the edited row's position, so `j` moves on to the next row.
 
 ### Hide, delete, undo, and redo
 
@@ -162,8 +162,12 @@ moves its transactions there; a merged or deleted group moves its categories the
 drawer is open, these keys do not reach the table, so `g`, `m`, and `d` never change the view
 or open the merchant editor behind it.
 
-Each confirmed step is a pending edit. If the server refuses it, for example because the name is
-already used, the step stays open and shows the reason.
+Each confirmed step is a pending edit. A new or renamed entry cannot take a name another entry
+already uses, ignoring case and surrounding spaces. The step then shows
+`That label already exists; use merge instead.` and stages nothing. If the server refuses a
+step, the step stays open with a general message, such as
+`That action is not available for the current target.` If you leave a step with Esc before the
+server answers, the drawer does not show that answer.
 
 ## Review possible duplicates
 

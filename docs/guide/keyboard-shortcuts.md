@@ -58,7 +58,7 @@ These keys act on the highlighted entry when focus is outside the filter:
 | `g` | Move a category to another group |
 | `m` | Merge into another entry |
 | `d` | Delete, moving its contents to a replacement |
-| Enter | In the browser, confirm the open step |
+| Enter | Confirm the open step |
 | Esc | Leave the open step, then clear the filter, then close |
 
 In the browser, these keys do not reach the table while the manager is open. See
