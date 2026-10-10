@@ -42,17 +42,11 @@ use the selection bar, or clear the selection to edit one transaction. **Info** 
 same keys as on a larger screen. Esc, or cancelling an editor opened from the sheet, returns
 focus to the ⋯ button. Staging a change returns focus to the edited row.
 
-**Unreleased:** In the merchant editor, Enter uses the highlighted suggestion. To use a new name that also
-matches existing merchants, select the `Create` option below the matches.
-
 **Unreleased:** Merchant and category edits use the current filtered transactions by default.
 Editing a merchant group with a year or month selected leaves transactions outside that period
 unchanged. Editing a single transaction inside a merchant drill affects only that transaction.
-In the TUI merchant editor, Tab switches to **whole merchant** when available. In the browser,
-choose **Whole merchant** in the editor's scope control; Tab only moves focus. Whole merchant is
-available when nothing is selected and the cursor is on a merchant row or inside a merchant
-drill. That scope includes transactions outside the current filters, and the browser editor
-says how many. Check its affected count before staging.
+In the TUI merchant editor, Tab switches to **whole merchant** when available. The browser
+editor has a scope control instead; see [Edit in the browser](#edit-in-the-browser).
 
 ## Apply an edit
 
@@ -74,6 +68,103 @@ Deleting is undoable until commit. Editing capabilities depend on the provider; 
 explains unavailable actions. See [Monarch](monarch.md), [YNAB](ynab.md),
 [Amazon](amazon-mode.md), [bank CSV](bank-csv.md), or [SimpleFIN](simplefin.md) for exact limits.
 
+## Edit in the browser
+
+**Unreleased.** The browser editor stages the same pending edits as the TUI. Nothing reaches a
+provider until you [review and commit](#review-and-commit).
+
+### Open the editor
+
+Press `m` to edit the merchant or `c` to change the category of the cursor row. You can also:
+
+- point at a transaction's Merchant or Category cell and select its pencil button;
+- double-click a transaction's Merchant or Category cell;
+- use **Merchant** or **Category** in the selection bar, or in a phone row's ⋯ sheet.
+
+The editor opens below the cursor row, or above the selection bar while rows are selected. Its
+title reads **Edit merchant** or **Change category**, followed by the target, such as `· 1
+transaction` or `· 3 selected`. On screens 640 px wide or narrower, the same editor opens as a
+sheet at the bottom of the screen, with the same keys.
+
+Type a name to filter the suggestions. Each suggestion shows its committed transaction count
+across the whole profile, and a category suggestion also shows its group. When the text matches
+no existing name, the list offers `Create "…"`. A new category then asks for its group.
+
+A merchant edit offers two scopes:
+
+- **These transactions**, or the selected transactions, changes only the targeted rows.
+- **Whole merchant** renames the merchant everywhere. It is available only when nothing is
+  selected and the cursor is on a merchant row or inside a merchant drill. Otherwise it stays
+  visible but disabled, with the reason.
+
+The editor previews the affected transactions. For **Whole merchant**, it also says how many of
+them are outside the current view, such as other periods, filters, or currencies. A rename onto
+an existing merchant says which merchant it merges into. The stage button states the count, for
+example **Stage change to 3 transactions**.
+
+### Editor keys
+
+| Key | Action |
+| --- | --- |
+| Type | Filter the suggestions and open the list |
+| Down / Up | Open the list, or move through it |
+| Enter | With the list open, use the highlighted suggestion; with it closed, stage the ready change |
+| `Ctrl+Enter` / `Cmd+Enter` | Use the highlighted suggestion, if the list is open, and stage the change |
+| Tab | Move focus to the next control |
+| Esc | Close the list; with the list closed, cancel the editor |
+
+`Tab` never changes scope in the browser; choose the scope with the scope control. In the TUI,
+Tab still switches to **whole merchant**.
+
+On a new category's group step, Enter opens the group list and `Ctrl+Enter` stages the change.
+Esc returns to the name field.
+
+Cancelling returns focus to the control that opened the editor. Pressing outside the editor on
+a larger screen closes it and leaves focus where you pressed. After a change is staged, the cursor stays on the
+edited row's position, so `j` moves on to the next row.
+
+### Hide, delete, undo, and redo
+
+`h` stages a hide or unhide at once. A message at the top of the window confirms it for a few
+seconds, such as `Hidden 3 transactions · Undo u` or `Shown 1 transaction · Undo u`.
+
+`x` asks for confirmation next to the cursor row, or above the selection bar: `Delete 2
+transactions?`. Enter deletes and Esc cancels. On a phone, the confirmation is a bottom sheet.
+A staged delete shows `Deleted 2 transactions · Undo u`. In grouped views, `x` shows `Open the
+group to delete its transactions.`
+
+`u` and `U` show what they undid or redid, such as `Undid hide · 3 transactions · Redo U` or
+`Redid Rename merchant · Undo u`. Staged renames, category changes, and category or group edits
+show no message; the staged values in the table and the pending-edits card already show them.
+
+### Manage categories and groups
+
+`C` opens **Manage categories** and `G` opens **Manage category groups**. Each is a large drawer
+that lists every category or group with its transaction count. Categories also show their group.
+Protected entries, such as **Uncategorized**, cannot be changed.
+
+The filter field has focus when the drawer opens, so typing filters the list. Press Down to move
+into the list, and Up from its first row to return to the filter. Then use these keys:
+
+| Key | Action |
+| --- | --- |
+| `n` | New category or group |
+| `r` | Rename the highlighted entry |
+| `g` | Move the highlighted category to another group (categories only) |
+| `m` | Merge the highlighted entry into a destination |
+| `d` | Delete the highlighted entry and move its contents to a replacement |
+| Enter | Confirm the open step |
+| Esc | Leave the open step; then clear the filter; then close the drawer |
+
+The drawer's buttons do the same. Each action opens a short step above the list. Merge and
+delete stay disabled until you choose a destination or replacement. A merged or deleted category
+moves its transactions there; a merged or deleted group moves its categories there. While the
+drawer is open, these keys do not reach the table, so `g`, `m`, and `d` never change the view
+or open the merchant editor behind it.
+
+Each confirmed step is a pending edit. If the server refuses it, for example because the name is
+already used, the step stays open and shows the reason.
+
 ## Review possible duplicates
 
 Press `D` to find possible duplicates in the current filtered view. Moneyflow groups rows
@@ -93,6 +184,13 @@ and the transaction preview shows values **before that change**. Press `i` to in
 all affected rows, using Left/Right to page through them. Enter commits all active
 changes and discards redo history. Esc returns without committing.
 
+**Unreleased:** In the browser, `w` or the pending-edits card's **Review** button opens **Review
+pending changes** as a large drawer. It lists each staged operation as its old and new value with
+the affected count. Select an operation to list its transactions 100 at a time. Enter commits
+unless focus is on a button or another control with its own Enter. Esc or **Cancel** closes the
+drawer without committing. For Monarch and YNAB, the same drawer becomes write status after the
+commit starts the provider write.
+
 Commit applies the reviewed revision. If another process changed the profile, refresh the
 review instead of assuming the old preview is still current.
 
@@ -110,6 +208,12 @@ before it stopped, Moneyflow asks you to review the changes again before committ
 In the TUI, `w` opens write status. Esc returns to transactions without discarding edits.
 An unfinished batch blocks further edits and refreshes; the footer keeps `w Write status`
 visible so you can return to its recovery actions.
+
+**Unreleased:** In the browser, a banner above the table reads `Writing to Monarch · Editing is
+locked until the write finishes` while a write runs. Its **Status** button, or `w`, opens write
+status. Write status shows progress and offers the actions the batch allows: **Pause**,
+**Resume** or **Check and resume**, **Stop and reconcile**, **Confirm reconciliation**, or
+**Reconnect Monarch** / **Reconnect YNAB**.
 
 **Unreleased:** Write status shows the first change's From/To values and transaction count,
 alongside overall progress. It also reports when the batch contains additional changes.
