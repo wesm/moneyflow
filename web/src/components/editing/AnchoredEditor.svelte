@@ -1,9 +1,9 @@
 <script lang="ts">
   import { floatingPopoverStyle } from '@kenn-io/kit-ui'
-  import { trapFocus } from '@kenn-io/kit-ui/utils/focus-trap'
   import { autoReposition } from '@kenn-io/kit-ui/utils/popover'
   import { onMount, type Snippet } from 'svelte'
 
+  import { trapEveryTab } from '../../lib/shell/focus'
   import type { OverlayState } from '../../lib/shell/overlay-state.svelte'
 
   interface Props {
@@ -70,7 +70,7 @@
   aria-describedby={`${id}-count`}
   tabindex="-1"
   bind:this={panel}
-  {@attach trapFocus}
+  {@attach trapEveryTab}
   {@attach overlays.escapeLayer(oncancel)}
 >
   {@render children()}

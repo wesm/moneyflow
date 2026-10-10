@@ -549,3 +549,26 @@ test.describe('on a touch phone', () => {
     }
   })
 })
+
+test('Tab and Shift+Tab stay inside the anchored editor', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('m')
+    const editor = page.getByRole('dialog', { name: 'Edit merchant' })
+    await expect(editor.getByRole('combobox', { name: 'Merchant' })).toBeFocused()
+    // WebKit's plain Tab skips buttons; the editor must move focus itself.
+    const inside = () => editor.evaluate((node) => node.contains(document.activeElement))
+    for (let press = 0; press < 8; press += 1) {
+      await page.keyboard.press('Tab')
+      expect(await inside()).toBe(true)
+    }
+    for (let press = 0; press < 8; press += 1) {
+      await page.keyboard.press('Shift+Tab')
+      expect(await inside()).toBe(true)
+    }
+  } finally {
+    await server.stop()
+  }
+})

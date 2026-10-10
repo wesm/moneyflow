@@ -322,7 +322,8 @@ async function expectNoHorizontalScroll(page: Page): Promise<void> {
 /** Every visible control inside `container` is at least 44 px tall and, if square, wide. */
 async function expectTouchTargets(container: Locator): Promise<void> {
   const small = await container.evaluate((root) => {
-    const selector = 'button, [role="radio"], [role="combobox"], label.kit-toggle, .kit-text-input'
+    const selector =
+      'button, [role="radio"], [role="combobox"], [role="option"], label.kit-toggle, .kit-text-input'
     return Array.from(root.querySelectorAll<HTMLElement>(selector))
       .filter((element) => element.getClientRects().length > 0)
       .map((element) => ({
@@ -734,6 +735,22 @@ test.describe('phone rows: drilling, keys, and the sheet', () => {
 
     await more.tap()
     await actions.getByRole('button', { name: 'Merchant' }).tap()
+    // A long suggestion list: 44 px options that scroll, with Stage and Cancel still in reach.
+    await name.fill('a')
+    const list = editor.getByRole('listbox', { name: 'Merchant' })
+    await expect(list.getByRole('option').nth(5)).toBeAttached()
+    await expectTouchTargets(editor)
+    expect(await list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+    for (const label of [/^Stage change/, /^Cancel$/]) {
+      const button = editor.getByRole('button', { name: label })
+      await expect(button).toBeInViewport({ ratio: 1 })
+      const reachable = await button.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+        return element.contains(hit)
+      })
+      expect(reachable).toBe(true)
+    }
     await name.fill('Renamed Example')
     await name.press('Enter')
     await expect(

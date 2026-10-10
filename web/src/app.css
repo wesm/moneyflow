@@ -730,8 +730,16 @@ input {
 .mf-sheet .mf-sheet__body .kit-select-dropdown__option,
 .mf-sheet .mf-sheet__body .kit-button,
 .mf-sheet .mf-sheet__body .kit-text-input,
-.mf-sheet .mf-sheet__body .kit-text-input__control {
+.mf-sheet .mf-sheet__body .kit-text-input__control,
+.mf-sheet .mf-sheet__body [role='option'] {
   min-height: 44px;
+}
+.mf-sheet .mf-sheet__body [role='option'] {
+  align-items: center;
+}
+/* In a sheet the editor's list takes room in the flow, so it never covers Stage and Cancel. */
+.mf-sheet .mf-combobox-list {
+  position: static;
 }
 /* First in the Tab order, so it comes before the sidebar in the DOM and paints above it. */
 .mf-nav-drawer__close {

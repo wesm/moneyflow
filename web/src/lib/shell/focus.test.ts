@@ -142,6 +142,41 @@ describe('trapEveryTab', () => {
     release()
   })
 
+  it('skips controls a browser would not reach: inert, in a disabled fieldset, or invisible', () => {
+    const root = surface(
+      '<button>One</button><div inert><button>Inert</button></div>' +
+        '<fieldset disabled><input aria-label="Fieldset" /></fieldset>' +
+        '<button style="visibility: hidden">Invisible</button><button>Two</button>',
+    )
+    const release = trapEveryTab(root)
+    tab()
+    expect(focused()).toBe('One')
+    tab()
+    expect(focused()).toBe('Two')
+    tab()
+    expect(focused()).toBe('One')
+    release()
+  })
+
+  it('moves Shift+Tab from a middle control to the one before it', () => {
+    const root = surface('<button>One</button><button>Two</button><button>Three</button>')
+    const release = trapEveryTab(root)
+    root.querySelectorAll('button')[1]!.focus()
+    expect(tab(true).defaultPrevented).toBe(true)
+    expect(focused()).toBe('One')
+    release()
+  })
+
+  it('keeps focus on a surface with no controls', () => {
+    const root = surface('<p>Nothing to focus</p>')
+    const release = trapEveryTab(root)
+    expect(tab().defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(root)
+    expect(tab(true).defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(root)
+    release()
+  })
+
   it('goes to the last control on Shift+Tab from the surface itself', () => {
     const root = surface('<button>One</button><button>Two</button>')
     const release = trapEveryTab(root)

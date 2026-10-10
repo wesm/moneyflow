@@ -38,8 +38,15 @@ export function restoreFocus(
 }
 
 const TABBABLE = ['a[href]', 'button', 'input', 'select', 'textarea', '[tabindex]']
-  .map((selector) => `${selector}:not([disabled], [tabindex="-1"])`)
+  .map((selector) => `${selector}:not(:disabled):not([tabindex="-1"])`)
   .join(', ')
+
+/** Whether Tab can reach `item`: tabbable, laid out, visible, and outside an inert subtree. */
+function reachable(item: HTMLElement): boolean {
+  if (!item.matches(TABBABLE) || item.getClientRects().length === 0) return false
+  if (item.closest('[inert]')) return false
+  return getComputedStyle(item).visibility !== 'hidden'
+}
 
 /** The control after `active` in `items`, or before it with `back`, wrapping at the ends. */
 function nextTabbable(items: HTMLElement[], active: Element | null, back: boolean): HTMLElement {
@@ -59,9 +66,8 @@ export function trapEveryTab(surface: HTMLElement): () => void {
   const keydown = (event: KeyboardEvent) => {
     if (event.key !== 'Tab' || event.defaultPrevented) return
     event.preventDefault()
-    const items = Array.from(surface.querySelectorAll<HTMLElement>(TABBABLE)).filter(
-      (item) => item.getClientRects().length > 0,
-    )
+    // Browsers return a selector list's matches in document order; jsdom returns them by group.
+    const items = Array.from(surface.querySelectorAll<HTMLElement>('*')).filter(reachable)
     if (items.length === 0) return surface.focus()
     nextTabbable(items, document.activeElement, event.shiftKey).focus()
   }
