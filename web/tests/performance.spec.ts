@@ -1,8 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
+import type { Locator } from '@playwright/test'
+
 import type { BudgetConfig, InteractionMeasurements } from '../scripts/check-budgets'
 import { checkBudgets } from '../scripts/check-budgets'
+
 import { expect, openMoneyflow, test } from './fixtures'
 
 const sampleCount = 100
@@ -17,13 +20,22 @@ function p95(samples: number[]): number {
   return ordered[Math.ceil(ordered.length * 0.95) - 1]!
 }
 
-// Until the charts draw, the samplers time the same paths through the table: a cursor key to
-// the grid's new active row, and a row double-click to the drilled URL.
+/** The identity of the grid's cursor row, from its row element's id. */
+async function cursorIdentity(grid: Locator): Promise<string> {
+  const id = await grid.getAttribute('aria-activedescendant')
+  expect(id).toMatch(/^moneyflow-row-/)
+  return id!.slice('moneyflow-row-'.length)
+}
+
+// chart_cursor times a cursor key to the cash-flow chart drawing the new row's columns solid.
+// Until the composition chart takes input, chart_drill times a row double-click to the drilled URL.
 test('chart cursor and drill p95 stay within measured budgets', async ({ page, server }) => {
   test.setTimeout(120_000)
   await openMoneyflow(page, server)
   const grid = page.getByRole('grid', { name: 'Financial results' })
+  const chart = page.locator('.mf-cashflow')
   await expect(page.getByRole('region', { name: 'Charts' })).toBeVisible()
+  await expect(chart).toHaveAttribute('data-cursor', await cursorIdentity(grid))
   await page.evaluate(() => {
     const performanceWindow = window as unknown as PerformanceWindow
     performanceWindow.moneyflowCursorSamples = []
@@ -31,22 +43,20 @@ test('chart cursor and drill p95 stay within measured budgets', async ({ page, s
   })
 
   for (let index = 0; index < sampleCount; index += 1) {
-    await grid.evaluate((element) => {
-      const before = element.getAttribute('aria-activedescendant')
+    await chart.evaluate((element) => {
+      const before = element.getAttribute('data-cursor')
       window.addEventListener(
         'keydown',
         () => {
           const started = performance.now()
           const observer = new MutationObserver(() => {
-            if (element.getAttribute('aria-activedescendant') === before) return
+            const drawn = element.getAttribute('data-cursor')
+            if (drawn === null || drawn === before) return
             observer.disconnect()
             const performanceWindow = window as unknown as PerformanceWindow
             performanceWindow.moneyflowCursorSamples.push(performance.now() - started)
           })
-          observer.observe(element, {
-            attributes: true,
-            attributeFilter: ['aria-activedescendant'],
-          })
+          observer.observe(element, { attributes: true, attributeFilter: ['data-cursor'] })
         },
         { capture: true, once: true },
       )
@@ -56,10 +66,12 @@ test('chart cursor and drill p95 stay within measured budgets', async ({ page, s
       (count) => (window as unknown as PerformanceWindow).moneyflowCursorSamples.length === count,
       index + 1,
     )
+    // The solid columns belong to the row the cursor moved to.
+    const moved = await cursorIdentity(grid)
+    await expect(chart).toHaveAttribute('data-cursor', moved)
     // Back up untimed, so the cursor never runs out of rows.
-    const moved = await grid.getAttribute('aria-activedescendant')
     await page.keyboard.press('k')
-    await expect(grid).not.toHaveAttribute('aria-activedescendant', moved!)
+    await expect(chart).not.toHaveAttribute('data-cursor', moved)
   }
 
   const initialURL = page.url()

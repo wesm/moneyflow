@@ -1,0 +1,140 @@
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import CashflowChart from './CashflowChart.svelte'
+import type { InsightsResponse } from '../../lib/api/client'
+import type { InsightsEntry } from '../../lib/insights/cache.svelte'
+import { testInsights } from '../../test/insights'
+
+type Context = InsightsResponse['ranges']['context']
+
+const months: [number, string, string][] = [
+  [7, 'Jul 2026', '2026-07-31'],
+  [8, 'Aug 2026', '2026-08-31'],
+  [9, 'Sep 2026', '2026-09-30'],
+]
+
+/** Jul through Sep 2026, scoped to September, with Online Megastore's September as its data. */
+function chart(): InsightsEntry {
+  const response = testInsights()
+  const context: Context = months.map(([month, , end]) => ({
+    start: `2026-0${month}-01`,
+    end,
+    partial: false,
+    absent: false,
+    period: { granularity: 'month', year: 2026, month },
+  }))
+  response.ranges = { ...response.ranges, context }
+  response.summary!.cashflow = {
+    labels: months.map(([, label]) => label),
+    in: ['0', '0', '12000'],
+    out: ['0', '-30000', '-48000'],
+    net: ['0', '-30000', '-36000'],
+    count: [0, 1, 4],
+  }
+  return { query: response.query, revision: response.revision, response, series: new Map() }
+}
+
+const cursor = {
+  identity: 'merchant-online-megastore',
+  label: 'Online Megastore',
+  in: ['0', '0', '12000'],
+  out: ['0', '-30000', '-48000'],
+}
+
+function setup(props: Partial<{ cursor: typeof cursor; onleave: () => void }> = {}) {
+  const onperiod = vi.fn()
+  render(CashflowChart, { entry: chart(), onperiod, ...props })
+  const group = screen.getByRole('group', { name: 'Cash flow' })
+  const column = (label: string) =>
+    within(group).getByRole('button', { name: new RegExp(`^${label}, `) })
+  return { onperiod, group, column }
+}
+
+describe('CashflowChart', () => {
+  afterEach(() => cleanup())
+
+  it('names each column with its period, In, Out, and Net', () => {
+    const { group } = setup()
+    expect(
+      within(group)
+        .getAllByRole('button')
+        .map((button) => button.ariaLabel),
+    ).toEqual([
+      'Jul 2026, in +0.00, out +0.00, net +0.00',
+      'Aug 2026, in +0.00, out -300.00, net -300.00',
+      'Sep 2026, in +120.00, out -480.00, net -360.00',
+    ])
+  })
+
+  it('scopes to a clicked column and to a range on shift-click', async () => {
+    const { onperiod, column } = setup()
+    await fireEvent.click(column('Aug 2026'))
+    expect(onperiod).toHaveBeenLastCalledWith({ start: '2026-08-01', end: '2026-08-31' })
+    // September is the scope, so a shift-click on July reaches from July through September.
+    await fireEvent.click(column('Jul 2026'), { shiftKey: true })
+    expect(onperiod).toHaveBeenLastCalledWith({ start: '2026-07-01', end: '2026-09-30' })
+  })
+
+  it('sets a custom range from a drag across columns', async () => {
+    const { onperiod, column } = setup()
+    await fireEvent.pointerDown(column('Jul 2026'), { button: 0, pointerId: 1 })
+    await fireEvent.pointerEnter(column('Aug 2026'), { pointerId: 1 })
+    await fireEvent.pointerEnter(column('Sep 2026'), { pointerId: 1 })
+    expect(onperiod).not.toHaveBeenCalled()
+    await fireEvent.pointerUp(window, { pointerId: 1 })
+    expect(onperiod).toHaveBeenCalledExactlyOnceWith({ start: '2026-07-01', end: '2026-09-30' })
+  })
+
+  it('is one Tab stop that arrows move through, and Esc leaves it', async () => {
+    const onleave = vi.fn()
+    const { group, column } = setup({ onleave })
+    const stops = within(group)
+      .getAllByRole('button')
+      .filter((button) => button.tabIndex === 0)
+    // The roving stop starts on the scope.
+    expect(stops).toEqual([column('Sep 2026')])
+
+    column('Sep 2026').focus()
+    await fireEvent.keyDown(column('Sep 2026'), { key: 'ArrowLeft' })
+    expect(document.activeElement).toBe(column('Aug 2026'))
+    expect(column('Aug 2026').tabIndex).toBe(0)
+    expect(column('Sep 2026').tabIndex).toBe(-1)
+    await fireEvent.keyDown(column('Aug 2026'), { key: 'Home' })
+    expect(document.activeElement).toBe(column('Jul 2026'))
+
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    column('Jul 2026').dispatchEvent(escape)
+    expect(onleave).toHaveBeenCalledOnce()
+    expect(escape.defaultPrevented).toBe(true)
+  })
+
+  it('leaves Esc to the drawer when there is nowhere to leave to', () => {
+    const { column } = setup()
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    column('Sep 2026').dispatchEvent(escape)
+    expect(escape.defaultPrevented).toBe(false)
+  })
+
+  it('draws the cursor row solid and shows its amounts in the tooltip', async () => {
+    const { group, column } = setup({ cursor })
+    expect(group.closest('[data-cursor]')?.getAttribute('data-cursor')).toBe(
+      'merchant-online-megastore',
+    )
+    expect(document.querySelectorAll('.mf-cashflow__cursor').length).toBeGreaterThan(0)
+
+    await fireEvent.focus(column('Sep 2026'))
+    await fireEvent.focusIn(column('Sep 2026'))
+    const tip = await screen.findByRole('tooltip')
+    expect(tip.textContent).toContain('Sep 2026')
+    expect(tip.textContent).toContain('+120.00')
+    expect(tip.textContent).toContain('-360.00')
+    expect(tip.textContent).toContain('Online Megastore')
+  })
+
+  it('draws no cursor without one', () => {
+    setup()
+    expect(document.querySelector('[data-cursor]')).toBeNull()
+    expect(document.querySelectorAll('.mf-cashflow__cursor')).toHaveLength(0)
+  })
+})

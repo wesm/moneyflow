@@ -65,6 +65,7 @@
 
 :root {
   --mf-in: var(--accent-green);
+  --mf-in-muted: color-mix(in srgb, var(--accent-green) 35%, var(--bg-surface));
   --mf-out: color-mix(in srgb, var(--accent-red) 70%, var(--bg-surface));
   --mf-out-muted: color-mix(in srgb, var(--accent-red) 35%, var(--bg-surface));
   --mf-pending: var(--accent-amber);

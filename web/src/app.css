@@ -1376,6 +1376,10 @@ input {
   gap: var(--space-4);
   padding-bottom: var(--space-5);
 }
+/* A chart tooltip covers the table's sticky header; the sticky area otherwise paints below it. */
+.mf-chart-area:has([role='tooltip']) {
+  z-index: 3;
+}
 .mf-chart-states {
   display: grid;
   gap: var(--space-5);
@@ -1465,6 +1469,104 @@ input {
   display: block;
   width: 100%;
   height: 100%;
+}
+/* The cash-flow chart: muted In and Out columns, the cursor's share solid inside them. */
+.mf-cashflow,
+.mf-cashflow__plot {
+  height: 100%;
+}
+.mf-cashflow__plot {
+  position: relative;
+  display: grid;
+  /* Vertical swipes still scroll; sideways drags select columns. */
+  touch-action: pan-y;
+  user-select: none;
+}
+.mf-cashflow__column {
+  flex: 1;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 16px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mf-cashflow__column--scope {
+  background: var(--bg-surface-hover);
+}
+.mf-cashflow__column:hover,
+.mf-cashflow__column--dragged {
+  background: var(--mf-cursor);
+}
+.mf-cashflow__column:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+.mf-cashflow__column rect {
+  stroke-width: 0;
+}
+.mf-cashflow__in {
+  fill: var(--mf-in-muted);
+  stroke: var(--mf-in);
+}
+.mf-cashflow__out {
+  fill: var(--mf-out-muted);
+  stroke: var(--mf-out);
+}
+.mf-cashflow__in.mf-cashflow__cursor {
+  fill: var(--mf-in);
+}
+.mf-cashflow__out.mf-cashflow__cursor {
+  fill: var(--mf-out);
+}
+/* A partial period is hollow; the cursor's share inside it stays solid. */
+.mf-cashflow__column--partial rect:not(.mf-cashflow__cursor) {
+  fill: none;
+  stroke-width: 1px;
+}
+.mf-cashflow__lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.mf-cashflow__zero {
+  stroke: var(--border-default);
+}
+.mf-cashflow__net {
+  fill: none;
+  stroke: var(--text-secondary);
+  stroke-width: 1.5px;
+}
+.mf-cashflow__dot {
+  fill: var(--text-secondary);
+}
+.mf-cashflow__dot--partial {
+  fill: var(--bg-primary);
+  stroke: var(--text-secondary);
+}
+.mf-cashflow-tip {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0 var(--space-4);
+  margin: 0 0 var(--space-2);
+}
+.mf-cashflow-tip dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.mf-cashflow-tip__title {
+  margin: 0;
+  font-weight: 600;
 }
 @media (min-width: 900px) {
   .mf-chart-row {

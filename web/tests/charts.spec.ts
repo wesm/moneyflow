@@ -236,3 +236,68 @@ for (const theme of ['light', 'dark'] as const) {
     expect(result.violations).toEqual([])
   })
 }
+
+function cashflow(page: Page): Locator {
+  return page.getByRole('group', { name: 'Cash flow' })
+}
+
+function column(page: Page, label: string): Locator {
+  return cashflow(page).getByRole('button', { name: new RegExp(`^${label}, in [+-]`) })
+}
+
+function periodControl(page: Page): Locator {
+  return page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')
+}
+
+test('a cash-flow column click scopes the view to its month', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  await expect(periodControl(page)).toHaveText('All time')
+  await expect(column(page, 'Sep 2026')).toHaveAccessibleName(
+    /^Sep 2026, in \+[\d,]+\.\d\d, out -[\d,]+\.\d\d, net [+-][\d,]+\.\d\d$/,
+  )
+  await column(page, 'Sep 2026').click()
+  await expect(periodControl(page)).toHaveText('Sep 2026')
+  await expect(page).toHaveURL(/[?&]from=2026-09-01&to=2026-09-30/)
+  // The scope band now covers September, and the table keeps the focus.
+  await expect(column(page, 'Sep 2026')).toHaveClass(/mf-cashflow__column--scope/)
+  await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+})
+
+test('a drag across cash-flow columns sets a custom range', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  await column(page, 'Jul 2026').hover()
+  await page.mouse.down()
+  await column(page, 'Aug 2026').hover()
+  await column(page, 'Sep 2026').hover()
+  await page.mouse.up()
+  await expect(periodControl(page)).toHaveText('Jul 1 – Sep 30, 2026')
+  await expect(page).toHaveURL(/[?&]from=2026-07-01&to=2026-09-30/)
+})
+
+test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  await expect(cashflow(page).locator('button[tabindex="0"]')).toHaveCount(1)
+  // The chart sits just before the table in the Tab order; its stop starts on the last month.
+  await page.keyboard.press('Shift+Tab')
+  await expect(column(page, 'Oct 2026')).toBeFocused()
+  await page.keyboard.press('ArrowLeft')
+  await expect(column(page, 'Sep 2026')).toBeFocused()
+  await expect(page.getByRole('tooltip')).toContainText('Sep 2026')
+  await page.keyboard.press('Enter')
+  await expect(periodControl(page)).toHaveText('Sep 2026')
+  await expect(grid).toBeFocused()
+
+  // Inside a drill, Esc leaves the chart for the table without also going back a level.
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/[?&]drill=merchant/)
+  await page.keyboard.press('Shift+Tab')
+  await expect(column(page, 'Sep 2026')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(grid).toBeFocused()
+  await expect(page).toHaveURL(/[?&]drill=merchant/)
+  await expect(periodControl(page)).toHaveText('Sep 2026')
+})

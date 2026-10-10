@@ -26,7 +26,7 @@
     runRowAction,
     type LocalActionContext,
   } from '../../lib/shell/local-actions'
-  import { emptyScope } from '../../lib/shell/period'
+  import { emptyScope, type Period } from '../../lib/shell/period'
   import { status } from '../../lib/shell/status.svelte'
   import type { SelectionButton } from '../../lib/table/selection'
 
@@ -84,6 +84,10 @@
     )
   }
 
+  function onperiod(period: Period): void {
+    onapply({ action: 'time.set-period', period })
+  }
+
   /** Runs a selection bar button as its key does, then leaves focus on the table. */
   function select(action: SelectionButton['action']): void {
     if (action === 'clear') {
@@ -108,7 +112,15 @@
   onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
 >
   {#if !compact.current}
-    <ChartArea {projection} {cache} chartsOn={charts.row} measure={(height) => (above = height)} />
+    <ChartArea
+      {projection}
+      {cache}
+      chartsOn={charts.row}
+      cursorIndex={controller.cursorIndex}
+      {onperiod}
+      onleave={actions.focusGrid}
+      measure={(height) => (above = height)}
+    />
   {/if}
   {#if empty}
     <EmptyScope
@@ -160,5 +172,5 @@
   />
 {/if}
 <ChartDrawer open={compact.current && charts.dialogOpen} onclose={() => charts.setDialog(false)}>
-  <ChartArea {projection} {cache} chartsOn />
+  <ChartArea {projection} {cache} chartsOn cursorIndex={controller.cursorIndex} {onperiod} />
 </ChartDrawer>

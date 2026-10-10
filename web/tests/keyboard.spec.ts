@@ -271,6 +271,18 @@ test('x in a grouped view explains why it cannot delete', async ({ page, server 
   await expect(notice).toHaveText('', cleared)
   await page.keyboard.press('x')
   await expect(notice).toHaveText(reason)
+  await page
+    .getByRole('group', { name: 'Cash flow' })
+    .getByRole('button', { name: /^Sep 2026, / })
+    .click()
+  await expect(notice).toHaveText('', cleared)
+  // The click scopes the table to September; its rows replace the ones read below.
+  await expect(page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')).toHaveText(
+    'Sep 2026',
+  )
+
+  await page.keyboard.press('x')
+  await expect(notice).toHaveText(reason)
   const row = await activeRow(page)
   const merchant = await cell(row, 'name').innerText()
   await cell(row, 'count').dblclick()

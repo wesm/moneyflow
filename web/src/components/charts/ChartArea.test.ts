@@ -5,7 +5,7 @@ import ChartArea from './ChartArea.svelte'
 import type { InsightsBody, InsightsResponse, ViewProjection } from '../../lib/api/client'
 import { InsightsCache } from '../../lib/insights/cache.svelte'
 import { testInsights } from '../../test/insights'
-import { testProjection } from '../../test/projection'
+import { testAggregateRow, testProjection } from '../../test/projection'
 
 interface Call {
   body: InsightsBody
@@ -50,6 +50,49 @@ function september(call: Call | undefined, revision = '1'): InsightsResponse {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
+const interaction = { cursorIndex: 0, onperiod: vi.fn() }
+
+/** Merchants A and B scoped to September 2026, with one chart-context month. */
+function merchants(): ViewProjection {
+  const base = view()
+  const projection: ViewProjection = {
+    ...base,
+    view: { ...base.view, mode: 'aggregate' },
+    aggregate_rows: [
+      testAggregateRow({ identity: 'merchant:a', index: 0, label: 'Merchant A' }),
+      testAggregateRow({ identity: 'merchant:b', index: 1, label: 'Merchant B' }),
+    ],
+  }
+  delete projection.detail_rows
+  return projection
+}
+
+function withSeries(call: Call | undefined): InsightsResponse {
+  const response = september(call)
+  response.ranges.context = [
+    {
+      start: '2026-09-01',
+      end: '2026-09-30',
+      partial: false,
+      absent: false,
+      period: { granularity: 'month', year: 2026, month: 9 },
+    },
+  ]
+  response.summary!.cashflow = {
+    labels: ['Sep 2026'],
+    in: ['841072'],
+    out: ['-584418'],
+    net: ['256654'],
+    count: [1204],
+  }
+  response.series = ['merchant:a', 'merchant:b'].map((identity) => ({
+    identity,
+    trend: ['-100'],
+    context: { in: ['0'], out: ['-100'] },
+  }))
+  return response
+}
+
 describe('ChartArea', () => {
   afterEach(() => cleanup())
 
@@ -57,7 +100,7 @@ describe('ChartArea', () => {
     const { cache } = harness()
     const projection = view()
     cache.sync(projection, [])
-    render(ChartArea, { projection, cache, chartsOn: true })
+    render(ChartArea, { projection, cache, chartsOn: true, ...interaction })
     const row = screen.getByRole('region', { name: 'Charts' })
     expect(row.getAttribute('aria-busy')).toBe('true')
     expect(screen.queryByText('Income')).toBeNull()
@@ -70,7 +113,7 @@ describe('ChartArea', () => {
     cache.sync(projection, [])
     calls[0]?.resolve(september(calls[0]))
     await settle()
-    const { rerender } = render(ChartArea, { projection, cache, chartsOn: true })
+    const { rerender } = render(ChartArea, { projection, cache, chartsOn: true, ...interaction })
 
     const income = screen.getByText('Income')
     expect(income.tagName).toBe('DT')
@@ -82,7 +125,7 @@ describe('ChartArea', () => {
     expect(screen.getAllByText('vs Aug')).toHaveLength(1)
     expect(screen.getByRole('region', { name: 'Charts' }).getAttribute('aria-busy')).toBe('false')
 
-    await rerender({ projection, cache, chartsOn: false })
+    await rerender({ projection, cache, chartsOn: false, ...interaction })
     expect(screen.queryByRole('region', { name: 'Charts' })).toBeNull()
     expect(screen.getByText('Income')).not.toBeNull()
   })
@@ -94,7 +137,7 @@ describe('ChartArea', () => {
     await settle()
     const next = view('v=2')
     cache.sync(next, [])
-    render(ChartArea, { projection: next, cache, chartsOn: true })
+    render(ChartArea, { projection: next, cache, chartsOn: true, ...interaction })
 
     const content = screen.getByText('Income').closest<HTMLElement>('.mf-chart-states')!
     expect(content.classList.contains('mf-chart-states--stale')).toBe(true)
@@ -114,7 +157,7 @@ describe('ChartArea', () => {
     cache.sync(projection, [])
     calls[0]?.resolve(testInsights({ query: calls[0].body.query, revision: '1' }))
     await settle()
-    render(ChartArea, { projection, cache, chartsOn: true })
+    render(ChartArea, { projection, cache, chartsOn: true, ...interaction })
     expect(screen.getByText('Avg per transaction').nextElementSibling?.textContent).toBe('—')
   })
 
@@ -122,7 +165,7 @@ describe('ChartArea', () => {
     const { cache, calls } = harness()
     const projection = view()
     cache.sync(projection, [])
-    render(ChartArea, { projection, cache, chartsOn: true })
+    render(ChartArea, { projection, cache, chartsOn: true, ...interaction })
     calls[0]?.reject(new Error('insights unavailable'))
     await settle()
 
@@ -145,7 +188,7 @@ describe('ChartArea', () => {
       projection,
       Array.from({ length: 201 }, (_, index) => `merchant:${index}`),
     )
-    render(ChartArea, { projection, cache, chartsOn: true })
+    render(ChartArea, { projection, cache, chartsOn: true, ...interaction })
     calls[0]?.resolve(september(calls[0]))
     calls[1]?.reject(new Error('series unavailable'))
     await settle()
@@ -169,7 +212,13 @@ describe('ChartArea', () => {
     try {
       const { cache } = harness()
       const measure = vi.fn()
-      const { unmount } = render(ChartArea, { projection: view(), cache, chartsOn: true, measure })
+      const { unmount } = render(ChartArea, {
+        projection: view(),
+        cache,
+        chartsOn: true,
+        measure,
+        ...interaction,
+      })
       observed[0]?.()
       expect(measure).toHaveBeenLastCalledWith(expect.any(Number))
       unmount()
@@ -181,7 +230,28 @@ describe('ChartArea', () => {
 
   it('shows nothing for a view of every currency at once', () => {
     const { cache } = harness()
-    render(ChartArea, { projection: testProjection(), cache, chartsOn: true })
+    render(ChartArea, { projection: testProjection(), cache, chartsOn: true, ...interaction })
     expect(document.querySelector('.mf-chart-area')).toBeNull()
+  })
+
+  it('moves the solid cursor columns from cached series without another request', async () => {
+    const { cache, calls } = harness()
+    const projection = merchants()
+    cache.sync(projection, ['merchant:a', 'merchant:b'])
+    calls[0]?.resolve(withSeries(calls[0]))
+    await settle()
+    const onperiod = vi.fn()
+    const props = { projection, cache, chartsOn: true, onperiod }
+    const { rerender } = render(ChartArea, { ...props, cursorIndex: 0 })
+    const chart = () => document.querySelector('[data-cursor]')?.getAttribute('data-cursor')
+    expect(chart()).toBe('merchant:a')
+
+    await rerender({ ...props, cursorIndex: 1 })
+    expect(chart()).toBe('merchant:b')
+    expect(calls).toHaveLength(1)
+
+    const group = screen.getByRole('group', { name: 'Cash flow' })
+    await fireEvent.click(within(group).getByRole('button', { name: /^Sep 2026, in \+8,410\.72/ }))
+    expect(onperiod).toHaveBeenCalledWith({ start: '2026-09-01', end: '2026-09-30' })
   })
 })
