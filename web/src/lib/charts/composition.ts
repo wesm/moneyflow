@@ -1,6 +1,5 @@
 import type { InsightsResponse, ViewProjection } from '../api/client'
-import { formatMinor } from '../money/format'
-import { tenthsPercent } from '../table/cells'
+import { formatMinor, tenthsPercent, unsignedZero } from '../money/format'
 import { periodName, samePeriod } from './cashflow'
 import { ratioBasisPoints } from './scale'
 
@@ -20,6 +19,7 @@ export interface CompositionBar {
   label: string
   /** The net share, such as `6.2%`; it equals the table's Share column. */
   share: string
+  /** Net as the table shows it, so a zero reads `0.00`; the name keeps the signed amount. */
   net: string
   /** The bar's length in basis points of the longest bar's. */
   length: number
@@ -46,7 +46,7 @@ export function compositionBars(
       ...(others || entry.identity === undefined ? {} : { identity: entry.identity }),
       label: entry.label,
       share,
-      net,
+      net: unsignedZero(net),
       length: ratioBasisPoints(String(entry.share_tenths), longest),
       others,
       name: `${entry.label}, ${share}, ${net}`,

@@ -162,12 +162,12 @@ describe('CashflowChart', () => {
     expect(september.querySelectorAll('rect:not(.mf-cashflow__cursor)')).toHaveLength(2)
   })
 
-  it('shows a zero In or Out as a dash in the tooltip', async () => {
+  it('shows a zero In or Out as a dash and a zero Net unsigned in the tooltip', async () => {
     const { column } = setup({ cursor })
     await fireEvent.focusIn(column('Jul 2026'))
     const tip = await screen.findByRole('tooltip')
     const values = [...tip.querySelectorAll('dd')].map((value) => value.textContent)
-    expect(values).toEqual(['—', '—', '+0.00', '—', '—'])
+    expect(values).toEqual(['—', '—', '0.00', '—', '—'])
   })
 
   it("describes the focused column with the cursor row's amounts", () => {

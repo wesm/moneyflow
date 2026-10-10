@@ -1,16 +1,10 @@
 import type { ViewProjection } from '../api/client'
 import type { components } from '../api/schema'
+import { dashZero, tenthsPercent, unsignedZero } from '../money/format'
 import { loadedRow } from './virtual-rows'
 
 type Money = components['schemas']['Money']
 type AggregateRow = components['schemas']['AggregateRow']
-
-/** Formats an integer count of tenths of a percent, such as 62 as `6.2%`. */
-export function tenthsPercent(tenths: number): string {
-  const sign = tenths < 0 ? '-' : ''
-  const magnitude = Math.abs(tenths)
-  return `${sign}${Math.trunc(magnitude / 10)}.${magnitude % 10}%`
-}
 
 function moneySign(money: Money): -1 | 0 | 1 {
   if (money.minor === '0') return 0
@@ -22,8 +16,7 @@ function moneySign(money: Money): -1 | 0 | 1 {
  * (Net), because the server formats zero as `+0.00`.
  */
 export function moneyCell(money: Money, zero: '—' | 'unsigned'): string {
-  if (money.minor !== '0') return money.display
-  return zero === '—' ? '—' : money.display.replace(/^[+-]/, '')
+  return zero === '—' ? dashZero(money.display) : unsignedZero(money.display)
 }
 
 /** The Share label and its bar length as a display fraction from 0 to 1. */

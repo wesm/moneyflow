@@ -1,6 +1,5 @@
 import type { components } from '../api/schema'
-import { formatMinor } from '../money/format'
-import { tenthsPercent } from '../table/cells'
+import { formatMinor, tenthsPercent } from '../money/format'
 
 type Change = components['schemas']['InsightsChange']
 

@@ -8,7 +8,6 @@ import {
   cashflowCursor,
   cashflowGeometry,
   cursorGeometry,
-  dashZero,
   NET_DOT_RADIUS,
   rangeAnchor,
   rowAmounts,
@@ -327,16 +326,6 @@ describe('rangeAnchor', () => {
 
   it('starts from the focused column when nothing is in scope', () => {
     expect(rangeAnchor(columns([]), 0, 3)).toBe(3)
-  })
-})
-
-describe('dashZero', () => {
-  it('shows a zero amount as a dash, as the table does', () => {
-    expect(dashZero('+0.00')).toBe('—')
-    expect(dashZero('+0')).toBe('—')
-    expect(dashZero('+0.01')).toBe('+0.01')
-    expect(dashZero('-480.00')).toBe('-480.00')
-    expect(dashZero('+10.00')).toBe('+10.00')
   })
 })
 

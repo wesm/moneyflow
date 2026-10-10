@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import cases from './format-cases.json'
-import { formatMinor, parseMinor } from './format'
+import { dashZero, formatMinor, parseMinor, tenthsPercent, unsignedZero } from './format'
 
 describe('formatMinor', () => {
   it.each(cases)('formats $minor at scale $scale as Go does', ({ minor, scale, display }) => {
@@ -28,5 +28,33 @@ describe('parseMinor', () => {
 
   it('rejects text BigInt would read as zero', () => {
     expect(() => parseMinor('')).toThrow('is not a minor-unit amount')
+  })
+})
+
+describe('dashZero', () => {
+  it('shows a zero In or Out as a dash and keeps every other amount', () => {
+    expect(dashZero('+0.00')).toBe('—')
+    expect(dashZero('+0')).toBe('—')
+    expect(dashZero('+0.01')).toBe('+0.01')
+    expect(dashZero('-480.00')).toBe('-480.00')
+    expect(dashZero('+10.00')).toBe('+10.00')
+  })
+})
+
+describe('unsignedZero', () => {
+  it('shows a zero Net without its sign and keeps every other amount', () => {
+    expect(unsignedZero('+0.00')).toBe('0.00')
+    expect(unsignedZero('+0')).toBe('0')
+    expect(unsignedZero('+0.01')).toBe('+0.01')
+    expect(unsignedZero('-5.00')).toBe('-5.00')
+  })
+})
+
+describe('tenthsPercent', () => {
+  it('formats tenths of a percent with one decimal and a sign only when negative', () => {
+    expect(tenthsPercent(62)).toBe('6.2%')
+    expect(tenthsPercent(1000)).toBe('100.0%')
+    expect(tenthsPercent(0)).toBe('0.0%')
+    expect(tenthsPercent(-37)).toBe('-3.7%')
   })
 })

@@ -342,8 +342,3 @@ export function rowAmounts(
     out: formatMinor(cursor.out[index] ?? '0', scale),
   }
 }
-
-/** Shows a zero amount as a dash, as the table does; the accessible names keep `+0.00`. */
-export function dashZero(display: string): string {
-  return /^\+0(\.0+)?$/.test(display) ? '—' : display
-}

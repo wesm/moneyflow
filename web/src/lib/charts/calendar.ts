@@ -1,7 +1,6 @@
 import type { InsightsResponse } from '../api/client'
-import { formatMinor, parseMinor } from '../money/format'
+import { dashZero, formatMinor, parseMinor } from '../money/format'
 import { dayLabel, MONTHS } from '../shell/period'
-import { dashZero } from './cashflow'
 import { magnitude } from './scale'
 
 type Ranges = InsightsResponse['ranges']

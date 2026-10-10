@@ -1,8 +1,7 @@
 import type { components } from '../api/schema'
 import type { InsightsEntry } from '../insights/cache.svelte'
 import { priorChange, type PriorChange } from '../insights/change'
-import { formatMinor } from '../money/format'
-import { tenthsPercent } from '../table/cells'
+import { dashZero, formatMinor, tenthsPercent, unsignedZero } from '../money/format'
 
 type Change = components['schemas']['InsightsChange']
 
@@ -39,19 +38,19 @@ export function kpiTiles(
     {
       key: 'income',
       label: 'Income',
-      value: dashZero(scope.in, money),
+      value: dashZero(money(scope.in)),
       ...changeOf(kpis.income_change),
     },
     {
       key: 'spending',
       label: 'Spending',
-      value: dashZero(scope.out, money),
+      value: dashZero(money(scope.out)),
       ...changeOf(kpis.spending_change),
     },
     {
       key: 'net',
       label: 'Net',
-      value: unsignedZero(scope.net, money),
+      value: unsignedZero(money(scope.net)),
       ...changeOf(kpis.net_change),
     },
   ]
@@ -63,7 +62,7 @@ export function kpiTiles(
     })
   } else if (drill || kpis.average_per_transaction !== undefined) {
     const average = kpis.average_per_transaction
-    const value = average === undefined ? '—' : unsignedZero(average, money)
+    const value = average === undefined ? '—' : unsignedZero(money(average))
     tiles.push({ key: 'average', label: 'Avg per transaction', value })
   }
   const counts = [
@@ -74,16 +73,6 @@ export function kpiTiles(
   const detail = counts.length > 0 ? { detail: counts.join(' · ') } : {}
   tiles.push({ key: 'transactions', label: 'Transactions', value: count(scope.count), ...detail })
   return tiles
-}
-
-/** In and Out show a dash for zero. */
-function dashZero(minor: string, money: (minor: string) => string): string {
-  return minor === '0' ? '—' : money(minor)
-}
-
-/** Net shows zero without the server's `+`, as the table's Net column does. */
-function unsignedZero(minor: string, money: (minor: string) => string): string {
-  return minor === '0' ? money(minor).slice(1) : money(minor)
 }
 
 function count(value: number): string {

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { dashZero, type ColumnGeometry, type RowAmounts } from '../../lib/charts/cashflow'
+  import type { ColumnGeometry, RowAmounts } from '../../lib/charts/cashflow'
+  import { dashZero, unsignedZero } from '../../lib/money/format'
 
   interface Props {
     column: ColumnGeometry
@@ -17,7 +18,7 @@
   <dt>Out</dt>
   <dd>{dashZero(column.out)}</dd>
   <dt>Net</dt>
-  <dd>{column.net}</dd>
+  <dd>{unsignedZero(column.net)}</dd>
 </dl>
 {#if row}
   <p class="mf-cashflow-tip__title">{row.label}</p>

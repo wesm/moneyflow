@@ -28,3 +28,25 @@ export function formatMinor(minor: string, scale: number): string {
   const fraction = scale === 0 ? '' : `.${digits.slice(point)}`
   return `${negative ? '-' : '+'}${integer}${fraction}`
 }
+
+const zeroDisplay = /^[+-]?0(\.0+)?$/
+
+/**
+ * In and Out show a zero as a dash, as the table does. `display` comes from `formatMinor` or
+ * the server; accessible names keep it as it is.
+ */
+export function dashZero(display: string): string {
+  return zeroDisplay.test(display) ? '—' : display
+}
+
+/** Net shows a zero without the `+` that `formatMinor` and the server give it, such as `0.00`. */
+export function unsignedZero(display: string): string {
+  return zeroDisplay.test(display) ? display.replace(/^[+-]/, '') : display
+}
+
+/** Formats an integer count of tenths of a percent, such as 62 as `6.2%`. */
+export function tenthsPercent(tenths: number): string {
+  const sign = tenths < 0 ? '-' : ''
+  const magnitude = Math.abs(tenths)
+  return `${sign}${Math.trunc(magnitude / 10)}.${magnitude % 10}%`
+}
