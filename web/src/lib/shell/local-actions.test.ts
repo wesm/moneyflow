@@ -103,7 +103,7 @@ describe('editor actions', () => {
     expect(overlays.editTarget).toEqual({ identity: 'row-7', kind: 'transaction' })
   })
 
-  it('anchors the editor to the edited row, or to the selection bar while rows are selected', () => {
+  it('hangs the editor below the edited row, or above the selection bar while rows are selected', () => {
     const { context, overlays } = setup(1)
     const row = document.createElement('div')
     row.id = 'moneyflow-row-row-7'
@@ -111,12 +111,22 @@ describe('editor actions', () => {
     bar.className = 'mf-selection-bar'
     document.body.append(row, bar)
     openEditor(context, 'merchant', { identity: 'row-7', kind: 'transaction' })
-    expect(overlays.anchor).toBe(row)
+    expect(overlays.anchor).toEqual({ element: row, above: false })
     overlays.close('keep')
 
     context.controller.projection!.selection_count = 2
     openEditor(context, 'category', { identity: 'row-7', kind: 'transaction' })
-    expect(overlays.anchor).toBe(bar)
+    expect(overlays.anchor).toEqual({ element: bar, above: true })
+  })
+
+  it('hangs the editor below the row while the selection bar has not rendered', () => {
+    const { context, overlays } = setup(1)
+    const row = document.createElement('div')
+    row.id = 'moneyflow-row-row-7'
+    document.body.append(row)
+    context.controller.projection!.selection_count = 2
+    openEditor(context, 'category', { identity: 'row-7', kind: 'transaction' })
+    expect(overlays.anchor).toEqual({ element: row, above: false })
   })
 
   it('opens no editor without a cursor row', async () => {

@@ -4,7 +4,7 @@
 
   import EditorCombobox from './EditorCombobox.svelte'
   import EditorPreview from './EditorPreview.svelte'
-  import type { EditorCatalog, MerchantPreview, ViewProjection } from '../../lib/api/client'
+  import type { EditorCatalog, ViewProjection } from '../../lib/api/client'
   import type { EditingController } from '../../lib/controller/editing'
   import {
     countLine,
@@ -19,6 +19,7 @@
   import { controlKey, type EditorKeyAction } from '../../lib/editing/editor-keys'
   import { merchantScope } from '../../lib/editing/merchant-scope'
   import { editorOptions, type EditorOption } from '../../lib/editing/options'
+  import { ScopePreviews } from '../../lib/editing/scope-previews.svelte'
 
   interface Props {
     kind: EditorKind
@@ -35,8 +36,6 @@
 
   let { kind, target, controller, projection, cursorIndex, id, onstage, oncancel }: Props = $props()
 
-  const PREVIEW_FAILED =
-    'Affected transactions could not be loaded. Change scope or reopen this editor to retry.'
   // The editor edits what it opened over; a later projection does not retarget it.
   const opened = untrack(() => ({ kind, target, view: projection, cursor: cursorIndex }))
   const selecting = opened.view.selection_count > 0
@@ -46,14 +45,14 @@
   let catalog = $state<EditorCatalog>()
   let text = $state('')
   let scope = $state<EditScope>('transactions')
-  let previews = $state<Partial<Record<EditScope, MerchantPreview>>>({})
-  let previewError = $state('')
+  const previews = new ScopePreviews((scope, signal) =>
+    controller.previewMerchant(opened.target, scope, signal),
+  )
   let error = $state('')
   let submitting = $state(false)
   /** The name a `Create "…"` accepted; the group step shows while the text still reads it. */
   let created = $state<string>()
   let groupId = $state('')
-  let accepted: EditorOption | undefined
   let field = $state<HTMLElement>()
   let groupStep = $state<HTMLElement>()
 
@@ -64,13 +63,13 @@
   const options = $derived(editorOptions(choices, text, !!catalog, merchant ? [] : groups))
   const match = $derived(matchChoice(choices, text))
   const creating = $derived(!merchant && !match && created !== undefined && created === text.trim())
-  const preview = $derived(previews[scope])
+  const preview = $derived(previews.byScope[scope])
   const named = $derived(merchant ? text.trim() !== '' : match !== undefined || creating)
   const valid = $derived(!submitting && !!catalog && !!preview && named && (!creating || !!groupId))
   const impact = $derived(merchant ? impactLines(preview, scope, match?.label, currency) : [])
   const counts = $derived({
-    transactions: previews.transactions?.affected_transactions,
-    entity: previews.entity?.affected_transactions,
+    transactions: previews.byScope.transactions?.affected_transactions,
+    entity: previews.byScope.entity?.affected_transactions,
   })
 
   onMount(() => {
@@ -81,28 +80,14 @@
       .catch(() => (error = `${merchant ? 'Merchant' : 'Category'} choices could not be loaded.`))
     if (!merchant || !rule.entity) return
     // The whole merchant's count labels its scope before the user picks it.
-    const request = new AbortController()
-    void load('entity', request.signal)
-    return () => request.abort()
+    return previews.load('entity')
   })
 
   // Every scope change re-requests its preview, aborting the earlier request.
   $effect(() => {
     const current = scope
-    const request = new AbortController()
-    untrack(() => void load(current, request.signal))
-    return () => request.abort()
+    return untrack(() => previews.load(current))
   })
-
-  async function load(current: EditScope, signal: AbortSignal): Promise<void> {
-    previewError = ''
-    try {
-      const result = await controller.previewMerchant(opened.target, current, signal)
-      if (!signal.aborted) previews[current] = result
-    } catch {
-      if (!signal.aborted) previewError = PREVIEW_FAILED
-    }
-  }
 
   async function stage(): Promise<void> {
     if (!valid || !preview) return
@@ -120,17 +105,23 @@
       match,
       groupId,
     })
-    const staged = await controller.submit(intent)
-    submitting = false
-    if (staged) onstage()
-    else error = controller.state.announcement || 'The change could not be staged.'
+    const failed = 'The change could not be staged.'
+    try {
+      if (!(await controller.submit(intent))) error = controller.state.announcement || failed
+    } catch {
+      // A request that never answered left no announcement of its own to show.
+      error = failed
+    } finally {
+      submitting = false
+    }
+    if (!error) onstage()
   }
 
+  /** Accepting Create for a category opens the group step; a merchant name needs no group. */
   function onaccept(option: EditorOption): void {
-    accepted = option
-    if (!option.create) return
+    if (merchant || !option.create) return
     created = option.label
-    groupId = groups[0]?.id ?? ''
+    if (!groupId) groupId = groups[0]?.id ?? ''
     void tick().then(() => groupStep?.querySelector('button')?.focus())
   }
 
@@ -143,7 +134,7 @@
       return
     }
     // A new category still needs its group, so accepting Create leads to the group step.
-    if (action === 'accept-and-stage' && accepted?.create) return
+    if (action === 'accept-and-stage' && creating) return
     void stage()
   }
 
@@ -209,7 +200,7 @@
     />
     {#if rule.reason}<p class="mf-editor__quiet">{rule.reason}</p>{/if}
   {/if}
-  <EditorPreview {impact} {preview} error={previewError} />
+  <EditorPreview {impact} {preview} error={previews.error} />
   {#if error}<p class="editing-error" role="alert">{error}</p>{/if}
   <div class="mf-editor__actions">
     <Button tone="info" surface="solid" disabled={!valid} onclick={() => void stage()}>

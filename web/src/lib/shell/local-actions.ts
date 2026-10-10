@@ -72,7 +72,8 @@ export async function openTransactionInformation(
 
 /**
  * Opens the merchant or category editor for `target`, such as the cursor or a pointed row. It
- * hangs from that row, or from the selection bar while rows are selected.
+ * hangs above the selection bar while rows are selected, or else below that row. A selection
+ * bar that has not rendered yet leaves the editor below the row.
  */
 export function openEditor(
   context: LocalActionContext,
@@ -83,8 +84,10 @@ export function openEditor(
   const bar = context.controller.projection?.selection_count
     ? document.querySelector<HTMLElement>('.mf-selection-bar')
     : null
-  context.overlays.anchor =
-    bar ?? document.getElementById(`moneyflow-row-${target.identity}`) ?? undefined
+  const row = document.getElementById(`moneyflow-row-${target.identity}`)
+  if (bar) context.overlays.anchor = { element: bar, above: true }
+  else if (row) context.overlays.anchor = { element: row, above: false }
+  else context.overlays.anchor = undefined
   context.overlays.editTarget = target
   context.overlays.open(field)
 }

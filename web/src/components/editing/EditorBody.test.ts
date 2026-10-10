@@ -118,6 +118,21 @@ describe('EditorBody', () => {
     )
   })
 
+  it('accepts and stages a new merchant name on Ctrl+Enter from the open list', async () => {
+    const { editing, input, onstage } = setup()
+    await stageButton('5 transactions')
+    await type(input, 'Renamed Example')
+    expect(screen.getByRole('option', { name: /Create "Renamed Example"/ })).toBeTruthy()
+    await fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+    await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    expect(editing.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'transaction.edit-merchant',
+        input: expect.objectContaining({ label: 'Renamed Example' }),
+      }),
+    )
+  })
+
   it('re-requests the preview on a scope change and aborts the earlier request', async () => {
     const signals: Record<string, AbortSignal[]> = { transactions: [], entity: [] }
     const editing = testEditingController({
@@ -215,6 +230,22 @@ describe('EditorBody', () => {
     expect(onstage).not.toHaveBeenCalled()
   })
 
+  it('re-enables Stage and explains when staging fails outright', async () => {
+    const editing = testEditingController({
+      submit: vi.fn(async () => {
+        throw new Error('network down')
+      }),
+    })
+    editing.state.announcement = 'Change saved as pending.'
+    const { input, onstage } = setup({ controller: editing })
+    await type(input, 'Renamed')
+    const stage = await stageButton('5 transactions')
+    await fireEvent.click(stage)
+    expect((await screen.findByRole('alert')).textContent).toBe('The change could not be staged.')
+    expect(stage.hasAttribute('disabled')).toBe(false)
+    expect(onstage).not.toHaveBeenCalled()
+  })
+
   it('moves transactions to an existing category, with no scope choice', async () => {
     const { editing, input, onstage } = setup({ kind: 'category' })
     expect(screen.getByRole('heading', { name: 'Change category' })).toBeTruthy()
@@ -257,6 +288,50 @@ describe('EditorBody', () => {
       destination_id: expect.stringMatching(/^category_/),
       label: 'Pet Care',
       group_id: testCatalog.groups?.[0]?.id,
+    })
+  })
+  it('closes only the open group list on Escape and keeps the editor open', async () => {
+    const { input, oncancel } = setup({ kind: 'category' })
+    await stageButton('5 transactions')
+    await type(input, 'Pet Care')
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    const group = await screen.findByRole('combobox', { name: /Category group/ })
+    await fireEvent.click(group)
+    expect(group.getAttribute('aria-expanded')).toBe('true')
+    await fireEvent.keyDown(group, { key: 'Escape' })
+    expect(group.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('combobox', { name: /Category group/ })).toBe(group)
+    expect(document.activeElement).toBe(group)
+    expect(oncancel).not.toHaveBeenCalled()
+  })
+
+  it('keeps the chosen group when Create is accepted again', async () => {
+    const groups = [
+      ...(testCatalog.groups ?? []),
+      { id: 'group-b', label: 'Second Group', protected: false, transaction_count: 0 },
+    ]
+    const editing = testEditingController({
+      catalog: vi.fn(async () => ({ ...testCatalog, groups })),
+    })
+    const { input, onstage } = setup({ kind: 'category', controller: editing })
+    await stageButton('5 transactions')
+    await type(input, 'Pet Care')
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    await fireEvent.click(await screen.findByRole('combobox', { name: /Category group/ }))
+    await fireEvent.click(screen.getByRole('option', { name: 'Second Group' }))
+    await fireEvent.keyDown(screen.getByRole('combobox', { name: /Category group/ }), {
+      key: 'Escape',
+    })
+    await vi.waitFor(() => expect(document.activeElement).toBe(input))
+    await fireEvent.keyDown(input, { key: 'ArrowDown' })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    expect(
+      await screen.findByRole('combobox', { name: 'Category group: Second Group' }),
+    ).toBeTruthy()
+    await fireEvent.click(screen.getByRole('button', { name: 'Stage change to 5 transactions' }))
+    await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(editing.submit).mock.calls[0]?.[0].input).toMatchObject({
+      group_id: 'group-b',
     })
   })
 })

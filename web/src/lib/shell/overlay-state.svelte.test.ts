@@ -113,7 +113,7 @@ describe('OverlayState', () => {
 
   it('clears the anchor on close', () => {
     const { overlays, opener } = setup()
-    overlays.anchor = opener
+    overlays.anchor = { element: opener, above: false }
     overlays.open('merchant')
     overlays.close()
     expect(overlays.anchor).toBeUndefined()

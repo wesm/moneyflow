@@ -22,6 +22,15 @@ export type Overlay =
   | 'view'
   | 'actions'
 
+/**
+ * Where the merchant or category editor hangs: below a row, or above the selection bar. One
+ * value holds both, so the placement always matches the element.
+ */
+export interface EditorAnchor {
+  element: HTMLElement
+  above: boolean
+}
+
 export interface OverlayHost {
   /** Pushes a shortcut scope and returns the function that pops it. */
   pushScope(name: string): (() => void) | undefined
@@ -46,8 +55,8 @@ export class OverlayState {
   deleteTarget = $state<{ identity: string; kind: 'transaction' } | undefined>()
   deleteCount = $state(0)
   information = $state<TransactionInformationResponse | undefined>()
-  /** The element the merchant or category editor hangs from: a row or the selection bar. */
-  anchor = $state<HTMLElement | undefined>()
+  /** Where the merchant or category editor hangs. */
+  anchor = $state<EditorAnchor | undefined>()
   #host: OverlayHost
   #opener: HTMLElement | undefined
   #openerIndex: number | undefined

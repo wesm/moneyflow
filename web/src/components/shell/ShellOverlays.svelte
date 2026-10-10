@@ -35,8 +35,8 @@
   <HelpDialog capabilities={projection.capabilities ?? []} {onclose} />
 {:else if (overlay === 'merchant' || overlay === 'category') && target}
   <AnchoredEditor
-    anchor={overlays.anchor}
-    above={projection.selection_count > 0}
+    anchor={overlays.anchor?.element}
+    above={overlays.anchor?.above ?? false}
     field={overlay}
     id="mf-editor"
     {overlays}
