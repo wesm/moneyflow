@@ -1,5 +1,6 @@
 import type { EditorCatalog } from '../api/client'
 import type { MutationIntent } from '../controller/editing'
+import { matchChoice } from './editor-copy'
 import { editorOptions, type EditorChoice, type EditorOption } from './options'
 import { transactionCount } from './toasts'
 
@@ -142,13 +143,32 @@ export function stepChoices(
   return managerChoices(catalog, kind).filter((choice) => choice.id !== step.source?.id)
 }
 
+/** The TUI's message for a name that another entry already uses. */
+export const LABEL_TAKEN = 'That label already exists; use merge instead.'
+
 /**
- * Whether the step has what its action needs. Create needs a name, and a group for a category.
- * Rename needs a new name. Move, merge, and delete need an explicit group, destination, or
- * replacement. The server still validates every staged action.
+ * Why a new or renamed entry's name cannot be staged, or `''`. Like the TUI, a name that another
+ * entry already uses, ignoring case and surrounding space, needs a merge instead. The entry being
+ * renamed may keep its own name in another case.
+ *
+ * @param choices The categories or groups the manager lists.
  */
-export function stepReady(step: ManagerStep, kind: ManagerKind): boolean {
+export function stepProblem(step: ManagerStep, choices: EditorChoice[]): string {
+  if (step.action !== 'create' && step.action !== 'rename') return ''
+  const taken = matchChoice(choices, step.label)
+  return taken && taken.id !== step.source?.id ? LABEL_TAKEN : ''
+}
+
+/**
+ * Whether the step has what its action needs. Create needs an unused name, and a group for a
+ * category. Rename needs a new, unused name. Move, merge, and delete need an explicit group,
+ * destination, or replacement. The server still validates every staged action.
+ *
+ * @param choices The categories or groups the manager lists.
+ */
+export function stepReady(step: ManagerStep, kind: ManagerKind, choices: EditorChoice[]): boolean {
   const label = step.label.trim()
+  if (stepProblem(step, choices)) return false
   if (step.action === 'create') return label !== '' && (kind === 'group' || step.target !== '')
   if (step.action === 'rename') return label !== '' && label !== step.source?.label
   return step.target !== ''

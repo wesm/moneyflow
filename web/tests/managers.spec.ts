@@ -44,13 +44,15 @@ test('the category manager stages every action from its own keys', async ({ page
     await expect(list.getByRole('option', { name: /^Dining Out, Food,/ })).toBeVisible()
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
 
-    // The server refuses a name another category has; Esc then steps out of the step only.
+    // A name another category has needs a merge, as in the TUI; Esc then steps out of the step.
     await page.keyboard.press('r')
-    await page.keyboard.type('Coffee')
-    await page.keyboard.press('Enter')
+    await page.keyboard.type('coffee')
     await expect(manager.getByRole('alert')).toHaveText(
-      'That action is not available for the current target.',
+      'That label already exists; use merge instead.',
     )
+    await page.keyboard.press('Enter')
+    await expect(manager.getByRole('button', { name: 'Rename', exact: true })).toBeDisabled()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(name).toBeHidden()
     await expect(list).toBeFocused()
@@ -179,6 +181,37 @@ test('the group manager stages every action and has no move', async ({ page }) =
     await expect(manager).toBeHidden()
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
     await expect(page).toHaveURL(view)
+  } finally {
+    await server.stop()
+  }
+})
+
+test('a pointer alone can start, leave, and confirm a manager step', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.getByRole('button', { name: 'Edit categories' }).click()
+    const manager = page.getByRole('dialog', { name: 'Manage categories' })
+    const list = manager.getByRole('listbox', { name: 'Categories' })
+    await list.getByRole('option', { name: /^Books,/ }).click()
+    await expect(list.getByRole('option', { name: /^Books,/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await manager.getByRole('button', { name: 'Rename' }).click()
+    const name = manager.getByRole('textbox', { name: 'Name' })
+    await expect(name).toHaveValue('Books')
+    await manager.getByRole('button', { name: 'Back' }).click()
+    await expect(name).toBeHidden()
+
+    await manager.getByRole('button', { name: 'Rename' }).click()
+    await name.fill('Reading')
+    await manager.getByRole('button', { name: 'Rename', exact: true }).click()
+    await expect(name).toBeHidden()
+    await expect(list.getByRole('option', { name: /^Reading, Shopping,/ })).toBeVisible()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    await manager.getByRole('button', { name: 'Close' }).click()
+    await expect(manager).toBeHidden()
   } finally {
     await server.stop()
   }

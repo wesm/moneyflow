@@ -10,6 +10,7 @@ import {
   rowName,
   stepChoices,
   stepEnter,
+  stepProblem,
   stepReady,
   type ManagerStep,
 } from './manager'
@@ -17,6 +18,7 @@ import { testCatalog } from '../../test/editing'
 
 const category = testCatalog.categories![1]!
 const sentinel = testCatalog.categories![0]!
+const categories = testCatalog.categories!
 const catalog = {
   ...testCatalog,
   groups: [
@@ -24,6 +26,8 @@ const catalog = {
     { id: 'group-b', label: 'Other Group', protected: false, transaction_count: 0 },
   ],
 }
+
+const groups = catalog.groups
 
 function key(name: string, init: KeyboardEventInit = {}, target?: Element): KeyboardEvent {
   const event = new KeyboardEvent('keydown', { key: name, bubbles: true, ...init })
@@ -109,25 +113,57 @@ describe('stepChoices', () => {
 
 describe('stepReady', () => {
   it('needs a name, and a group for a new category', () => {
-    expect(stepReady(step({ label: '  ' }), 'group')).toBe(false)
-    expect(stepReady(step({ label: 'New Group' }), 'group')).toBe(true)
-    expect(stepReady(step({ label: 'New Category' }), 'category')).toBe(false)
-    expect(stepReady(step({ label: 'New Category', target: 'group-a' }), 'category')).toBe(true)
+    expect(stepReady(step({ label: '  ' }), 'group', groups)).toBe(false)
+    expect(stepReady(step({ label: 'New Group' }), 'group', groups)).toBe(true)
+    expect(stepReady(step({ label: 'New Category' }), 'category', categories)).toBe(false)
+    expect(
+      stepReady(step({ label: 'New Category', target: 'group-a' }), 'category', categories),
+    ).toBe(true)
   })
 
   it('needs a different name to rename', () => {
     const rename = step({ action: 'rename', source: category })
-    expect(stepReady({ ...rename, label: 'Example Category ' }, 'category')).toBe(false)
-    expect(stepReady({ ...rename, label: 'Renamed Category' }, 'category')).toBe(true)
+    expect(stepReady({ ...rename, label: 'Example Category ' }, 'category', categories)).toBe(false)
+    expect(stepReady({ ...rename, label: 'Renamed Category' }, 'category', categories)).toBe(true)
   })
 
   it('needs an explicit destination or replacement to move, merge, or delete', () => {
     for (const action of ['move', 'merge', 'delete'] as const) {
-      expect(stepReady(step({ action, source: category }), 'category')).toBe(false)
-      expect(stepReady(step({ action, source: category, target: 'group-b' }), 'category')).toBe(
-        true,
-      )
+      expect(stepReady(step({ action, source: category }), 'category', categories)).toBe(false)
+      expect(
+        stepReady(step({ action, source: category, target: 'group-b' }), 'category', categories),
+      ).toBe(true)
     }
+  })
+})
+
+describe('stepProblem', () => {
+  const taken = 'That label already exists; use merge instead.'
+
+  it('refuses a new name that another entry already uses', () => {
+    expect(stepProblem(step({ label: 'Example Category' }), categories)).toBe(taken)
+    expect(
+      stepReady(step({ label: 'Example Category', target: 'group-a' }), 'category', categories),
+    ).toBe(false)
+  })
+
+  it('ignores case and surrounding space, as the TUI does', () => {
+    expect(stepProblem(step({ label: '  example category ' }), categories)).toBe(taken)
+    const rename = step({ action: 'rename', source: category, label: 'UNCATEGORIZED' })
+    expect(stepProblem(rename, categories)).toBe(taken)
+    expect(stepReady(rename, 'category', categories)).toBe(false)
+  })
+
+  it('lets an entry keep its own name in another case', () => {
+    const rename = step({ action: 'rename', source: category, label: 'example category' })
+    expect(stepProblem(rename, categories)).toBe('')
+    expect(stepReady(rename, 'category', categories)).toBe(true)
+  })
+
+  it('checks only names, not destinations', () => {
+    const merge = step({ action: 'merge', source: category, label: 'Uncategorized', target: 't' })
+    expect(stepProblem(merge, categories)).toBe('')
+    expect(stepProblem(step({ label: 'Fresh Name' }), categories)).toBe('')
   })
 })
 

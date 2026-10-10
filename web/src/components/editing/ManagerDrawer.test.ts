@@ -1,11 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ManagerDrawer from './ManagerDrawer.svelte'
-import type { EditingController } from '../../lib/controller/editing'
+import type { MutationFetch } from '../../lib/api/client'
+import { createEditingController, type EditingController } from '../../lib/controller/editing'
 import type { ManagerKind } from '../../lib/editing/manager'
 import { OverlayState } from '../../lib/shell/overlay-state.svelte'
-import { testEditingController } from '../../test/editing'
+import { testCatalog, testEditingController } from '../../test/editing'
+import { testProjection } from '../../test/projection'
 
 function setup(options: { kind?: ManagerKind; controller?: EditingController } = {}) {
   const controller = options.controller ?? testEditingController()
@@ -134,21 +137,77 @@ describe('ManagerDrawer', () => {
     await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull())
   })
 
-  it('keeps the step open with the reason the server gave', async () => {
-    const controller = testEditingController({ submit: vi.fn(async () => false) })
-    controller.state.announcement = 'That action is not available for the current target.'
-    setup({ controller })
+  it("keeps a refused step open with the controller's message", async () => {
+    // A real controller, refused at the network boundary as the server refuses an invalid merge.
+    const transport: MutationFetch = {
+      request: vi.fn(async (path: string) =>
+        path === 'api/v1/editor-catalog'
+          ? Response.json(testCatalog)
+          : Response.json(
+              {
+                type: 'about:blank',
+                title: 'Unprocessable Entity',
+                status: 422,
+                detail: 'The requested operation is invalid.',
+                code: 'invalid_operation',
+                current_revision: '1',
+              },
+              { status: 422, headers: { 'Content-Type': 'application/problem+json' } },
+            ),
+      ),
+    }
+    const projection = testProjection({ revision: '1' })
+    const host = {
+      current: () => projection,
+      accept: vi.fn(),
+      refresh: vi.fn(async () => projection),
+    }
+    setup({ controller: createEditingController({ transport, host }) })
     const options = await list()
-    await fireEvent.keyDown(options, { key: 'n' })
-    const name = screen.getByRole('textbox', { name: 'Name' })
-    await fireEvent.input(name, { target: { value: 'Example Category' } })
-    await fireEvent.keyDown(name, { key: 'Enter' })
+    await fireEvent.keyDown(options, { key: 'ArrowDown' })
+    await fireEvent.keyDown(options, { key: 'm' })
+    const destination = screen.getByRole('combobox', { name: 'Destination' })
+    await fireEvent.input(destination, { target: { value: 'Uncategorized' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Merge' }))
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toBe(
         'That action is not available for the current target.',
       ),
     )
-    expect(screen.getByRole('textbox', { name: 'Name' })).not.toBeNull()
+    expect(screen.getByRole('heading', { name: 'Merge Example Category into' })).not.toBeNull()
+  })
+
+  it('names a used name before staging and stages nothing', async () => {
+    const { controller } = setup()
+    const options = await list()
+    await fireEvent.keyDown(options, { key: 'n' })
+    const name = screen.getByRole('textbox', { name: 'Name' })
+    await fireEvent.input(name, { target: { value: ' example category' } })
+    expect(screen.getByRole('alert').textContent).toBe(
+      'That label already exists; use merge instead.',
+    )
+    expect(screen.getByRole('button', { name: 'Create' })).toHaveProperty('disabled', true)
+    await fireEvent.keyDown(name, { key: 'Enter' })
+    expect(controller.submit).not.toHaveBeenCalled()
+  })
+
+  it('drops the answer of a step left with Esc while it staged', async () => {
+    const pending = deferred()
+    const controller = testEditingController({ submit: vi.fn(() => pending.promise) })
+    controller.state.announcement = 'That action is not available for the current target.'
+    setup({ controller })
+    const options = await list()
+    await fireEvent.keyDown(options, { key: 'n' })
+    const name = screen.getByRole('textbox', { name: 'Name' })
+    await fireEvent.input(name, { target: { value: 'New Category' } })
+    await fireEvent.keyDown(name, { key: 'Enter' })
+    await fireEvent.keyDown(name, { key: 'Escape' })
+    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
+    pending.settle(false)
+    await pending.promise
+    await tick()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('button', { name: 'New' })).not.toBeNull()
   })
 
   it('needs a chosen destination before a merge can stage', async () => {

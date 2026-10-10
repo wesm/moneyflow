@@ -16,6 +16,7 @@
     managerShortcut,
     stepChoices,
     stepEnter,
+    stepProblem,
     stepReady,
     type ManagerAction,
     type ManagerKind,
@@ -52,7 +53,8 @@
     ),
   )
   const source = $derived(choices.find((choice) => choice.id === rows[activeIndex]?.id))
-  const ready = $derived(!staging && step !== undefined && stepReady(step, kind))
+  const ready = $derived(!staging && step !== undefined && stepReady(step, kind, choices))
+  const problem = $derived(step ? stepProblem(step, choices) : '')
 
   onMount(() => void load())
 
@@ -85,6 +87,7 @@
   async function confirm(): Promise<void> {
     if (!step || !ready) return
     const newID = `${kind}_${crypto.randomUUID()}`
+    const current = step
     const { action, target } = step
     staging = true
     error = ''
@@ -96,14 +99,16 @@
     } finally {
       staging = false
     }
+    // Esc may have left this step while it staged; its answer then belongs to no open step.
+    const open = step === current
     if (!accepted) {
-      error = controller.state.announcement || REQUEST_FAILED
+      if (open) error = controller.state.announcement || REQUEST_FAILED
       return
     }
     if (action === 'create') activeID = newID
     else if (action === 'merge' || action === 'delete') activeID = target
     await load()
-    back()
+    if (open) back()
   }
 
   /** Esc steps out of an open step, then clears the filter, then closes the drawer. */
@@ -165,7 +170,7 @@
         choices={stepChoices(step, kind, catalog)}
         {groups}
         {ready}
-        {error}
+        error={error || problem}
         onconfirm={() => void confirm()}
         onback={back}
       />
