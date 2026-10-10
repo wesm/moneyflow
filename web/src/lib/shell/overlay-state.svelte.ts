@@ -88,9 +88,10 @@ export class OverlayState {
 
   /**
    * Closes the open overlay and returns focus to its opener. With 'keep', focus stays where it
-   * is, as after a pointer press outside a popover.
+   * is, as after a pointer press outside a popover. With 'grid', focus goes to the grid, as after
+   * staging an edit from a phone row's ⋯ button, so the next key acts on the edited row.
    */
-  close(focus?: 'keep'): void {
+  close(focus?: 'keep' | 'grid'): void {
     this.current = undefined
     this.#popScope?.()
     this.#popScope = undefined
@@ -99,10 +100,8 @@ export class OverlayState {
     this.deleteCount = 0
     this.information = undefined
     this.anchor = undefined
-    if (focus === 'keep') {
-      this.#opener = undefined
-      return
-    }
+    if (focus !== undefined) this.#opener = undefined
+    if (focus === 'keep') return
     void tick().then(() => {
       this.#restoreFrame = requestAnimationFrame(() => {
         this.#restoreFrame = undefined

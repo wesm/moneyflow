@@ -684,8 +684,69 @@ test.describe('phone rows: drilling, keys, and the sheet', () => {
     await expect(mark).toBeVisible()
     await expect(mark).toHaveAttribute('tabindex', '-1')
     await expectCompactRows(page)
+    // The whole 44 px target sits inside its row: a tap just above the row's bottom edge hits
+    // the mark, and a tap just below it lands in the next row.
+    const edge = await mark.evaluate((button) => {
+      const own = button.closest('[role="row"]')!
+      const box = button.getBoundingClientRect()
+      const row = own.getBoundingClientRect()
+      const x = box.left + box.width / 2
+      const rowAt = (y: number) => document.elementFromPoint(x, y)?.closest('[role="row"]')
+      return {
+        height: box.height,
+        inside: box.top >= row.top && box.bottom <= row.bottom,
+        above: document.elementFromPoint(x, row.bottom - 1)?.closest('button') === button,
+        below: rowAt(row.bottom + 1) === own.nextElementSibling,
+      }
+    })
+    expect(edge).toEqual({ height: 44, inside: true, above: true, below: true })
     await mark.tap()
     await expect(page.getByRole('dialog', { name: 'Transaction information' })).toBeVisible()
+  })
+
+  test('⋯ edits the merchant in a bottom sheet with the editor keys', async ({ page, server }) => {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const second = grid.locator('[role="row"][aria-rowindex="3"]')
+    const merchant = await cell(second, 'merchant').innerText()
+    const more = cell(second, 'actions').getByRole('button')
+    const actions = page.getByRole('dialog', { name: merchant })
+    const editor = page.getByRole('dialog', { name: 'Edit merchant', exact: true })
+    const name = editor.getByRole('combobox', { name: 'Merchant' })
+
+    await more.tap()
+    await actions.getByRole('button', { name: 'Merchant' }).tap()
+    await expect(name).toBeFocused()
+    await expect(actions).toBeHidden()
+    await expect(editor).toHaveAccessibleDescription('· 1 transaction')
+    // A bottom sheet across the phone's width, on its bottom edge.
+    const box = (await editor.boundingBox())!
+    expect([box.x, box.width, box.y + box.height].map(Math.round)).toEqual([
+      0,
+      phone.width,
+      phone.height,
+    ])
+    await expectTouchTargets(editor)
+    await editor.getByRole('button', { name: 'Cancel' }).tap()
+    await expect(editor).toBeHidden()
+    await expect(more).toBeFocused()
+
+    await more.tap()
+    await actions.getByRole('button', { name: 'Merchant' }).tap()
+    await name.fill('Renamed Example')
+    await name.press('Enter')
+    await expect(
+      editor.getByRole('button', { name: 'Stage change to 1 transaction' }),
+    ).toBeEnabled()
+    await name.press('Enter')
+    await expect(editor).toBeHidden()
+    await expect(cell(second, 'merchant')).toHaveText(`${merchant} → Renamed Example`)
+    await expect(grid).toBeFocused()
+    await expect(await activeRow(page)).toHaveAttribute('aria-rowindex', '3')
+    // The server outlives this test; undo leaves the row as the later tests expect it.
+    await page.keyboard.press('u')
+    await expect(cell(second, 'merchant')).toHaveText(merchant)
   })
 })
 

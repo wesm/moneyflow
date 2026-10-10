@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import FinanceGrid from './FinanceGrid.svelte'
+import { status } from '../../lib/shell/status.svelte'
 import type { InsightsSeries, ViewProjection } from '../../lib/api/client'
 import type { RowInsights } from '../../lib/table/trend'
 import { testInsights, testSeries } from '../../test/insights'
@@ -629,6 +630,19 @@ describe('FinanceGrid', () => {
       const [moved] = events.oncursor.mock.invocationCallOrder
       const [drilled] = events.onactivate.mock.invocationCallOrder
       expect(moved).toBeLessThan(drilled!)
+    })
+
+    it('reports a tap whose cursor move failed, and does not drill', async () => {
+      onTestFinished(() => status.clear())
+      const events = callbacks()
+      events.oncursor.mockImplementation(() => Promise.reject(new Error('offline')))
+      render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: true, ...events })
+      const row = document.querySelector<HTMLElement>('[role="row"][aria-rowindex="2"]')!
+      await fireEvent.click(cell(row, 'net')!)
+      await vi.waitFor(() =>
+        expect(status.notice).toBe('The cursor could not move to that row. Try again.'),
+      )
+      expect(events.onactivate).not.toHaveBeenCalled()
     })
 
     it('takes focus back from a row button before a grid key moves the cursor', async () => {

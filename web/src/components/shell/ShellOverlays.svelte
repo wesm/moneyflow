@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { MEDIA } from '@kenn-io/kit-ui'
+  import { MediaQuery } from 'svelte/reactivity'
+
+  import BottomSheet from './BottomSheet.svelte'
   import HelpDialog from '../HelpDialog.svelte'
   import TransactionInformationDrawer from '../TransactionInformationDrawer.svelte'
   import AnchoredEditor from '../editing/AnchoredEditor.svelte'
@@ -29,10 +33,31 @@
   const target = $derived(overlays.editTarget)
   const onclose = () => overlays.close()
   const onwrite = () => overlays.open('write')
+  // On phones the editor is a bottom sheet. Staging returns focus to the edited row, not the ⋯.
+  const compact = new MediaQuery(MEDIA.compact)
 </script>
+
+{#snippet editor(kind: 'merchant' | 'category', onstage: () => void)}
+  {#if target}
+    <EditorBody
+      {kind}
+      {target}
+      controller={controller.editing}
+      {projection}
+      cursorIndex={controller.cursorIndex}
+      id="mf-editor"
+      {onstage}
+      oncancel={onclose}
+    />
+  {/if}
+{/snippet}
 
 {#if overlay === 'help'}
   <HelpDialog capabilities={projection.capabilities ?? []} {onclose} />
+{:else if (overlay === 'merchant' || overlay === 'category') && target && compact.current}
+  <BottomSheet open labelledby="mf-editor-title" describedby="mf-editor-count" {overlays} {onclose}>
+    {@render editor(overlay, () => overlays.close('grid'))}
+  </BottomSheet>
 {:else if (overlay === 'merchant' || overlay === 'category') && target}
   <AnchoredEditor
     anchor={overlays.anchor?.element}
@@ -43,16 +68,7 @@
     oncancel={onclose}
     ondismiss={() => overlays.close('keep')}
   >
-    <EditorBody
-      kind={overlay}
-      {target}
-      controller={controller.editing}
-      {projection}
-      cursorIndex={controller.cursorIndex}
-      id="mf-editor"
-      onstage={onclose}
-      oncancel={onclose}
-    />
+    {@render editor(overlay, onclose)}
   </AnchoredEditor>
 {:else if overlay === 'categories'}
   <CategoryManager controller={controller.editing} {onclose} />

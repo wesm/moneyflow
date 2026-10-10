@@ -727,7 +727,10 @@ input {
 .mf-sheet .mf-sheet__body .kit-select-dropdown__trigger,
 .mf-sheet .mf-sheet__body .kit-filter-dropdown__btn,
 .mf-sheet .mf-sheet__body .kit-filter-dropdown__item,
-.mf-sheet .mf-sheet__body .kit-select-dropdown__option {
+.mf-sheet .mf-sheet__body .kit-select-dropdown__option,
+.mf-sheet .mf-sheet__body .kit-button,
+.mf-sheet .mf-sheet__body .kit-text-input,
+.mf-sheet .mf-sheet__body .kit-text-input__control {
   min-height: 44px;
 }
 /* First in the Tab order, so it comes before the sidebar in the DOM and paints above it. */
@@ -1237,11 +1240,17 @@ input {
 .mf-table__row--hidden .mf-compact [role='gridcell']:not([data-column='flags']) {
   opacity: var(--opacity-disabled);
 }
-/* A 44 px tap target that keeps the meta line's height; the line clips only sideways. */
+/* A 44 px tap target that keeps the meta line's height; the line clips only sideways. It reaches
+   further up than down, so it stays inside the row's 7.5 px bottom padding and off the next row;
+   the top padding keeps the mark on the text line. A hover background would cover the amount
+   above it, so hover only darkens the mark. */
 .mf-table--compact .mf-flags__match .kit-icon-button {
+  --bg-surface-hover: transparent;
+  box-sizing: border-box;
   min-width: 44px;
   min-height: 44px;
-  margin-block: -14px;
+  margin-block: -21px -7px;
+  padding-top: 14px;
 }
 .mf-table__row--deleted .mf-compact [role='gridcell']:not([data-column='flags']) {
   text-decoration: line-through;

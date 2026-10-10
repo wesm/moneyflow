@@ -1,16 +1,19 @@
 <script lang="ts">
   import { IconButton } from '@kenn-io/kit-ui'
-  import { trapFocus } from '@kenn-io/kit-ui/utils/focus-trap'
   import { backdropCloses } from '@kenn-io/kit-ui/utils/overlay'
   import XIcon from '@lucide/svelte/icons/x'
   import type { Snippet } from 'svelte'
 
+  import { trapEveryTab } from '../../lib/shell/focus'
   import type { OverlayState } from '../../lib/shell/overlay-state.svelte'
 
   interface Props {
     open: boolean
-    /** Heading and accessible name of the sheet. */
-    title: string
+    /** Heading and accessible name of the sheet, in a header with a close button. */
+    title?: string | undefined
+    /** Without a title, the ID of the heading in the content that names the sheet. */
+    labelledby?: string | undefined
+    describedby?: string | undefined
     /** Takes Escape on the panel while the sheet is the innermost overlay. */
     overlays: OverlayState
     /** Called on Escape, a press on the scrim, or the close button. */
@@ -20,7 +23,8 @@
     footer?: Snippet | undefined
   }
 
-  let { open, title, overlays, onclose, children, footer }: Props = $props()
+  let { open, title, labelledby, describedby, overlays, onclose, children, footer }: Props =
+    $props()
   const uid = $props.id()
   const headingId = `mf-sheet-title-${uid}`
 </script>
@@ -32,17 +36,25 @@
       class="mf-sheet__panel"
       role="dialog"
       aria-modal="true"
-      aria-labelledby={headingId}
+      aria-labelledby={labelledby ?? headingId}
+      aria-describedby={describedby}
       tabindex="-1"
-      {@attach trapFocus}
+      {@attach trapEveryTab}
       {@attach overlays.escapeLayer(() => onclose())}
     >
-      <div class="mf-sheet__header">
-        <h2 class="mf-sheet__title" id={headingId}>{title}</h2>
-        <IconButton ariaLabel="Close" title="Close (Esc)" class="mf-touch-target" onclick={onclose}>
-          <XIcon size={16} aria-hidden="true" />
-        </IconButton>
-      </div>
+      {#if title !== undefined}
+        <div class="mf-sheet__header">
+          <h2 class="mf-sheet__title" id={headingId}>{title}</h2>
+          <IconButton
+            ariaLabel="Close"
+            title="Close (Esc)"
+            class="mf-touch-target"
+            onclick={onclose}
+          >
+            <XIcon size={16} aria-hidden="true" />
+          </IconButton>
+        </div>
+      {/if}
       <div class="mf-sheet__body">{@render children()}</div>
       {#if footer}<div class="mf-sheet__footer">{@render footer()}</div>{/if}
     </div>

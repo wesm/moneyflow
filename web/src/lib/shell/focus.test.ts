@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { restoreFocus, rowIndex } from './focus'
+import { restoreFocus, rowIndex, trapEveryTab } from './focus'
 
 /** A grid of rows, each with a ⋯ button in its actions cell. */
 function grid(indexes: number[]): HTMLElement {
@@ -91,5 +91,73 @@ describe('rowIndex', () => {
     expect(rowIndex(button(root, 3)!)).toBe(3)
     expect(rowIndex(root)).toBeUndefined()
     expect(rowIndex(undefined)).toBeUndefined()
+  })
+})
+
+describe('trapEveryTab', () => {
+  afterEach(() => document.body.replaceChildren())
+
+  /** A surface whose controls are laid out; jsdom draws nothing, so each reports a box. */
+  function surface(html: string): HTMLElement {
+    const element = document.createElement('div')
+    element.tabIndex = -1
+    element.innerHTML = html
+    document.body.append(element)
+    for (const control of element.querySelectorAll<HTMLElement>('*')) {
+      if (!control.hidden) control.getClientRects = () => [new DOMRect(0, 0, 10, 10)] as never
+    }
+    return element
+  }
+
+  function tab(shift = false): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      shiftKey: shift,
+      bubbles: true,
+      cancelable: true,
+    })
+    document.activeElement?.dispatchEvent(event)
+    return event
+  }
+
+  const focused = () => document.activeElement?.textContent
+
+  it('moves every Tab itself, so a browser that skips buttons cannot leave the surface', () => {
+    const root = surface(
+      '<button>One</button><input aria-label="Two" /><button disabled>Off</button>' +
+        '<button tabindex="-1">Roving</button><button hidden>Hidden</button><a href="#">Three</a>',
+    )
+    const release = trapEveryTab(root)
+    expect(document.activeElement).toBe(root)
+    expect(tab().defaultPrevented).toBe(true)
+    expect(focused()).toBe('One')
+    tab()
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Two')
+    tab()
+    expect(focused()).toBe('Three')
+    tab()
+    expect(focused()).toBe('One')
+    tab(true)
+    expect(focused()).toBe('Three')
+    release()
+  })
+
+  it('goes to the last control on Shift+Tab from the surface itself', () => {
+    const root = surface('<button>One</button><button>Two</button>')
+    const release = trapEveryTab(root)
+    tab(true)
+    expect(focused()).toBe('Two')
+    release()
+  })
+
+  it('leaves a Tab that an inner control claimed', () => {
+    const root = surface('<button>One</button><button>Two</button>')
+    const release = trapEveryTab(root)
+    const first = root.querySelector('button')!
+    first.focus()
+    first.addEventListener('keydown', (event) => event.preventDefault())
+    tab()
+    expect(focused()).toBe('One')
+    release()
   })
 })

@@ -1,3 +1,5 @@
+import { status } from '../shell/status.svelte'
+
 export type RowKind = 'transaction' | 'aggregate'
 
 /** What a double-click does: drill, open Info, or edit one of the row's fields. */
@@ -53,4 +55,18 @@ export function pointerHit(target: EventTarget | null): PointerHit | undefined {
  */
 export function outOfTabOrder(node: HTMLElement): void {
   node.querySelector('button')?.setAttribute('tabindex', '-1')
+}
+
+/**
+ * Resolves whether a tapped row's cursor move succeeded. A failed move says so in the status
+ * notice, so a tap whose drill cannot follow is not dropped without a word.
+ */
+export function tapMoved(move: Promise<void>): Promise<boolean> {
+  return move.then(
+    () => true,
+    () => {
+      status.notify('The cursor could not move to that row. Try again.')
+      return false
+    },
+  )
 }

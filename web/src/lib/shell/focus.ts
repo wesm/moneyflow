@@ -1,3 +1,5 @@
+import { trapFocus } from '@kenn-io/kit-ui/utils/focus-trap'
+
 /** The index of the table row holding `element`, if it is inside one. */
 export function rowIndex(element: HTMLElement | undefined): number | undefined {
   const row = element?.closest<HTMLElement>('[data-index]')
@@ -33,4 +35,41 @@ export function restoreFocus(
   const control = row?.querySelector<HTMLElement>(`[data-column="${column}"] button`)
   control?.focus({ preventScroll: true })
   return control !== undefined && control !== null
+}
+
+const TABBABLE = ['a[href]', 'button', 'input', 'select', 'textarea', '[tabindex]']
+  .map((selector) => `${selector}:not([disabled], [tabindex="-1"])`)
+  .join(', ')
+
+/** The control after `active` in `items`, or before it with `back`, wrapping at the ends. */
+function nextTabbable(items: HTMLElement[], active: Element | null, back: boolean): HTMLElement {
+  const follows = (item: HTMLElement) =>
+    !!active && !!(active.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING)
+  if (back) return items.findLast((item) => !follows(item) && item !== active) ?? items.at(-1)!
+  return items.find(follows) ?? items[0]!
+}
+
+/**
+ * kit `trapFocus`, except that the surface moves every Tab and Shift+Tab itself. kit's trap
+ * moves focus only past the first and last control and leaves the rest to the browser. WebKit's
+ * Tab skips buttons and links unless macOS keyboard navigation is on, so from the surface or a
+ * button it went to the page behind the dialog (kit-ui upstream gap). An Attachment.
+ */
+export function trapEveryTab(surface: HTMLElement): () => void {
+  const keydown = (event: KeyboardEvent) => {
+    if (event.key !== 'Tab' || event.defaultPrevented) return
+    event.preventDefault()
+    const items = Array.from(surface.querySelectorAll<HTMLElement>(TABBABLE)).filter(
+      (item) => item.getClientRects().length > 0,
+    )
+    if (items.length === 0) return surface.focus()
+    nextTabbable(items, document.activeElement, event.shiftKey).focus()
+  }
+  // Added before kit's handler, which then sees each Tab already taken.
+  surface.addEventListener('keydown', keydown)
+  const release = trapFocus(surface)
+  return () => {
+    surface.removeEventListener('keydown', keydown)
+    release()
+  }
 }

@@ -46,6 +46,21 @@ describe('OverlayState', () => {
     expect(host.focusGrid).not.toHaveBeenCalled()
   })
 
+  it("returns focus to the grid, not the opener, with 'grid'", async () => {
+    const { overlays, host, elsewhere } = setup()
+    const actions = document.createElement('button')
+    host.grid().append(actions)
+    actions.focus()
+    overlays.open('actions', actions)
+    overlays.open('merchant')
+    elsewhere.focus()
+    overlays.close('grid')
+    expect(overlays.current).toBeUndefined()
+    await afterRestore()
+    expect(host.focusGrid).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(elsewhere)
+  })
+
   it("leaves focus where it is with 'keep'", async () => {
     const { overlays, host, opener, elsewhere, popScope } = setup()
     opener.focus()

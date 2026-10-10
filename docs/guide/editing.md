@@ -38,7 +38,9 @@ bar spans the bottom of the screen with larger buttons.
 `h`, `x`, and `i` do on the cursor row. An item that cannot run shows its reason under it.
 While a selection exists, the four edits are disabled because they would edit the selection;
 use the selection bar, or clear the selection to edit one transaction. **Info** stays available.
-Esc or closing an editor opened from the sheet returns focus to the ⋯ button.
+**Merchant** and **Category** open the editor as a sheet at the bottom of the screen, with the
+same keys as on a larger screen. Esc, or cancelling an editor opened from the sheet, returns
+focus to the ⋯ button. Staging a change returns focus to the edited row.
 
 **Unreleased:** In the merchant editor, Enter uses the highlighted suggestion. To use a new name that also
 matches existing merchants, select the `Create` option below the matches.
