@@ -289,6 +289,11 @@ describe('cashflowCursor', () => {
     expect(cashflowCursor(projection, 0, megastore(), (id) => short.get(id))).toBeUndefined()
   })
 
+  it('reads the cursor row when the view differs from the drawn query only by sort', () => {
+    const projection = grouped([row('megastore', 0)], 'sort=name%3Aasc&v=1')
+    expect(cashflowCursor(projection, 0, megastore(), seriesFor)?.identity).toBe('megastore')
+  })
+
   it("selects the cursor period's whole column in the Time grouping", () => {
     const period = { granularity: 'month', year: 2026, month: 9 }
     const projection = grouped([row('time:sep', 0, { dimension: 'time', period })])

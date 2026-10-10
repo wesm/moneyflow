@@ -75,7 +75,10 @@
     <p class="mf-legend" aria-hidden="true">
       <span>Less</span>
       {#each [0, 1, 2, 3, 4] as level (level)}
-        <span class="mf-legend__swatch" style:--mf-level={level}></span>
+        <span
+          class={['mf-legend__swatch', level === 0 && 'mf-heat--empty']}
+          style:--mf-level={level}
+        ></span>
       {/each}
       <span>More</span>
       <span class="mf-legend__in">In</span>
@@ -138,6 +141,7 @@
             type="button"
             class={[
               'mf-day',
+              cell.outLevel === 0 && 'mf-heat--empty',
               cell.hasIn && 'mf-day--in',
               !cell.inScope && 'mf-day--outside',
               dayScope && cell.inScope && 'mf-day--scope',

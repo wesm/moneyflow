@@ -10,6 +10,11 @@
   }
 
   let { tiles, comparisonLabel }: Props = $props()
+  // Skeletons match the tiles last shown, so a four-tile view keeps where the strip wraps.
+  let skeletons = $state(5)
+  $effect.pre(() => {
+    if (tiles?.length) skeletons = tiles.length
+  })
 </script>
 
 {#if tiles}
@@ -25,7 +30,7 @@
 {:else}
   <div class="mf-kpis">
     <div class="mf-kpis__tiles">
-      {#each { length: 5 }, index (index)}
+      {#each { length: skeletons }, index (index)}
         <KpiTile />
       {/each}
     </div>

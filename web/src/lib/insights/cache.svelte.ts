@@ -2,7 +2,7 @@ import { untrack } from 'svelte'
 import { SvelteMap } from 'svelte/reactivity'
 
 import type { InsightsBody, InsightsResponse, InsightsSeries, ViewProjection } from '../api/client'
-import { insightsBodies, missingRows } from './requests'
+import { insightsBodies, insightsQuery, missingRows } from './requests'
 
 const maxEntries = 8
 
@@ -32,6 +32,8 @@ interface Flight {
   readonly key: string
   readonly query: string
   readonly revision: string
+  /** The server's day when the request was sent. */
+  readonly today: string | undefined
   readonly rows: readonly string[]
   readonly summary: boolean
   readonly abort: AbortController
@@ -44,7 +46,8 @@ interface DisplayedView {
 }
 
 /**
- * Insights for the displayed view, kept for the eight most recent queries and revisions. Charts
+ * Insights for the displayed view, kept for the eight most recent queries and revisions. The
+ * query is `insightsQuery`'s, so views that differ only by sort share an entry. Charts
  * draw only the entry whose query and revision equal the displayed projection's; until it
  * arrives, `entry` stays on the previous one and `stale` is set.
  */
@@ -123,7 +126,8 @@ export class InsightsCache {
         this.#show(undefined)
         return
       }
-      const { canonical_query: query, revision } = projection
+      const { revision } = projection
+      const query = insightsQuery(projection.canonical_query)
       const key = keyOf(query, revision)
       if (this.#view?.key !== key) this.#show({ key, query, revision })
       if (!this.#failedFor(key)) this.#request()
@@ -184,6 +188,7 @@ export class InsightsCache {
   #send(view: DisplayedView, body: InsightsBody): void {
     const flight: Flight = {
       ...view,
+      today: this.#today,
       rows: body.rows ?? [],
       summary: body.summary === true,
       abort: new AbortController(),
@@ -211,24 +216,29 @@ export class InsightsCache {
   #receive(flight: Flight, response: InsightsResponse): void {
     const revision = BigInt(response.revision)
     const requested = BigInt(flight.revision)
-    // ISO dates order as strings. A response from an earlier day is dropped.
-    if (revision < requested || (this.#today !== undefined && response.today < this.#today)) {
+    if (revision < requested) return
+    // ISO dates order as strings. A response from an earlier day is dropped. One sent before the
+    // day changed is asked again; one sent after means the server's day went back, so it fails.
+    if (this.#today !== undefined && response.today < this.#today) {
+      if (flight.today !== this.#today) this.#request()
       return
     }
     const dayChanged = this.#today !== undefined && response.today !== this.#today
     this.#today = response.today
     if (dayChanged) this.#clear()
     this.#store(flight.query, response)
-    // The chart context ends at today, so the displayed view loads again for the new day.
-    if (dayChanged) this.#request()
-    if (revision > requested && revision > this.#notified) this.#notifyNewer(flight.key, response)
+    const newer = revision > requested
+    // The chart context ends at today, so the displayed view loads again for the new day. Newer
+    // insights move the view to another key first, so the old key is not asked again.
+    if (dayChanged && !newer) this.#request()
+    if (newer && revision > this.#notified) this.#notifyNewer(flight.key, response)
   }
 
   #notifyNewer(key: string, response: InsightsResponse): void {
     this.#notified = BigInt(response.revision)
     this.#awaitingView = key
     void Promise.resolve()
-      .then(() => this.#onNewer(response.revision))
+      .then(() => (this.#disposed ? undefined : this.#onNewer(response.revision)))
       .catch(() => undefined)
       .then(() => {
         if (this.#awaitingView === key) this.#awaitingView = undefined

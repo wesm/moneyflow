@@ -1781,6 +1781,10 @@ button.mf-bar:hover {
   right: 2px;
   bottom: 2px;
 }
+/* A day without Out, and its key swatch, keep an edge where the inset ground meets the panel. */
+.mf-heat--empty {
+  box-shadow: inset 0 0 0 1px var(--border-muted);
+}
 .mf-day--outside {
   background: color-mix(in srgb, var(--mf-fill) 45%, var(--bg-surface));
   color: var(--text-secondary);

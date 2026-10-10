@@ -95,10 +95,8 @@ describe('columnsFor', () => {
     const width = (label: string) => columnsFor(september, label).at(-1)!
     expect(width('vs Aug')).toMatchObject({ width: '5.5rem', min: 5.5 })
     const long = ['vs 2025 to date', 'vs Feb 7 – Mar 9', 'vs Dec 7, 2025 – Jan 6, 2026']
-    const mins = long.map((label) => width(label).min!)
-    expect(mins[0]).toBeGreaterThan(5.5)
-    expect(mins[1]).toBeGreaterThan(mins[0]!)
-    expect(mins[2]).toBeGreaterThan(mins[1]!)
+    // 0.40 rem per character of the header font, plus the cell's padding, in quarter rems.
+    expect(long.map((label) => width(label).min)).toEqual([7, 7.5, 12.25])
     for (const label of long) expect(width(label).width).toBe(`${width(label).min}rem`)
   })
 
@@ -241,16 +239,20 @@ describe('columnsThatFit', () => {
   // ☐ 2, Name 10, Context 7, Count, In, Out, Net, and Share 6.5 each, Trend 4.5, vs prior 5.5.
   const everything = 61.5
 
-  it('keeps every column when their minimum widths fit, or when there is no measure', () => {
+  it('keeps every column when they fit with 0.25 rem to spare, or when there is no measure', () => {
     expect(fit(undefined)).toEqual(all)
-    expect(fit(everything)).toEqual(all)
+    expect(fit(everything + 0.25)).toEqual(all)
     expect(fit(100)).toEqual(all)
   })
 
+  it('drops a column at an exact fit, where sub-pixel rounding could scroll the table', () => {
+    expect(fit(everything)).toEqual(all.filter((key) => key !== 'context'))
+    expect(fit(everything + 0.2)).toEqual(all.filter((key) => key !== 'context'))
+  })
+
   it('drops Context first, then Trend and vs prior together', () => {
-    expect(fit(everything - 0.1)).toEqual(all.filter((key) => key !== 'context'))
-    expect(fit(54.5)).toEqual(all.filter((key) => key !== 'context'))
-    expect(fit(54.4)).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
+    expect(fit(54.75)).toEqual(all.filter((key) => key !== 'context'))
+    expect(fit(54.5)).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
   })
 
   it('never drops the columns that carry the row’s totals', () => {

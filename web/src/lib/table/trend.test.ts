@@ -180,4 +180,22 @@ describe('tableInsights', () => {
     expect(rowSeries(tableInsights(cache, 'q=sep'), 'merchant:a')).toEqual({ state: 'failed' })
     expect(bodies.map((body) => body.query)).toEqual(['q=aug', 'q=sep'])
   })
+
+  it('keeps the entry for the table when only the sort changes', async () => {
+    const bodies: InsightsBody[] = []
+    const cache = new InsightsCache(
+      async (body) => {
+        bodies.push(body)
+        return testInsights({ query: body.query, series: [testSeries('merchant:a')] })
+      },
+      () => undefined,
+    )
+    cache.sync(view('q=sep&v=1'), ['merchant:a'])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const sorted = 'q=sep&sort=name%3Aasc&v=1'
+    cache.sync(view(sorted), ['merchant:a'])
+    expect(rowSeries(tableInsights(cache, sorted), 'merchant:a').state).toBe('ready')
+    expect(bodies).toHaveLength(1)
+  })
 })

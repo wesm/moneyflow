@@ -60,25 +60,19 @@ const headers = () =>
 const cell = (row: HTMLElement, key: string) =>
   row.querySelector<HTMLElement>(`[role="gridcell"][data-column="${key}"]`)
 
-/** Matches `(min-width: 760px)` while `wide` is true and `(min-width: 900px)` while `roomy` is. */
+/** The window is 760 px wide while `wide` is true, 900 px while `roomy` is, and 700 px otherwise. */
 let wide = true
 let roomy = false
-const matchMedia = window.matchMedia
+const windowWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
 beforeEach(() => {
   wide = true
   roomy = false
-  Object.defineProperty(window, 'matchMedia', {
+  Object.defineProperty(window, 'innerWidth', {
     configurable: true,
-    value: (query: string) => ({
-      ...matchMedia(query),
-      matches:
-        (query === '(min-width: 760px)' && wide) || (query === '(min-width: 900px)' && roomy),
-    }),
+    get: () => (roomy ? 900 : wide ? 760 : 700),
   })
 })
-afterEach(() =>
-  Object.defineProperty(window, 'matchMedia', { configurable: true, value: matchMedia }),
-)
+afterEach(() => Object.defineProperty(window, 'innerWidth', windowWidth))
 
 describe('FinanceGrid', () => {
   afterEach(cleanup)

@@ -723,6 +723,29 @@ describe('browser view controller', () => {
       await showing
       expect(controller.cursorIndex).toBe(420)
     })
+
+    it('keeps a cursor move made while the row loads', async () => {
+      let answer!: (next: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn((body: ViewBody) =>
+          body.anchor === undefined
+            ? Promise.resolve(projection('v=1', body.window.offset, 450))
+            : new Promise<ViewProjection>((resolve) => (answer = resolve)),
+        ),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      const loaded = controller.projection
+
+      const showing = controller.showAnchor('merchant:example')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await controller.moveCursor(1)
+      answer({ ...projection('v=1', 400, 450), anchor_index: 420 })
+      await showing
+
+      expect(controller.cursorIndex).toBe(1)
+      expect(controller.projection).toBe(loaded)
+    })
   })
 
   describe('rechecking for newer insights', () => {
@@ -749,6 +772,27 @@ describe('browser view controller', () => {
 
       await controller.recheckNewer('5')
       expect(client.view).toHaveBeenCalledTimes(2)
+      expect(controller.projection?.revision).toBe('5')
+    })
+
+    it('waits for held transition work before rechecking', async () => {
+      const client = clientWith({
+        view: vi
+          .fn()
+          .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+          .mockResolvedValueOnce(projection('v=1', 0, 3, '5')),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      let release!: () => void
+      void controller.hold(new Promise<void>((resolve) => (release = resolve)))
+
+      const rechecking = controller.recheckNewer('5')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(client.view).toHaveBeenCalledTimes(1)
+
+      release()
+      await rechecking
       expect(controller.projection?.revision).toBe('5')
     })
   })

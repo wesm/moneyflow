@@ -86,6 +86,48 @@ async function expectChartRow(charts: Locator, layout: 'beside' | 'stacked'): Pr
   expect(cashflow.width / panel.width).toBeCloseTo(2, 0)
 }
 
+test('a grouped view at 960 px never draws the column it drops, on load or resize', async ({
+  page,
+  server,
+}) => {
+  await page.addInitScript(() => {
+    const seen = new Set<string>()
+    Object.assign(window, { droppedHeadersSeen: seen })
+    // Records every header added, even one a later microtask removes before the next frame.
+    const header = '.mf-table__header [data-column="context"]'
+    new MutationObserver((records) => {
+      for (const node of records.flatMap((record) => [...record.addedNodes])) {
+        if (node instanceof Element && (node.matches(header) || node.querySelector(header))) {
+          seen.add('context')
+        }
+      }
+    }).observe(document, { childList: true, subtree: true })
+  })
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const seen = () =>
+    page.evaluate(() => [
+      ...(window as unknown as { droppedHeadersSeen: Set<string> }).droppedHeadersSeen,
+    ])
+  await page.setViewportSize({ width: 960, height: 900 })
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-09-01&to=2026-09-30&v=1')
+  await expect(grid.locator('.mf-table__header [data-column="vs_prior"]')).toHaveText('vs Aug')
+  await expect(grid.locator('.mf-table__header [data-column="context"]')).toHaveCount(0)
+  expect(await seen()).toEqual([])
+
+  // The width last measured at 1440 px is stale by the time phone rows grow back to 960 px.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(grid.locator('.mf-table__header [data-column="context"]')).toHaveCount(1)
+  await page.evaluate(() =>
+    (window as unknown as { droppedHeadersSeen: Set<string> }).droppedHeadersSeen.clear(),
+  )
+  await page.setViewportSize({ width: 390, height: 900 })
+  await expect(page.locator('.mf-table--compact')).toHaveCount(1)
+  await page.setViewportSize({ width: 960, height: 900 })
+  await expect(grid.locator('.mf-table__header [data-column="vs_prior"]')).toHaveText('vs Aug')
+  await expect(grid.locator('.mf-table__header [data-column="context"]')).toHaveCount(0)
+  expect(await seen()).toEqual([])
+})
+
 test('Trend and vs prior fill grouped rows, and from 900 px columns drop instead of scrolling', async ({
   page,
   server,

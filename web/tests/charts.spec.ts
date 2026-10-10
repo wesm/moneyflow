@@ -260,6 +260,58 @@ function periodControl(page: Page): Locator {
   return page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')
 }
 
+test('a sort change keeps Trend, vs prior, and the charts without asking again', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server, september)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const megastore = grid.getByRole('row').filter({ hasText: 'Online Megastore' })
+  const vsPrior = megastore.locator('[data-column="vs_prior"]')
+  await expect(vsPrior).toHaveText(/^▲ 15\.1%/)
+  await expect(page.getByRole('region', { name: 'Charts' })).toHaveAttribute('aria-busy', 'false')
+  const insights: string[] = []
+  page.on('request', (request) => {
+    if (request.url().endsWith('/view/insights')) insights.push(request.url())
+  })
+  // Records any frame-to-be where the charts go busy or a Trend or vs prior cell loads again.
+  await page.evaluate(() => {
+    const seen: string[] = []
+    Object.assign(window, { sortChurn: seen })
+    new MutationObserver((records) => {
+      for (const record of records) {
+        const target = record.target as Element
+        if (record.attributeName === 'aria-busy' && target.getAttribute('aria-busy') === 'true') {
+          seen.push('busy')
+        }
+        for (const node of record.addedNodes) {
+          if (
+            node instanceof Element &&
+            node
+              .closest('[data-column="trend"], [data-column="vs_prior"]')
+              ?.querySelector('.mf-skeleton')
+          ) {
+            seen.push('skeleton')
+          }
+        }
+      }
+    }).observe(document.body, { attributes: true, childList: true, subtree: true })
+  })
+
+  await focusGrid(page)
+  await page.keyboard.press('s')
+  await expect(page.getByRole('columnheader', { name: 'Merchant' })).toHaveAttribute(
+    'aria-sort',
+    'descending',
+  )
+  await expect(vsPrior).toHaveText(/^▲ 15\.1%/)
+  await expect(page.getByRole('columnheader', { name: 'vs Aug' })).toBeVisible()
+  expect(
+    await page.evaluate(() => (window as unknown as { sortChurn: string[] }).sortChurn),
+  ).toEqual([])
+  expect(insights).toEqual([])
+})
+
 test('a cash-flow column click scopes the view to its month', async ({ page, server }) => {
   await openMoneyflow(page, server)
   await expect(periodControl(page)).toHaveText('All time')

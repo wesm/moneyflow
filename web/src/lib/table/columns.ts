@@ -65,12 +65,12 @@ function capitalized(text: string): string {
 }
 
 /**
- * Room in rem for the vs prior header, such as `vs Feb 7 – Mar 9`, so it is never cut off: about
- * 0.36 rem per character of the small header font plus the cell's padding, in quarter rems, and
- * never narrower than the cells' 5.5 rem.
+ * Room in rem for the vs prior header, such as `vs Feb 7 – Mar 9`, so it is never cut off: 0.40
+ * rem per character of the small header font, which leaves a margin for wide glyphs, plus the
+ * cell's padding, in quarter rems, and never narrower than the cells' 5.5 rem.
  */
 function labelRem(label: string): number {
-  return Math.max(5.5, Math.ceil(([...label].length * 0.36 + 1) * 4) / 4)
+  return Math.max(5.5, Math.ceil(([...label].length * 0.4 + 1) * 4) / 4)
 }
 
 /**
@@ -196,30 +196,38 @@ export function cellClass(column: Column): string {
   return column.align === 'end' ? 'mf-table__cell mf-table__cell--end' : 'mf-table__cell'
 }
 
-/** The media query that shows the columns with a `minWidth` of 760. */
-export const WIDE_COLUMNS_QUERY = '(min-width: 760px)'
+/**
+ * The window width in px that shows the columns with a `minWidth` of 760. The grid reads the
+ * window's width, not a media query: a resize updates it before any media query listener runs,
+ * so the columns are settled before the table leaves phone rows.
+ */
+export const WIDE_COLUMNS_WIDTH = 760
 
 /** The columns that fit: a column with a `minWidth` drops out unless the viewport is `wide`. */
 export function columnsAtWidth(columns: Column[], wide: boolean): Column[] {
   return columns.filter((column) => column.minWidth === undefined || wide)
 }
 
-/** The viewport widths at which `columnsThatFit` drops columns instead of scrolling sideways. */
-export const FIT_COLUMNS_QUERY = '(min-width: 900px)'
+/** The window width in px from which `columnsThatFit` drops columns instead of scrolling. */
+export const FIT_COLUMNS_WIDTH = 900
 
 function minimum(columns: readonly Column[]): number {
   return columns.reduce((total, column) => total + (column.min ?? 0), 0)
 }
 
+/** Room the columns must leave, because the measured width rounds to whole pixels. */
+const FIT_TOLERANCE_REM = 0.25
+
 /**
- * The columns whose minimum widths fit in `room` rem: Context drops first, then Trend and vs
+ * The columns whose minimum widths fit in `room` rem with `FIT_TOLERANCE_REM` to spare, so
+ * sub-pixel rounding never scrolls the table sideways: Context drops first, then Trend and vs
  * prior together. Everything stays when `room` is unknown. Only grouped columns can drop.
  */
 export function columnsThatFit(columns: Column[], room: number | undefined): Column[] {
   if (room === undefined) return columns
   let shown = columns
   for (const order of [1, 2] as const) {
-    if (minimum(shown) <= room) break
+    if (minimum(shown) + FIT_TOLERANCE_REM <= room) break
     shown = shown.filter((column) => column.dropOrder !== order)
   }
   return shown

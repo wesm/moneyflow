@@ -91,6 +91,20 @@ describe('InsightsCache', () => {
     expect(cache.entry?.response.summary).toBeDefined()
   })
 
+  it('keeps the entry and sends nothing when only the sort changes', async () => {
+    const { cache, calls } = harness()
+    cache.sync(view('cur=USD%3A2&group=category&v=1'), ['a'])
+    await answer(calls[0])
+    const shown = cache.entry
+
+    cache.sync(view('cur=USD%3A2&group=category&sort=name%3Aasc&v=1'), ['a'])
+    expect(calls).toHaveLength(1)
+    expect(cache.entry).toBe(shown)
+    expect(cache.stale).toBe(false)
+    expect(cache.status).toBe('ready')
+    expect(cache.seriesFor('a')?.identity).toBe('a')
+  })
+
   it('reports newer insights once and drops older ones', async () => {
     const { cache, calls, onNewer } = harness()
     cache.sync(view('v=1', '3'), ['a'])
@@ -160,7 +174,7 @@ describe('InsightsCache', () => {
     expect(calls[3]?.body).toEqual({ query: 'v=1', rows: ['a', 'c'], summary: true })
   })
 
-  it('drops a late response from an earlier day', async () => {
+  it('asks again for the new day when a late response from an earlier day is dropped', async () => {
     const { cache, calls } = harness()
     cache.sync(view('v=1'), ['a'])
     cache.sync(view('v=1'), ['a', 'b'])
@@ -169,11 +183,32 @@ describe('InsightsCache', () => {
 
     expect(cache.entry).toBeUndefined()
     expect(cache.seriesFor('b')).toBeDefined()
-    expect(cache.status).toBe('failed')
-    cache.retry()
+    expect(cache.status).toBe('loading')
     expect(calls[2]?.body).toEqual({ query: 'v=1', rows: ['a'], summary: true })
     await answer(calls[2], '1', '2026-10-08')
     expect(cache.status).toBe('ready')
+  })
+
+  it('fails a response from an earlier day sent after the new day arrived', async () => {
+    const { cache, calls } = harness()
+    cache.sync(view('v=1'), ['a'])
+    await answer(calls[0], '1', '2026-10-08')
+    cache.sync(view('v=2'), [])
+    await answer(calls[1], '1', '2026-10-07')
+
+    expect(calls).toHaveLength(2)
+    expect(cache.status).toBe('failed')
+  })
+
+  it('asks nothing more for the old revision when a new day also brings a new revision', async () => {
+    const { cache, calls, onNewer } = harness()
+    cache.sync(view('v=1', '3'), ['a'])
+    await answer(calls[0], '3', '2026-10-07')
+    cache.sync(view('v=1', '3'), ['a', 'b'])
+    await answer(calls[1], '4', '2026-10-08')
+
+    expect(onNewer).toHaveBeenCalledWith('4')
+    expect(calls).toHaveLength(2)
   })
 
   it('clears every entry when today changes', async () => {
@@ -247,6 +282,23 @@ describe('InsightsCache', () => {
     expect(calls).toHaveLength(1)
     expect(cache.entry).toBeUndefined()
     expect(cache.status).toBe('loading')
+  })
+
+  it('rechecks nothing after dispose, even with a recheck already queued', async () => {
+    const onNewer = vi.fn()
+    let answered!: Promise<InsightsResponse>
+    let resolve!: (response: InsightsResponse) => void
+    const cache = new InsightsCache(
+      () => (answered = new Promise((done) => (resolve = done))),
+      onNewer,
+    )
+    cache.sync(view('v=1', '3'), ['a'])
+    // Runs after the cache reads the answer and before its queued recheck.
+    void answered.then(() => cache.dispose())
+    resolve(testInsights({ query: 'v=1', revision: '4', series: [testSeries('a')] }))
+    await new Promise((done) => setTimeout(done, 0))
+
+    expect(onNewer).not.toHaveBeenCalled()
   })
 
   it('stays unchanged when a view recheck settles after dispose', async () => {

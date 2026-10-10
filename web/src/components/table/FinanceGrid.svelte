@@ -1,6 +1,6 @@
 <script lang="ts">
   import { EmptyState } from '@kenn-io/kit-ui'
-  import { MediaQuery } from 'svelte/reactivity'
+  import { innerWidth } from 'svelte/reactivity/window'
 
   import GridHeader from './GridHeader.svelte'
   import GridRow from './GridRow.svelte'
@@ -14,7 +14,7 @@
     columnsThatFit,
     compactColumnCount,
     compactLayout,
-    WIDE_COLUMNS_QUERY,
+    WIDE_COLUMNS_WIDTH,
     type SortField,
   } from '../../lib/table/columns'
   import { GridScroll } from '../../lib/table/grid-scroll.svelte'
@@ -89,10 +89,10 @@
   }: Props = $props()
   let grid = $state<HTMLDivElement>()
   const height = $derived(rowHeight(compact))
-  const wide = new MediaQuery(WIDE_COLUMNS_QUERY)
+  const wide = $derived((innerWidth.current ?? 0) >= WIDE_COLUMNS_WIDTH)
   const comparison = $derived(insights?.response?.ranges.comparison_label)
   const room = new ColumnRoom(() => scroller)
-  const all = $derived(columnsAtWidth(columnsFor(projection, comparison), wide.current))
+  const all = $derived(columnsAtWidth(columnsFor(projection, comparison), wide))
   const columns = $derived(columnsThatFit(all, room.rem))
   const layout = $derived(compact ? compactLayout(projection) : undefined)
   const cellColumns = $derived(columns.filter((column) => column.key !== 'select'))

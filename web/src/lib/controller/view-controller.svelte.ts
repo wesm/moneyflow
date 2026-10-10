@@ -269,6 +269,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function recheckNewer(revision: string): Promise<void> {
+    await barrier
     if (!projection || BigInt(revision) <= BigInt(projection.revision)) return
     await recheckInternal(undefined, true)
   }
@@ -600,13 +601,17 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   async function showAnchor(identity: string): Promise<void> {
     await barrier
     if (!projection) return
+    const current = projection
+    // A cursor move in a cached window bumps no generation, but it is newer, so it wins.
+    const requestCursor = cursorIndex
     const body = {
-      ...viewBody(projection.canonical_query, projection.selection, alignedOffset(cursorIndex)),
+      ...viewBody(current.canonical_query, current.selection, alignedOffset(requestCursor)),
       anchor: identity,
     }
     await requestProjection(
       () => options.client.view(body, activeRequest?.signal),
       (next) => {
+        if (projection !== current || cursorIndex !== requestCursor) return
         if (next.anchor_index === undefined) return
         setProjectionWindow(next, next.anchor_index)
         replaceOwnedHistory()

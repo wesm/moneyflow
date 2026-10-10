@@ -56,3 +56,15 @@ export function insightsBodies(
   if (summary && bodies.length === 0) bodies.push({ query, summary: true })
   return bodies
 }
+
+/**
+ * The query insights are keyed and requested by: the canonical query without its `sort`. A sort
+ * reorders the table and changes no insight, so a sort change keeps the cached entry. A sort
+ * inside a `return` frame is percent-encoded, so it stays.
+ */
+export function insightsQuery(canonical: string): string {
+  return canonical
+    .split('&')
+    .filter((field) => !field.startsWith('sort='))
+    .join('&')
+}

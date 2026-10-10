@@ -2,6 +2,7 @@ import type { InsightsResponse, InsightsSeries } from '../api/client'
 import type { components } from '../api/schema'
 import { maxMagnitude, ratioBasisPoints, stopShort } from '../charts/scale'
 import type { InsightsCache } from '../insights/cache.svelte'
+import { insightsQuery } from '../insights/requests'
 
 type TrendMonth = components['schemas']['InsightsPeriodRange']
 
@@ -86,12 +87,13 @@ export interface RowInsights {
 
 /**
  * The table's view of the cache. The charts keep the previous entry on screen while the next
- * loads; the table reads an entry's ranges only when it belongs to the displayed `query`.
+ * loads; the table reads an entry's ranges only when it belongs to the displayed `query`, sort
+ * aside.
  */
 export function tableInsights(cache: InsightsCache, query: string): RowInsights {
   const entry = cache.entry
   return {
-    response: entry?.query === query ? entry.response : undefined,
+    response: entry?.query === insightsQuery(query) ? entry.response : undefined,
     failed: cache.status === 'failed' || cache.seriesFailed,
     seriesFor: (identity) => cache.seriesFor(identity),
   }

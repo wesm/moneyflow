@@ -1,5 +1,6 @@
 import type { InsightsResponse, InsightsSeries, ViewProjection } from '../api/client'
 import type { InsightsEntry } from '../insights/cache.svelte'
+import { insightsQuery } from '../insights/requests'
 import { formatMinor, parseMinor } from '../money/format'
 import { dayLabel, MONTHS, type Period } from '../shell/period'
 import { maxMagnitude, ratioBasisPoints, stopShort, type Point } from './scale'
@@ -291,7 +292,9 @@ export function cashflowCursor(
   entry: InsightsEntry,
   seriesFor: (identity: string) => InsightsSeries | undefined,
 ): CashflowCursor | undefined {
-  if (entry.query !== projection.canonical_query || projection.detail_rows) return undefined
+  if (entry.query !== insightsQuery(projection.canonical_query) || projection.detail_rows) {
+    return undefined
+  }
   const row = projection.aggregate_rows?.find((candidate) => candidate.index === cursorIndex)
   if (row === undefined) return undefined
   const context = entry.response.ranges.context

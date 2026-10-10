@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ViewProjection } from '../api/client'
 import { testAggregateRow, testProjection } from '../../test/projection'
-import { insightsBodies, missingRows, seriesRows } from './requests'
+import { insightsBodies, insightsQuery, missingRows, seriesRows } from './requests'
 
 function grouped(
   grouping: string,
@@ -84,5 +84,19 @@ describe('missingRows', () => {
 
     expect(missingRows(['a', 'b', 'c', 'd', 'd'], loaded, [['b'], ['c']])).toEqual(['d'])
     expect(missingRows(['a', 'b'], undefined, [])).toEqual(['a', 'b'])
+  })
+})
+
+describe('insightsQuery', () => {
+  it('drops the sort, which reorders the table but changes no insight', () => {
+    expect(insightsQuery('cur=USD%3A2&group=category&sort=name%3Aasc&v=1')).toBe(
+      'cur=USD%3A2&group=category&v=1',
+    )
+    expect(insightsQuery('cur=USD%3A2&v=1')).toBe('cur=USD%3A2&v=1')
+  })
+
+  it('keeps a sort inside an encoded return frame', () => {
+    const query = 'q=coffee&return=group%3Dcategory%26sort%3Dname%253Aasc%26v%3D1&v=1'
+    expect(insightsQuery(query)).toBe(query)
   })
 })
