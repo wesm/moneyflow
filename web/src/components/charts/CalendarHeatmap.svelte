@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Tooltip } from '@kenn-io/kit-ui'
 
-  import { calendarCells, type CalendarCell } from '../../lib/charts/calendar'
+  import { calendarCells, type CalendarCell, type CalendarWeek } from '../../lib/charts/calendar'
   import type { InsightsEntry } from '../../lib/insights/cache.svelte'
   import type { Period } from '../../lib/shell/period'
 
@@ -27,6 +27,8 @@
     return calendarCells(heatmap, days, response.ranges.scope, response.today, cursorDate)
   })
   const weeks = $derived(heatmap?.layout === 'weeks')
+  // In a Day scope the scoped day is outlined, so it stands out among the faded days.
+  const dayScope = $derived(response.ranges.kind === 'day')
   /** The days a click or a key can reach, in date order: every day up to today. */
   const days = $derived(
     blocks
@@ -67,47 +69,91 @@
 </script>
 
 <div class="mf-panel">
-  <p class="mf-panel__title" {id}>Daily spending</p>
+  <div class="mf-panel__head">
+    <p class="mf-panel__title" {id}>Daily spending</p>
+    <!-- Levels rank the days with Out, so the key shows order, not amounts. -->
+    <p class="mf-legend" aria-hidden="true">
+      <span>Less</span>
+      {#each [0, 1, 2, 3, 4] as level (level)}
+        <span class="mf-legend__swatch" style:--mf-level={level}></span>
+      {/each}
+      <span>More</span>
+      <span class="mf-legend__in">In</span>
+    </p>
+  </div>
   <div
     class={['mf-calendar', weeks && 'mf-calendar--weeks']}
     role="group"
     aria-labelledby={id}
-    style:--mf-months={blocks.length}
+    style:--mf-weeks={blocks[0]?.weeks.length}
     bind:this={grid}
   >
     {#each blocks as block, index (index)}
-      <div class="mf-calendar__block">
-        {#if block.label}
-          <p class="mf-calendar__label">{block.label}</p>
-        {/if}
-        <div class="mf-calendar__days">
-          {#each block.weeks.flat() as cell, slot (slot)}
-            {#if cell === undefined}
-              <span></span>
-            {:else if cell.future}
-              <span class="mf-day--future"></span>
-            {:else}
-              <Tooltip text={cell.name}>
-                <button
-                  type="button"
-                  class={[
-                    'mf-day',
-                    `mf-day--l${cell.outLevel}`,
-                    cell.hasIn && 'mf-day--in',
-                    !cell.inScope && 'mf-day--outside',
-                    cell.cursor && 'mf-day--cursor',
-                  ]}
-                  aria-label={cell.name}
-                  tabindex={cell === active ? 0 : -1}
-                  onclick={() => onperiod({ start: cell.date, end: cell.date })}
-                  onkeydown={(event) => keydown(event, cell)}
-                  onfocus={() => (chosen = { query: entry.query, date: cell.date })}
-                ></button>
-              </Tooltip>
-            {/if}
+      {#if block.ticks}
+        <div class="mf-calendar__ticks" aria-hidden="true">
+          {#each block.ticks as tick (tick.column)}
+            <span style:grid-column={tick.column + 1}>{tick.label}</span>
           {/each}
         </div>
-      </div>
+        <div class="mf-calendar__rows" aria-hidden="true">
+          {#each ['', 'M', '', 'W', '', 'F', ''] as initial, row (row)}
+            <span class="mf-calendar__weekday">{initial}</span>
+          {/each}
+        </div>
+        {@render calendarDays(block.weeks)}
+      {:else}
+        <div class="mf-calendar__month">
+          <p class="mf-calendar__label">{block.label}</p>
+          {@render calendarDays(block.weeks, true)}
+        </div>
+      {/if}
     {/each}
   </div>
 </div>
+
+{#snippet calendarDays(slots: CalendarWeek[], month = false)}
+  <div class="mf-calendar__days">
+    {#if month}
+      {#each ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as initial, column (column)}
+        <span class="mf-calendar__weekday" aria-hidden="true">{initial}</span>
+      {/each}
+    {/if}
+    {#each slots.flat() as cell, slot (slot)}
+      {#if cell === undefined}
+        <span></span>
+      {:else if cell.future}
+        <span class="mf-day--future"></span>
+      {:else}
+        <Tooltip>
+          {#snippet content()}
+            <p class="mf-cashflow-tip__title">{cell.label}</p>
+            <dl class="mf-cashflow-tip">
+              <dt>Out</dt>
+              <dd>{cell.out}</dd>
+              <dt>In</dt>
+              <dd>{cell.in}</dd>
+            </dl>
+          {/snippet}
+          <button
+            type="button"
+            class={[
+              'mf-day',
+              cell.hasIn && 'mf-day--in',
+              !cell.inScope && 'mf-day--outside',
+              dayScope && cell.inScope && 'mf-day--scope',
+              cell.cursor && 'mf-day--cursor',
+            ]}
+            style:--mf-level={cell.outLevel}
+            aria-label={cell.name}
+            tabindex={cell === active ? 0 : -1}
+            onclick={() => onperiod({ start: cell.date, end: cell.date })}
+            onkeydown={(event) => keydown(event, cell)}
+            onfocus={() => (chosen = { query: entry.query, date: cell.date })}
+          >
+            {#if month}{cell.day}{/if}
+          </button>
+        </Tooltip>
+      {/if}
+    {/each}
+  </div>
+{/snippet}

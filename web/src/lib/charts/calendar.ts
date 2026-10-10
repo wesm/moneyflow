@@ -1,6 +1,8 @@
 import type { InsightsResponse } from '../api/client'
 import { formatMinor, parseMinor } from '../money/format'
 import { dayLabel, MONTHS } from '../shell/period'
+import { dashZero } from './cashflow'
+import { magnitude } from './scale'
 
 type Ranges = InsightsResponse['ranges']
 export type Heatmap = NonNullable<Ranges['heatmap']>
@@ -17,6 +19,13 @@ export interface CalendarDays {
 /** One heatmap day. */
 export interface CalendarCell {
   date: string
+  /** The day of the month, such as `15`, drawn in the cell. */
+  day: string
+  /** The date as `Sep 15, 2026`. */
+  label: string
+  /** Out and In for the tooltip, with a dash for zero as the table shows. */
+  out: string
+  in: string
   /** 0 without Out; otherwise 1–4, the quarter of the drawn days with Out that it falls in. */
   outLevel: OutLevel
   hasIn: boolean
@@ -33,25 +42,31 @@ export interface CalendarCell {
 /** Seven slots in weekday order; a slot outside the heatmap's days is empty. */
 export type CalendarWeek = (CalendarCell | undefined)[]
 
-/** One month's calendar grid, labeled, or the whole unlabeled strip of week columns. */
+/** A month name over the strip's week column that holds the month's first day. */
+export interface CalendarTick {
+  column: number
+  label: string
+}
+
+/** One month's calendar grid, labeled, or the whole strip of week columns with month ticks. */
 export interface CalendarBlock {
   label?: string
   weeks: CalendarWeek[]
+  ticks?: CalendarTick[]
 }
 
 const dayMilliseconds = 86_400_000
 
+function utc(date: string): Date {
+  return new Date(`${date}T00:00:00Z`)
+}
+
 function dayNumber(date: string): number {
-  return Date.parse(`${date}T00:00:00Z`) / dayMilliseconds
+  return utc(date).getTime() / dayMilliseconds
 }
 
 function isoDay(day: number): string {
   return new Date(day * dayMilliseconds).toISOString().slice(0, 10)
-}
-
-function magnitude(minor: string): bigint {
-  const value = parseMinor(minor)
-  return value < 0n ? -value : value
 }
 
 /**
@@ -60,7 +75,9 @@ function magnitude(minor: string): bigint {
  */
 function outLevels(out: readonly string[]): OutLevel[] {
   const magnitudes = out.map(magnitude)
-  const ranked = magnitudes.filter((value) => value > 0n).sort((a, b) => (a < b ? -1 : 1))
+  const ranked = magnitudes
+    .filter((value) => value > 0n)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   const atOrBelow = new Map<bigint, number>()
   ranked.forEach((value, index) => atOrBelow.set(value, index + 1))
   return magnitudes.map((value) => {
@@ -89,7 +106,7 @@ function monthBlocks(cells: readonly CalendarCell[]): CalendarBlock[] {
     const opening = cells[start]!.date
     let end = start
     while (end < cells.length && cells[end]!.date.startsWith(opening.slice(0, 7))) end += 1
-    const day = new Date(dayNumber(opening) * dayMilliseconds)
+    const day = utc(opening)
     blocks.push({
       label: `${MONTHS[day.getUTCMonth()]} ${day.getUTCFullYear()}`,
       weeks: weeksOf(cells.slice(start, end), day.getUTCDay()),
@@ -99,11 +116,23 @@ function monthBlocks(cells: readonly CalendarCell[]): CalendarBlock[] {
   return blocks
 }
 
+/** One Sunday-first strip of week columns, each month ticked at the column of its first day. */
+function strip(cells: readonly CalendarCell[]): CalendarBlock {
+  const lead = cells[0] === undefined ? 0 : utc(cells[0].date).getUTCDay()
+  const ticks: CalendarTick[] = []
+  cells.forEach((cell, index) => {
+    if (cell.day !== '1') return
+    const label = MONTHS[utc(cell.date).getUTCMonth()] ?? ''
+    ticks.push({ column: Math.floor((lead + index) / 7), label })
+  })
+  return { weeks: weeksOf(cells, lead), ticks }
+}
+
 /**
  * The heatmap's days arranged for drawing. Layout `months` gives one Sunday-first grid per
- * month; layout `weeks` gives one strip of week columns that ends on the heatmap's last day,
- * which is 53 columns for a year or for the 371-day strip ending at Latest. Throws unless the
- * calendar holds one value per heatmap day.
+ * month; layout `weeks` gives one strip of Sunday-first week columns with month ticks. That is
+ * 53 columns for most years, and 54 for the 371-day strip ending at Latest unless it ends on a
+ * Saturday. Throws unless the calendar holds one value per heatmap day.
  */
 export function calendarCells(
   heatmap: Heatmap,
@@ -126,17 +155,25 @@ export function calendarCells(
     const date = isoDay(first + index)
     const rising = calendar.in[index] ?? '0'
     const hasIn = parseMinor(rising) !== 0n
-    const spoken = `${dayLabel(date)}, out ${formatMinor(out, calendar.scale)}`
+    const amounts = {
+      out: formatMinor(out, calendar.scale),
+      in: formatMinor(rising, calendar.scale),
+    }
+    const label = dayLabel(date)
+    const spoken = `${label}, out ${amounts.out}`
     return {
       date,
+      day: String(utc(date).getUTCDate()),
+      label,
+      out: dashZero(amounts.out),
+      in: dashZero(amounts.in),
       outLevel: levels[index] ?? 0,
       hasIn,
       inScope: scope === undefined || (date >= scope.start && date <= scope.end),
       future: date > today,
       cursor: date === cursorDate,
-      name: hasIn ? `${spoken}, in ${formatMinor(rising, calendar.scale)}` : spoken,
+      name: hasIn ? `${spoken}, in ${amounts.in}` : spoken,
     }
   })
-  if (heatmap.layout === 'months') return monthBlocks(cells)
-  return [{ weeks: weeksOf(cells, (7 - (cells.length % 7)) % 7) }]
+  return heatmap.layout === 'months' ? monthBlocks(cells) : [strip(cells)]
 }

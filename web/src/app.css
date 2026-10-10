@@ -1647,78 +1647,142 @@ button.mf-bar:hover {
 .mf-bars--income .mf-bar--cursor .mf-bar__fill {
   background: var(--mf-in);
 }
+/* The others entry folds many rows, so it is drawn neutral, not as one large payee. */
+.mf-bar--others .mf-bar__fill {
+  background: color-mix(in srgb, var(--text-muted) 40%, transparent);
+}
 .mf-bar__net,
 .mf-bar__share {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
-/* Cells are square and as large as the panel allows: the panel is the size container. */
+/* Month grids fill the panel; the strip keeps short rows under its month ticks. */
 .mf-calendar {
-  container-type: size;
   display: flex;
   flex: 1;
   gap: var(--space-4);
+  min-height: 0;
 }
-.mf-calendar__block {
-  display: grid;
-  align-content: start;
+.mf-calendar__month {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   gap: var(--space-1);
+  min-width: 0;
 }
 .mf-calendar__days {
-  /* One month's six week rows below its label, and the months side by side. */
-  --mf-cell: min(
-    calc((100cqw - var(--space-4) * (var(--mf-months) - 1)) / (7 * var(--mf-months)) - 2px),
-    calc((100cqh - 1.25rem) / 6 - 2px)
-  );
   display: grid;
-  grid-template-columns: repeat(7, var(--mf-cell));
-  grid-auto-rows: var(--mf-cell);
+  flex: 1;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
   gap: 2px;
+  min-height: 0;
 }
+.mf-calendar__weekday,
+.mf-calendar__ticks,
+.mf-day {
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 0.875rem;
+}
+.mf-calendar__weekday {
+  text-align: center;
+}
+.mf-calendar--weeks {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  align-content: start;
+  gap: 2px var(--space-1);
+}
+.mf-calendar__ticks {
+  display: grid;
+  grid-column: 2;
+  grid-template-columns: repeat(var(--mf-weeks), minmax(0, 1fr));
+  white-space: nowrap;
+}
+.mf-calendar__rows,
 .mf-calendar--weeks .mf-calendar__days {
-  --mf-cell: min(calc(100cqw / 53 - 1px), calc(100cqh / 7 - 1px));
-  grid-template: repeat(7, var(--mf-cell)) / none;
-  grid-auto-flow: column;
-  grid-auto-columns: var(--mf-cell);
+  display: grid;
+  grid-row: 2;
+  grid-template-rows: repeat(7, 0.875rem);
   gap: 1px;
 }
-.mf-day {
-  flex: 1;
-  display: grid;
-  place-items: center;
-  min-width: 0;
-  padding: 0;
-  border: 0;
+.mf-calendar--weeks .mf-calendar__days {
+  grid-column: 2;
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+/* Levels mix one hue; the darkest stays light enough for the day number to read in both themes. */
+.mf-day,
+.mf-legend__swatch {
+  --mf-fill: color-mix(in srgb, var(--mf-out) calc(var(--mf-level) * 21%), var(--bg-inset));
   border-radius: 2px;
-  background: var(--bg-inset);
+  background: var(--mf-fill);
+}
+.mf-day {
+  position: relative;
+  /* The kit Tooltip wrapper is the grid item; the button fills it. */
+  flex: 1;
+  padding: 1px 3px;
+  border: 0;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  text-align: left;
   cursor: pointer;
 }
-.mf-day--l1 {
-  background: color-mix(in srgb, var(--mf-out) 25%, var(--bg-inset));
-}
-.mf-day--l2 {
-  background: color-mix(in srgb, var(--mf-out) 50%, var(--bg-inset));
-}
-.mf-day--l3 {
-  background: color-mix(in srgb, var(--mf-out) 75%, var(--bg-inset));
-}
-.mf-day--l4 {
-  background: var(--mf-out);
-}
-.mf-day--in::after {
+.mf-day--in::after,
+.mf-legend__in::before {
   content: '';
-  width: 40%;
-  max-width: 5px;
-  aspect-ratio: 1;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: var(--mf-in);
 }
+.mf-day--in::after {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+}
 .mf-day--outside {
-  opacity: var(--opacity-disabled);
+  background: color-mix(in srgb, var(--mf-fill) 45%, var(--bg-surface));
+  color: var(--text-secondary);
+}
+.mf-day--scope {
+  box-shadow: inset 0 0 0 2px var(--mf-focus);
 }
 .mf-day--cursor {
   outline: 2px solid var(--text-primary);
+}
+.mf-legend,
+.mf-legend__in {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.mf-legend {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+.mf-legend__swatch {
+  width: 10px;
+  height: 10px;
+}
+.mf-legend__in {
+  margin-left: var(--space-2);
+}
+/* Phone rows reach the 24 px minimum target size; the panel grows to hold them. */
+@media (max-width: 640px) {
+  .mf-bars {
+    grid-auto-rows: 1.5rem;
+  }
+  .mf-chart-row__slot:last-child {
+    height: 14.5rem;
+  }
 }
 @media (min-width: 900px) {
   .mf-chart-row {

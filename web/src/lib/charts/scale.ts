@@ -2,7 +2,8 @@ import { parseMinor } from '../money/format'
 
 const basisPoints = 10000n
 
-function magnitude(minor: string): bigint {
+/** The absolute value of a minor-unit amount. */
+export function magnitude(minor: string): bigint {
   const value = parseMinor(minor)
   return value < 0n ? -value : value
 }

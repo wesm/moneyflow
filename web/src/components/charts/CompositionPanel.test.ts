@@ -64,10 +64,23 @@ describe('CompositionPanel', () => {
     expect(onrow).not.toHaveBeenCalled()
   })
 
-  it('keeps the others bar out of reach', () => {
+  it('keeps the others bar out of reach and draws it apart from the ranked rows', () => {
     const { list } = setup()
     expect(within(list).queryByRole('button', { name: /^5 others/ })).toBeNull()
     expect(within(list).getAllByRole('button')).toHaveLength(2)
+    const others = within(list).getByText('5 others').closest('.mf-bar')
+    expect(others?.classList.contains('mf-bar--others')).toBe(true)
+  })
+
+  it('leaves for the table on Esc from the Spending/Income switch', async () => {
+    const onleave = vi.fn()
+    setup({ onleave })
+    const spending = screen.getByRole('radio', { name: 'Spending' })
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    spending.dispatchEvent(event)
+    expect(onleave).toHaveBeenCalledTimes(1)
+    // Claimed, so the shell's Esc does not also go back a level.
+    expect(event.defaultPrevented).toBe(true)
   })
 
   it('draws the cursor row’s bar solid and makes it the Tab stop', () => {

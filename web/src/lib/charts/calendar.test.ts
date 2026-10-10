@@ -50,6 +50,7 @@ describe('calendarCells', () => {
     expect(blocks).toHaveLength(1)
     const [block] = blocks
     expect(block?.label).toBe('Sep 2026')
+    expect(block?.ticks).toBeUndefined()
     // September 1, 2026 is a Tuesday; the 30th is a Wednesday.
     expect(block?.weeks).toHaveLength(5)
     expect(block?.weeks[0]?.map((cell) => cell?.date)).toEqual([
@@ -84,7 +85,7 @@ describe('calendarCells', () => {
     expect(cells(blocks)).toHaveLength(61)
   })
 
-  it('lays a year out as a strip of 53 week columns ending on its last day', () => {
+  it('lays a year out as a Sunday-first strip of week columns with month ticks', () => {
     const heatmap = { layout: 'weeks', start: '2025-01-01', end: '2025-12-31' } as const
     const blocks = calendarCells(
       heatmap,
@@ -94,16 +95,29 @@ describe('calendarCells', () => {
     )
     expect(blocks).toHaveLength(1)
     const weeks = blocks[0]!.weeks
+    // January 1, 2025 is a Wednesday, so the strip opens on three empty slots.
     expect(weeks).toHaveLength(53)
-    // 365 days fill 52 weeks and one day, so the first column holds only January 1.
-    expect(weeks[0]?.filter((cell) => cell !== undefined).map((cell) => cell.date)).toEqual([
+    expect(weeks[0]?.map((cell) => cell?.date)).toEqual([
+      undefined,
+      undefined,
+      undefined,
       '2025-01-01',
+      '2025-01-02',
+      '2025-01-03',
+      '2025-01-04',
     ])
-    expect(weeks[52]?.at(-1)?.date).toBe('2025-12-31')
+    expect(weeks[52]?.find((cell) => cell?.date === '2025-12-31')).toBeDefined()
     expect(cells(blocks)).toHaveLength(365)
+    // Each month is ticked at the week column holding its first day.
+    expect(blocks[0]!.ticks?.slice(0, 3)).toEqual([
+      { column: 0, label: 'Jan' },
+      { column: 4, label: 'Feb' },
+      { column: 8, label: 'Mar' },
+    ])
+    expect(blocks[0]!.ticks).toHaveLength(12)
   })
 
-  it('fills all 53 columns of the strip that ends at Latest', () => {
+  it('keeps Sunday-first rows for the strip that ends at Latest', () => {
     const heatmap = { layout: 'weeks', start: '2025-10-02', end: '2026-10-07' } as const
     const blocks = calendarCells(
       heatmap,
@@ -112,9 +126,13 @@ describe('calendarCells', () => {
       '2026-10-07',
     )
     const weeks = blocks[0]!.weeks
-    expect(weeks).toHaveLength(53)
-    expect(weeks.every((week) => week.every((cell) => cell !== undefined))).toBe(true)
-    expect(weeks[0]?.[0]?.date).toBe('2025-10-02')
+    // 371 days from a Thursday to a Wednesday span 54 Sunday-first weeks.
+    expect(weeks).toHaveLength(54)
+    expect(weeks[0]?.[4]?.date).toBe('2025-10-02')
+    expect(weeks[53]?.[3]?.date).toBe('2026-10-07')
+    expect(cells(blocks)).toHaveLength(371)
+    // The first column holds no first of a month, so October gets no tick.
+    expect(blocks[0]!.ticks?.[0]).toEqual({ column: 4, label: 'Nov' })
   })
 
   it('splits days with Out into four levels by size, leaving days without Out at zero', () => {
@@ -179,6 +197,15 @@ describe('calendarCells', () => {
     expect(cellOn(blocks, '2026-09-15').name).toBe('Sep 15, 2026, out -480.00, in +120.00')
     expect(cellOn(blocks, '2026-09-16').name).toBe('Sep 16, 2026, out -1,234.56')
     expect(cellOn(blocks, '2026-09-17').name).toBe('Sep 17, 2026, out +0.00')
+    // The visible label and amounts show a dash for zero, as the table does.
+    expect(cellOn(blocks, '2026-09-17')).toMatchObject({
+      day: '17',
+      label: 'Sep 17, 2026',
+      out: '—',
+      in: '—',
+    })
+    expect(cellOn(blocks, '2026-09-15')).toMatchObject({ out: '-480.00', in: '+120.00' })
+    expect(cellOn(blocks, '2026-09-01').day).toBe('1')
   })
 
   it('puts only the scope inside a Day scope, and every day inside All', () => {

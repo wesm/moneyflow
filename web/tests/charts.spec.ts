@@ -246,15 +246,14 @@ function column(page: Page, label: string): Locator {
 }
 
 /**
- * Moves focus back from the table until `target` has it. The right panel's Tab stops sit between
- * the cash-flow chart and the table, and their number depends on the panel shown.
+ * Shift+Tab from the table through a grouped view's right panel: its bar stop, then its
+ * Spending/Income switch. The next Shift+Tab reaches the cash-flow chart.
  */
-async function tabBackTo(page: Page, target: Locator): Promise<void> {
-  for (let press = 0; press < 4; press += 1) {
-    await page.keyboard.press('Shift+Tab')
-    if (await target.evaluate((element) => element === document.activeElement)) return
-  }
-  await expect(target).toBeFocused()
+async function backThroughComposition(page: Page): Promise<void> {
+  await page.keyboard.press('Shift+Tab')
+  await expect(whereItWent(page).locator('button[tabindex="0"]')).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByRole('radio', { name: 'Spending' })).toBeFocused()
 }
 
 function periodControl(page: Page): Locator {
@@ -294,7 +293,9 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   const grid = page.getByRole('grid', { name: 'Financial results' })
   await expect(cashflow(page).locator('button[tabindex="0"]')).toHaveCount(1)
   // The chart comes before the right panel and the table; its stop starts on the last month.
-  await tabBackTo(page, column(page, 'Oct 2026'))
+  await backThroughComposition(page)
+  await page.keyboard.press('Shift+Tab')
+  await expect(column(page, 'Oct 2026')).toBeFocused()
   await page.keyboard.press('ArrowLeft')
   await expect(column(page, 'Sep 2026')).toBeFocused()
   await expect(page.getByRole('tooltip')).toContainText('Sep 2026')
@@ -303,7 +304,9 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   await expect(grid).toBeFocused()
 
   // Shift+Enter extends the scope to the focused column, as a shift-click does.
-  await tabBackTo(page, column(page, 'Sep 2026'))
+  await backThroughComposition(page)
+  await page.keyboard.press('Shift+Tab')
+  await expect(column(page, 'Sep 2026')).toBeFocused()
   await page.keyboard.press('ArrowLeft')
   await page.keyboard.press('ArrowLeft')
   await expect(column(page, 'Jul 2026')).toBeFocused()
@@ -314,7 +317,11 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   // Inside a drill, Esc leaves the chart for the table without also going back a level.
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/[?&]drill=merchant/)
-  await tabBackTo(page, column(page, 'Sep 2026'))
+  // The drill lists transactions, so the panel is the heatmap, one Tab stop.
+  await page.keyboard.press('Shift+Tab')
+  await expect(heatmap(page).locator('button[tabindex="0"]')).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(column(page, 'Sep 2026')).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(grid).toBeFocused()
   await expect(page).toHaveURL(/[?&]drill=merchant/)
@@ -471,7 +478,14 @@ for (const theme of ['light', 'dark'] as const) {
     await openMoneyflow(page, server, september)
     await page.keyboard.press('d')
     await expect(heatmap(page).getByRole('button')).toHaveCount(30)
-    const result = await new AxeBuilder({ page }).include('.mf-chart-area').analyze()
-    expect(result.violations).toEqual([])
+    const month = await new AxeBuilder({ page }).include('.mf-chart-area').analyze()
+    expect(month.violations).toEqual([])
+    // A Day scope fades the other days; their numbers must still read.
+    await heatmap(page)
+      .getByRole('button', { name: /^Sep 15, 2026, / })
+      .click()
+    await expect(heatmap(page).locator('.mf-day--scope')).toHaveCount(1)
+    const day = await new AxeBuilder({ page }).include('.mf-chart-area').analyze()
+    expect(day.violations).toEqual([])
   })
 }

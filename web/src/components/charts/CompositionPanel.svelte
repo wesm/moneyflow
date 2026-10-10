@@ -30,6 +30,7 @@
   ]
   /** The switch only changes which ranking shows; both arrived with the summary. */
   let side = $state<CompositionSide>('spending')
+  let panel = $state<HTMLElement>()
   let list = $state<HTMLElement>()
   const bars = $derived(compositionBars(composition, side, scale))
   const rows = $derived(onrow ? bars.filter((bar) => bar.identity !== undefined) : [])
@@ -49,12 +50,22 @@
     End: (_, last) => last,
   }
 
-  function keydown(event: KeyboardEvent, bar: CompositionBar, identity: string): void {
-    if (event.key === 'Escape' && onleave) {
+  // Esc anywhere in the panel, the switch included, returns to the table. It is claimed, so the
+  // shell's Esc does not also go back a level.
+  $effect(() => {
+    const element = panel
+    const leave = onleave
+    if (!element || !leave) return
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
       event.preventDefault()
-      onleave()
-      return
+      leave()
     }
+    element.addEventListener('keydown', escape)
+    return () => element.removeEventListener('keydown', escape)
+  })
+
+  function keydown(event: KeyboardEvent, bar: CompositionBar, identity: string): void {
     // Enter drills, as it does on a table row; Space moves the cursor, as a click does.
     if (event.key === 'Enter') {
       event.preventDefault()
@@ -70,7 +81,7 @@
   }
 </script>
 
-<div class="mf-panel">
+<div class="mf-panel" bind:this={panel}>
   <div class="mf-panel__head">
     <p class="mf-panel__title">{title}</p>
     <SegmentedControl
@@ -101,7 +112,7 @@
               {@render content(bar)}
             </button>
           {:else}
-            <div class="mf-bar">{@render content(bar)}</div>
+            <div class={['mf-bar', bar.others && 'mf-bar--others']}>{@render content(bar)}</div>
           {/if}
         </li>
       {/each}

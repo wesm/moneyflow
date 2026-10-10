@@ -48,13 +48,42 @@ describe('CalendarHeatmap', () => {
     expect(day('Oct 2, 2026').getAttribute('aria-label')).toBe('Oct 2, 2026, out -300.00')
   })
 
-  it('shades Out by level and dots the days with In', () => {
+  it('shades Out by level, dots the days with In, and shows each day number', () => {
     const { day } = setup()
-    expect(day('Oct 5, 2026').className).toMatch(/mf-day--l4/)
+    const level = (name: string) => day(name).style.getPropertyValue('--mf-level')
+    expect(level('Oct 5, 2026')).toBe('4')
     expect(day('Oct 5, 2026').className).toMatch(/mf-day--in/)
-    expect(day('Oct 2, 2026').className).toMatch(/mf-day--l2/)
+    expect(level('Oct 2, 2026')).toBe('2')
     expect(day('Oct 2, 2026').className).not.toMatch(/mf-day--in/)
-    expect(day('Oct 3, 2026').className).toMatch(/mf-day--l0/)
+    expect(level('Oct 3, 2026')).toBe('0')
+    expect(day('Oct 3, 2026').textContent?.trim()).toBe('3')
+  })
+
+  it('heads the month grid with Sunday-first weekday initials and keys the levels', () => {
+    const { group } = setup()
+    const initials = [...group.querySelectorAll('.mf-calendar__weekday')].map(
+      (cell) => cell.textContent,
+    )
+    expect(initials).toEqual(['S', 'M', 'T', 'W', 'T', 'F', 'S'])
+    expect(screen.getByText('Less')).not.toBeNull()
+    expect(screen.getByText('More')).not.toBeNull()
+  })
+
+  it('shows a dash for a day without Out in the tooltip, keeping +0.00 in its name', async () => {
+    const { day } = setup()
+    const third = day('Oct 3, 2026')
+    expect(third.getAttribute('aria-label')).toBe('Oct 3, 2026, out +0.00')
+    third.focus()
+    const tip = await screen.findByRole('tooltip')
+    expect(tip.textContent).toContain('Oct 3, 2026')
+    expect(tip.textContent).toContain('—')
+    expect(tip.textContent).not.toContain('+0.00')
+  })
+
+  it('outlines the scoped day of a Day scope', () => {
+    const { group, day } = setup()
+    expect(day('Oct 5, 2026').className).toMatch(/mf-day--scope/)
+    expect(group.querySelectorAll('.mf-day--scope')).toHaveLength(1)
   })
 
   it('fades days outside the scope and leaves future days blank and out of reach', () => {
@@ -78,13 +107,18 @@ describe('CalendarHeatmap', () => {
     expect(onperiod).toHaveBeenCalledWith({ start: '2026-10-02', end: '2026-10-02' })
   })
 
-  it('labels each month grid, and draws the strip as week columns', () => {
+  it('labels each month grid, and labels the strip with month ticks and weekdays', () => {
     setup()
     expect(screen.getByText('Oct 2026')).not.toBeNull()
     cleanup()
     const { group } = setup({}, october('weeks'))
     expect(group.classList.contains('mf-calendar--weeks')).toBe(true)
     expect(screen.queryByText('Oct 2026')).toBeNull()
+    expect(within(group).getByText('Oct')).not.toBeNull()
+    const rows = [...group.querySelectorAll('.mf-calendar__weekday')].map(
+      (cell) => cell.textContent,
+    )
+    expect(rows).toEqual(['', 'M', '', 'W', '', 'F', ''])
   })
 
   it('is one Tab stop that the arrows move by day and week, and Esc leaves', async () => {

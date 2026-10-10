@@ -280,6 +280,10 @@ test('x in a grouped view explains why it cannot delete', async ({ page, server 
   await expect(page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')).toHaveText(
     'Sep 2026',
   )
+  await page.keyboard.press('x')
+  await expect(notice).toHaveText(reason)
+  await page.getByRole('list', { name: 'Where it went' }).getByRole('button').nth(1).click()
+  await expect(notice).toHaveText('', cleared)
 
   await page.keyboard.press('x')
   await expect(notice).toHaveText(reason)
