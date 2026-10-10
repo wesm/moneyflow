@@ -205,6 +205,24 @@ describe('row actions', () => {
   })
 })
 
+describe('w', () => {
+  afterEach(() => document.body.replaceChildren())
+
+  it('opens write status while a provider write has a phase, and review otherwise', () => {
+    for (const [phase, expected] of [
+      ['writing', 'write'],
+      ['paused', 'write'],
+      [undefined, 'review'],
+    ] as const) {
+      const { context, overlays } = setup(0)
+      const status = phase === undefined ? undefined : { phase }
+      Object.assign(context.controller, { providerWrite: { state: { status } } })
+      localActions(context)['edit.review']()
+      expect(overlays.current, String(phase)).toBe(expected)
+    }
+  })
+})
+
 describe('runRowAction', () => {
   afterEach(() => document.body.replaceChildren())
   const row = { identity: 'row-7', kind: 'transaction' } as const

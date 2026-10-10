@@ -166,7 +166,10 @@ export function createReviewController(options: ReviewControllerOptions): Review
     },
     load,
     loadTargets,
-    targets: (operationID, offset) => targetWindows.get(operationID)?.get(offset) ?? [],
+    targets: (operationID, offset) => {
+      subscribe()
+      return targetWindows.get(operationID)?.get(offset) ?? []
+    },
     targetOffsets: (operationID) =>
       [...(targetWindows.get(operationID)?.keys() ?? [])].sort((a, b) => a - b),
     isStale: () =>

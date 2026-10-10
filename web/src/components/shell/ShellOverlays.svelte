@@ -13,7 +13,6 @@
   import GroupManager from '../editing/GroupManager.svelte'
   import EditorBody from '../editing/EditorBody.svelte'
   import ReviewDrawer from '../editing/ReviewDrawer.svelte'
-  import WriteStatusDrawer from '../editing/WriteStatusDrawer.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import { providerName } from '../../lib/provider-name'
   import type { ViewController } from '../../lib/controller/view-controller.svelte'
@@ -76,13 +75,15 @@
   <CategoryManager controller={controller.editing} {onclose} />
 {:else if overlay === 'groups'}
   <GroupManager controller={controller.editing} {onclose} />
-{:else if overlay === 'review'}
-  <ReviewDrawer editing={controller.editing} review={controller.review} {onclose} {onwrite} />
-{:else if overlay === 'write'}
-  <WriteStatusDrawer
-    controller={controller.providerWrite}
+{:else if overlay === 'review' || overlay === 'write'}
+  <ReviewDrawer
+    mode={overlay}
+    editing={controller.editing}
+    review={controller.review}
+    providerWrite={controller.providerWrite}
     providerName={providerName(projection.profile_kind)}
     {onclose}
+    {onwrite}
     {onreconnect}
   />
 {:else if overlay === 'duplicates'}

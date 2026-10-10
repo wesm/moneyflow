@@ -1349,34 +1349,6 @@ input {
   font-weight: 600;
 }
 
-.review-list button {
-  width: 100%;
-  padding: var(--space-2);
-  text-align: left;
-  color: var(--text-primary);
-  background: var(--bg-inset);
-  border: 1px solid var(--border-default);
-}
-
-.review-list button span {
-  display: block;
-  color: var(--text-secondary);
-}
-
-.review-redo {
-  margin-top: var(--space-5);
-  padding: var(--space-3);
-  border: 1px dashed var(--border-default);
-}
-
-.review-paging {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--kit-space-2);
-  justify-content: space-between;
-  margin-block: var(--kit-space-2);
-}
 .overlay-status {
   min-height: 1.25rem;
   margin: 0;

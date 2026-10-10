@@ -308,3 +308,54 @@ for (const colorScheme of ['light', 'dark'] as const) {
     }
   })
 }
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} review and write status drawer passes axe in both modes`, async ({
+    page,
+  }) => {
+    const server = await startE2EServer()
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    let writing = false
+    await page.route('**/provider/write-status', async (route) => {
+      if (!writing) return route.continue()
+      await route.fulfill({
+        json: {
+          version: '1',
+          revision: '1',
+          generation: '1',
+          batch_version: '1',
+          phase: 'rate_limited',
+          next_eligible: '2026-10-07T13:00:00Z',
+          total: 4,
+          completed: 1,
+          failed: 1,
+          remaining: 2,
+          overrides: 1,
+          actions: ['pause', 'reconcile'],
+        },
+      })
+    })
+    try {
+      await openMoneyflow(page, server)
+      await page.keyboard.press('h')
+      await expect(page.getByText(/1 pending edit/)).toBeVisible()
+      await page.keyboard.press('w')
+      const review = page.getByRole('dialog', { name: 'Review pending changes' })
+      await review.getByRole('button', { expanded: false }).first().click()
+      await expect(review.getByRole('row').nth(1)).toBeVisible()
+      await expectNoAxeViolations(page)
+      await page.keyboard.press('Escape')
+      await expect(review).toBeHidden()
+
+      writing = true
+      await expect(page.getByText(/Editing is locked/)).toBeVisible()
+      await page.keyboard.press('w')
+      const write = page.getByRole('dialog', { name: 'Monarch write status' })
+      await expect(write.getByRole('button', { name: 'Stop and reconcile' })).toBeVisible()
+      await expectNoAxeViolations(page)
+    } finally {
+      await server.stop()
+    }
+  })
+}

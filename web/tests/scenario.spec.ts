@@ -115,6 +115,9 @@ test('@smoke mixed hiding, undo, rejection and cancellation remain usable at nar
     await page.getByRole('button', { name: 'Commit reviewed changes' }).click()
     const write = page.getByRole('dialog', { name: 'Monarch write status' })
     await expect(write.getByRole('button', { name: 'Stop and reconcile' })).toBeVisible()
+    // The review drawer became write status; nothing is left stacked beneath it.
+    await expect(page.getByRole('dialog')).toHaveCount(1)
+    expect(await write.evaluate((node) => node.contains(document.activeElement))).toBe(true)
     expect((await server.observe()).snapshot_calls).toBe(1)
     await page.screenshot({ path: info.outputPath('narrow-write.png'), fullPage: true })
     await write.getByRole('button', { name: 'Stop and reconcile' }).click()

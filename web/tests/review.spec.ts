@@ -25,27 +25,41 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
 
     await page.keyboard.press('Shift+U')
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    const commits: string[] = []
+    page.on('request', (request) => {
+      if (request.url().endsWith('/commit')) commits.push(request.url())
+    })
     await page.keyboard.press('w')
     await expect(review).toBeVisible()
-    const operation = review.locator('.review-list button').first()
+    const commit = review.getByRole('button', { name: 'Commit reviewed changes' })
+    await expect(commit).toBeFocused()
+
+    // Enter on a control with its own Enter does that action and does not commit.
+    const operation = review.getByRole('button', { name: /^Toggle report visibility/ })
     await operation.focus()
-    await expect(operation).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(review.locator('.review-paging')).toContainText(
-      `Showing 1–${Math.min(affected, pageSize)} of ${affected}`,
-    )
+    await expect(operation).toHaveAttribute('aria-expanded', 'true')
+    await expect(review.getByRole('row')).toHaveCount(Math.min(affected, pageSize) + 1)
+    await expect(
+      review.getByText(`Showing 1–${Math.min(affected, pageSize)} of ${affected}`),
+    ).toBeVisible()
     const next = review.getByRole('button', { name: 'Next' })
     if (affected <= pageSize) await expect(next).toBeDisabled()
     else await expect(next).toBeEnabled()
-    await expect(operation).toHaveAttribute('aria-expanded', 'true')
+    await review.getByRole('button', { name: 'Close' }).focus()
+    await page.keyboard.press('Enter')
+    await expect(review).toBeHidden()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    expect(commits).toEqual([])
 
-    const commit = review.getByRole('button', { name: 'Commit reviewed changes' })
-    await expect(commit).toBeEnabled()
-    await commit.focus()
+    // Enter on the focused Commit commits once: the browser does not also click it.
+    await page.keyboard.press('w')
+    await expect(commit).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(review).toBeHidden()
     await expect(page.getByText(/0 pending edit/)).toBeVisible()
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+    expect(commits).toHaveLength(1)
   } finally {
     await server.stop()
   }
