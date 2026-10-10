@@ -4,6 +4,7 @@
   import { MediaQuery } from 'svelte/reactivity'
 
   import ChartArea from '../charts/ChartArea.svelte'
+  import EditLockBanner from '../editing/EditLockBanner.svelte'
   import FinanceGrid from '../table/FinanceGrid.svelte'
   import RowActionsSheet from '../table/RowActionsSheet.svelte'
   import SelectionBar from '../table/SelectionBar.svelte'
@@ -122,6 +123,12 @@
   bind:clientHeight={viewport}
   onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
 >
+  {#if controller.providerWrite.state.status?.phase}
+    <EditLockBanner
+      providerName={projection.profile_kind === 'ynab' ? 'YNAB' : 'Monarch'}
+      onstatus={() => actions.overlays.open('write')}
+    />
+  {/if}
   {#if !compact.current}
     <ChartArea
       {projection}

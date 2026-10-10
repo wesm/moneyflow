@@ -1400,6 +1400,24 @@ input {
   color: var(--text-muted);
   text-decoration: line-through;
 }
+/* The editing lock banner pins left like the chart area while the table scrolls sideways. */
+.mf-lock-banner {
+  position: sticky;
+  left: 0;
+  padding-bottom: var(--space-4);
+}
+.mf-lock-banner__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.mf-lock-banner__text {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+}
 /* Charts: the KPI strip and the chart row, above the table in its scroller. */
 .mf-chart-area {
   /* Pinned while the table scrolls sideways; a block child already spans the scroller. */

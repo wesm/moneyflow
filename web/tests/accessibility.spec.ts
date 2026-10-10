@@ -227,3 +227,38 @@ test('duplicate review and deletion confirmation pass axe and trap focus', async
     await server.stop()
   }
 })
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} edit lock banner and toast pass axe`, async ({ page }) => {
+    const server = await startE2EServer()
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.route('**/provider/write-status', (route) =>
+      route.fulfill({
+        json: {
+          version: '1',
+          revision: '1',
+          generation: '1',
+          phase: 'writing',
+          total: 4,
+          completed: 1,
+          failed: 0,
+          remaining: 3,
+          overrides: 0,
+          actions: ['pause'],
+        },
+      }),
+    )
+    try {
+      await openMoneyflow(page, server)
+      await expect(page.getByText(/Editing is locked until the write finishes/)).toBeVisible()
+      await page.keyboard.press('Enter')
+      await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+      await page.keyboard.press('h')
+      await expect(page.getByRole('status').filter({ hasText: /^Hidden / })).toBeVisible()
+      await expectNoAxeViolations(page)
+    } finally {
+      await server.stop()
+    }
+  })
+}

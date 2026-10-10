@@ -212,6 +212,46 @@ test('x stages count-only deletion and review keeps commit explicit', async ({ p
   }
 })
 
+test('a banner locks editing while a provider write runs and opens write status', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    let phase: string | undefined = 'writing'
+    await page.route('**/provider/write-status', (route) =>
+      route.fulfill({
+        json: {
+          version: '1',
+          revision: '1',
+          generation: '1',
+          total: 4,
+          completed: 1,
+          failed: 0,
+          remaining: 3,
+          overrides: 0,
+          actions: ['pause'],
+          ...(phase ? { phase } : {}),
+        },
+      }),
+    )
+    await openMoneyflow(page, server)
+    const banner = page.getByText('Writing to Monarch · Editing is locked until the write finishes')
+    await expect(banner).toBeVisible()
+    const box = await banner.boundingBox()
+    const kpi = await page.locator('.mf-chart-area').boundingBox()
+    expect(box!.y + box!.height).toBeLessThanOrEqual(kpi!.y)
+
+    await page.getByRole('button', { name: /^Status\s*w$/ }).click()
+    await expect(page.getByRole('dialog', { name: 'Monarch write status' })).toBeVisible()
+    await page.keyboard.press('Escape')
+
+    phase = undefined
+    await expect(banner).toBeHidden({ timeout: 5_000 })
+  } finally {
+    await server.stop()
+  }
+})
+
 /** The keys the status line hints at, in order. */
 async function hintKeys(page: Page): Promise<string[]> {
   return await page
