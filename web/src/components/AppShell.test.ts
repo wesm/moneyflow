@@ -281,7 +281,8 @@ describe('AppShell', () => {
     expect(within(sheet).getByRole('combobox', { name: /^Currency/ })).not.toBeNull()
     expect(within(sheet).getByRole('button', { name: 'Filters' })).not.toBeNull()
 
-    await fireEvent.keyDown(window, { key: 'Escape' })
+    expect(sheet.contains(document.activeElement)).toBe(true)
+    await fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
     await frames.flush()
     expect(screen.queryByRole('dialog', { name: 'View' })).toBeNull()
     expect(document.activeElement).toBe(view)

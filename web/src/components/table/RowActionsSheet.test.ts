@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import RowActionsSheet from './RowActionsSheet.svelte'
+import { OverlayState } from '../../lib/shell/overlay-state.svelte'
 import { testCapabilities } from '../../test/capabilities'
 import { testProjection } from '../../test/projection'
 
@@ -20,7 +21,13 @@ function sheet(unavailable: string[] = []) {
     ),
   })
   const events = { onaction: vi.fn(), onclose: vi.fn() }
-  render(RowActionsSheet, { open: true, row: projection.detail_rows![0]!, projection, ...events })
+  const overlays = new OverlayState({
+    pushScope: () => undefined,
+    focusGrid: () => {},
+    grid: () => undefined,
+  })
+  const row = projection.detail_rows![0]!
+  render(RowActionsSheet, { open: true, row, projection, overlays, ...events })
   return events
 }
 
@@ -55,7 +62,7 @@ describe('RowActionsSheet', () => {
 
   it('closes on Escape', async () => {
     const { onclose } = sheet()
-    await fireEvent.keyDown(window, { key: 'Escape' })
+    await fireEvent.keyDown(screen.getByRole('button', { name: 'Info' }), { key: 'Escape' })
     expect(onclose).toHaveBeenCalledTimes(1)
   })
 })

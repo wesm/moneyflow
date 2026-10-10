@@ -188,6 +188,7 @@
     open={actions.overlays.current === 'actions'}
     row={sheetRow}
     {projection}
+    overlays={actions.overlays}
     onaction={(action) => {
       status.clear()
       runRowAction(actions, action, target)

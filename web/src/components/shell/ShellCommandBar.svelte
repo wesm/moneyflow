@@ -234,8 +234,7 @@
     {/snippet}
   </CommandBar>
   <ViewSheet
-    open={overlays.current === 'view'}
-    onclose={() => overlays.close()}
+    {overlays}
     {projection}
     period={segments}
     {currency}

@@ -1,14 +1,18 @@
 <script lang="ts">
   import { IconButton } from '@kenn-io/kit-ui'
   import { trapFocus } from '@kenn-io/kit-ui/utils/focus-trap'
-  import { backdropCloses, escapeCloses } from '@kenn-io/kit-ui/utils/overlay'
+  import { backdropCloses } from '@kenn-io/kit-ui/utils/overlay'
   import XIcon from '@lucide/svelte/icons/x'
   import type { Snippet } from 'svelte'
+
+  import type { OverlayState } from '../../lib/shell/overlay-state.svelte'
 
   interface Props {
     open: boolean
     /** Heading and accessible name of the sheet. */
     title: string
+    /** Takes Escape on the panel while the sheet is the innermost overlay. */
+    overlays: OverlayState
     /** Called on Escape, a press on the scrim, or the close button. */
     onclose: () => void
     children: Snippet
@@ -16,13 +20,10 @@
     footer?: Snippet | undefined
   }
 
-  let { open, title, onclose, children, footer }: Props = $props()
+  let { open, title, overlays, onclose, children, footer }: Props = $props()
   const uid = $props.id()
   const headingId = `mf-sheet-title-${uid}`
-  const escape = escapeCloses(() => onclose())
 </script>
-
-<svelte:window onkeydown={open ? escape : undefined} />
 
 {#if open}
   <!-- kit-ui has no bottom sheet; this composes its focus trap (upstream candidate). -->
@@ -34,6 +35,7 @@
       aria-labelledby={headingId}
       tabindex="-1"
       {@attach trapFocus}
+      {@attach overlays.escapeLayer(() => onclose())}
     >
       <div class="mf-sheet__header">
         <h2 class="mf-sheet__title" id={headingId}>{title}</h2>

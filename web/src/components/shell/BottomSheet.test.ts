@@ -3,9 +3,19 @@ import { createRawSnippet } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import BottomSheet from './BottomSheet.svelte'
+import { OverlayState } from '../../lib/shell/overlay-state.svelte'
+import StackedSheetHarness from '../../test/StackedSheetHarness.svelte'
 
 function snippet(html: string) {
   return createRawSnippet(() => ({ render: () => html }))
+}
+
+function overlayState(): OverlayState {
+  return new OverlayState({
+    pushScope: () => undefined,
+    focusGrid: () => {},
+    grid: () => undefined,
+  })
 }
 
 function sheet(open = true) {
@@ -16,6 +26,7 @@ function sheet(open = true) {
   const rendered = render(BottomSheet, {
     open,
     title: 'View',
+    overlays: overlayState(),
     onclose,
     children: snippet('<div><button type="button">First</button></div>'),
     footer: snippet('<div><button type="button">Done</button></div>'),
@@ -46,7 +57,7 @@ describe('BottomSheet', () => {
 
   it('closes on Escape, the close button, and a press on the scrim', async () => {
     const { onclose } = sheet()
-    await fireEvent.keyDown(window, { key: 'Escape' })
+    await fireEvent.keyDown(screen.getByRole('button', { name: 'First' }), { key: 'Escape' })
     expect(onclose).toHaveBeenCalledTimes(1)
     await fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onclose).toHaveBeenCalledTimes(2)
@@ -59,9 +70,27 @@ describe('BottomSheet', () => {
 
   it('leaves an Escape that an inner control claimed', async () => {
     const { onclose } = sheet()
-    const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
     event.preventDefault()
-    window.dispatchEvent(event)
+    screen.getByRole('button', { name: 'First' }).dispatchEvent(event)
+    expect(onclose).not.toHaveBeenCalled()
+  })
+
+  it('leaves Escape to a kit Modal stacked above it, and stays open', async () => {
+    const onclosesheet = vi.fn()
+    const onclosemodal = vi.fn()
+    render(StackedSheetHarness, { overlays: overlayState(), onclosesheet, onclosemodal })
+    const confirm = screen.getByRole('button', { name: 'Confirm' })
+    confirm.focus()
+    await fireEvent.keyDown(confirm, { key: 'Escape' })
+    expect(onclosemodal).toHaveBeenCalledTimes(1)
+    expect(onclosesheet).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'View' })).not.toBeNull()
+  })
+
+  it('takes no Escape while closed', async () => {
+    const { onclose } = sheet(false)
+    await fireEvent.keyDown(window, { key: 'Escape' })
     expect(onclose).not.toHaveBeenCalled()
   })
 

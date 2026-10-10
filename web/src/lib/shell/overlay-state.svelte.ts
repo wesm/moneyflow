@@ -114,7 +114,8 @@ export class OverlayState {
   /**
    * Attaches to an overlay panel that takes Escape itself. While the panel is the innermost
    * layer, an Escape inside it that no control claimed calls `onescape`. An Escape on a control
-   * with an open popup belongs to that popup.
+   * with an open popup belongs to that popup. So does any Escape while a kit popup is open in the
+   * panel: kit's `dismissable` takes it on the document, after the panel has seen it.
    */
   escapeLayer(onescape: () => void): Attachment<HTMLElement> {
     return (panel) => {
@@ -125,6 +126,7 @@ export class OverlayState {
         if (this.#layers.at(-1) !== layer) return
         const target = event.target
         if (target instanceof Element && target.getAttribute('aria-expanded') === 'true') return
+        if (panel.querySelector('.kit-popover-card:not([hidden])')) return
         event.preventDefault()
         event.stopPropagation()
         onescape()

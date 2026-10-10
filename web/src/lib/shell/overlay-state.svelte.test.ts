@@ -168,6 +168,24 @@ describe('OverlayState escape layers', () => {
     expect(onescape).not.toHaveBeenCalled()
   })
 
+  it('leaves Escape to an open kit popup in the panel, wherever focus is', () => {
+    const { overlays } = setup()
+    const onescape = vi.fn()
+    const { button } = layer(overlays, onescape)
+    const popup = document.createElement('div')
+    popup.className = 'kit-filter-dropdown__panel kit-popover-card'
+    const item = document.createElement('button')
+    popup.append(item)
+    button.after(popup)
+    // kit's `dismissable` takes the Escape on the document, after the panel.
+    expect(escape(item).defaultPrevented).toBe(false)
+    expect(escape(button).defaultPrevented).toBe(false)
+    expect(onescape).not.toHaveBeenCalled()
+    popup.hidden = true
+    escape(item)
+    expect(onescape).toHaveBeenCalledTimes(1)
+  })
+
   it('stops a taken Escape before window listeners see it', () => {
     const { overlays } = setup()
     const windowListener = vi.fn()
