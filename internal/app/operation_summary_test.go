@@ -162,3 +162,27 @@ func TestUndoRedoOfAHideKeepTheHideLabel(t *testing.T) {
 	assert.Equal(t, app.OperationHide, redone.OperationKind)
 	assert.Equal(t, "Hide transactions", redone.OperationLabel)
 }
+
+func TestUndoRedoOfAMixedSelectionHideKeepTheHideLabelAndOnlyVisibleCount(t *testing.T) {
+	service := summaryService(t)
+	selection, err := app.NewExplicitTransactionSelection(
+		[]domain.EntityID{"transaction_a", "transaction_b"}, service.Revision(),
+	)
+	require.NoError(t, err)
+	staged, err := service.Mutate(t.Context(), app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: service.Revision(),
+		State: detailViewState(), Selection: selection,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Hide transactions", staged.OperationLabel)
+	undone, err := service.Undo(t.Context(), staged.Revision)
+	require.NoError(t, err)
+	assert.Equal(t, app.OperationHide, undone.OperationKind)
+	assert.Equal(t, "Hide transactions", undone.OperationLabel)
+	assert.Equal(t, 1, undone.Affected)
+	redone, err := service.Redo(t.Context(), undone.Revision)
+	require.NoError(t, err)
+	assert.Equal(t, app.OperationHide, redone.OperationKind)
+	assert.Equal(t, "Hide transactions", redone.OperationLabel)
+	assert.Equal(t, 1, redone.Affected)
+}

@@ -245,13 +245,17 @@ func reviewValues(
 	case domain.OperationMerchantReassign:
 		return "", merchantLabel(after, operation.Reassign.DestinationID), "merchant"
 	case domain.OperationTransactionHide:
-		if hides {
-			return "Visible", "Hidden", ""
-		}
-		return "Hidden", "Visible", ""
+		return hideReviewValues(hides)
 	default:
 		return "", "", ""
 	}
+}
+
+func hideReviewValues(hides bool) (string, string, string) {
+	if hides {
+		return "Visible", "Hidden", ""
+	}
+	return "Hidden", "Visible", ""
 }
 
 func merchantReviewAfter(profile domain.CommittedProfile, operation domain.Operation) string {
