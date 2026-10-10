@@ -24,8 +24,14 @@ function preview(overrides: Partial<MerchantPreview> = {}): MerchantPreview {
 }
 
 const choices = [
-  { id: 'merchant-a', label: 'Corner Grocery', protected: false, transaction_count: 130 },
-  { id: 'merchant-b', label: 'Maple Court', protected: false, transaction_count: 34 },
+  {
+    id: 'merchant-a',
+    label: 'Corner Grocery',
+    protected: false,
+    transaction_count: 130,
+    in_use: true,
+  },
+  { id: 'merchant-b', label: 'Maple Court', protected: false, transaction_count: 34, in_use: true },
 ]
 
 describe('countLine', () => {
@@ -165,7 +171,13 @@ describe('editorIntent', () => {
   })
 
   it('moves transactions to an existing category', () => {
-    const match = { id: 'category-a', label: 'Groceries', protected: false, transaction_count: 1 }
+    const match = {
+      id: 'category-a',
+      label: 'Groceries',
+      protected: false,
+      transaction_count: 1,
+      in_use: true,
+    }
     const intent = editorIntent({ kind: 'category', target, text: 'groceries', scope: '', match })
     expect(intent).toEqual({
       action: 'transaction.edit-category',

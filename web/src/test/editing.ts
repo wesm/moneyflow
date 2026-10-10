@@ -7,19 +7,34 @@ export const testCatalog: EditorCatalog = {
   version: '1',
   revision: '1',
   merchants: [
-    { id: 'merchant-a', label: 'Example Merchant', protected: false, transaction_count: 4 },
+    {
+      id: 'merchant-a',
+      label: 'Example Merchant',
+      protected: false,
+      transaction_count: 4,
+      in_use: true,
+    },
   ],
   categories: [
-    { id: 'category-uncategorized', label: 'Uncategorized', protected: true, transaction_count: 0 },
+    {
+      id: 'category-uncategorized',
+      label: 'Uncategorized',
+      protected: true,
+      transaction_count: 0,
+      in_use: false,
+    },
     {
       id: 'category-a',
       label: 'Example Category',
       parent_id: 'group-a',
       protected: false,
       transaction_count: 4,
+      in_use: true,
     },
   ],
-  groups: [{ id: 'group-a', label: 'Example Group', protected: false, transaction_count: 4 }],
+  groups: [
+    { id: 'group-a', label: 'Example Group', protected: false, transaction_count: 4, in_use: true },
+  ],
 }
 
 export function testEditingController(

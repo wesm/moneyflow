@@ -157,11 +157,14 @@ into the list, and Up from its first row to return to the filter. Then use these
 | Esc | Leave the open step; then clear the filter; then close the drawer |
 
 The drawer's buttons do the same. Each action opens a short step above the list. Merge stays
-disabled until you choose a destination. The delete step shows how many transactions use the
-entry. A category with transactions, or a group that still has categories, needs a replacement,
-and Delete stays disabled until you choose one. An unused category, or a group without
-categories, needs none: Enter deletes it. A merged category, or a deleted one with a
-replacement, moves its transactions there; a merged or deleted group moves its categories there.
+disabled until you choose a destination. The delete step shows how many committed transactions
+use the entry. A category with transactions, or a group that still has categories, needs a
+replacement, and Delete stays disabled until you choose one. Pending edits count: a new category
+that a pending edit fills needs a replacement, and its step says
+`Pending edits use this category`. A group without transactions shows how many categories it
+has. An unused category, or a group without categories, needs none: Enter deletes it. A merged
+category, or a deleted one with a replacement, moves its transactions there; a merged or deleted
+group moves its categories there.
 While the drawer is open, these keys do not reach the table, so `g`, `m`, and `d` never change
 the view or open the merchant editor behind it.
 

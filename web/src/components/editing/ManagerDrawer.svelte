@@ -9,6 +9,7 @@
   import {
     ACTION_LABELS,
     canStart,
+    deleteDetail,
     managerActions,
     managerChoices,
     managerIntent,
@@ -167,6 +168,7 @@
         choices={stepChoices(step, kind, catalog)}
         {groups}
         {ready}
+        detail={step.source ? deleteDetail(kind, step.source, catalog) : ''}
         error={error || problem}
         onconfirm={() => void confirm()}
         onback={back}

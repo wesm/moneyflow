@@ -154,3 +154,48 @@ func TestEditorCatalogCountsSumSeveralTransactionsPerChoice(t *testing.T) {
 	assert.Equal(t, 4, counts["group_a"], "a group sums the transactions of its categories")
 	assert.Equal(t, 1, counts["group_b"])
 }
+
+func catalogInUse(t *testing.T, service *app.Service) map[domain.EntityID]bool {
+	t.Helper()
+	catalog, err := service.EditorCatalog()
+	require.NoError(t, err)
+	inUse := make(map[domain.EntityID]bool)
+	for _, choices := range [][]app.EditorChoice{
+		catalog.Merchants, catalog.Categories, catalog.Groups,
+	} {
+		for _, choice := range choices {
+			inUse[choice.ID] = choice.InUse
+		}
+	}
+	return inUse
+}
+
+// InUse follows the rule a delete applies: it needs a replacement exactly when the pending
+// profile still has a category's transactions or a group's categories.
+func TestEditorCatalogMarksChoicesInUseWithPendingEditsApplied(t *testing.T) {
+	t.Parallel()
+	profile := newMemoryProfile(t, 5)
+	committed := &profile.snapshot.Committed
+	committed.Groups = append(committed.Groups, domain.CategoryGroup{
+		ID: "group_empty", Label: "Empty Group", CollisionKey: "empty group",
+	})
+	require.NoError(t, committed.Validate())
+	service, err := app.NewProfileService(t.Context(), profile)
+	require.NoError(t, err)
+
+	inUse := catalogInUse(t, service)
+	assert.True(t, inUse["category_a"])
+	assert.True(t, inUse["merchant_a"])
+	assert.False(t, inUse[domain.UncategorizedCategoryID], "an empty category")
+	assert.False(t, inUse["group_empty"], "a group without categories")
+
+	stagedMutate(t, service, app.ActionEditCategory, "transaction_a",
+		app.EditInput{Scope: app.EditScopeTransactions, DestinationID: domain.UncategorizedCategoryID})
+
+	inUse = catalogInUse(t, service)
+	counts := catalogCounts(t, service)
+	assert.True(t, inUse[domain.UncategorizedCategoryID], "only a pending edit moved rows in")
+	assert.Zero(t, counts[domain.UncategorizedCategoryID], "the count stays committed")
+	assert.False(t, inUse["category_a"], "its only transaction moved out")
+	assert.True(t, inUse["group_a"], "a group with a category, though it has no transactions")
+}

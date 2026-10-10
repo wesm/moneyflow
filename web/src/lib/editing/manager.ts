@@ -113,23 +113,9 @@ export function canStart(action: ManagerAction, source: EditorChoice | undefined
 }
 
 /**
- * Whether deleting `source` must name a replacement, as the server decides: a category with
- * transactions, or a group that still has categories. The server deletes an unused entry
- * without one. It counts transactions with pending edits applied, while the catalog counts
- * committed ones, so a pending edit can make the two disagree; the server then refuses.
- */
-function needsReplacement(
-  kind: ManagerKind,
-  source: EditorChoice,
-  catalog: EditorCatalog | undefined,
-): boolean {
-  if (kind === 'category') return source.transaction_count > 0
-  return (catalog?.categories ?? []).some((category) => category.parent_id === source.id)
-}
-
-/**
  * The new step for `action` on `source`: a new category starts in the first group, a rename
- * starts from the current name, and a delete knows whether it needs a replacement.
+ * starts from the current name, and a delete needs a replacement when the server reports the
+ * entry in use with pending edits applied.
  */
 export function startStep(
   kind: ManagerKind,
@@ -137,13 +123,30 @@ export function startStep(
   source: EditorChoice | undefined,
   catalog: EditorCatalog | undefined,
 ): ManagerStep {
-  if (action === 'create' || !source) {
+  if (action === 'create') {
     const group = kind === 'category' ? (catalog?.groups?.[0]?.id ?? '') : ''
     return { action, label: '', target: group, replace: false }
   }
+  if (!source) throw new Error(`Cannot start a ${action} step without a ${kind} to change`)
   const label = action === 'rename' ? source.label : ''
-  const replace = action === 'delete' && needsReplacement(kind, source, catalog)
-  return { action, source, label, target: '', replace }
+  return { action, source, label, target: '', replace: action === 'delete' && source.in_use }
+}
+
+/**
+ * What a delete affects: its committed transactions, or, when it is in use without any, the
+ * pending edits that use a category or the categories a group holds.
+ */
+export function deleteDetail(
+  kind: ManagerKind,
+  source: EditorChoice,
+  catalog: EditorCatalog | undefined,
+): string {
+  if (source.transaction_count > 0 || !source.in_use) {
+    return transactionCount(source.transaction_count)
+  }
+  if (kind === 'category') return 'Pending edits use this category'
+  const count = (catalog?.categories ?? []).filter((item) => item.parent_id === source.id).length
+  return `${count} ${count === 1 ? 'category' : 'categories'}`
 }
 
 /** The categories or groups the manager lists. */

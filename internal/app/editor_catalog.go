@@ -17,6 +17,10 @@ type EditorChoice struct {
 	Protected bool
 	// TransactionCount is the number of committed, non-deleted transactions using the choice.
 	TransactionCount int
+	// InUse reports, with pending edits applied, that a transaction uses the merchant or
+	// category, or that a category belongs to the group. Deleting a category or group in use
+	// requires a replacement.
+	InUse bool
 }
 
 // EditorCatalog contains detached active entities needed by editing interfaces.
@@ -86,14 +90,41 @@ func countCommittedUsage(committed domain.CommittedProfile) committedUsage {
 	return usage
 }
 
+// effectiveUse marks what the pending profile still uses, by the rules that make a delete
+// require a replacement: categoryHasTransactions and groupHasCategories.
+type effectiveUse struct {
+	merchants  map[domain.EntityID]bool
+	categories map[domain.EntityID]bool
+	groups     map[domain.EntityID]bool
+}
+
+func markEffectiveUse(effective domain.CommittedProfile) effectiveUse {
+	use := effectiveUse{
+		merchants:  make(map[domain.EntityID]bool),
+		categories: make(map[domain.EntityID]bool),
+		groups:     make(map[domain.EntityID]bool),
+	}
+	for _, transaction := range effective.Transactions {
+		use.merchants[transaction.MerchantID] = true
+		use.categories[transaction.CategoryID] = true
+	}
+	for _, category := range effective.Categories {
+		if !category.Retired {
+			use.groups[category.GroupID] = true
+		}
+	}
+	return use
+}
+
 func editorCatalog(snapshot EffectiveSnapshot) EditorCatalog {
 	catalog := EditorCatalog{}
 	usage := countCommittedUsage(snapshot.Committed)
+	use := markEffectiveUse(snapshot.Effective)
 	for _, merchant := range snapshot.Effective.Merchants {
 		if !merchant.Retired {
 			catalog.Merchants = append(catalog.Merchants, EditorChoice{
 				ID: merchant.ID, Label: merchant.Label,
-				TransactionCount: usage.merchants[merchant.ID],
+				TransactionCount: usage.merchants[merchant.ID], InUse: use.merchants[merchant.ID],
 			})
 		}
 	}
@@ -102,6 +133,7 @@ func editorCatalog(snapshot EffectiveSnapshot) EditorCatalog {
 			catalog.Categories = append(catalog.Categories, EditorChoice{
 				ID: category.ID, Label: category.Label, ParentID: category.GroupID,
 				Protected: category.Protected, TransactionCount: usage.categories[category.ID],
+				InUse: use.categories[category.ID],
 			})
 		}
 	}
@@ -109,7 +141,7 @@ func editorCatalog(snapshot EffectiveSnapshot) EditorCatalog {
 		if !group.Retired {
 			catalog.Groups = append(catalog.Groups, EditorChoice{
 				ID: group.ID, Label: group.Label, Protected: group.Protected,
-				TransactionCount: usage.groups[group.ID],
+				TransactionCount: usage.groups[group.ID], InUse: use.groups[group.ID],
 			})
 		}
 	}

@@ -8,6 +8,7 @@ function choice(id: string, label: string, count: number, parent?: string): Edit
     label,
     protected: false,
     transaction_count: count,
+    in_use: count > 0,
     ...(parent ? { parent_id: parent } : {}),
   }
 }

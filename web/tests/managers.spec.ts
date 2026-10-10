@@ -139,6 +139,58 @@ test('the category manager stages every action from its own keys', async ({ page
   }
 })
 
+test('a category that only pending edits use still needs a replacement', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await page.keyboard.press('Shift+C')
+    const manager = page.getByRole('dialog', { name: 'Manage categories' })
+    const list = manager.getByRole('listbox', { name: 'Categories' })
+    await expect(manager.getByLabel('Filter categories')).toBeFocused()
+    await expect(list.getByRole('option').first()).toBeVisible()
+    await page.keyboard.press('ArrowDown')
+    await expect(list).toBeFocused()
+    await page.keyboard.press('n')
+    await expect(manager.getByRole('textbox', { name: 'Name' })).toBeFocused()
+    await page.keyboard.type('Pet Care')
+    await page.keyboard.press('Enter')
+    await expect(list.getByRole('option', { name: /^Pet Care, .*, 0 transactions$/ })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(grid).toBeFocused()
+
+    await page.keyboard.press('c')
+    const editor = page.getByRole('dialog', { name: 'Change category' })
+    const field = editor.getByRole('combobox', { name: 'Category' })
+    await field.fill('Pet Care')
+    await page.keyboard.press('Enter')
+    await expect(field).toHaveValue('Pet Care')
+    await expect(editor.getByRole('button', { name: /^Stage change to / })).toBeEnabled()
+    await page.keyboard.press('Enter')
+    await expect(editor).toBeHidden()
+    await expect(page.getByText(/2 pending edit/)).toBeVisible()
+
+    // The catalog still counts 0 committed transactions, but the pending edit uses Pet Care.
+    await page.keyboard.press('Shift+C')
+    await expect(manager.getByLabel('Filter categories')).toBeFocused()
+    await page.keyboard.type('pet care')
+    await expect(list.getByRole('option')).toHaveCount(1)
+    await page.keyboard.press('ArrowDown')
+    await expect(list).toBeFocused()
+    await page.keyboard.press('d')
+    await expect(manager.getByRole('heading', { name: 'Delete Pet Care' })).toBeVisible()
+    await expect(
+      manager.getByText('Pending edits use this category', { exact: true }),
+    ).toBeVisible()
+    const replacement = manager.getByRole('combobox', { name: 'Replacement' })
+    await expect(replacement).toBeFocused()
+    await pickAndConfirm(page, replacement, 'Groceries')
+    await expect(page.getByText(/3 pending edit/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
 test('the group manager stages every action and has no move', async ({ page }) => {
   const server = await startE2EServer()
   try {

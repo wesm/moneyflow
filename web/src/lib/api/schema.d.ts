@@ -961,6 +961,7 @@ export interface components {
     }
     EditorChoice: {
       id: string
+      in_use: boolean
       label: string
       parent_id?: string
       protected: boolean

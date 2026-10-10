@@ -617,6 +617,8 @@ components:
       properties:
         id:
           type: string
+        in_use:
+          type: boolean
         label:
           type: string
         parent_id:
@@ -631,6 +633,7 @@ components:
         - label
         - protected
         - transaction_count
+        - in_use
       type: object
     ErrorDetail:
       additionalProperties: false

@@ -14,7 +14,6 @@
     type ManagerStep,
   } from '../../lib/editing/manager'
   import { editorOptions, type EditorChoice } from '../../lib/editing/options'
-  import { transactionCount } from '../../lib/editing/toasts'
 
   interface Props {
     kind: ManagerKind
@@ -26,6 +25,8 @@
     groups: EditorChoice[]
     /** Whether the step has what its action needs and is not already staging. */
     ready: boolean
+    /** What a delete affects, such as "4 transactions" or "2 categories". */
+    detail: string
     error: string
     onconfirm: () => void
     onback: () => void
@@ -37,6 +38,7 @@
     choices,
     groups,
     ready,
+    detail,
     error,
     onconfirm,
     onback,
@@ -81,7 +83,7 @@
   >
     <h2 id="mf-manager-step">{stepTitle(kind, step)}</h2>
     {#if action === 'delete'}
-      <p class="mf-quiet">{transactionCount(step.source?.transaction_count ?? 0)}</p>
+      <p class="mf-quiet">{detail}</p>
     {/if}
     {#if named}
       <TextInput bind:value={step.label} ariaLabel="Name" block />

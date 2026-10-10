@@ -70,6 +70,9 @@ func TestEditorCatalogReturnsTransactionCountsAndIgnoresStagedEdits(t *testing.T
 	catalog := editorCatalog(t, server, initial.Revision)
 	merchant := findEditorChoiceByLabel(t, catalog.Merchants, "Example Merchant")
 	assert.Equal(t, 2, merchant.TransactionCount)
+	assert.True(t, merchant.InUse)
+	assert.True(t, findEditorChoiceByLabel(t, catalog.Categories, "Example Category").InUse)
+	assert.False(t, findEditorChoiceByLabel(t, catalog.Categories, "Uncategorized").InUse)
 	counted := 0
 	for _, choice := range catalog.Categories {
 		counted += choice.TransactionCount

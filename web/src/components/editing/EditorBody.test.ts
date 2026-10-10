@@ -308,7 +308,13 @@ describe('EditorBody', () => {
   it('keeps the chosen group when Create is accepted again', async () => {
     const groups = [
       ...(testCatalog.groups ?? []),
-      { id: 'group-b', label: 'Second Group', protected: false, transaction_count: 0 },
+      {
+        id: 'group-b',
+        label: 'Second Group',
+        protected: false,
+        transaction_count: 0,
+        in_use: false,
+      },
     ]
     const editing = testEditingController({
       catalog: vi.fn(async () => ({ ...testCatalog, groups })),

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   canStart,
+  deleteDetail,
   listMove,
   managerActions,
   managerIntent,
@@ -24,7 +25,7 @@ const catalog = {
   ...testCatalog,
   groups: [
     ...testCatalog.groups!,
-    { id: 'group-b', label: 'Other Group', protected: false, transaction_count: 0 },
+    { id: 'group-b', label: 'Other Group', protected: false, transaction_count: 0, in_use: false },
   ],
 }
 
@@ -139,11 +140,17 @@ describe('stepReady', () => {
 })
 
 describe('deleting', () => {
-  const unused = { ...category, id: 'category-b', label: 'Unused Category', transaction_count: 0 }
+  const unused = {
+    ...category,
+    id: 'category-b',
+    label: 'Unused Category',
+    transaction_count: 0,
+    in_use: false,
+  }
   const withUnused = { ...catalog, categories: [...categories, unused] }
   const remove = (source = category) => startStep('category', 'delete', source, withUnused)
 
-  it('deletes a category without transactions with no replacement', () => {
+  it('deletes an entry the server reports unused with no replacement', () => {
     const unusedStep = remove(unused)
     expect(unusedStep.replace).toBe(false)
     expect(stepReady(unusedStep, 'category', withUnused.categories)).toBe(true)
@@ -153,7 +160,7 @@ describe('deleting', () => {
     })
   })
 
-  it('needs a replacement for a category with transactions', () => {
+  it('needs a replacement for an entry in use', () => {
     const used = remove()
     expect(used.replace).toBe(true)
     expect(stepReady(used, 'category', withUnused.categories)).toBe(false)
@@ -166,18 +173,16 @@ describe('deleting', () => {
     })
   })
 
-  it('needs a replacement for a group with categories, even without transactions', () => {
-    // The server moves a deleted group's categories, so it asks whether any remain.
-    const empty = { id: 'group-c', label: 'Empty Group', protected: false, transaction_count: 0 }
-    const quiet = { ...unused, parent_id: 'group-c' }
-    const groupsOnly = { ...catalog, groups: [...groups, empty] }
-    expect(startStep('group', 'delete', empty, groupsOnly).replace).toBe(false)
-    const holding = { ...groupsOnly, categories: [...categories, quiet] }
-    expect(startStep('group', 'delete', empty, holding).replace).toBe(true)
-    expect(stepReady(startStep('group', 'delete', empty, holding), 'group', groups)).toBe(false)
+  it('follows in_use, not the committed count, when only pending edits use the entry', () => {
+    // A new category that a pending recategorization filled: 0 committed, but in use.
+    const pending = { ...unused, in_use: true }
+    expect(remove(pending).replace).toBe(true)
+    expect(stepReady(remove(pending), 'category', withUnused.categories)).toBe(false)
+    // Transactions that a pending edit moved out: counted, but no longer in use.
+    expect(remove({ ...category, in_use: false }).replace).toBe(false)
   })
 
-  it('asks for a replacement on delete steps only', () => {
+  it('asks for a replacement on delete steps only, and every step but create needs an entry', () => {
     expect(startStep('category', 'merge', category, withUnused).replace).toBe(false)
     expect(startStep('category', 'rename', category, withUnused)).toMatchObject({
       label: 'Example Category',
@@ -185,6 +190,39 @@ describe('deleting', () => {
     })
     expect(startStep('category', 'create', undefined, withUnused).target).toBe('group-a')
     expect(startStep('group', 'create', undefined, withUnused).target).toBe('')
+    expect(() => startStep('category', 'delete', undefined, withUnused)).toThrow(/delete/)
+  })
+})
+
+describe('deleteDetail', () => {
+  const empty = {
+    id: 'group-c',
+    label: 'Empty Group',
+    protected: false,
+    transaction_count: 0,
+    in_use: false,
+  }
+
+  it('counts the transactions of a category or a group that has them', () => {
+    expect(deleteDetail('category', category, catalog)).toBe('4 transactions')
+    expect(deleteDetail('category', { ...category, transaction_count: 1 }, catalog)).toBe(
+      '1 transaction',
+    )
+    expect(deleteDetail('group', catalog.groups[0]!, catalog)).toBe('4 transactions')
+    expect(deleteDetail('group', empty, catalog)).toBe('0 transactions')
+  })
+
+  it('names pending edits for a category in use without committed transactions', () => {
+    const pending = { ...category, transaction_count: 0, in_use: true }
+    expect(deleteDetail('category', pending, catalog)).toBe('Pending edits use this category')
+  })
+
+  it('names the categories of a group in use without transactions', () => {
+    const quiet = (id: string) => ({ ...category, id, parent_id: 'group-c', transaction_count: 0 })
+    const holding = { ...catalog, categories: [...categories, quiet('c-1')] }
+    expect(deleteDetail('group', { ...empty, in_use: true }, holding)).toBe('1 category')
+    const both = { ...catalog, categories: [...categories, quiet('c-1'), quiet('c-2')] }
+    expect(deleteDetail('group', { ...empty, in_use: true }, both)).toBe('2 categories')
   })
 })
 
