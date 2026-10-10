@@ -3,7 +3,7 @@ import { tick } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import EditorBody from './EditorBody.svelte'
-import type { MerchantPreview, ViewProjection } from '../../lib/api/client'
+import type { EditorCatalog, MerchantPreview, ViewProjection } from '../../lib/api/client'
 import type { EditingController } from '../../lib/controller/editing'
 import { testCatalog, testEditingController } from '../../test/editing'
 import { testAggregateRow, testProjection } from '../../test/projection'
@@ -73,6 +73,23 @@ function setup({ kind = 'merchant', projection, controller }: Setup = {}) {
 async function type(input: HTMLInputElement, text: string): Promise<void> {
   await fireEvent.keyDown(input, { key: text.slice(-1) })
   await fireEvent.input(input, { target: { value: text } })
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => (resolve = done))
+  return { promise, resolve }
+}
+
+/** A merchant editor whose catalog and preview each wait until the test resolves them. */
+function loading() {
+  const catalog = deferred<EditorCatalog>()
+  const previewed = deferred<MerchantPreview>()
+  const controller = testEditingController({
+    catalog: vi.fn(() => catalog.promise),
+    previewMerchant: vi.fn(() => previewed.promise),
+  })
+  return { ...setup({ controller }), catalog, previewed }
 }
 
 const stageButton = (count: string) =>
@@ -163,22 +180,54 @@ describe('EditorBody', () => {
     ).toBeTruthy()
   })
 
-  it('offers nothing to accept or stage until the choices load', async () => {
-    let loaded!: (catalog: typeof testCatalog) => void
-    const editing = testEditingController({
-      catalog: vi.fn(() => new Promise<typeof testCatalog>((resolve) => (loaded = resolve))),
-    })
-    const { input, onstage } = setup({ controller: editing })
-    await stageButton('5 transactions')
+  it('offers no choices until they load, then stages an Enter pressed before them', async () => {
+    const { editing, input, onstage, catalog, previewed } = loading()
     await type(input, 'example merchant')
     expect(screen.queryAllByRole('option')).toHaveLength(0)
     await fireEvent.keyDown(input, { key: 'Enter' })
-    expect(onstage).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /^Stage change/ }).hasAttribute('disabled')).toBe(
       true,
     )
-    loaded(testCatalog)
-    expect(await screen.findByText('Merges into Example Merchant')).toBeTruthy()
+    catalog.resolve(testCatalog)
+    previewed.resolve(preview())
+    await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    // The queued stage uses the loaded choices, so it merges instead of creating a duplicate.
+    expect(editing.submit).toHaveBeenCalledTimes(1)
+    expect(editing.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ destination_id: 'merchant-a' }),
+      }),
+    )
+    expect(input.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('stages an Enter pressed after accepting a name but before the preview', async () => {
+    const { editing, input, onstage, catalog, previewed } = loading()
+    catalog.resolve(testCatalog)
+    await type(input, 'Local Merchant')
+    await screen.findByRole('option', { name: 'Create "Local Merchant"' })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    expect(input.getAttribute('aria-expanded')).toBe('false')
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    expect(editing.submit).not.toHaveBeenCalled()
+    previewed.resolve(preview())
+    await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    expect(editing.submit).toHaveBeenCalledTimes(1)
+    expect(editing.submit).toHaveBeenCalledWith(
+      expect.objectContaining({ input: expect.objectContaining({ label: 'Local Merchant' }) }),
+    )
+  })
+
+  it('drops a stage queued while loading once the text changes', async () => {
+    const { editing, input, onstage, catalog, previewed } = loading()
+    await type(input, 'Local Merchant')
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    await type(input, 'Local Merchants')
+    catalog.resolve(testCatalog)
+    previewed.resolve(preview())
+    await stageButton('5 transactions')
+    expect(editing.submit).not.toHaveBeenCalled()
+    expect(onstage).not.toHaveBeenCalled()
   })
 
   it('says a rename onto an existing merchant merges into it', async () => {

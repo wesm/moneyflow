@@ -11,7 +11,7 @@
     options: EditorOption[]
     /** The typed text (bindable). */
     value: string
-    /** Whether the current text can be staged; Enter with the list closed stages only then. */
+    /** Whether the current text can be staged; Enter with the list closed asks only then. */
     valid: boolean
     onaccept: (option: EditorOption) => void
     /**
@@ -73,7 +73,9 @@
     } else if (action === 'accept') {
       accept(options[activeIndex])
     } else {
+      // A stage request closes the list, so choices that load later do not open it.
       if (action === 'accept-and-stage') accept(options[activeIndex])
+      else open = false
       onkeyaction(action, event)
     }
   }

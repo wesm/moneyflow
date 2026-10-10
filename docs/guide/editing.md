@@ -119,6 +119,11 @@ Tab still switches to **whole merchant**.
 On a new category's group step, Enter opens the group list and `Ctrl+Enter` stages the change.
 Esc returns to the name field.
 
+If you stage a change before the editor finishes loading its suggestions and preview, it waits
+and stages the change once they load. Editing the name or changing the scope first cancels that
+waiting stage. A category must be chosen from the loaded suggestions, so Enter before they load
+does nothing.
+
 Cancelling returns focus to the control that opened the editor. Pressing outside the editor on
 a larger screen closes it and leaves focus where you pressed. After a change is staged, the
 cursor stays on the edited row's position, so `j` moves on to the next row.

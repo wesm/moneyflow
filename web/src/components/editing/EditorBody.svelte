@@ -65,7 +65,11 @@
   const creating = $derived(!merchant && !match && created !== undefined && created === text.trim())
   const preview = $derived(previews.byScope[scope])
   const named = $derived(merchant ? text.trim() !== '' : match !== undefined || creating)
-  const valid = $derived(!submitting && !!catalog && !!preview && named && (!creating || !!groupId))
+  /** Whether Enter may ask to stage; a request made while loading waits for `valid`. */
+  const stageable = $derived(!submitting && named && (!creating || !!groupId))
+  const valid = $derived(stageable && !!catalog && !!preview)
+  /** The text and scope of a stage requested while loading; any edit to either drops it. */
+  let queued = $state<{ text: string; scope: EditScope }>()
   const impact = $derived(merchant ? impactLines(preview, scope, match?.label, currency) : [])
   const counts = $derived({
     transactions: previews.byScope.transactions?.affected_transactions,
@@ -89,8 +93,21 @@
     return untrack(() => previews.load(current))
   })
 
+  // A stage requested while loading runs once loading finishes, unless an edit dropped it.
+  $effect(() => {
+    if (!queued) return
+    const unchanged = queued.text === text && queued.scope === scope
+    if (unchanged && !valid) return
+    queued = undefined
+    if (unchanged) void stage()
+  })
+
   async function stage(): Promise<void> {
-    if (!valid || !preview) return
+    if (!stageable) return
+    if (!catalog || !preview) {
+      queued = { text, scope }
+      return
+    }
     if (BigInt(preview.revision) !== controller.state.revision) {
       error = 'The profile changed. Reopen this editor to review affected transactions.'
       return
@@ -149,7 +166,7 @@
     const keydown = (event: KeyboardEvent) => {
       const control = event.target
       if (!(control instanceof HTMLElement) || field?.contains(control)) return
-      const action = controlKey(event, control, valid)
+      const action = controlKey(event, control, stageable)
       if (action === 'none') return
       event.preventDefault()
       event.stopPropagation()
@@ -174,7 +191,7 @@
       label={merchant ? 'Merchant' : 'Category'}
       {options}
       bind:value={text}
-      {valid}
+      valid={stageable}
       {onaccept}
       {onkeyaction}
     />
