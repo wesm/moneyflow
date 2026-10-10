@@ -114,54 +114,83 @@ function meetsScope(period: ContextPeriod, ranges: InsightsResponse['ranges']): 
   return period.start <= scope.end && period.end >= scope.start
 }
 
+/** Throws unless every cash-flow array has one value per chart-context period. */
+function checkAligned(cashflow: Cashflow, periods: number): void {
+  for (const field of ['labels', 'in', 'out', 'net'] as const) {
+    if (cashflow[field].length !== periods) {
+      throw new Error(
+        `Cash flow ${field} has ${cashflow[field].length} values for ` +
+          `${periods} chart-context periods.`,
+      )
+    }
+  }
+}
+
+/** The value at `index`, which `checkAligned` has already proved present. */
+function valueAt(values: readonly string[], index: number): string {
+  const value = values[index]
+  if (value === undefined) throw new Error(`Cash flow has no value at period ${index}.`)
+  return value
+}
+
+interface Layout {
+  cashflow: Cashflow
+  ranges: InsightsResponse['ranges']
+  digits: number
+  scale: Scale
+  slot: number
+}
+
+function columnAt(layout: Layout, period: ContextPeriod, index: number): ColumnGeometry {
+  const { cashflow, ranges, digits, scale, slot } = layout
+  const rising = valueAt(cashflow.in, index)
+  const falling = valueAt(cashflow.out, index)
+  const net = valueAt(cashflow.net, index)
+  const server = valueAt(cashflow.labels, index)
+  const label = periodName(period, server)
+  const netExtent = extent(net, scale)
+  const inHeight = extent(rising, scale)
+  const amounts = {
+    in: formatMinor(rising, digits),
+    out: formatMinor(falling, digits),
+    net: formatMinor(net, digits),
+  }
+  return {
+    x: index * slot,
+    width: slot,
+    inTop: scale.zeroY - inHeight,
+    inHeight,
+    outHeight: extent(falling, scale),
+    netY: parseMinor(net) < 0n ? scale.zeroY + netExtent : scale.zeroY - netExtent,
+    partial: period.partial,
+    inScope: meetsScope(period, ranges),
+    name: `${label}, in ${amounts.in}, out ${amounts.out}, net ${amounts.net}`,
+    label,
+    tick: tickOf(period, server),
+    tickOrder: tickOrderOf(period, index),
+    ...amounts,
+  }
+}
+
 /**
  * Lays out the cash-flow chart for `entry` in a `width` × `height` box: one column per
  * chart-context period, In rising and Out falling from one zero on one magnitude scale.
+ * Throws when the summary's cash flow does not line up with the chart context.
  */
 export function cashflowGeometry(
   entry: InsightsEntry,
   width: number,
   height: number,
 ): CashflowGeometry {
-  const cashflow = cashflowOf(entry)
-  const { ranges, scale: digits } = entry.response
+  const { ranges, scale: digits, summary } = entry.response
+  if (summary === undefined) return { columns: [], zeroY: 0, netPath: '' }
+  const cashflow = summary.cashflow
+  checkAligned(cashflow, ranges.context.length)
+  const count = ranges.context.length
   const scale = scaleOf(cashflow, height)
-  const count = cashflow.labels.length
-  const slot = count === 0 ? 0 : width / count
-  const columns: ColumnGeometry[] = []
-  const points: string[] = []
-  for (let index = 0; index < count; index += 1) {
-    const period = ranges.context[index]
-    if (period === undefined) break
-    const rising = cashflow.in[index] ?? '0'
-    const falling = cashflow.out[index] ?? '0'
-    const net = cashflow.net[index] ?? '0'
-    const label = periodName(period, cashflow.labels[index] ?? '')
-    const netExtent = extent(net, scale)
-    const netY = parseMinor(net) < 0n ? scale.zeroY + netExtent : scale.zeroY - netExtent
-    const inHeight = extent(rising, scale)
-    const amounts = {
-      in: formatMinor(rising, digits),
-      out: formatMinor(falling, digits),
-      net: formatMinor(net, digits),
-    }
-    columns.push({
-      x: index * slot,
-      width: slot,
-      inTop: scale.zeroY - inHeight,
-      inHeight,
-      outHeight: extent(falling, scale),
-      netY,
-      partial: period.partial,
-      inScope: meetsScope(period, ranges),
-      name: `${label}, in ${amounts.in}, out ${amounts.out}, net ${amounts.net}`,
-      label,
-      tick: tickOf(period, cashflow.labels[index] ?? ''),
-      tickOrder: tickOrderOf(period, index),
-      ...amounts,
-    })
-    points.push(`${index * slot + slot / 2},${netY}`)
-  }
+  const layout = { cashflow, ranges, digits, scale, slot: count === 0 ? 0 : width / count }
+  const columns = ranges.context.map((period, index) => columnAt(layout, period, index))
+  const points = columns.map((column) => `${column.x + column.width / 2},${column.netY}`)
   return { columns, zeroY: scale.zeroY, netPath: points.length ? `M${points.join('L')}` : '' }
 }
 
@@ -252,8 +281,8 @@ export function cashflowCursor(
 }
 
 /**
- * Where a shift-click's range starts: the scope's far edge from the clicked column, so the
- * range grows or shrinks from the scope; the focused column when no column is in scope.
+ * Where a shift-click's range starts: the scope edge farther from the clicked column, or the
+ * start edge when both are equally far; the focused column when no column is in scope.
  */
 export function rangeAnchor(
   columns: readonly Pick<ColumnGeometry, 'inScope'>[],
@@ -262,7 +291,8 @@ export function rangeAnchor(
 ): number {
   const first = columns.findIndex((column) => column.inScope)
   if (first < 0) return focused
-  return clicked >= first ? first : columns.findLastIndex((column) => column.inScope)
+  const last = columns.findLastIndex((column) => column.inScope)
+  return Math.abs(clicked - first) >= Math.abs(clicked - last) ? first : last
 }
 
 /** The cursor row's amounts in one column, for the tooltip; none for a Time period. */
@@ -283,4 +313,9 @@ export function rowAmounts(
     in: formatMinor(cursor.in[index] ?? '0', scale),
     out: formatMinor(cursor.out[index] ?? '0', scale),
   }
+}
+
+/** Shows a zero amount as a dash, as the table does; the accessible names keep `+0.00`. */
+export function dashZero(display: string): string {
+  return /^\+0(\.0+)?$/.test(display) ? '—' : display
 }

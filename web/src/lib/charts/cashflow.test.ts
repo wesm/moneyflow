@@ -8,6 +8,7 @@ import {
   cashflowCursor,
   cashflowGeometry,
   cursorGeometry,
+  dashZero,
   rangeAnchor,
   rowAmounts,
   scopeFromColumns,
@@ -181,6 +182,15 @@ describe('cashflowGeometry', () => {
     expect(geometry.columns.map((column) => column.tick)).toEqual(['Dec', '2026'])
   })
 
+  it('refuses a summary whose cash flow does not line up with the chart context', () => {
+    const chart = megastore()
+    chart.response.summary!.cashflow.net = ['-30000']
+    expect(() => cashflowGeometry(chart, 200, 100)).toThrow(/2 chart-context periods/)
+    const extra = megastore()
+    extra.response.summary!.cashflow.labels.push('Oct 2026')
+    expect(() => cashflowGeometry(extra, 200, 100)).toThrow(/labels/)
+  })
+
   it('draws nothing for a response without a summary', () => {
     const empty = megastore()
     const response = { ...empty.response }
@@ -294,26 +304,35 @@ describe('cashflowCursor', () => {
 })
 
 describe('rangeAnchor', () => {
+  /** Six columns, Jul through Dec, with `scoped` in scope. */
   const columns = (scoped: number[]) =>
-    cashflowGeometry(
-      entry([month(2026, 7), month(2026, 8), month(2026, 9), month(2026, 10)], {
-        labels: ['Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026'],
-        in: ['0', '0', '0', '0'],
-        out: ['0', '0', '0', '0'],
-        net: ['0', '0', '0', '0'],
-      }),
-      400,
-      100,
-    ).columns.map((column, index) => ({ ...column, inScope: scoped.includes(index) }))
+    Array.from({ length: 6 }, (_, index) => ({ inScope: scoped.includes(index) }))
 
-  it('extends the scope to the clicked column from its far edge', () => {
-    expect(rangeAnchor(columns([2]), 0, 3)).toBe(2)
+  it('anchors on the scope edge farther from the clicked column', () => {
+    expect(rangeAnchor(columns([2]), 0, 5)).toBe(2)
     expect(rangeAnchor(columns([1, 2]), 3, 0)).toBe(1)
-    expect(rangeAnchor(columns([1, 2]), 2, 0)).toBe(1)
+    expect(rangeAnchor(columns([1, 2]), 0, 5)).toBe(2)
+    // A Jul–Dec scope shift-clicked on Aug becomes Aug–Dec.
+    expect(rangeAnchor(columns([0, 1, 2, 3, 4, 5]), 1, 0)).toBe(5)
+    expect(rangeAnchor(columns([0, 1, 2, 3, 4, 5]), 4, 0)).toBe(0)
+  })
+
+  it('anchors on the start edge when both edges are equally far', () => {
+    expect(rangeAnchor(columns([1, 2, 3]), 2, 0)).toBe(1)
   })
 
   it('starts from the focused column when nothing is in scope', () => {
     expect(rangeAnchor(columns([]), 0, 3)).toBe(3)
+  })
+})
+
+describe('dashZero', () => {
+  it('shows a zero amount as a dash, as the table does', () => {
+    expect(dashZero('+0.00')).toBe('—')
+    expect(dashZero('+0')).toBe('—')
+    expect(dashZero('+0.01')).toBe('+0.01')
+    expect(dashZero('-480.00')).toBe('-480.00')
+    expect(dashZero('+10.00')).toBe('+10.00')
   })
 })
 

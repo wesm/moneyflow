@@ -291,6 +291,16 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   await expect(periodControl(page)).toHaveText('Sep 2026')
   await expect(grid).toBeFocused()
 
+  // Shift+Enter extends the scope to the focused column, as a shift-click does.
+  await page.keyboard.press('Shift+Tab')
+  await expect(column(page, 'Sep 2026')).toBeFocused()
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('ArrowLeft')
+  await expect(column(page, 'Jul 2026')).toBeFocused()
+  await page.keyboard.press('Shift+Enter')
+  await expect(periodControl(page)).toHaveText('Jul 1 – Sep 30, 2026')
+  await expect(grid).toBeFocused()
+
   // Inside a drill, Esc leaves the chart for the table without also going back a level.
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/[?&]drill=merchant/)
@@ -299,5 +309,35 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   await page.keyboard.press('Escape')
   await expect(grid).toBeFocused()
   await expect(page).toHaveURL(/[?&]drill=merchant/)
-  await expect(periodControl(page)).toHaveText('Sep 2026')
+  await expect(periodControl(page)).toHaveText('Jul 1 – Sep 30, 2026')
+})
+
+test('cash-flow columns stay even in the phone drawer, labeled or not', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openMoneyflow(page, server)
+  await page.getByRole('switch', { name: 'Charts' }).click()
+  await expect(page.getByRole('dialog', { name: 'Moneyflow visualizations' })).toBeVisible()
+  const columns = cashflow(page).getByRole('button')
+  await expect(columns).not.toHaveCount(0)
+  const widths = await columns.evaluateAll((buttons) =>
+    buttons.map((button) => ({
+      button: button.getBoundingClientRect().width,
+      bars: button.querySelector('svg')!.getBoundingClientRect().width,
+      label: button.querySelector('.mf-cashflow__tick')!.textContent,
+    })),
+  )
+  expect(widths.some((width) => width.label !== '')).toBe(true)
+  const first = widths[0]!.button
+  for (const width of widths) {
+    expect(Math.abs(width.button - first)).toBeLessThan(1)
+    expect(Math.abs(width.bars - width.button)).toBeLessThan(0.5)
+  }
+  // The partial current month is hollow, down to its Net dot.
+  await expect(column(page, 'Oct 2026')).toHaveClass(/mf-cashflow__column--partial/)
+  await expect(cashflow(page).locator('.mf-cashflow__dot').last()).toHaveClass(
+    /mf-cashflow__dot--partial/,
+  )
 })

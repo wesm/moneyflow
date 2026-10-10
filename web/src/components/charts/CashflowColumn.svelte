@@ -40,6 +40,9 @@
     onpointerenter,
     onfocus,
   }: Props = $props()
+  const id = $props.id()
+  // Kit describes its wrapper, not the button, so the focused column carries the row's amounts.
+  const described = $derived(active && row !== undefined)
 </script>
 
 <Tooltip>
@@ -55,6 +58,7 @@
       dragged && 'mf-cashflow__column--dragged',
     ]}
     aria-label={column.name}
+    aria-describedby={described ? id : undefined}
     tabindex={active ? 0 : -1}
     {onclick}
     {onkeydown}
@@ -84,4 +88,7 @@
     </svg>
     <span class="mf-cashflow__tick" aria-hidden="true">{ticked ? column.tick : ''}</span>
   </button>
+  {#if described && row}
+    <span {id} class="kit-sr-only">{row.label}, in {row.in}, out {row.out}</span>
+  {/if}
 </Tooltip>

@@ -14,13 +14,16 @@ const months: [number, string, string][] = [
   [9, 'Sep 2026', '2026-09-30'],
 ]
 
-/** Jul through Sep 2026, scoped to September, with Online Megastore's September as its data. */
-function chart(): InsightsEntry {
+/**
+ * Jul through Sep 2026, scoped to September, with Online Megastore's September as its data.
+ * `partial` marks September partial, as the month holding today would be.
+ */
+function chart(partial = false): InsightsEntry {
   const response = testInsights()
   const context: Context = months.map(([month, , end]) => ({
     start: `2026-0${month}-01`,
     end,
-    partial: false,
+    partial: partial && month === 9,
     absent: false,
     period: { granularity: 'month', year: 2026, month },
   }))
@@ -42,9 +45,15 @@ const cursor = {
   out: ['0', '-30000', '-48000'],
 }
 
-function setup(props: Partial<{ cursor: typeof cursor; onleave: () => void }> = {}) {
+interface Options {
+  cursor: typeof cursor
+  onleave: () => void
+  partial: boolean
+}
+
+function setup({ partial = false, ...props }: Partial<Options> = {}) {
   const onperiod = vi.fn()
-  render(CashflowChart, { entry: chart(), onperiod, ...props })
+  render(CashflowChart, { entry: chart(partial), onperiod, ...props })
   const group = screen.getByRole('group', { name: 'Cash flow' })
   const column = (label: string) =>
     within(group).getByRole('button', { name: new RegExp(`^${label}, `) })
@@ -136,5 +145,43 @@ describe('CashflowChart', () => {
     setup()
     expect(document.querySelector('[data-cursor]')).toBeNull()
     expect(document.querySelectorAll('.mf-cashflow__cursor')).toHaveLength(0)
+  })
+
+  it('extends the range with Shift+Enter as with a shift-click', async () => {
+    const { onperiod, column } = setup()
+    await fireEvent.keyDown(column('Jul 2026'), { key: 'Enter', shiftKey: true })
+    expect(onperiod).toHaveBeenCalledExactlyOnceWith({ start: '2026-07-01', end: '2026-09-30' })
+  })
+
+  it('draws a partial period hollow with the cursor share still solid inside it', () => {
+    const { column } = setup({ cursor, partial: true })
+    const september = column('Sep 2026')
+    expect(september.classList.contains('mf-cashflow__column--partial')).toBe(true)
+    expect(column('Aug 2026').classList.contains('mf-cashflow__column--partial')).toBe(false)
+    expect(september.querySelectorAll('rect.mf-cashflow__cursor')).toHaveLength(2)
+    expect(september.querySelectorAll('rect:not(.mf-cashflow__cursor)')).toHaveLength(2)
+  })
+
+  it('shows a zero In or Out as a dash in the tooltip', async () => {
+    const { column } = setup({ cursor })
+    await fireEvent.focusIn(column('Jul 2026'))
+    const tip = await screen.findByRole('tooltip')
+    const values = [...tip.querySelectorAll('dd')].map((value) => value.textContent)
+    expect(values).toEqual(['—', '—', '+0.00', '—', '—'])
+  })
+
+  it("describes the focused column with the cursor row's amounts", () => {
+    const { column } = setup({ cursor })
+    const described = column('Sep 2026').getAttribute('aria-describedby')
+    expect(described).toBeTruthy()
+    expect(document.getElementById(described!)?.textContent).toBe(
+      'Online Megastore, in +120.00, out -480.00',
+    )
+    expect(column('Aug 2026').hasAttribute('aria-describedby')).toBe(false)
+  })
+
+  it('describes nothing extra without a cursor row', () => {
+    const { column } = setup()
+    expect(column('Sep 2026').hasAttribute('aria-describedby')).toBe(false)
   })
 })

@@ -50,8 +50,9 @@
     return index >= Math.min(drag.from, drag.to) && index <= Math.max(drag.from, drag.to)
   }
 
-  function choose(event: MouseEvent, index: number): void {
-    const anchor = event.shiftKey ? rangeAnchor(columns, index, active) : index
+  /** Scopes to one column, or with `extend` from the scope's far edge through it. */
+  function choose(index: number, extend: boolean): void {
+    const anchor = extend ? rangeAnchor(columns, index, active) : index
     chosen = { query: entry.query, index }
     onperiod(scopeFromColumns(context, anchor, index))
   }
@@ -60,6 +61,12 @@
     if (event.key === 'Escape' && onleave) {
       event.preventDefault()
       onleave()
+      return
+    }
+    // Enter alone activates the button; Shift+Enter extends the range, as a shift-click does.
+    if (event.key === 'Enter' && event.shiftKey) {
+      event.preventDefault()
+      choose(index, true)
       return
     }
     if (!moves.has(event.key)) return
@@ -111,7 +118,7 @@
         ticked={column.tickOrder % every === 0}
         active={index === active}
         dragged={dragged(index)}
-        onclick={(event) => choose(event, index)}
+        onclick={(event) => choose(index, event.shiftKey)}
         onkeydown={(event) => keydown(event, index)}
         onpointerdown={(event) => press(event, index)}
         onpointerenter={() => drag && (drag = { ...drag, to: index })}

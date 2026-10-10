@@ -72,7 +72,14 @@
 {/snippet}
 
 {#snippet cashflow()}
-  {#if entry}
-    <CashflowChart {entry} {cursor} {onperiod} {onleave} />
-  {/if}
+  <!-- A cash flow the chart cannot draw shows the failure line; the rest keeps working. -->
+  <svelte:boundary>
+    {#if entry}
+      <CashflowChart {entry} {cursor} {onperiod} {onleave} />
+    {/if}
+    <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -- the error comes first -->
+    {#snippet failed(_error, reset)}
+      <ChartStates failed stale={false} onretry={reset} />
+    {/snippet}
+  </svelte:boundary>
 {/snippet}

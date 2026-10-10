@@ -1485,6 +1485,8 @@ input {
 .mf-cashflow__column {
   flex: 1;
   display: grid;
+  /* One track as wide as the slot, so a label wider than a narrow column cannot widen it. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) 16px;
   min-width: 0;
   padding: 0;
@@ -1496,6 +1498,10 @@ input {
   line-height: 16px;
   white-space: nowrap;
   cursor: pointer;
+}
+/* Centered under its column and free to overflow into the unlabeled neighbors. */
+.mf-cashflow__tick {
+  justify-self: center;
 }
 .mf-cashflow__column--scope {
   background: var(--bg-surface-hover);

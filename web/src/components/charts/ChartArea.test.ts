@@ -254,4 +254,25 @@ describe('ChartArea', () => {
     await fireEvent.click(within(group).getByRole('button', { name: /^Sep 2026, in \+8,410\.72/ }))
     expect(onperiod).toHaveBeenCalledWith({ start: '2026-09-01', end: '2026-09-30' })
   })
+
+  it('shows the chart failure line, not a broken page, for a misaligned cash flow', async () => {
+    const { cache, calls } = harness()
+    const projection = view()
+    cache.sync(projection, [])
+    const response = september(calls[0])
+    response.summary!.cashflow = {
+      labels: ['Sep 2026'],
+      in: ['0'],
+      out: ['0'],
+      net: ['0'],
+      count: [0],
+    }
+    calls[0]?.resolve(response)
+    await settle()
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    render(ChartArea, { projection, cache, chartsOn: true, ...interaction })
+    expect(screen.getByText(/Couldn't load charts/)).not.toBeNull()
+    expect(screen.getByText('Income')).not.toBeNull()
+    expect(screen.queryByRole('group', { name: 'Cash flow' })).toBeNull()
+  })
 })

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ColumnGeometry, RowAmounts } from '../../lib/charts/cashflow'
+  import { dashZero, type ColumnGeometry, type RowAmounts } from '../../lib/charts/cashflow'
 
   interface Props {
     column: ColumnGeometry
@@ -13,9 +13,9 @@
 <p class="mf-cashflow-tip__title">{column.label}</p>
 <dl class="mf-cashflow-tip">
   <dt>In</dt>
-  <dd>{column.in}</dd>
+  <dd>{dashZero(column.in)}</dd>
   <dt>Out</dt>
-  <dd>{column.out}</dd>
+  <dd>{dashZero(column.out)}</dd>
   <dt>Net</dt>
   <dd>{column.net}</dd>
 </dl>
@@ -23,8 +23,8 @@
   <p class="mf-cashflow-tip__title">{row.label}</p>
   <dl class="mf-cashflow-tip">
     <dt>In</dt>
-    <dd>{row.in}</dd>
+    <dd>{dashZero(row.in)}</dd>
     <dt>Out</dt>
-    <dd>{row.out}</dd>
+    <dd>{dashZero(row.out)}</dd>
   </dl>
 {/if}
