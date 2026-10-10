@@ -92,13 +92,36 @@ test('the category manager stages every action from its own keys', async ({ page
       'true',
     )
 
+    // A category without transactions deletes from its step with Enter, with no replacement.
+    const replacement = manager.getByRole('combobox', { name: 'Replacement' })
     await page.keyboard.press('d')
     await expect(manager.getByRole('heading', { name: 'Delete Pet Care' })).toBeVisible()
+    await expect(manager.getByText('0 transactions', { exact: true })).toBeVisible()
+    await expect(replacement).toHaveCount(0)
     await page.keyboard.press('Enter')
-    await expect(manager.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
-    await pickAndConfirm(page, manager.getByRole('combobox', { name: 'Replacement' }), 'Groceries')
     await expect(page.getByText(/5 pending edit/)).toBeVisible()
     await expect(list.getByRole('option', { name: /^Pet Care,/ })).toHaveCount(0)
+
+    // A category with transactions shows their count and needs a replacement.
+    await page.keyboard.press('ArrowUp')
+    await expect(filter).toBeFocused()
+    await page.keyboard.type('coffee')
+    await page.keyboard.press('ArrowDown')
+    const coffee = list.getByRole('option', { name: /^Coffee, Food, \d+ transactions$/ })
+    const count = (await coffee.getAttribute('aria-label'))?.match(/(\d+) transactions$/)?.[1]
+    expect(Number(count)).toBeGreaterThan(0)
+    await page.keyboard.press('d')
+    await expect(manager.getByText(`${count} transactions`, { exact: true })).toBeVisible()
+    await expect(replacement).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(manager.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
+    await pickAndConfirm(page, replacement, 'Groceries')
+    await expect(page.getByText(/6 pending edit/)).toBeVisible()
+    await expect(list.getByRole('option')).toHaveCount(0)
+    await page.keyboard.press('ArrowUp')
+    await page.keyboard.press('Escape')
+    await expect(filter).toHaveValue('')
+    await page.keyboard.press('ArrowDown')
 
     // A protected category starts no step, and the keys never reach the table.
     await page.keyboard.press('Home')
@@ -168,14 +191,27 @@ test('the group manager stages every action and has no move', async ({ page }) =
       'true',
     )
 
-    await page.keyboard.press('d')
+    // A group without categories deletes with Enter; one with categories needs a replacement.
     const replacement = manager.getByRole('combobox', { name: 'Replacement' })
+    await page.keyboard.press('d')
+    await expect(manager.getByRole('heading', { name: 'Delete Pets' })).toBeVisible()
+    await expect(replacement).toHaveCount(0)
+    await page.keyboard.press('Enter')
+    await expect(page.getByText(/4 pending edit/)).toBeVisible()
+    await expect(list.getByRole('option', { name: /^Pets,/ })).toHaveCount(0)
+
+    await page.keyboard.press('ArrowUp')
+    await page.keyboard.type('entertainment')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('d')
     await expect(replacement).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(manager.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
     await pickAndConfirm(page, replacement, 'Shopping')
-    await expect(page.getByText(/4 pending edit/)).toBeVisible()
-    await expect(list.getByRole('option', { name: /^Pets,/ })).toHaveCount(0)
+    await expect(page.getByText(/5 pending edit/)).toBeVisible()
+    await expect(list.getByRole('option')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(filter).toHaveValue('')
 
     await page.keyboard.press('Escape')
     await expect(manager).toBeHidden()

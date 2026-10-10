@@ -18,6 +18,7 @@
     stepEnter,
     stepProblem,
     stepReady,
+    startStep,
     type ManagerAction,
     type ManagerKind,
     type ManagerStep as Step,
@@ -69,12 +70,8 @@
   function start(action: ManagerAction): void {
     if (!catalog || !canStart(action, source)) return
     error = ''
-    if (action === 'create') {
-      step = { action, label: '', target: category ? (groups[0]?.id ?? '') : '' }
-      return
-    }
-    activeID = source?.id ?? ''
-    step = { action, source, label: action === 'rename' ? (source?.label ?? '') : '', target: '' }
+    if (action !== 'create') activeID = source?.id ?? ''
+    step = startStep(kind, action, action === 'create' ? undefined : source, catalog)
   }
 
   /** Closes the step and returns to the list. */

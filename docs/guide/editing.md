@@ -152,15 +152,18 @@ into the list, and Up from its first row to return to the filter. Then use these
 | `r` | Rename the highlighted entry |
 | `g` | Move the highlighted category to another group (categories only) |
 | `m` | Merge the highlighted entry into a destination |
-| `d` | Delete the highlighted entry and move its contents to a replacement |
+| `d` | Delete the highlighted entry, moving any contents to a replacement |
 | Enter | Confirm the open step |
 | Esc | Leave the open step; then clear the filter; then close the drawer |
 
-The drawer's buttons do the same. Each action opens a short step above the list. Merge and
-delete stay disabled until you choose a destination or replacement. A merged or deleted category
-moves its transactions there; a merged or deleted group moves its categories there. While the
-drawer is open, these keys do not reach the table, so `g`, `m`, and `d` never change the view
-or open the merchant editor behind it.
+The drawer's buttons do the same. Each action opens a short step above the list. Merge stays
+disabled until you choose a destination. The delete step shows how many transactions use the
+entry. A category with transactions, or a group that still has categories, needs a replacement,
+and Delete stays disabled until you choose one. An unused category, or a group without
+categories, needs none: Enter deletes it. A merged category, or a deleted one with a
+replacement, moves its transactions there; a merged or deleted group moves its categories there.
+While the drawer is open, these keys do not reach the table, so `g`, `m`, and `d` never change
+the view or open the merchant editor behind it.
 
 Each confirmed step is a pending edit. A new or renamed entry cannot take a name another entry
 already uses, ignoring case and surrounding spaces. The step then shows

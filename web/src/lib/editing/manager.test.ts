@@ -12,6 +12,7 @@ import {
   stepEnter,
   stepProblem,
   stepReady,
+  startStep,
   type ManagerStep,
 } from './manager'
 import { testCatalog } from '../../test/editing'
@@ -36,7 +37,7 @@ function key(name: string, init: KeyboardEventInit = {}, target?: Element): Keyb
 }
 
 function step(overrides: Partial<ManagerStep>): ManagerStep {
-  return { action: 'create', label: '', target: '', ...overrides }
+  return { action: 'create', label: '', target: '', replace: false, ...overrides }
 }
 
 describe('managerShortcut', () => {
@@ -127,13 +128,63 @@ describe('stepReady', () => {
     expect(stepReady({ ...rename, label: 'Renamed Category' }, 'category', categories)).toBe(true)
   })
 
-  it('needs an explicit destination or replacement to move, merge, or delete', () => {
-    for (const action of ['move', 'merge', 'delete'] as const) {
+  it('needs an explicit destination to move or merge', () => {
+    for (const action of ['move', 'merge'] as const) {
       expect(stepReady(step({ action, source: category }), 'category', categories)).toBe(false)
       expect(
         stepReady(step({ action, source: category, target: 'group-b' }), 'category', categories),
       ).toBe(true)
     }
+  })
+})
+
+describe('deleting', () => {
+  const unused = { ...category, id: 'category-b', label: 'Unused Category', transaction_count: 0 }
+  const withUnused = { ...catalog, categories: [...categories, unused] }
+  const remove = (source = category) => startStep('category', 'delete', source, withUnused)
+
+  it('deletes a category without transactions with no replacement', () => {
+    const unusedStep = remove(unused)
+    expect(unusedStep.replace).toBe(false)
+    expect(stepReady(unusedStep, 'category', withUnused.categories)).toBe(true)
+    expect(managerIntent('category', unusedStep, '').input).toEqual({
+      taxonomy: 'delete',
+      entity_id: 'category-b',
+    })
+  })
+
+  it('needs a replacement for a category with transactions', () => {
+    const used = remove()
+    expect(used.replace).toBe(true)
+    expect(stepReady(used, 'category', withUnused.categories)).toBe(false)
+    const replaced = { ...used, target: 'category-b' }
+    expect(stepReady(replaced, 'category', withUnused.categories)).toBe(true)
+    expect(managerIntent('category', replaced, '').input).toEqual({
+      taxonomy: 'delete',
+      entity_id: 'category-a',
+      replacement_id: 'category-b',
+    })
+  })
+
+  it('needs a replacement for a group with categories, even without transactions', () => {
+    // The server moves a deleted group's categories, so it asks whether any remain.
+    const empty = { id: 'group-c', label: 'Empty Group', protected: false, transaction_count: 0 }
+    const quiet = { ...unused, parent_id: 'group-c' }
+    const groupsOnly = { ...catalog, groups: [...groups, empty] }
+    expect(startStep('group', 'delete', empty, groupsOnly).replace).toBe(false)
+    const holding = { ...groupsOnly, categories: [...categories, quiet] }
+    expect(startStep('group', 'delete', empty, holding).replace).toBe(true)
+    expect(stepReady(startStep('group', 'delete', empty, holding), 'group', groups)).toBe(false)
+  })
+
+  it('asks for a replacement on delete steps only', () => {
+    expect(startStep('category', 'merge', category, withUnused).replace).toBe(false)
+    expect(startStep('category', 'rename', category, withUnused)).toMatchObject({
+      label: 'Example Category',
+      target: '',
+    })
+    expect(startStep('category', 'create', undefined, withUnused).target).toBe('group-a')
+    expect(startStep('group', 'create', undefined, withUnused).target).toBe('')
   })
 })
 

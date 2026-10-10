@@ -19,6 +19,8 @@ export interface ManagerStep {
   label: string
   /** The chosen group (create, move), destination (merge), or replacement (delete) ID. */
   target: string
+  /** Whether a delete must name a replacement, because the item still has contents. */
+  replace: boolean
 }
 
 /** A row of the manager's list: a catalog item with its group and count. */
@@ -110,6 +112,40 @@ export function canStart(action: ManagerAction, source: EditorChoice | undefined
   return action === 'create' || (source !== undefined && !source.protected)
 }
 
+/**
+ * Whether deleting `source` must name a replacement, as the server decides: a category with
+ * transactions, or a group that still has categories. The server deletes an unused entry
+ * without one. It counts transactions with pending edits applied, while the catalog counts
+ * committed ones, so a pending edit can make the two disagree; the server then refuses.
+ */
+function needsReplacement(
+  kind: ManagerKind,
+  source: EditorChoice,
+  catalog: EditorCatalog | undefined,
+): boolean {
+  if (kind === 'category') return source.transaction_count > 0
+  return (catalog?.categories ?? []).some((category) => category.parent_id === source.id)
+}
+
+/**
+ * The new step for `action` on `source`: a new category starts in the first group, a rename
+ * starts from the current name, and a delete knows whether it needs a replacement.
+ */
+export function startStep(
+  kind: ManagerKind,
+  action: ManagerAction,
+  source: EditorChoice | undefined,
+  catalog: EditorCatalog | undefined,
+): ManagerStep {
+  if (action === 'create' || !source) {
+    const group = kind === 'category' ? (catalog?.groups?.[0]?.id ?? '') : ''
+    return { action, label: '', target: group, replace: false }
+  }
+  const label = action === 'rename' ? source.label : ''
+  const replace = action === 'delete' && needsReplacement(kind, source, catalog)
+  return { action, source, label, target: '', replace }
+}
+
 /** The categories or groups the manager lists. */
 export function managerChoices(catalog: EditorCatalog | undefined, kind: ManagerKind) {
   return (kind === 'category' ? catalog?.categories : catalog?.groups) ?? []
@@ -161,8 +197,9 @@ export function stepProblem(step: ManagerStep, choices: EditorChoice[]): string 
 
 /**
  * Whether the step has what its action needs. Create needs an unused name, and a group for a
- * category. Rename needs a new, unused name. Move, merge, and delete need an explicit group,
- * destination, or replacement. The server still validates every staged action.
+ * category. Rename needs a new, unused name. Move and merge need an explicit group or
+ * destination, and a delete needs a replacement when `replace` says so. The server still
+ * validates every staged action.
  *
  * @param choices The categories or groups the manager lists.
  */
@@ -171,6 +208,7 @@ export function stepReady(step: ManagerStep, kind: ManagerKind, choices: EditorC
   if (stepProblem(step, choices)) return false
   if (step.action === 'create') return label !== '' && (kind === 'group' || step.target !== '')
   if (step.action === 'rename') return label !== '' && label !== step.source?.label
+  if (step.action === 'delete' && !step.replace) return true
   return step.target !== ''
 }
 
@@ -186,7 +224,7 @@ export function managerIntent(kind: ManagerKind, step: ManagerStep, newID: strin
       ...(action === 'create' || action === 'rename' ? { label } : {}),
       ...(action === 'create' && kind === 'category' ? { group_id: target } : {}),
       ...(action === 'move' || action === 'merge' ? { destination_id: target } : {}),
-      ...(action === 'delete' ? { replacement_id: target } : {}),
+      ...(action === 'delete' && target !== '' ? { replacement_id: target } : {}),
     },
   }
 }

@@ -57,7 +57,7 @@ These keys act on the highlighted entry when focus is outside the filter:
 | `r` | Rename |
 | `g` | Move a category to another group |
 | `m` | Merge into another entry |
-| `d` | Delete, moving its contents to a replacement |
+| `d` | Delete, moving any contents to a replacement |
 | Enter | Confirm the open step |
 | Esc | Leave the open step, then clear the filter, then close |
 

@@ -14,6 +14,7 @@
     type ManagerStep,
   } from '../../lib/editing/manager'
   import { editorOptions, type EditorChoice } from '../../lib/editing/options'
+  import { transactionCount } from '../../lib/editing/toasts'
 
   interface Props {
     kind: ManagerKind
@@ -42,8 +43,8 @@
   }: Props = $props()
   const action = $derived(step.action)
   const named = $derived(action === 'create' || action === 'rename')
-  const picking = $derived(action === 'move' || action === 'merge' || action === 'delete')
-  const note = $derived(stepNote(kind, action))
+  const picking = $derived(action === 'move' || action === 'merge' || step.replace)
+  const note = $derived(action !== 'delete' || step.replace ? stepNote(kind, action) : '')
   let text = $state('')
   const options = $derived(editorOptions(choices, text, false, kind === 'category' ? groups : []))
 
@@ -59,17 +60,29 @@
     if (next === 'stage') onconfirm()
   }
 
-  /** Focuses the step's first field, selecting a rename's current name so typing replaces it. */
+  /**
+   * Focuses the step's first field, selecting a rename's current name so typing replaces it. A
+   * step without a field, such as deleting an unused entry, takes focus itself, so Enter confirms.
+   */
   function focusField(node: HTMLElement): void {
     const field = node.querySelector('input')
-    field?.focus()
+    if (field) field.focus()
+    else node.focus()
     if (action === 'rename') field?.select()
   }
 </script>
 
 <Card level="inset">
-  <section class="mf-manager-step" aria-labelledby="mf-manager-step" {@attach focusField}>
+  <section
+    class="mf-manager-step"
+    aria-labelledby="mf-manager-step"
+    tabindex="-1"
+    {@attach focusField}
+  >
     <h2 id="mf-manager-step">{stepTitle(kind, step)}</h2>
+    {#if action === 'delete'}
+      <p class="mf-quiet">{transactionCount(step.source?.transaction_count ?? 0)}</p>
+    {/if}
     {#if named}
       <TextInput bind:value={step.label} ariaLabel="Name" block />
     {/if}
@@ -115,6 +128,11 @@
   .mf-manager-step {
     display: grid;
     gap: var(--space-3);
+  }
+  /* A step without a field holds focus itself; the ring frames the card, clear of its text. */
+  .mf-manager-step:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: var(--space-3);
   }
   h2 {
     margin: 0;
