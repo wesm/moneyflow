@@ -56,6 +56,12 @@ describe('VsPriorCell', () => {
       spoken: 'down 12.5% vs Aug',
       tone: 'favorable',
     })
+    // Spending that grew 0.04% rounds to 0.0%: neutral grey, with no arrow.
+    expect(shown(ready({ percent_tenths: 0, grew: true, favorable: false }))).toEqual({
+      visible: '0.0%',
+      spoken: '0.0% vs Aug',
+      tone: 'neutral',
+    })
     expect(shown(ready({ kind: 'new', favorable: false }))).toEqual({
       visible: 'new',
       spoken: 'new vs Aug',

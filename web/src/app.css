@@ -1455,6 +1455,9 @@ input {
 .mf-tone--unfavorable {
   color: var(--mf-out-text);
 }
+.mf-tone--neutral {
+  color: var(--text-secondary);
+}
 .mf-kpis__caption {
   /* Always one line under the tiles, so a comparison arriving or leaving shifts nothing. */
   min-height: 1lh;

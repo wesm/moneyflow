@@ -140,7 +140,7 @@ describe('kpiTiles', () => {
     })
   })
 
-  it('shows new, a signed amount on a sign change, and no arrow for an unchanged percent', () => {
+  it('shows new, a signed amount on a sign change, and a neutral 0.0% with no arrow', () => {
     const tiles = kpiTiles(
       entry({
         income_change: change({ kind: 'new', favorable: true }),
@@ -158,7 +158,7 @@ describe('kpiTiles', () => {
     expect(tile(tiles, 'spending').change).toEqual({
       text: '0.0%',
       spoken: '0.0% vs Aug',
-      tone: 'favorable',
+      tone: 'neutral',
     })
     expect(tile(tiles, 'net').change).toEqual({
       text: '+460.00',
