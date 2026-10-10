@@ -871,7 +871,7 @@ input {
 .mf-table__header {
   position: sticky;
   top: 0;
-  /* Above the rows' sticky cells, which scroll up beneath it. */
+  /* Above the positioned rows, which scroll up beneath it. */
   z-index: 2;
   background: var(--bg-surface);
   border-bottom-color: var(--border-default);
@@ -1330,7 +1330,7 @@ input {
   gap: var(--space-4);
   padding-bottom: var(--space-5);
 }
-/* A chart tooltip covers the table's sticky header; the sticky area otherwise paints below it. */
+/* A chart tooltip covers the table's sticky header, which otherwise paints above the area. */
 .mf-chart-area:has([role='tooltip']) {
   z-index: 3;
 }

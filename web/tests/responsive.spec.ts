@@ -128,7 +128,7 @@ test('a grouped view at 960 px never draws the column it drops, on load or resiz
   expect(await seen()).toEqual([])
 })
 
-test('Trend and vs prior fill grouped rows, and from 900 px columns drop instead of scrolling', async ({
+test('Trend and vs prior fill grouped rows, and columns drop instead of scrolling', async ({
   page,
   server,
 }) => {
@@ -866,7 +866,7 @@ test('the table drops columns instead of scrolling sideways, at every width', as
     await page.setViewportSize({ width: 1280, height: 800 })
     await openMoneyflow(page, server, query)
     let fewest = 0
-    for (const width of [641, 700, 820, 900, 1010, 1280]) {
+    for (const width of [641, 700, 759, 760, 820, 900, 1010, 1280]) {
       await page.setViewportSize({ width, height: 800 })
       const context = `${view} at ${width} px`
       await expect
