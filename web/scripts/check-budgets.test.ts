@@ -4,7 +4,12 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { checkBudgets, type BudgetConfig, type InteractionMeasurements } from './check-budgets'
+import {
+  checkBudgets,
+  type BudgetConfig,
+  type InitialAssetBudget,
+  type InteractionMeasurements,
+} from './check-budgets'
 
 const manifest = {
   'index.html': {
@@ -92,7 +97,7 @@ describe('web performance budgets', () => {
   it('rejects a missing manifest entry and unsupported compression', async () => {
     const root = await distribution()
     const missing = config()
-    missing.assets[0]!.manifest_entry = 'missing.html'
+    ;(missing.assets[0] as InitialAssetBudget).manifest_entry = 'missing.html'
     await expect(checkBudgets(root, missing, interactions)).rejects.toThrow(/manifest entry/i)
 
     const invalid = config() as unknown as { assets: Array<{ compression: string }> }
@@ -135,7 +140,27 @@ describe('web performance budgets', () => {
     unknown.assets[0]!.scope = 'lazy'
     await expect(
       checkBudgets(root, unknown as unknown as BudgetConfig, interactions),
-    ).rejects.toThrow(/scope/i)
+    ).rejects.toThrow(/scope must be "initial" or "all"/)
+
+    delete unknown.assets[0]!.scope
+    await expect(
+      checkBudgets(root, unknown as unknown as BudgetConfig, interactions),
+    ).rejects.toThrow(/scope must be "initial" or "all"/)
+  })
+
+  it('rejects counting every chunk of a kind other than javascript', async () => {
+    const root = await distribution()
+    const css = config() as unknown as { assets: Array<Record<string, unknown>> }
+    css.assets[0] = {
+      name: 'total_css_brotli',
+      scope: 'all',
+      kind: 'css',
+      compression: 'brotli',
+      max_bytes: 1_000_000,
+    }
+    await expect(checkBudgets(root, css as unknown as BudgetConfig, interactions)).rejects.toThrow(
+      /total_css_brotli can count every chunk only for javascript/,
+    )
   })
 
   it('rejects malformed schema and mismatched interaction measurements', async () => {

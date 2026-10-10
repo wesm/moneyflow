@@ -164,7 +164,7 @@ type AmazonProjectionSettings struct {
 	Scale    uint8
 }
 
-// ProjectView resolves durable state and returns one deterministic row/chart projection.
+// ProjectView resolves durable state and returns one deterministic row projection.
 func (service *Service) ProjectView(
 	state ViewState,
 	selection SelectionValue,

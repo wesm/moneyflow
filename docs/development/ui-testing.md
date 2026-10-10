@@ -125,7 +125,7 @@ tests compare them with literal synthetic values.
 | --- | --- |
 | Chart row | Region `Charts`; the `Charts` switch shows or hides it, and the KPI strip stays |
 | Phone drawer | Dialog `Moneyflow visualizations`, holding the KPI strip and the chart row |
-| KPI strip | Description list of terms such as `Income`, `Spending`, `Net`, `Savings rate`, and `Transactions` |
+| KPI strip | Description list of terms such as `Income`, `Spending`, `Net`, `Savings rate`, `Avg per transaction`, and `Transactions` |
 | Cash flow | Group `Cash flow`; one button per period named `{label}, in {in}, out {out}, net {net}` |
 | Composition | List named by its panel title, such as `Where it went`; one button per bar named `{label}, {share}%, {net}` |
 | Heatmap | Group `Daily spending`; one cell per day named `{Mon D, YYYY}, out {out}`, with `, in {in}` added when In is not zero |

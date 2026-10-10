@@ -5,17 +5,26 @@ import { resolve } from 'node:path'
 export type AssetKind = 'javascript' | 'css'
 export type CompressionMode = 'brotli' | 'gzip'
 
-/** `initial` counts what the named manifest entry loads; `all` counts every chunk. */
-export type AssetScope = 'initial' | 'all'
-
-export interface AssetBudget {
+interface AssetBudgetBase {
   name: string
-  scope: AssetScope
-  manifest_entry?: string
-  kind: AssetKind
   compression: CompressionMode
   max_bytes: number
 }
+
+/** Counts the files the named manifest entry loads on first paint. */
+export interface InitialAssetBudget extends AssetBudgetBase {
+  scope: 'initial'
+  manifest_entry: string
+  kind: AssetKind
+}
+
+/** Counts every JavaScript chunk in the build, loaded eagerly or not. */
+export interface TotalAssetBudget extends AssetBudgetBase {
+  scope: 'all'
+  kind: 'javascript'
+}
+
+export type AssetBudget = InitialAssetBudget | TotalAssetBudget
 
 export interface InteractionBudget {
   name: string
@@ -80,31 +89,29 @@ export function parseBudgetConfig(value: unknown): BudgetConfig {
     }
     names.add(asset.name)
     if (asset.scope !== 'initial' && asset.scope !== 'all') {
-      throw new Error(`asset budget ${asset.name} has an unsupported scope`)
-    }
-    if (
-      asset.scope === 'initial' &&
-      (typeof asset.manifest_entry !== 'string' || asset.manifest_entry === '')
-    ) {
-      throw new Error(`asset budget ${asset.name} must name a manifest entry`)
+      throw new Error(`asset budget ${asset.name} scope must be "initial" or "all"`)
     }
     if (asset.kind !== 'javascript' && asset.kind !== 'css') {
       throw new Error(`asset budget ${asset.name} has an unsupported kind`)
     }
-    if (asset.scope === 'all' && asset.kind !== 'javascript') {
-      throw new Error(`asset budget ${asset.name} can count every chunk only for javascript`)
-    }
     if (asset.compression !== 'brotli' && asset.compression !== 'gzip') {
       throw new Error(`asset budget ${asset.name} has an unsupported compression mode`)
     }
-    return {
+    const base: AssetBudgetBase = {
       name: asset.name,
-      scope: asset.scope,
-      ...(asset.scope === 'initial' ? { manifest_entry: asset.manifest_entry as string } : {}),
-      kind: asset.kind,
       compression: asset.compression,
       max_bytes: positiveInteger(asset.max_bytes, `asset budget ${asset.name} max_bytes`),
     }
+    if (asset.scope === 'all') {
+      if (asset.kind !== 'javascript') {
+        throw new Error(`asset budget ${asset.name} can count every chunk only for javascript`)
+      }
+      return { ...base, scope: 'all', kind: 'javascript' }
+    }
+    if (typeof asset.manifest_entry !== 'string' || asset.manifest_entry === '') {
+      throw new Error(`asset budget ${asset.name} must name a manifest entry`)
+    }
+    return { ...base, scope: 'initial', manifest_entry: asset.manifest_entry, kind: asset.kind }
   })
 
   const interactions = raw.interactions.map((value, index): InteractionBudget => {
@@ -209,7 +216,7 @@ async function measureAsset(
   const files =
     budget.scope === 'all'
       ? allJavaScriptFiles(manifest)
-      : initialAssetFiles(manifest, budget.manifest_entry as string, budget.kind)
+      : initialAssetFiles(manifest, budget.manifest_entry, budget.kind)
   let total = 0
   for (const file of files) {
     let content: Buffer

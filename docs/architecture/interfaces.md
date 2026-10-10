@@ -55,9 +55,10 @@ many affected transactions the view hides, with `outside_view` and `outside_curr
 request may carry an `anchor`, an aggregate row identity. The server then returns the window that
 holds that row and reports its global index as `anchor_index`. An identity that matches no row of
 the result leaves the window as requested, omits `anchor_index`, and adds the warning
-`anchor_missing`. Projections carry no chart data; charts
-read from a separate operation, `POST /api/v1/profiles/{profile_id}/view/insights`. It takes the
-view's query and optional row identities and returns committed chart data from
+`anchor_missing`.
+
+Charts read from a separate operation, `POST /api/v1/profiles/{profile_id}/view/insights`. It
+takes the view's query and optional row identities and returns committed chart data from
 `Service.Insights`.
 
 The analytical URL is durable state: versioned view parameters, search, filters, drills, and return
