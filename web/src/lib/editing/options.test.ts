@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { editorOptions, type EditorChoice } from './options'
 
@@ -53,6 +53,22 @@ describe('editorOptions', () => {
     expect(options).toEqual([
       { id: 'm-1', label: 'Corner Grocery', secondary: '', count: 12, create: false },
     ])
+  })
+
+  describe('in a browser whose locale lowercases I to a dotless i', () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('still matches labels and suppresses Create for a case-only match', () => {
+      vi.spyOn(String.prototype, 'toLocaleLowerCase').mockImplementation(function (this: string) {
+        return this.replaceAll('I', 'ı').toLowerCase()
+      })
+      const choices = [choice('m-9', 'IKEA', 4)]
+      expect(editorOptions(choices, 'ikea', true)).toEqual([
+        { id: 'm-9', label: 'IKEA', secondary: '', count: 4, create: false },
+      ])
+    })
   })
 
   it('offers only Create when nothing matches', () => {

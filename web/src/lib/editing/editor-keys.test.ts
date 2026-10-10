@@ -134,8 +134,40 @@ describe('editorKey outside the combobox', () => {
 })
 
 describe('editorKey during text composition', () => {
-  it('ignores keys that commit an input method composition', () => {
-    expect(editorKey(key('Enter', { isComposing: true }), open)).toBe('none')
-    expect(editorKey(key('Escape', { isComposing: true }), open)).toBe('none')
+  it('ignores keys while an input method composition is active', () => {
+    for (const state of [open, closed]) {
+      expect(editorKey(key('Enter', { isComposing: true }), state)).toBe('none')
+      expect(editorKey(key('Escape', { isComposing: true }), state)).toBe('none')
+      expect(editorKey(key('ArrowDown', { isComposing: true }), state)).toBe('none')
+    }
+  })
+
+  it("ignores Safari's Enter that ends a composition, which reports key code 229", () => {
+    expect(editorKey(key('Enter', { keyCode: 229 }), open)).toBe('none')
+    expect(editorKey(key('Enter', { keyCode: 229 }), closed)).toBe('none')
+    expect(editorKey(key('Enter', { keyCode: 13 }), closed)).toBe('stage')
+  })
+})
+
+describe('editorKey with modifiers it does not own', () => {
+  it('leaves Ctrl, Cmd, and Alt arrows to the input in either list state', () => {
+    for (const state of [open, closed]) {
+      for (const modifier of [ctrl, meta, { altKey: true }]) {
+        expect(editorKey(key('ArrowDown', modifier), state)).toBe('none')
+        expect(editorKey(key('ArrowUp', modifier), state)).toBe('none')
+      }
+    }
+  })
+
+  it('leaves Shift+Enter and Alt+Enter alone in either list state', () => {
+    for (const state of [open, closed]) {
+      expect(editorKey(key('Enter', { shiftKey: true }), state)).toBe('none')
+      expect(editorKey(key('Enter', { altKey: true }), state)).toBe('none')
+    }
+  })
+
+  it('keeps Ctrl+Enter and Cmd+Enter as the staging keys', () => {
+    expect(editorKey(key('Enter', ctrl), open)).toBe('accept-and-stage')
+    expect(editorKey(key('Enter', meta), closed)).toBe('stage')
   })
 })

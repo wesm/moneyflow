@@ -87,8 +87,10 @@
     active = 0
   }
 
-  function counted(count: number): string {
-    return count === 1 ? 'transaction' : 'transactions'
+  function optionName(option: EditorOption): string {
+    if (option.create) return `Create "${option.label}"`
+    const count = `${option.count} ${option.count === 1 ? 'transaction' : 'transactions'}`
+    return [option.label, option.secondary, count].filter(Boolean).join(', ')
   }
 </script>
 
@@ -97,19 +99,15 @@
     id={`${listId}-${index}`}
     role="option"
     aria-selected={expanded && index === activeIndex}
-    onmousedown={(event) => {
-      event.preventDefault()
-      accept(option)
-    }}
+    aria-label={optionName(option)}
+    onmousedown={() => accept(option)}
   >
     {#if option.create}
       Create "{option.label}"
     {:else}
       <span class="mf-combobox-label">{option.label}</span>
       {#if option.secondary}<span class="mf-combobox-quiet">{option.secondary}</span>{/if}
-      <span class="mf-combobox-quiet mf-combobox-count"
-        >{option.count}<span class="kit-sr-only">{` ${counted(option.count)}`}</span></span
-      >
+      <span class="mf-combobox-quiet mf-combobox-count">{option.count}</span>
     {/if}
   </li>
 {/snippet}
@@ -130,6 +128,7 @@
     autocomplete="off"
     oninput={reopen}
   />
+  <!-- A press on the list's padding or scrollbar must not blur the input and close it. -->
   <!-- prettier-ignore -->
   <ul
     bind:this={list}
@@ -139,6 +138,7 @@
     role="listbox"
     aria-label={label}
     hidden={!expanded}
+    onmousedown={(event) => event.preventDefault()}
   >
     {#each options as option, index (`${option.create}:${option.id}`)}
       {@render optionRow(option, index)}
@@ -169,9 +169,13 @@
     font-size: var(--font-size-sm);
     cursor: pointer;
   }
-  li[aria-selected='true'],
   li:hover {
+    background: color-mix(in srgb, var(--bg-surface-hover) 50%, transparent);
+  }
+  li[aria-selected='true'] {
     background: var(--bg-surface-hover);
+    outline: 1px solid var(--accent-blue);
+    outline-offset: -1px;
   }
   .mf-combobox-label {
     overflow: hidden;

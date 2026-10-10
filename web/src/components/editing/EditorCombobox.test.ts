@@ -68,24 +68,22 @@ describe('EditorCombobox', () => {
     expect(screen.getAllByRole('option').filter((o) => o.ariaSelected === 'true')).toHaveLength(1)
   })
 
-  it('shows each option with its secondary text and count', async () => {
+  it('names each option by its label, group, and count, separated', async () => {
     const groups = [choice('g-food', 'Food', 0)]
-    const onaccept = vi.fn()
     render(EditorComboboxHarness, {
       props: {
         choices: [choice('c-1', 'Groceries', 9, 'g-food'), choice('c-2', 'Gifts', 1)],
         groups,
-        onaccept,
+        onaccept: vi.fn(),
         onkeyaction: vi.fn(),
       },
     })
-    await fireEvent.keyDown(screen.getByRole('combobox'), { key: 'ArrowDown' })
-    const [groceries, gifts] = screen.getAllByRole('option')
-    expect(groceries?.textContent).toContain('Groceries')
-    expect(groceries?.textContent).toContain('Food')
-    expect(groceries?.textContent).toContain('9 transactions')
-    expect(gifts?.textContent).toContain('1 transaction')
-    expect(gifts?.textContent).not.toContain('1 transactions')
+    const input = screen.getByRole('combobox')
+    await type(input as HTMLInputElement, 'G')
+    expect(screen.getByRole('option', { name: 'Groceries, Food, 9 transactions' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Gifts, 1 transaction' })).toBeTruthy()
+    await type(input as HTMLInputElement, 'Gas')
+    expect(screen.getByRole('option', { name: 'Create "Gas"' })).toBeTruthy()
   })
 
   it('opens the list when typing and filters it as the text changes', async () => {
@@ -254,6 +252,58 @@ describe('EditorCombobox', () => {
     expect(await fireEvent.mouseDown(option)).toBe(false)
     expect(input.value).toBe('Example Coffee')
     expect(onaccept).toHaveBeenCalledWith(expect.objectContaining({ id: 'm-2' }))
+  })
+
+  it('keeps the list open when the list itself is pressed, such as its scrollbar', async () => {
+    const { input } = setup()
+    await type(input, 'gro')
+    const list = screen.getByRole('listbox')
+    // A default-prevented press does not move focus, so the input never blurs.
+    expect(await fireEvent.mouseDown(list)).toBe(false)
+    expect(document.activeElement).toBe(input)
+    expect(input.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('gives each instance its own list and option ids', async () => {
+    const props = { choices: merchants, onaccept: vi.fn(), onkeyaction: vi.fn() }
+    render(EditorComboboxHarness, { props })
+    render(EditorComboboxHarness, { props })
+    const [first, second] = screen.getAllByRole('combobox') as HTMLInputElement[]
+    await fireEvent.keyDown(first!, { key: 'ArrowDown' })
+    await fireEvent.keyDown(second!, { key: 'ArrowDown' })
+    expect(first!.getAttribute('aria-controls')).not.toBe(second!.getAttribute('aria-controls'))
+    expect(activeOption(first!)).not.toBe(activeOption(second!))
+    const ids = Array.from(document.querySelectorAll('[id]'), (element) => element.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('leaves keys alone during an input method composition', async () => {
+    const { input, onaccept, onkeyaction } = setup()
+    await type(input, 'coffee')
+    expect(await fireEvent.keyDown(input, { key: 'Enter', isComposing: true })).toBe(true)
+    expect(await fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })).toBe(true)
+    expect(await fireEvent.keyDown(input, { key: 'Escape', isComposing: true })).toBe(true)
+    expect(input.getAttribute('aria-expanded')).toBe('true')
+    expect(onaccept).not.toHaveBeenCalled()
+    expect(onkeyaction).not.toHaveBeenCalled()
+  })
+
+  it('leaves shortcuts such as Ctrl+A and Cmd+ArrowUp to the input', async () => {
+    const { input } = setup({ value: 'Corner' })
+    expect(await fireEvent.keyDown(input, { key: 'a', ctrlKey: true })).toBe(true)
+    expect(await fireEvent.keyDown(input, { key: 'ArrowUp', metaKey: true })).toBe(true)
+    expect(input.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('accepts Create and stages on Ctrl+Enter', async () => {
+    const { input, onaccept, onkeyaction } = setup()
+    await type(input, ' New Bakery ')
+    await fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+    expect(input.value).toBe('New Bakery')
+    expect(onaccept).toHaveBeenCalledWith(
+      expect.objectContaining({ id: '', label: 'New Bakery', create: true }),
+    )
+    expect(onkeyaction).toHaveBeenCalledWith('accept-and-stage')
   })
 
   it('has no automated accessibility violations with the list open', async () => {

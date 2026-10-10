@@ -18,7 +18,8 @@ export interface EditorOption {
  * Filters editor choices by the typed text and offers `Create "…"` when it names no existing
  * value.
  *
- * Matching is a case-insensitive substring of the label, in catalog order. `Create "…"` comes
+ * Matching is a case-insensitive substring of the label, in catalog order. Case folding uses
+ * `toLowerCase`, so it does not depend on the browser locale. `Create "…"` comes
  * last and appears only when `create` is on, the trimmed text is not blank, and no label equals
  * it case-insensitively.
  *
@@ -34,12 +35,12 @@ export function editorOptions(
   groups: EditorChoice[] = [],
 ): EditorOption[] {
   const text = query.trim()
-  const needle = text.toLocaleLowerCase()
+  const needle = text.toLowerCase()
   const groupLabels = new Map(groups.map((group) => [group.id, group.label]))
   const options: EditorOption[] = []
   let exact = false
   for (const choice of choices) {
-    const label = choice.label.toLocaleLowerCase()
+    const label = choice.label.toLowerCase()
     if (!label.includes(needle)) continue
     exact ||= label.trim() === needle
     options.push({
