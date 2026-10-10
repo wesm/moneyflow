@@ -221,7 +221,7 @@
     {controller}
     {projection}
     {overlays}
-    onconfirmdelete={() => void confirmDirectDelete(actions)}
+    onconfirmdelete={() => confirmDirectDelete(actions)}
     {onreconnect}
   />
   <NavDrawer

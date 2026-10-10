@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   confirmDelete,
+  confirmDirectDelete,
   hideRow,
   localActions,
   moveCursor,
@@ -168,6 +169,39 @@ describe('row actions', () => {
     expect(overlays.current).toBe('delete')
     expect(overlays.deleteTarget).toEqual(row)
     expect(overlays.deleteCount).toBe(1)
+  })
+
+  it('hangs the delete confirmation below the row, or above the selection bar', () => {
+    const { context, overlays } = setup(1)
+    const element = document.createElement('div')
+    element.id = 'moneyflow-row-row-7'
+    const bar = document.createElement('section')
+    bar.className = 'mf-selection-bar'
+    document.body.append(element, bar)
+    confirmDelete(context, row)
+    expect(overlays.anchor).toEqual({ element, above: false })
+    overlays.close('keep')
+
+    context.controller.projection!.selection_count = 2
+    confirmDelete(context, row)
+    expect(overlays.anchor).toEqual({ element: bar, above: true })
+    expect(overlays.deleteCount).toBe(2)
+  })
+
+  it('stages the confirmed delete and closes only once the server accepts it', async () => {
+    const { context, overlays } = setup(1)
+    const submit = vi.mocked(context.controller.editing.submit)
+    submit.mockResolvedValueOnce(false)
+    confirmDelete(context, row)
+    expect(await confirmDirectDelete(context)).toBe(false)
+    expect(overlays.current).toBe('delete')
+    expect(await confirmDirectDelete(context)).toBe(true)
+    expect(submit).toHaveBeenLastCalledWith({
+      action: 'transaction.delete',
+      input: {},
+      target: row,
+    })
+    expect(overlays.current).toBeUndefined()
   })
 })
 

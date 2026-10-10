@@ -14,6 +14,8 @@
     /** Without a title, the ID of the heading in the content that names the sheet. */
     labelledby?: string | undefined
     describedby?: string | undefined
+    /** `alertdialog` for a confirmation. */
+    role?: 'dialog' | 'alertdialog'
     /** Takes Escape on the panel while the sheet is the innermost overlay. */
     overlays: OverlayState
     /** Called on Escape, a press on the scrim, or the close button. */
@@ -23,8 +25,17 @@
     footer?: Snippet | undefined
   }
 
-  let { open, title, labelledby, describedby, overlays, onclose, children, footer }: Props =
-    $props()
+  let {
+    open,
+    title,
+    labelledby,
+    describedby,
+    role = 'dialog',
+    overlays,
+    onclose,
+    children,
+    footer,
+  }: Props = $props()
   const uid = $props.id()
   const headingId = `mf-sheet-title-${uid}`
 </script>
@@ -34,7 +45,7 @@
   <div class="mf-sheet" role="presentation" onpointerdown={backdropCloses(onclose)}>
     <div
       class="mf-sheet__panel"
-      role="dialog"
+      {role}
       aria-modal="true"
       aria-labelledby={labelledby ?? headingId}
       aria-describedby={describedby}

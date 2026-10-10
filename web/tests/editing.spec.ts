@@ -346,31 +346,74 @@ test('Enter accepts then stages, and Esc closes the list then cancels', async ({
   }
 })
 
-test('x stages count-only deletion and review keeps commit explicit', async ({ page }) => {
+test('x confirms inline below the row, Enter stages once, and review keeps commit explicit', async ({
+  page,
+}) => {
   const server = await startE2EServer()
   try {
+    // Each delete stays in flight long enough for a second Enter to arrive.
+    const deletes: string[] = []
+    await page.route('**/mutations', async (route) => {
+      const action = route.request().postDataJSON().action
+      if (action === 'transaction.delete') deletes.push(action)
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      await route.continue()
+    })
     await openMoneyflow(page, server)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
     await page.keyboard.press('d')
     await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
-    const merchant = await cell(await activeRow(page), 'merchant').innerText()
+    const row = await activeRow(page)
+    const merchant = await cell(row, 'merchant').innerText()
     await page.keyboard.press('x')
-    const confirmation = page.getByRole('dialog', { name: 'Confirm deletion' })
-    await expect(confirmation).toContainText('Delete 1 transaction?')
+    const confirmation = page.getByRole('alertdialog', { name: 'Confirm deletion' })
+    await expect(confirmation).toHaveAccessibleDescription('Delete 1 transaction?')
     await expect(confirmation).not.toContainText(merchant)
+    const hints = confirmation.locator('kbd')
+    expect(await hints.evaluateAll((keys) => keys.map((key) => key.ariaLabel))).toEqual([
+      'Enter',
+      'Esc',
+    ])
+    // Anchored just below the cursor row, not a centered modal.
+    const rowBox = (await row.boundingBox())!
+    const box = (await confirmation.boundingBox())!
+    expect(box.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height)
+    expect(box.y).toBeLessThan(rowBox.y + rowBox.height + 16)
     await page.keyboard.press('Escape')
+    await expect(confirmation).toBeHidden()
+    await expect(grid).toBeFocused()
     await expect(page.getByText(/0 pending edit/)).toBeVisible()
 
+    // Two Enters while the first delete is in flight stage it once.
     await page.keyboard.press('x')
+    await expect(confirmation).toBeVisible()
     await page.keyboard.press('Enter')
+    await page.keyboard.press('Enter')
+    await expect(confirmation).toBeHidden()
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await expect(page.getByRole('status').filter({ hasText: /^Deleted / })).toHaveText(
       'Deleted 1 transaction · Undo u',
     )
+    expect(deletes).toHaveLength(1)
+    await expect(grid).toBeFocused()
+    await expect(row).toHaveClass(/mf-table__row--deleted/)
+
+    // A held Enter's repeats stage nothing more.
+    await page.keyboard.press('j')
+    await page.keyboard.press('x')
+    await expect(confirmation).toBeVisible()
+    await page.keyboard.down('Enter')
+    await page.keyboard.down('Enter')
+    await page.keyboard.down('Enter')
+    await page.keyboard.up('Enter')
+    await expect(page.getByText(/2 pending edits/)).toBeVisible()
+    expect(deletes).toHaveLength(2)
+
     await page.keyboard.press('w')
     const review = page.getByRole('dialog', { name: 'Review pending changes' })
     await expect(review).toContainText('Delete transaction')
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+    await expect(grid).toBeFocused()
   } finally {
     await server.stop()
   }
@@ -484,13 +527,33 @@ test('the selection bar edits selected transactions as their keys do', async ({ 
     await expect(bar).toContainText(/^2 transactions · [+-][\d,]+\.\d\d/)
 
     await bar.getByRole('button', { name: 'Delete' }).click()
-    const confirmation = page.getByRole('dialog', { name: 'Confirm deletion' })
-    await expect(confirmation).toContainText('Delete 2 transactions?')
+    const confirmation = page.getByRole('alertdialog', { name: 'Confirm deletion' })
+    await expect(confirmation).toHaveAccessibleDescription('Delete 2 transactions?')
+    // Anchored just above the selection bar.
+    const barBox = (await bar.boundingBox())!
+    const box = (await confirmation.boundingBox())!
+    expect(box.y + box.height).toBeLessThanOrEqual(barBox.y)
+    expect(box.y + box.height).toBeGreaterThan(barBox.y - 16)
     await page.keyboard.press('Escape')
+    await expect(confirmation).toBeHidden()
     await expect(grid).toBeFocused()
 
-    await bar.getByRole('button', { name: 'Hide' }).click()
+    await bar.getByRole('button', { name: 'Delete' }).click()
+    await confirmation.getByRole('button', { name: 'Delete' }).click()
+    await expect(confirmation).toBeHidden()
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    await expect(page.getByRole('status').filter({ hasText: /^Deleted / })).toHaveText(
+      'Deleted 2 transactions · Undo u',
+    )
+    await expect(grid).toBeFocused()
+
+    await page.keyboard.press('j')
+    await page.keyboard.press('Space')
+    await page.keyboard.press('j')
+    await page.keyboard.press('Space')
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
+    await bar.getByRole('button', { name: 'Hide' }).click()
+    await expect(page.getByText(/2 pending edits/)).toBeVisible()
     await expect(grid).toBeFocused()
   } finally {
     await server.stop()

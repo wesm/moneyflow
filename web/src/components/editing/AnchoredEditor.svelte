@@ -14,6 +14,8 @@
     field: string
     /** Prefix of the title and count IDs the body renders. */
     id: string
+    /** `alertdialog` for a confirmation. */
+    role?: 'dialog' | 'alertdialog'
     overlays: OverlayState
     /** Escape that nothing inside claimed. */
     oncancel: () => void
@@ -22,7 +24,17 @@
     children: Snippet
   }
 
-  let { anchor, above, field, id, overlays, oncancel, ondismiss, children }: Props = $props()
+  let {
+    anchor,
+    above,
+    field,
+    id,
+    role = 'dialog',
+    overlays,
+    oncancel,
+    ondismiss,
+    children,
+  }: Props = $props()
   let panel = $state<HTMLElement>()
   let position = $state('')
 
@@ -65,7 +77,7 @@
 <div
   class="mf-anchored-editor kit-popover-card"
   style={position}
-  role="dialog"
+  {role}
   aria-labelledby={`${id}-title`}
   aria-describedby={`${id}-count`}
   tabindex="-1"

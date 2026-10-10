@@ -400,13 +400,13 @@ describe('AppShell', () => {
     )
 
     await fireEvent.keyDown(window, { key: 'x' })
-    expect(screen.getByRole('dialog', { name: 'Confirm deletion' }).textContent).toContain(
-      'Delete 1 transaction?',
-    )
+    const confirmation = await screen.findByRole('alertdialog', { name: 'Confirm deletion' })
+    expect(confirmation.textContent).toContain('Delete 1 transaction?')
     expect(controller.editing.submit).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: 'transaction.delete' }),
     )
-    await fireEvent.keyDown(window, { key: 'Enter' })
+    expect(confirmation.contains(document.activeElement)).toBe(true)
+    await fireEvent.keyDown(document.activeElement!, { key: 'Enter' })
     expect(controller.editing.submit).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'transaction.delete',

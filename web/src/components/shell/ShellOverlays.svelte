@@ -7,7 +7,7 @@
   import TransactionInformationDrawer from '../TransactionInformationDrawer.svelte'
   import AnchoredEditor from '../editing/AnchoredEditor.svelte'
   import CategoryManager from '../editing/CategoryManager.svelte'
-  import DeleteConfirmation from '../editing/DeleteConfirmation.svelte'
+  import DeleteConfirm from '../editing/DeleteConfirm.svelte'
   import DuplicateReview from '../editing/DuplicateReview.svelte'
   import ExportDialog from '../editing/ExportDialog.svelte'
   import GroupManager from '../editing/GroupManager.svelte'
@@ -23,7 +23,8 @@
     controller: ViewController
     projection: ViewProjection
     overlays: OverlayState
-    onconfirmdelete: () => void
+    /** Stages the confirmed delete. Resolves whether the server accepted it. */
+    onconfirmdelete: () => Promise<boolean>
     onreconnect?: (() => void) | undefined
   }
 
@@ -33,7 +34,8 @@
   const target = $derived(overlays.editTarget)
   const onclose = () => overlays.close()
   const onwrite = () => overlays.open('write')
-  // On phones the editor is a bottom sheet. Staging returns focus to the edited row, not the ⋯.
+  // On phones the editor and the delete confirmation are bottom sheets. Staging an edit returns
+  // focus to the edited row, not the ⋯.
   const compact = new MediaQuery(MEDIA.compact)
 </script>
 
@@ -86,11 +88,14 @@
 {:else if overlay === 'duplicates'}
   <DuplicateReview controller={controller.duplicates} {onclose} />
 {:else if overlay === 'delete' && overlays.deleteTarget}
-  <DeleteConfirmation
+  <DeleteConfirm
     count={overlays.deleteCount}
-    submitting={controller.editing.state.phase === 'submitting'}
+    compact={compact.current}
+    anchor={overlays.anchor}
+    {overlays}
     onconfirm={onconfirmdelete}
     oncancel={onclose}
+    ondismiss={() => overlays.close('keep')}
   />
 {:else if overlay === 'export'}
   <ExportDialog controller={controller.export} {onclose} />

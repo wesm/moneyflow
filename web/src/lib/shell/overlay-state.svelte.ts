@@ -23,8 +23,8 @@ export type Overlay =
   | 'actions'
 
 /**
- * Where the merchant or category editor hangs: below a row, or above the selection bar. One
- * value holds both, so the placement always matches the element.
+ * Where the merchant or category editor, or the delete confirmation, hangs: below a row, or above
+ * the selection bar. One value holds both, so the placement always matches the element.
  */
 export interface EditorAnchor {
   element: HTMLElement
@@ -55,7 +55,7 @@ export class OverlayState {
   deleteTarget = $state<{ identity: string; kind: 'transaction' } | undefined>()
   deleteCount = $state(0)
   information = $state<TransactionInformationResponse | undefined>()
-  /** Where the merchant or category editor hangs. */
+  /** Where the merchant or category editor, or the delete confirmation, hangs. */
   anchor = $state<EditorAnchor | undefined>()
   #host: OverlayHost
   #opener: HTMLElement | undefined

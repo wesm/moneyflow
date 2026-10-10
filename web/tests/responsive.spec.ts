@@ -590,14 +590,14 @@ test.describe('phone rows by touch', () => {
     // Esc closed only the sheet; it did not also go back a level.
     await expect(cell(first, 'merchant')).toHaveText('Corner Grocery')
 
-    for (const [item, editor] of [
-      ['Merchant', 'Edit merchant'],
-      ['Category', 'Change category'],
-      ['Delete', 'Confirm deletion'],
-    ]) {
+    for (const [item, role, editor] of [
+      ['Merchant', 'dialog', 'Edit merchant'],
+      ['Category', 'dialog', 'Change category'],
+      ['Delete', 'alertdialog', 'Confirm deletion'],
+    ] as const) {
       await more.tap()
       await sheet.getByRole('button', { name: item }).tap()
-      const dialog = page.getByRole('dialog', { name: editor, exact: true })
+      const dialog = page.getByRole(role, { name: editor, exact: true })
       await expect(dialog).toBeVisible()
       await expect(sheet).toBeHidden()
       await page.keyboard.press('Escape')
@@ -764,6 +764,48 @@ test.describe('phone rows: drilling, keys, and the sheet', () => {
     // The server outlives this test; undo leaves the row as the later tests expect it.
     await page.keyboard.press('u')
     await expect(cell(second, 'merchant')).toHaveText(merchant)
+  })
+
+  test('⋯ confirms a delete in a bottom sheet', async ({ page, server }) => {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const second = grid.locator('[role="row"][aria-rowindex="3"]')
+    const merchant = await cell(second, 'merchant').innerText()
+    const more = cell(second, 'actions').getByRole('button')
+    const actions = page.getByRole('dialog', { name: merchant })
+    const confirmation = page.getByRole('alertdialog', { name: 'Confirm deletion' })
+
+    await more.tap()
+    await actions.getByRole('button', { name: 'Delete' }).tap()
+    await expect(actions).toBeHidden()
+    await expect(confirmation).toHaveAccessibleDescription('Delete 1 transaction?')
+    expect(await focusInside(confirmation)).toBe(true)
+    // A bottom sheet across the phone's width, on its bottom edge.
+    const box = (await confirmation.boundingBox())!
+    expect([box.x, box.width, box.y + box.height].map(Math.round)).toEqual([
+      0,
+      phone.width,
+      phone.height,
+    ])
+    await expectTouchTargets(confirmation)
+    await confirmation.getByRole('button', { name: 'Cancel' }).tap()
+    await expect(confirmation).toBeHidden()
+    await expect(more).toBeFocused()
+    await expect(second).not.toHaveClass(/mf-table__row--deleted/)
+
+    await more.tap()
+    await actions.getByRole('button', { name: 'Delete' }).tap()
+    await confirmation.getByRole('button', { name: 'Delete' }).tap()
+    await expect(confirmation).toBeHidden()
+    await expect(page.getByRole('status').filter({ hasText: /^Deleted / })).toHaveText(
+      'Deleted 1 transaction · Undo u',
+    )
+    await expect(second).toHaveClass(/mf-table__row--deleted/)
+    await expect(more).toBeFocused()
+    // The server outlives this test; undo leaves the row as the later tests expect it.
+    await page.keyboard.press('u')
+    await expect(second).not.toHaveClass(/mf-table__row--deleted/)
   })
 })
 

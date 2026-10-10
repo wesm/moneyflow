@@ -224,6 +224,32 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} inline delete confirmation passes axe as a popover and a sheet`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    const confirmation = page.getByRole('alertdialog', { name: 'Confirm deletion' })
+    await page.keyboard.press('x')
+    await expect(confirmation).toHaveClass(/kit-popover-card/)
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
+    await expect(confirmation).toBeHidden()
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.keyboard.press('x')
+    await expect(confirmation).toHaveClass(/mf-sheet__panel/)
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
+    await expect(confirmation).toBeHidden()
+  })
+}
+
 test('duplicate review and deletion confirmation pass axe and trap focus', async ({ page }) => {
   const server = await startE2EServer({
     fixturePath: 'testdata/fixtures/duplicate_transactions.json',
