@@ -361,6 +361,7 @@ type ReviewTargetDocument struct {
 	Date          string `json:"date"`
 	Merchant      string `json:"merchant"`
 	Category      string `json:"category"`
+	Money         Money  `json:"money"`
 	Hidden        bool   `json:"hidden"`
 }
 
