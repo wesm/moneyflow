@@ -323,46 +323,6 @@ components:
         - category
         - available
       type: object
-    Chart:
-      additionalProperties: false
-      properties:
-        marks:
-          items:
-            $ref: "#/components/schemas/ChartMark"
-          type:
-            - array
-            - "null"
-        summary:
-          items:
-            $ref: "#/components/schemas/Statistics"
-          type:
-            - array
-            - "null"
-      type: object
-    ChartMark:
-      additionalProperties: false
-      properties:
-        amount:
-          $ref: "#/components/schemas/Money"
-        identity:
-          type: string
-        index:
-          format: int64
-          type: integer
-        label:
-          type: string
-        plot_ratio:
-          format: int64
-          maximum: 10000
-          minimum: -10000
-          type: integer
-      required:
-        - index
-        - identity
-        - label
-        - amount
-        - plot_ratio
-      type: object
     CommitBody:
       additionalProperties: false
       properties:
@@ -1803,8 +1763,6 @@ components:
           type:
             - array
             - "null"
-        chart:
-          $ref: "#/components/schemas/Chart"
         currencies:
           items:
             $ref: "#/components/schemas/CurrencyCount"
@@ -1882,7 +1840,6 @@ components:
         - amazon_match_column
         - statistics
         - currencies
-        - chart
       type: object
     ProviderConfirmationBody:
       additionalProperties: false

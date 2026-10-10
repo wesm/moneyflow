@@ -3,6 +3,7 @@
   "assets": [
     {
       "name": "initial_css_brotli",
+      "scope": "initial",
       "manifest_entry": "index.html",
       "kind": "css",
       "compression": "brotli",
@@ -10,6 +11,7 @@
     },
     {
       "name": "initial_css_gzip",
+      "scope": "initial",
       "manifest_entry": "index.html",
       "kind": "css",
       "compression": "gzip",
@@ -17,6 +19,7 @@
     },
     {
       "name": "initial_javascript_brotli",
+      "scope": "initial",
       "manifest_entry": "index.html",
       "kind": "javascript",
       "compression": "brotli",
@@ -24,10 +27,18 @@
     },
     {
       "name": "initial_javascript_gzip",
+      "scope": "initial",
       "manifest_entry": "index.html",
       "kind": "javascript",
       "compression": "gzip",
       "max_bytes": 225280
+    },
+    {
+      "name": "total_javascript_brotli",
+      "scope": "all",
+      "kind": "javascript",
+      "compression": "brotli",
+      "max_bytes": 128882
     }
   ],
   "interactions": [

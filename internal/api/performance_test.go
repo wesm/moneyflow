@@ -42,7 +42,7 @@ func TestProjectionPerformance100K(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, encoded)
 	require.Less(t, duration, time.Second,
-		"URL decode, query, 200-row/chart projection, and JSON encoding took %s", duration)
+		"URL decode, query, 200-row projection, and JSON encoding took %s", duration)
 }
 
 func BenchmarkProjection100K(b *testing.B) {

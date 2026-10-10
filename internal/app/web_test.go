@@ -38,8 +38,6 @@ func TestProjectViewDefaultsWindowAndDecoratesExactSelection(t *testing.T) {
 	assert.Equal(t, 1, projection.SelectionCount)
 	assert.Equal(t, 0, projection.DetailRows[0].Index)
 	assert.Equal(t, 199, projection.DetailRows[199].Index)
-	assert.Empty(t, projection.Chart.Marks)
-	assert.Equal(t, projection.Statistics, projection.Chart.Summary)
 	assert.Empty(t, projection.Status)
 
 	second, err := service.ProjectView(
@@ -59,45 +57,6 @@ func TestProjectViewDefaultsWindowAndDecoratesExactSelection(t *testing.T) {
 		}
 	}
 	assert.True(t, selectedFound)
-}
-
-func TestProjectViewAggregateWindowChartRatiosAndPartitions(t *testing.T) {
-	t.Parallel()
-
-	transactions := []domain.Transaction{
-		appTransaction(t, "usd-large", "2024-01-01", "-9.00", "Alpha", "Category", "Group"),
-		appTransaction(t, "usd-small", "2024-01-01", "3.00", "Beta", "Category", "Group"),
-	}
-	eur := appTransaction(t, "eur", "2024-01-01", "-2.00", "Gamma", "Category", "Group")
-	eur.Amount.Currency = "EUR"
-	transactions = append(transactions, eur)
-	service, err := NewService(transactions)
-	require.NoError(t, err)
-
-	projection, err := service.ProjectView(DefaultViewState(), EmptySelection(), WindowRequest{})
-	require.NoError(t, err)
-	require.Len(t, projection.AggregateRows, 3)
-	require.Len(t, projection.Chart.Marks, 3)
-
-	ratios := make(map[string]int, len(projection.Chart.Marks))
-	for _, mark := range projection.Chart.Marks {
-		ratios[mark.Identity] = mark.PlotRatio
-		assert.GreaterOrEqual(t, mark.Index, 0)
-		assert.NotEmpty(t, mark.Label)
-	}
-	for _, row := range projection.AggregateRows {
-		ratio := ratios[row.Identity]
-		switch row.Row.Total.Currency {
-		case "EUR":
-			assert.Equal(t, -PlotRatioScale, ratio)
-		case "USD":
-			if row.Row.Total.Minor == -900 {
-				assert.Equal(t, -PlotRatioScale, ratio)
-			} else {
-				assert.Equal(t, 3333, ratio)
-			}
-		}
-	}
 }
 
 func TestProjectViewResolvesDurableDrillLabelsForBreadcrumb(t *testing.T) {

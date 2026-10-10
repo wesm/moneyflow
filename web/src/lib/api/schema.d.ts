@@ -860,19 +860,6 @@ export interface components {
       key_display?: string
       reason?: string
     }
-    Chart: {
-      marks?: components['schemas']['ChartMark'][] | null
-      summary?: components['schemas']['Statistics'][] | null
-    }
-    ChartMark: {
-      amount: components['schemas']['Money']
-      identity: string
-      /** Format: int64 */
-      index: number
-      label: string
-      /** Format: int64 */
-      plot_ratio: number
-    }
     CommitBody: {
       expected_revision: string
       query: string
@@ -1411,7 +1398,6 @@ export interface components {
       breadcrumbs: components['schemas']['Breadcrumb'][] | null
       canonical_query: string
       capabilities: components['schemas']['Capability'][] | null
-      chart: components['schemas']['Chart']
       currencies: components['schemas']['CurrencyCount'][]
       detail_rows?: components['schemas']['DetailRow'][] | null
       filters: components['schemas']['ActiveFilters']

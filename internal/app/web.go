@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"reflect"
 	"unicode/utf8"
 
@@ -19,8 +18,6 @@ const (
 	MaxWindowLimit = 400
 	// MaxWindowOffset bounds random-access row offsets.
 	MaxWindowOffset = 1_000_000
-	// PlotRatioScale is the maximum absolute chart coordinate within a money partition.
-	PlotRatioScale = 10_000
 	// MaxCommittedSearchBytes bounds a transition before it can enter durable URL state.
 	MaxCommittedSearchBytes = 2 << 10
 	// MaxDurableEntityKeyBytes bounds a drill transition before it can enter durable URL state.
@@ -131,21 +128,6 @@ type WebAggregateRow struct {
 	NetRatio *int
 }
 
-// ChartMark contains renderer-neutral exact chart geometry for one aggregate row.
-type ChartMark struct {
-	Index     int
-	Identity  string
-	Label     string
-	Amount    domain.Money
-	PlotRatio int
-}
-
-// ChartProjection complements the current table window without owning analytical state.
-type ChartProjection struct {
-	Marks   []ChartMark
-	Summary []domain.CurrencyStats
-}
-
 // WebProjection is the complete renderer-neutral output for one browser row window.
 type WebProjection struct {
 	Revision          uint64
@@ -168,7 +150,6 @@ type WebProjection struct {
 	AggregateRows     []WebAggregateRow
 	Statistics        []domain.CurrencyStats
 	Currencies        []domain.CurrencyCount
-	Chart             ChartProjection
 	// AnchorIndex is the global index of the requested anchor row; nil unless it was found.
 	AnchorIndex *int
 	// AnchorMissing reports a requested anchor that no aggregate row of the result matches.
@@ -298,7 +279,7 @@ func (service *Service) queryProjection(
 	return session, breadcrumbs, result, nil
 }
 
-// projectRows sets the row count, the row window, and the chart of a projection.
+// projectRows sets the row count and the row window of a projection.
 func (service *Service) projectRows(
 	projection *WebProjection, result domain.QueryResult, window WindowRequest,
 ) error {
@@ -315,11 +296,6 @@ func (service *Service) projectRows(
 	decorateNetRatios(projection.AggregateRows, result.AggregateRows)
 	if err = decorateSavingsRates(projection.AggregateRows); err != nil {
 		return err
-	}
-	if result.DetailRows != nil {
-		projection.Chart.Summary = append([]domain.CurrencyStats(nil), result.Statistics...)
-	} else {
-		projection.Chart.Marks = chartMarks(projection.AggregateRows)
 	}
 	return nil
 }
@@ -1005,41 +981,9 @@ func aggregateWindow(rows []domain.AggregateRow, window Window) []WebAggregateRo
 	return result
 }
 
-func chartMarks(rows []WebAggregateRow) []ChartMark {
-	if rows == nil {
-		return nil
-	}
-	maxima := make(map[moneyPartition]*big.Int)
-	for _, row := range rows {
-		partition := moneyPartition{currency: row.Row.Total.Currency, scale: row.Row.Total.Scale}
-		absolute := new(big.Int).Abs(big.NewInt(row.Row.Total.Minor))
-		if current := maxima[partition]; current == nil || absolute.Cmp(current) > 0 {
-			maxima[partition] = absolute
-		}
-	}
-	marks := make([]ChartMark, len(rows))
-	for index, row := range rows {
-		partition := moneyPartition{currency: row.Row.Total.Currency, scale: row.Row.Total.Scale}
-		marks[index] = ChartMark{
-			Index: row.Index, Identity: row.Identity, Label: row.Row.Label, Amount: row.Row.Total,
-			PlotRatio: exactPlotRatio(row.Row.Total.Minor, maxima[partition]),
-		}
-	}
-	return marks
-}
-
 type moneyPartition struct {
 	currency domain.Currency
 	scale    uint8
-}
-
-func exactPlotRatio(minor int64, maximum *big.Int) int {
-	if maximum == nil || maximum.Sign() == 0 || minor == 0 {
-		return 0
-	}
-	numerator := new(big.Int).Mul(big.NewInt(minor), big.NewInt(PlotRatioScale))
-	ratio := new(big.Int).Quo(numerator, maximum)
-	return int(ratio.Int64())
 }
 
 func resultRowCount(result domain.QueryResult) int {

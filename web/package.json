@@ -23,7 +23,6 @@
   "dependencies": {
     "@kenn-io/kit-ui": "github:kenn-io/kit-ui#16db58ef8122dd00e21ce8ad90ba295b9174c6ef",
     "@lucide/svelte": "1.21.0",
-    "layerchart": "2.0.2",
     "openapi-fetch": "0.17.0",
     "svelte": "5.56.3"
   },

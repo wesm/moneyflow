@@ -47,7 +47,6 @@ export function testProjection(overrides: Partial<ViewProjection> = {}): ViewPro
       },
     ],
     statistics: [],
-    chart: {},
     ...overrides,
   }
 }

@@ -451,6 +451,5 @@ function projection(selection: string, minor: string): ViewProjection {
       },
     ],
     statistics: [],
-    chart: {},
   }
 }

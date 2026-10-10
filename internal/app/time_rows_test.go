@@ -179,8 +179,6 @@ func TestProjectViewSortsAndWindowsTimeRows(t *testing.T) {
 	assert.Equal(t, Window{Offset: 1, Limit: 2, Count: 2}, projection.Window)
 	assert.Equal(t, []string{"2026-09-01", "2026-09-04"}, timeRowKeys(projection.AggregateRows))
 	assert.Equal(t, 1, projection.AggregateRows[0].Index)
-	require.Len(t, projection.Chart.Marks, 2)
-	assert.Equal(t, projection.AggregateRows[0].Identity, projection.Chart.Marks[0].Identity)
 }
 
 func TestProjectViewKeepsDataRowsWithoutACurrency(t *testing.T) {

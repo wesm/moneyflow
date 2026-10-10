@@ -32,7 +32,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['@kenn-io/kit-ui', 'layerchart'],
+    exclude: ['@kenn-io/kit-ui'],
   },
   server: {
     host: '127.0.0.1',
