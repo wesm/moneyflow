@@ -214,7 +214,9 @@ func (server *Server) registerMutationEndpoints(_ Config) {
 	})
 }
 
-func mutationToApp(body MutationBody) (app.MutationRequest, app.ViewState, app.SelectionValue, error) {
+func mutationToApp(
+	body MutationBody,
+) (app.MutationRequest, app.ViewState, app.SelectionValue, error) {
 	state, _, selection, expected, err := mutationContext(
 		body.Version, body.ExpectedRevision, body.Query, body.Selection,
 	)
@@ -245,7 +247,8 @@ func mutationContext(
 	selectionText string,
 ) (app.ViewState, string, app.SelectionValue, uint64, error) {
 	if version != MutationSchemaVersion {
-		return app.ViewState{}, "", "", 0, invalidMutationRequest(errors.New("unsupported mutation version"))
+		unsupported := invalidMutationRequest(errors.New("unsupported mutation version"))
+		return app.ViewState{}, "", "", 0, unsupported
 	}
 	expected, err := parseRevision(revision)
 	if err != nil {
