@@ -1259,6 +1259,8 @@ components:
       properties:
         canonical_query:
           type: string
+        operation:
+          $ref: "#/components/schemas/OperationSummary"
         pending:
           $ref: "#/components/schemas/PendingSummary"
         projection:
@@ -1505,6 +1507,29 @@ components:
         - access_token
         - account_password
         - confirmation
+      type: object
+    OperationSummary:
+      additionalProperties: false
+      properties:
+        affected:
+          format: int64
+          type: integer
+        kind:
+          enum:
+            - rename
+            - recategorize
+            - hide
+            - show
+            - delete
+            - manage_category
+            - manage_group
+          type: string
+        label:
+          type: string
+      required:
+        - kind
+        - label
+        - affected
       type: object
     PendingSummary:
       additionalProperties: false

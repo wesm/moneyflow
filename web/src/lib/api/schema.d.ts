@@ -1212,6 +1212,7 @@ export interface components {
     }
     MutationResponse: {
       canonical_query: string
+      operation?: components['schemas']['OperationSummary']
       pending: components['schemas']['PendingSummary']
       projection: components['schemas']['Projection']
       provider_write?: components['schemas']['ProviderWriteStatusResponse']
@@ -1301,6 +1302,20 @@ export interface components {
       access_token: string
       account_password: string
       confirmation: string
+    }
+    OperationSummary: {
+      /** Format: int64 */
+      affected: number
+      /** @enum {string} */
+      kind:
+        | 'rename'
+        | 'recategorize'
+        | 'hide'
+        | 'show'
+        | 'delete'
+        | 'manage_category'
+        | 'manage_group'
+      label: string
     }
     PendingSummary: {
       /** Format: int64 */

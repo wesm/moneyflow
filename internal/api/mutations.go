@@ -70,6 +70,13 @@ type SelectionDisposition struct {
 	Value string `json:"value"`
 }
 
+// OperationSummary names the staged operation a mutation, undo, or redo applied.
+type OperationSummary struct {
+	Kind     string `json:"kind" enum:"rename,recategorize,hide,show,delete,manage_category,manage_group"`
+	Label    string `json:"label"`
+	Affected int    `json:"affected"`
+}
+
 // MutationResponse returns committed rows and pending markers after an accepted mutation.
 type MutationResponse struct {
 	Version        string                       `json:"version"`
@@ -79,6 +86,7 @@ type MutationResponse struct {
 	Pending        PendingSummary               `json:"pending"`
 	Selection      SelectionDisposition         `json:"selection"`
 	ProviderWrite  *ProviderWriteStatusResponse `json:"provider_write,omitempty"`
+	Operation      *OperationSummary            `json:"operation,omitempty"`
 }
 
 type mutationInput struct {
@@ -260,7 +268,17 @@ func mutationOutputFor(
 		Selection: SelectionDisposition{
 			Kind: string(result.SelectionDisposition), Value: string(selection),
 		},
+		Operation: operationToWire(result),
 	}}, nil
+}
+
+func operationToWire(result app.MutationResult) *OperationSummary {
+	if result.OperationKind == "" {
+		return nil
+	}
+	return &OperationSummary{
+		Kind: string(result.OperationKind), Label: result.OperationLabel, Affected: result.Affected,
+	}
 }
 
 func invalidMutationRequest(cause error) error {
