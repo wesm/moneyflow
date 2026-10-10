@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // InvalidOperationReason is an allowlisted, value-free validation stage.
@@ -129,6 +130,16 @@ func InvalidOperationReasonOf(err error) (InvalidOperationReason, bool) {
 	}
 	_, ok := invalidOperationDetails[failure.invalidReason]
 	return failure.invalidReason, ok
+}
+
+// InvalidOperationReasons lists every allowlisted reason in sorted order.
+func InvalidOperationReasons() []InvalidOperationReason {
+	reasons := make([]InvalidOperationReason, 0, len(invalidOperationDetails))
+	for reason := range invalidOperationDetails {
+		reasons = append(reasons, reason)
+	}
+	slices.Sort(reasons)
+	return reasons
 }
 
 // InvalidOperationDetail returns fixed user-facing text for an allowlisted stage.

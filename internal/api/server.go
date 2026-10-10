@@ -625,7 +625,7 @@ func problemFromError(err error) *Problem {
 		}
 		problem := newProblem(status, string(code), application.Detail)
 		problem.CurrentRevision = strconv.FormatUint(application.CurrentRevision, 10)
-		problem.Reason = invalidOperationReason(err)
+		problem.Reason = invalidOperationReason(application.Code, err)
 		if application.Code == app.AppSelectionStale {
 			selection := application.Selection
 			kind := "refreshed"
@@ -670,7 +670,10 @@ func problemFromError(err error) *Problem {
 	return newProblem(500, "internal_error", "The request could not be completed.")
 }
 
-func invalidOperationReason(err error) string {
+func invalidOperationReason(code app.AppErrorCode, err error) string {
+	if code != app.AppInvalidOperation {
+		return ""
+	}
 	reason, ok := store.InvalidOperationReasonOf(err)
 	if !ok {
 		return ""

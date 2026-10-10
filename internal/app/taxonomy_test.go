@@ -309,3 +309,41 @@ func TestTaxonomyCollisionCarriesItsReason(t *testing.T) {
 		})
 	}
 }
+
+func TestTaxonomyRenameToOwnNameInAnotherCaseIsNotACollision(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action app.ActionID
+		input  app.EditInput
+	}{
+		{
+			name: "category", action: app.ActionManageCategories,
+			input: app.EditInput{
+				Taxonomy: app.TaxonomyRename, EntityID: "category_a", Label: "category a",
+			},
+		},
+		{
+			name: "group", action: app.ActionManageGroups,
+			input: app.EditInput{
+				Taxonomy: app.TaxonomyRename, EntityID: "group_a", Label: "group a",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			service, err := app.NewProfileService(t.Context(), newMemoryProfile(t, 5))
+			require.NoError(t, err)
+
+			_, err = service.PreviewMutation(t.Context(), app.MutationRequest{
+				Action: test.action, ExpectedRevision: 5, State: app.DefaultViewState(),
+				Selection: app.EmptySelection(), Input: test.input,
+			})
+
+			require.NoError(t, err)
+		})
+	}
+}
