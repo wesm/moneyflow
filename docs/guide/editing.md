@@ -232,8 +232,9 @@ status. Write status shows progress and offers the actions the batch allows: **P
 **Resume** or **Check and resume**, **Stop and reconcile**, **Confirm reconciliation**, or
 **Reconnect Monarch** / **Reconnect YNAB**.
 
-**Unreleased:** Write status shows the first change's From/To values and transaction count,
-alongside overall progress. It also reports when the batch contains additional changes.
+**Unreleased:** In the TUI, write status shows the first change's From/To values and
+transaction count, alongside overall progress. It also reports when the batch contains
+additional changes.
 
 Use the action shown for the current state. Pause waits for in-flight results. A paused
 batch offers Resume. A rejected change offers `s` to discard that batch's pending edits

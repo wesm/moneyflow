@@ -51,10 +51,18 @@ carry `savings_rate_tenths` and `net_ratio` on Time rows, and `group` on categor
 is the row's net over the largest absolute net of the whole result, in basis points (−10000 to
 10000). It does not change when the row window moves. `view.sort_fields` lists the fields the
 current view can sort by, in the order the sort key cycles. A whole-merchant preview reports how
-many affected transactions the view hides, with `outside_view` and `outside_currencies`. A view
-request may carry an `anchor`, an aggregate row identity. The server then returns the window that
-holds that row and reports its global index as `anchor_index`. An identity that matches no row of
-the result leaves the window as requested, omits `anchor_index`, and adds the warning
+many affected transactions the view hides, with `outside_view` and `outside_currencies`.
+
+A mutate, undo, or redo response carries `operation`, from which the browser words its toasts:
+the `kind` (`rename`, `recategorize`, `hide`, `show`, `delete`, `manage_category`, or
+`manage_group`), the review `label`, the `affected` transaction count, and `undoable`. A commit
+response has no `operation`. Each editor-catalog choice carries `transaction_count`, its committed
+non-deleted transactions, and `in_use`, which applies pending edits and makes a manager delete ask
+for a replacement. Review targets carry each transaction's exact `amount`.
+
+A view request may carry an `anchor`, an aggregate row identity. The server then returns the window
+that holds that row and reports its global index as `anchor_index`. An identity that matches no row
+of the result leaves the window as requested, omits `anchor_index`, and adds the warning
 `anchor_missing`.
 
 Charts read from a separate operation, `POST /api/v1/profiles/{profile_id}/view/insights`. It
