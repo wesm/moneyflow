@@ -20,6 +20,7 @@
   import { merchantScope } from '../../lib/editing/merchant-scope'
   import { editorOptions, type EditorOption } from '../../lib/editing/options'
   import { ScopePreviews } from '../../lib/editing/scope-previews.svelte'
+  import { StageQueue } from '../../lib/editing/stage-queue.svelte'
 
   interface Props {
     kind: EditorKind
@@ -68,11 +69,7 @@
   /** Whether Enter may ask to stage; a request made while loading waits for `valid`. */
   const stageable = $derived(!submitting && named && (!creating || !!groupId))
   const valid = $derived(stageable && !!catalog && !!preview)
-  /**
-   * The text and scope of a stage requested while loading. Editing either, or leaving a
-   * stageable state, drops it.
-   */
-  let queued = $state<{ text: string; scope: EditScope }>()
+  const queue = new StageQueue()
   const impact = $derived(merchant ? impactLines(preview, scope, match?.label, currency) : [])
   const counts = $derived({
     transactions: previews.byScope.transactions?.affected_transactions,
@@ -96,21 +93,13 @@
     return untrack(() => previews.load(current))
   })
 
-  // A stage requested while loading runs once loading finishes, unless it was dropped.
   $effect(() => {
-    if (!queued) return
-    const unchanged = queued.text === text && queued.scope === scope
-    if (unchanged && stageable && !valid) return
-    queued = undefined
-    if (unchanged) void stage()
+    if (queue.settle({ text, scope }, stageable, valid)) void stage()
   })
 
   async function stage(): Promise<void> {
     if (!stageable) return
-    if (!catalog || !preview) {
-      queued = { text, scope }
-      return
-    }
+    if (!catalog || !preview) return queue.request({ text, scope })
     if (BigInt(preview.revision) !== controller.state.revision) {
       error = 'The profile changed. Reopen this editor to review affected transactions.'
       return
