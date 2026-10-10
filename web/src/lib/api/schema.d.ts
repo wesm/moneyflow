@@ -1610,6 +1610,7 @@ export interface components {
       window: components['schemas']['ReturnedWindow']
     }
     ReviewTarget: {
+      amount: components['schemas']['Money']
       category: string
       date: string
       hidden: boolean

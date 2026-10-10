@@ -64,3 +64,43 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
     await server.stop()
   }
 })
+
+test('an expanded operation shows each amount with its currency, right-aligned, at 390 px too', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 844 })
+      await openMoneyflow(page, server)
+      if (width === 1440) await page.keyboard.press('h')
+      await expect(page.getByText(/1 pending edit/).first()).toBeAttached()
+      await page.keyboard.press('w')
+      const review = page.getByRole('dialog', { name: 'Review pending changes' })
+      await review.getByRole('button', { name: /^Toggle report visibility/ }).click()
+      const table = review.getByRole('table', { name: 'Affected transactions' })
+      await expect(table.getByRole('columnheader')).toHaveText([
+        'Date',
+        'Merchant',
+        'Category',
+        'Amount',
+      ])
+      const amount = table.getByRole('row').nth(1).getByRole('cell').last()
+      await expect(amount).toHaveText('-2,150.00 USD')
+      await expect(amount).toHaveCSS('text-align', 'right')
+      // The table and its rows fit the drawer without scrolling sideways.
+      const overflow = await table.evaluate((node) => {
+        const box = node.parentElement!.getBoundingClientRect()
+        return Math.max(
+          ...[node, ...node.querySelectorAll('tr')].map(
+            (element) => element.getBoundingClientRect().right - box.right,
+          ),
+        )
+      })
+      expect(overflow, `${width} px`).toBeLessThanOrEqual(0)
+      await page.keyboard.press('Escape')
+    }
+  } finally {
+    await server.stop()
+  }
+})

@@ -73,6 +73,13 @@ function reviewServer(affected: number): MutationFetch {
         date: '2024-01-01',
         merchant: `Example Merchant ${offset + index + 1}`,
         category: 'Example Category',
+        amount: {
+          minor: `-${offset + index + 1}05`,
+          currency: 'USD',
+          scale: 2,
+          decimal: `-${offset + index + 1}.05`,
+          display: `-${offset + index + 1}.05`,
+        },
         hidden: offset + index === 0,
       }))
       const response = {
@@ -190,6 +197,32 @@ describe('ReviewDrawer in review mode', () => {
     await fireEvent.click(operation)
     expect(operation.getAttribute('aria-expanded')).toBe('false')
     expect(screen.queryByText('Example Merchant 201')).toBeNull()
+  })
+
+  it('shows each transaction’s date, merchant, category, and amount with its currency', async () => {
+    const review = createReviewController({ transport: reviewServer(2), revision: () => 1n })
+    setup({ review })
+    await loaded()
+    await fireEvent.click(screen.getByRole('button', { name: /^Rename merchant/ }))
+    await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(3))
+    const [header, first, second] = screen.getAllByRole('row')
+    const texts = (row: HTMLElement | undefined, role: 'columnheader' | 'cell') =>
+      within(row!)
+        .getAllByRole(role)
+        .map((cell) => cell.textContent?.replace(/\s+/g, ' ').trim())
+    expect(texts(header, 'columnheader')).toEqual(['Date', 'Merchant', 'Category', 'Amount'])
+    expect(texts(first, 'cell')).toEqual([
+      '2024-01-01',
+      'Example Merchant 1 Hidden',
+      'Example Category',
+      '-1.05 USD',
+    ])
+    expect(texts(second, 'cell')).toEqual([
+      '2024-01-01',
+      'Example Merchant 2',
+      'Example Category',
+      '-2.05 USD',
+    ])
   })
 
   it('puts Commit with its Enter hint in the footer and focuses it after loading', async () => {

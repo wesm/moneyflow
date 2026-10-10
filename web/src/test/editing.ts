@@ -95,6 +95,13 @@ export function testReviewController(overrides: Partial<ReviewController> = {}):
         date: '2024-01-01',
         merchant: 'Example Merchant',
         category: 'Example Category',
+        amount: {
+          minor: '-1234',
+          currency: 'USD',
+          scale: 2,
+          decimal: '-12.34',
+          display: '-12.34',
+        },
         hidden: false,
       },
     ]),

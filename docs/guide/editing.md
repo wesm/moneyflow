@@ -190,7 +190,8 @@ changes and discards redo history. Esc returns without committing.
 
 **Unreleased:** In the browser, `w` or the pending-edits card's **Review** button opens **Review
 pending changes** as a large drawer. It lists each staged operation as its old and new value with
-the affected count. Select an operation to list its transactions 100 at a time. Enter commits
+the affected count. Select an operation to list its transactions 100 at a time, with each
+transaction's date, merchant, category, and amount in its currency. Enter commits
 unless focus is on a button or another control with its own Enter. Esc or **Cancel** closes the
 drawer without committing. For Monarch and YNAB, the same drawer becomes write status after the
 commit starts the provider write.

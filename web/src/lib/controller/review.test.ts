@@ -82,7 +82,19 @@ function reviewResponse(revision: string, offset = 0, limit = 100) {
     operation_id: offset === 0 && limit === 100 ? undefined : 'active-1',
     window: { offset, limit, count: 1 },
     targets: [
-      { date: '2024-01-01', merchant: 'Example Merchant', category: 'Category', hidden: false },
+      {
+        date: '2024-01-01',
+        merchant: 'Example Merchant',
+        category: 'Category',
+        amount: {
+          minor: '-1234',
+          currency: 'USD',
+          scale: 2,
+          decimal: '-12.34',
+          display: '-12.34',
+        },
+        hidden: false,
+      },
     ],
   }
 }

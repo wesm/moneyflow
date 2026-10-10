@@ -2342,6 +2342,8 @@ components:
     ReviewTarget:
       additionalProperties: false
       properties:
+        amount:
+          $ref: "#/components/schemas/Money"
         category:
           type: string
         date:
@@ -2354,6 +2356,7 @@ components:
         - date
         - merchant
         - category
+        - amount
         - hidden
       type: object
     ReviewTargetsBody:

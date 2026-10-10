@@ -65,9 +65,12 @@
       <table class="mf-review-op__table">
         <caption class="kit-sr-only">Affected transactions</caption>
         <thead>
-          <tr
-            ><th scope="col">Date</th><th scope="col">Merchant</th><th scope="col">Category</th></tr
-          >
+          <tr>
+            <th scope="col">Date</th>
+            <th scope="col">Merchant</th>
+            <th scope="col">Category</th>
+            <th scope="col" class="mf-review-op__amount">Amount</th>
+          </tr>
         </thead>
         <tbody>
           {#each targets as target, index (offset + index)}
@@ -79,6 +82,7 @@
                   >{/if}</td
               >
               <td>{target.category}</td>
+              <td class="mf-review-op__amount">{target.amount.display} {target.amount.currency}</td>
             </tr>
           {/each}
         </tbody>
@@ -169,6 +173,13 @@
   .mf-review-op__table :is(th, td) {
     padding: var(--space-2) var(--space-4) var(--space-2) 0;
     border-bottom: 1px solid var(--border-muted);
+  }
+  /* As the table shows amounts: right-aligned figures on one line. */
+  .mf-review-op__table .mf-review-op__amount {
+    padding-inline-end: 0;
+    font-family: var(--font-mono);
+    text-align: right;
+    white-space: nowrap;
   }
   .mf-review-op__paging {
     display: flex;
