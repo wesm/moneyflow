@@ -68,7 +68,10 @@
   /** Whether Enter may ask to stage; a request made while loading waits for `valid`. */
   const stageable = $derived(!submitting && named && (!creating || !!groupId))
   const valid = $derived(stageable && !!catalog && !!preview)
-  /** The text and scope of a stage requested while loading; any edit to either drops it. */
+  /**
+   * The text and scope of a stage requested while loading. Editing either, or leaving a
+   * stageable state, drops it.
+   */
   let queued = $state<{ text: string; scope: EditScope }>()
   const impact = $derived(merchant ? impactLines(preview, scope, match?.label, currency) : [])
   const counts = $derived({
@@ -93,11 +96,11 @@
     return untrack(() => previews.load(current))
   })
 
-  // A stage requested while loading runs once loading finishes, unless an edit dropped it.
+  // A stage requested while loading runs once loading finishes, unless it was dropped.
   $effect(() => {
     if (!queued) return
     const unchanged = queued.text === text && queued.scope === scope
-    if (unchanged && !valid) return
+    if (unchanged && stageable && !valid) return
     queued = undefined
     if (unchanged) void stage()
   })

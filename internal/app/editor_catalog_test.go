@@ -189,8 +189,9 @@ func TestEditorCatalogMarksChoicesInUseWithPendingEditsApplied(t *testing.T) {
 	assert.False(t, inUse[domain.UncategorizedCategoryID], "an empty category")
 	assert.False(t, inUse["group_empty"], "a group without categories")
 
-	stagedMutate(t, service, app.ActionEditCategory, "transaction_a",
-		app.EditInput{Scope: app.EditScopeTransactions, DestinationID: domain.UncategorizedCategoryID})
+	stagedMutate(t, service, app.ActionEditCategory, "transaction_a", app.EditInput{
+		Scope: app.EditScopeTransactions, DestinationID: domain.UncategorizedCategoryID,
+	})
 
 	inUse = catalogInUse(t, service)
 	counts := catalogCounts(t, service)

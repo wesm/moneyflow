@@ -133,20 +133,25 @@ export function startStep(
 }
 
 /**
- * What a delete affects: its committed transactions, or, when it is in use without any, the
- * pending edits that use a category or the categories a group holds.
+ * What a delete affects: its committed transactions; when it is in use without any, the
+ * pending edits that use a category or the categories a group holds; and when pending edits
+ * emptied it, that they already moved its contents.
  */
 export function deleteDetail(
   kind: ManagerKind,
   source: EditorChoice,
   catalog: EditorCatalog | undefined,
 ): string {
-  if (source.transaction_count > 0 || !source.in_use) {
-    return transactionCount(source.transaction_count)
+  const count = source.transaction_count
+  if (count > 0 && !source.in_use) {
+    return kind === 'category'
+      ? `Pending edits already moved its ${transactionCount(count)} elsewhere`
+      : 'Pending edits already moved all its categories elsewhere'
   }
+  if (count > 0 || !source.in_use) return transactionCount(count)
   if (kind === 'category') return 'Pending edits use this category'
-  const count = (catalog?.categories ?? []).filter((item) => item.parent_id === source.id).length
-  return `${count} ${count === 1 ? 'category' : 'categories'}`
+  const held = (catalog?.categories ?? []).filter((item) => item.parent_id === source.id).length
+  return `${held} ${held === 1 ? 'category' : 'categories'}`
 }
 
 /** The categories or groups the manager lists. */

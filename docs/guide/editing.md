@@ -166,10 +166,11 @@ disabled until you choose a destination. The delete step shows how many committe
 use the entry. A category with transactions, or a group that still has categories, needs a
 replacement, and Delete stays disabled until you choose one. Pending edits count: a new category
 that a pending edit fills needs a replacement, and its step says
-`Pending edits use this category`. A group without transactions shows how many categories it
-has. An unused category, or a group without categories, needs none: Enter deletes it. A merged
-category, or a deleted one with a replacement, moves its transactions there; a merged or deleted
-group moves its categories there.
+`Pending edits use this category`. An entry that pending edits emptied needs none, and its step
+says so, for example `Pending edits already moved its 4 transactions elsewhere`. A group without
+transactions shows how many categories it has. An unused category, or a group without
+categories, needs none: Enter deletes it. A merged category, or a deleted one with a
+replacement, moves its transactions there; a merged or deleted group moves its categories there.
 While the drawer is open, these keys do not reach the table, so `g`, `m`, and `d` never change
 the view or open the merchant editor behind it.
 

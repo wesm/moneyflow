@@ -339,6 +339,26 @@ describe('EditorBody', () => {
       group_id: testCatalog.groups?.[0]?.id,
     })
   })
+  it('drops a stage queued on the group step once Escape leaves it', async () => {
+    const previewed = deferred<MerchantPreview>()
+    const controller = testEditingController({ previewMerchant: vi.fn(() => previewed.promise) })
+    const { editing, input, onstage } = setup({ kind: 'category', controller })
+    await type(input, 'Pet Care')
+    await screen.findByRole('option', { name: 'Create "Pet Care"' })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    const group = await screen.findByRole('combobox', { name: /Category group/ })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    await fireEvent.keyDown(group, { key: 'Escape' })
+    await vi.waitFor(() => expect(document.activeElement).toBe(input))
+    await fireEvent.keyDown(input, { key: 'ArrowDown' })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    await screen.findByRole('combobox', { name: /Category group/ })
+    previewed.resolve(preview())
+    await stageButton('5 transactions')
+    expect(editing.submit).not.toHaveBeenCalled()
+    expect(onstage).not.toHaveBeenCalled()
+  })
+
   it('closes only the open group list on Escape and keeps the editor open', async () => {
     const { input, oncancel } = setup({ kind: 'category' })
     await stageButton('5 transactions')

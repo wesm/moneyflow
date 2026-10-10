@@ -206,7 +206,9 @@ func TestUndoCreationKeepsCommittedViewAndRemovesPendingCategoryChoice(t *testin
 	assert.Equal(t, "category_a", detailTransactionByID(t, created.Projection.DetailRows, "transaction_a").Category.ID)
 	catalog, err := service.EditorCatalog()
 	require.NoError(t, err)
-	choice := app.EditorChoice{ID: "category_new", Label: "New Category", ParentID: "group_a", InUse: true}
+	choice := app.EditorChoice{
+		ID: "category_new", Label: "New Category", ParentID: "group_a", InUse: true,
+	}
 	assert.Contains(t, catalog.Categories, choice, "the pending edit uses the new category")
 
 	undone, err := service.UndoInteraction(

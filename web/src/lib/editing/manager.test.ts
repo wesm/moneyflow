@@ -217,6 +217,19 @@ describe('deleteDetail', () => {
     expect(deleteDetail('category', pending, catalog)).toBe('Pending edits use this category')
   })
 
+  it('says pending edits already moved the contents of an entry no longer in use', () => {
+    const moved = (count: number) => ({ ...category, transaction_count: count, in_use: false })
+    expect(deleteDetail('category', moved(4), catalog)).toBe(
+      'Pending edits already moved its 4 transactions elsewhere',
+    )
+    expect(deleteDetail('category', moved(1), catalog)).toBe(
+      'Pending edits already moved its 1 transaction elsewhere',
+    )
+    expect(deleteDetail('group', { ...catalog.groups[0]!, in_use: false }, catalog)).toBe(
+      'Pending edits already moved all its categories elsewhere',
+    )
+  })
+
   it('names the categories of a group in use without transactions', () => {
     const quiet = (id: string) => ({ ...category, id, parent_id: 'group-c', transaction_count: 0 })
     const holding = { ...catalog, categories: [...categories, quiet('c-1')] }
