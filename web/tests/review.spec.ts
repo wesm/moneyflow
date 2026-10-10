@@ -12,7 +12,7 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
     const affected = await activeAggregateCount(page, 2)
     const pageSize = 100
     await page.keyboard.press('h')
-    await expect(page.getByText(/1 pending/)).toBeVisible()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await page.keyboard.press('u')
     await expect(page.getByText(/1 redo/)).toBeVisible()
     await page.keyboard.press('w')
@@ -24,7 +24,7 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
 
     await page.keyboard.press('Shift+U')
-    await expect(page.getByText(/1 pending/)).toBeVisible()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await page.keyboard.press('w')
     await expect(review).toBeVisible()
     const operation = review.locator('.review-list button').first()
@@ -44,7 +44,7 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
     await commit.focus()
     await page.keyboard.press('Enter')
     await expect(review).toBeHidden()
-    await expect(page.getByText(/0 pending/)).toBeVisible()
+    await expect(page.getByText(/0 pending edit/)).toBeVisible()
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
   } finally {
     await server.stop()

@@ -29,7 +29,7 @@ test('w then Enter prepares, writes, and finalizes Monarch edits without extra c
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
 
     await page.keyboard.press('h')
-    await expect(page.getByText(/1 pending/)).toBeVisible()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await page.keyboard.press('w')
     const review = page.getByRole('dialog', { name: 'Review pending changes' })
     await expect(review).toBeVisible()
@@ -38,7 +38,7 @@ test('w then Enter prepares, writes, and finalizes Monarch edits without extra c
     const write = page.getByRole('dialog', { name: 'Monarch write status' })
     await expect(write).toBeVisible()
     await expect(write.getByRole('status')).toContainText(/Provider write|Writing pending/)
-    await expect(page.getByText(/0 pending/)).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(/0 pending edit/)).toBeVisible({ timeout: 10_000 })
     await expect(write.getByRole('status')).toContainText('Provider write complete')
     const exposed = [await page.locator('body').innerText(), page.url(), ...consoleMessages].join(
       '\n',

@@ -161,14 +161,7 @@ input {
   gap: var(--space-4);
   padding: var(--space-4);
 }
-.app-shell__main--charts {
-  grid-template-columns: minmax(0, 3fr) minmax(15rem, 1fr);
-}
 .app-shell__table {
-  min-width: 0;
-  min-height: 0;
-}
-.app-shell__main > aside {
   min-width: 0;
   min-height: 0;
 }
@@ -929,7 +922,8 @@ input {
   --mf-row-tint: var(--mf-selected);
 }
 /* A table wider than the workspace scrolls sideways under ☐ and the name column, which stay
-   put. Opaque cells hide what scrolls beneath them and repeat the row's tint and rules. */
+   put. Opaque cells hide what scrolls beneath them and repeat the row's tint and rules. They
+   stick over the scroller's focus-ring padding too, so nothing shows through left of ☐. */
 .mf-table:not(.mf-table--compact)
   > :is(.mf-table__header, .mf-table__row)
   > :is(
@@ -939,7 +933,7 @@ input {
     [data-column='merchant']
   ) {
   position: sticky;
-  left: 2rem;
+  left: calc(2rem - var(--space-2));
   z-index: 1;
   /* Full row height, so nothing shows above or below the opaque cell. */
   align-self: stretch;
@@ -954,7 +948,7 @@ input {
 .mf-table:not(.mf-table--compact)
   > :is(.mf-table__header, .mf-table__row)
   > [data-column='select'] {
-  left: 0;
+  left: calc(-1 * var(--space-2));
 }
 .mf-table:not(.mf-table--compact) > .mf-table__header > [data-column] {
   background: var(--bg-surface);
@@ -1372,6 +1366,105 @@ input {
 .help-list__unavailable {
   color: var(--text-muted);
   text-decoration: line-through;
+}
+/* Charts: the KPI strip and the chart row, above the table in its scroller. */
+.mf-chart-area {
+  /* Pinned while the table scrolls sideways; a block child already spans the scroller. */
+  position: sticky;
+  left: 0;
+  display: grid;
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+}
+.mf-chart-states {
+  display: grid;
+  gap: var(--space-5);
+}
+.mf-chart-states--stale {
+  opacity: var(--opacity-disabled);
+}
+.mf-chart-failure {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+.mf-chart-dialog {
+  padding: var(--space-5) var(--space-6);
+}
+.mf-kpis,
+.mf-kpis__tiles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4) var(--space-8);
+  margin: 0;
+}
+.mf-kpi {
+  display: grid;
+  min-width: 6.5rem;
+}
+.mf-kpi > * {
+  margin: 0;
+}
+.mf-kpi__label {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+.mf-kpi__value {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xl);
+  font-variant-numeric: tabular-nums;
+}
+.mf-kpi__note {
+  /* Always one line, so tiles with and without a change line up and skeletons keep the size. */
+  min-height: 1lh;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.mf-kpi__note--favorable {
+  color: var(--mf-in);
+}
+.mf-kpi__note--unfavorable {
+  color: var(--mf-out);
+}
+.mf-kpis__caption {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.mf-chart-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+}
+.mf-chart-row__slot {
+  min-width: 0;
+  height: 12rem;
+}
+.mf-skeleton {
+  display: inline-block;
+  width: 4rem;
+  height: 0.75em;
+  vertical-align: middle;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+}
+.mf-kpi__value > .mf-skeleton {
+  width: 6rem;
+}
+.mf-skeleton--fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+@media (min-width: 900px) {
+  .mf-chart-row {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
 }
 .visualization-rail {
   height: 100%;

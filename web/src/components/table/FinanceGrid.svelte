@@ -40,6 +40,8 @@
     scrollTop?: number
     /** The scroller's visible height. */
     viewport?: number
+    /** The measured height of the content above the grid in the scroller. */
+    above?: number
     onmove: (delta: -1 | 1) => void
     onhome: () => void
     /** A row click moves the cursor; the grid keeps focus. Settles once the cursor moved. */
@@ -66,6 +68,7 @@
     scroller,
     scrollTop = $bindable(0),
     viewport = 520,
+    above = 0,
     onmove,
     onhome,
     oncursor,
@@ -108,6 +111,9 @@
     },
     get viewport() {
       return viewport
+    },
+    get above() {
+      return above
     },
     get scrollTop() {
       return scrollTop

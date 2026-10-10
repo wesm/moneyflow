@@ -19,6 +19,8 @@ export interface GridScrollSource {
   readonly rowHeight: number
   /** The scroller's visible height. */
   readonly viewport: number
+  /** The measured height of the content above the grid in the scroller, such as the charts. */
+  readonly above: number
   /** The scroller's `scrollTop`. The model sets it, and the scroller, to reveal the cursor row. */
   scrollTop: number
   oncursor(index: number): void
@@ -42,11 +44,10 @@ export class GridScroll {
   readonly #cursor = $derived.by(() => this.#source.cursorIndex)
   readonly #query = $derived.by(() => this.#projection.canonical_query)
   #lastQuery: string | undefined
-  // The scroller's top below the grid's top: the rows' offset under the sticky header. offsetTop
-  // is read, not tracked, so content above the grid that resizes does not rerun this.
-  readonly #listTop = $derived.by(
-    () => this.#source.scrollTop - (this.#source.grid?.offsetTop ?? 0),
-  )
+  /** The grid's top in the scroller, measured after layout whenever the content above resizes. */
+  #gridTop = $state(0)
+  // The scroller's top below the grid's top: the rows' offset under the sticky header.
+  readonly #listTop = $derived.by(() => this.#source.scrollTop - this.#gridTop)
   /** The first and last rows wholly visible below the sticky header. */
   readonly range = $derived.by(() => {
     const height = this.#source.rowHeight
@@ -80,6 +81,8 @@ export class GridScroll {
 
   constructor(source: GridScrollSource) {
     this.#source = source
+    // First, so the effects below reveal rows against the current grid top.
+    $effect(() => this.#measureGridTop())
     $effect(() => this.#followCursor())
     $effect(() => this.#keepCursorAboveCover())
     $effect(() => this.#keepCursorAcrossRowHeights())
@@ -89,6 +92,13 @@ export class GridScroll {
   /** A grid key moves the cursor, so the next cursor move is the user's and is revealed. */
   keyed(): void {
     this.#shown = undefined
+  }
+
+  // Effects run after the DOM updates, so the offset read here is current. `above` changes when
+  // the content above the grid resizes: the Charts switch, or skeletons giving way to charts.
+  #measureGridTop(): void {
+    void this.#source.above
+    this.#gridTop = this.#source.grid?.offsetTop ?? 0
   }
 
   // The grid keeps focus while the cursor moves, so the browser never scrolls the active row
@@ -154,6 +164,7 @@ export class GridScroll {
 
   #reveal(index: number): void {
     const source = this.#source
+    // Read now: a key can arrive before the observer reports content above that just resized.
     const gridTop = source.grid?.offsetTop ?? 0
     const port = { scrollTop: source.scrollTop, viewport: source.viewport, gridTop }
     const next = revealScrollTop(index, { ...port, rowHeight: source.rowHeight })

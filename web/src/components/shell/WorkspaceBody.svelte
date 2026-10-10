@@ -3,13 +3,21 @@
   import { untrack } from 'svelte'
   import { MediaQuery } from 'svelte/reactivity'
 
+  import ChartArea from '../charts/ChartArea.svelte'
   import FinanceGrid from '../table/FinanceGrid.svelte'
   import RowActionsSheet from '../table/RowActionsSheet.svelte'
   import SelectionBar from '../table/SelectionBar.svelte'
+  import ChartDrawer from './ChartDrawer.svelte'
   import EmptyScope from './EmptyScope.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import type { components } from '../../lib/api/schema'
-  import type { TransitionAction } from '../../lib/controller/view-controller.svelte'
+  import type {
+    TransitionAction,
+    ViewController,
+  } from '../../lib/controller/view-controller.svelte'
+  import { InsightsCache } from '../../lib/insights/cache.svelte'
+  import { seriesRows } from '../../lib/insights/requests'
+  import type { ChartState } from '../../lib/shell/chart-state.svelte'
   import {
     localActions,
     moveCursor,
@@ -27,10 +35,13 @@
     actions: LocalActionContext
     /** Applies a view transition from the table, then returns focus to it. */
     onapply: (request: TransitionAction) => void
+    charts: ChartState
   }
 
-  let { projection, actions, onapply }: Props = $props()
+  let { projection, actions, onapply, charts }: Props = $props()
   const controller = $derived(actions.controller)
+  // One cache per controller, and so per profile.
+  const cache = $derived(insightsCache(controller))
   const empty = $derived(emptyScope(projection))
   let scroller = $state<HTMLDivElement>()
   let scrollTop = $state(0)
@@ -43,6 +54,10 @@
   /** A Clear is queued; another click must not also go back a level. */
   let clearing = false
   const compact = new MediaQuery(MEDIA.compact)
+  /** The measured height of the charts above the table. */
+  let above = $state(0)
+  // The KPI strip shows above phone width; on phones only the chart drawer reads insights.
+  const charting = $derived(!compact.current || charts.dialogOpen)
   /** The row whose ⋯ button opened the actions sheet. */
   let sheetRow = $state<components['schemas']['DetailRow']>()
 
@@ -52,6 +67,22 @@
       actions.overlays.close()
     }
   })
+
+  $effect(() => {
+    const current = cache
+    return () => current.dispose()
+  })
+
+  $effect(() => {
+    if (charting) cache.sync(projection, seriesRows(projection, controller.neighbors))
+  })
+
+  function insightsCache(owner: ViewController): InsightsCache {
+    return new InsightsCache(
+      (body, signal) => owner.insights(body, signal),
+      (revision) => owner.recheckNewer(revision),
+    )
+  }
 
   /** Runs a selection bar button as its key does, then leaves focus on the table. */
   function select(action: SelectionButton['action']): void {
@@ -68,7 +99,7 @@
   }
 </script>
 
-<!-- The workspace's one vertical scroll surface; the table header sticks to its top. -->
+<!-- The workspace's one scroll surface; the table header sticks to its top. -->
 <div
   class={['mf-workspace', selecting && 'mf-workspace--selecting']}
   style:--mf-selection-height={`${covered}px`}
@@ -76,6 +107,9 @@
   bind:clientHeight={viewport}
   onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
 >
+  {#if !compact.current}
+    <ChartArea {projection} {cache} chartsOn={charts.row} measure={(height) => (above = height)} />
+  {/if}
   {#if empty}
     <EmptyScope
       scope={empty}
@@ -89,6 +123,7 @@
       {scroller}
       bind:scrollTop
       viewport={viewport - covered}
+      {above}
       compact={compact.current}
       onmove={(delta) => moveCursor(() => controller.moveCursor(delta))}
       onhome={() => moveCursor(() => controller.moveHome())}
@@ -124,3 +159,6 @@
     onclose={() => actions.overlays.close()}
   />
 {/if}
+<ChartDrawer open={compact.current && charts.dialogOpen} onclose={() => charts.setDialog(false)}>
+  <ChartArea {projection} {cache} chartsOn />
+</ChartDrawer>

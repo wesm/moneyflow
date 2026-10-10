@@ -5,21 +5,13 @@ import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
 import { testProviderWriteController } from '../test/provider-write'
-import { loadRail } from '../lib/shell/rail'
 import { SIDEBAR_FULL_QUERY } from '../lib/shell/layout'
+import { testInsights } from '../test/insights'
 import { testProviderStatus } from '../test/provider'
-
-vi.mock('../lib/shell/rail', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../lib/shell/rail')>()
-  return { loadRail: vi.fn(original.loadRail) }
-})
-
-const failureText = 'Charts could not load. Reload the page.'
 
 describe('AppShell', () => {
   afterEach(() => {
     cleanup()
-    vi.mocked(loadRail).mockClear()
   })
   it('keeps the finance grid primary and routes the TUI cursor shortcut', async () => {
     const controller = stubController()
@@ -49,128 +41,43 @@ describe('AppShell', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('starts charts off at rail widths so the table keeps the full width', async () => {
-    render(AppShell, { controller: stubController() })
+  it('starts charts on and hides only the chart row with the switch', async () => {
+    render(AppShell, { controller: stubController(charted()) })
     const charts = screen.getByRole('switch', { name: 'Charts' }) as HTMLInputElement
-    expect(charts.checked).toBe(false)
-    expect(screen.queryByRole('complementary', { name: 'Visualizations' })).toBeNull()
+    expect(charts.checked).toBe(true)
+    expect(screen.getByRole('region', { name: 'Charts' })).not.toBeNull()
+    expect(await screen.findByText('Income')).not.toBeNull()
+
     await fireEvent.click(charts)
-    expect(screen.getByRole('complementary', { name: 'Visualizations' })).not.toBeNull()
+    expect(charts.checked).toBe(false)
+    expect(screen.queryByRole('region', { name: 'Charts' })).toBeNull()
+    expect(screen.getByText('Income')).not.toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'Visualizations' })).toBeNull()
   })
 
-  it('starts charts on with the full sidebar', () => {
-    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
-    render(AppShell, { controller: stubController() })
-    expect((screen.getByRole('switch', { name: 'Charts' }) as HTMLInputElement).checked).toBe(true)
-    expect(screen.getByRole('complementary', { name: 'Visualizations' })).not.toBeNull()
+  it('keeps the table working when insights fail', async () => {
+    const controller = stubController(charted())
+    vi.mocked(controller.insights).mockRejectedValue(new Error('insights unavailable'))
+    render(AppShell, { controller })
+    expect(await screen.findByText(/Couldn't load charts/)).not.toBeNull()
+    await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), { key: 'j' })
+    expect(controller.moveCursor).toHaveBeenCalledWith(1)
   })
 
-  it('loads the chart rail into the Visualizations region', async () => {
-    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
-    render(AppShell, { controller: stubController() })
+  it('keeps the table full width and opens the charts in a labelled compact drawer', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const controller = stubController(charted())
+    render(AppShell, { controller })
+    expect(screen.getByRole('grid', { name: 'Financial results' })).not.toBeNull()
+    expect(screen.queryByText('Income')).toBeNull()
+    expect(controller.insights).not.toHaveBeenCalled()
 
-    const region = screen.getByRole('complementary', { name: 'Visualizations' })
-    // The first dynamic import compiles the chart library, which is slow in a cold test run.
-    const heading = await within(region).findByRole(
-      'heading',
-      { name: 'Visualizations' },
-      { timeout: 10_000 },
-    )
-    expect(heading.tagName).toBe('H2')
-  })
-
-  it('shows a loading line until the chart rail arrives', async () => {
-    vi.mocked(loadRail).mockImplementationOnce(() => new Promise(() => undefined))
-    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
-    render(AppShell, { controller: stubController() })
-
-    const region = screen.getByRole('complementary', { name: 'Visualizations' })
-    expect(within(region).getByText('Loading charts…')).not.toBeNull()
-    expect(chartAnnouncement().textContent).toBe('Loading charts…')
-  })
-
-  it('explains a failed chart load and retries when charts are shown again', async () => {
-    vi.mocked(loadRail).mockRejectedValueOnce(new Error('chunk 404'))
-    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
-    render(AppShell, { controller: stubController() })
-
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const region = screen.getByRole('complementary', { name: 'Visualizations' })
-    expect(await within(region).findByText(failureText)).not.toBeNull()
-    expect(within(region).queryByText('Loading charts…')).toBeNull()
-    expect(chartAnnouncement().textContent).toBe(failureText)
-    expect(errors).toHaveBeenCalledWith('moneyflow: chart rail failed to load', expect.any(Error))
-    errors.mockRestore()
-
-    const toggle = screen.getByRole('switch', { name: 'Charts' })
-    await fireEvent.click(toggle)
-    await fireEvent.click(toggle)
-    const heading = await screen.findByRole(
-      'heading',
-      { name: 'Visualizations' },
-      { timeout: 10_000 },
-    )
-    expect(heading.tagName).toBe('H2')
-    expect(screen.queryByText(failureText)).toBeNull()
-    expect(loadRail).toHaveBeenCalledTimes(2)
-  })
-
-  it('explains a failed chart load inside the compact dialog', async () => {
-    const original = window.matchMedia
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: (query: string) => ({
-        matches: query.includes('640px'),
-        media: query,
-        onchange: null,
-        addEventListener: () => undefined,
-        removeEventListener: () => undefined,
-        addListener: () => undefined,
-        removeListener: () => undefined,
-        dispatchEvent: () => false,
-      }),
-    })
-    try {
-      vi.mocked(loadRail).mockRejectedValueOnce(new Error('chunk 404'))
-      vi.spyOn(console, 'error').mockImplementationOnce(() => undefined)
-      render(AppShell, { controller: stubController() })
-      await fireEvent.click(screen.getByRole('switch', { name: 'Charts' }))
-      const dialog = screen.getByRole('dialog', { name: 'Moneyflow visualizations' })
-      expect(await within(dialog).findByText(failureText)).not.toBeNull()
-      expect(chartAnnouncement().textContent).toBe(failureText)
-    } finally {
-      Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
-    }
-  })
-
-  it('keeps the table full width and opens charts in a labelled compact drawer', async () => {
-    const original = window.matchMedia
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: (query: string) => ({
-        matches: query.includes('640px'),
-        media: query,
-        onchange: null,
-        addEventListener: () => undefined,
-        removeEventListener: () => undefined,
-        addListener: () => undefined,
-        removeListener: () => undefined,
-        dispatchEvent: () => false,
-      }),
-    })
-    try {
-      const controller = stubController()
-      render(AppShell, { controller })
-      expect(screen.getByRole('grid', { name: 'Financial results' })).not.toBeNull()
-      expect(screen.queryByRole('complementary', { name: 'Visualizations' })).toBeNull()
-      await fireEvent.click(screen.getByRole('switch', { name: 'Charts' }))
-      const dialog = screen.getByRole('dialog', { name: 'Moneyflow visualizations' })
-      expect(await within(dialog).findByRole('heading', { name: 'Visualizations' })).not.toBeNull()
-      await fireEvent.keyDown(window, { key: 'j' })
-      expect(controller.moveCursor).not.toHaveBeenCalled()
-    } finally {
-      Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
-    }
+    await fireEvent.click(screen.getByRole('switch', { name: 'Charts' }))
+    const dialog = screen.getByRole('dialog', { name: 'Moneyflow visualizations' })
+    expect(await within(dialog).findByText('Income')).not.toBeNull()
+    expect(within(dialog).getByRole('region', { name: 'Charts' })).not.toBeNull()
+    await fireEvent.keyDown(window, { key: 'j' })
+    expect(controller.moveCursor).not.toHaveBeenCalled()
   })
 
   it('closes the compact chart scope when resizing to desktop', async () => {
@@ -639,10 +546,10 @@ function captureFrames(): { flush: () => Promise<void> } {
   }
 }
 
-function chartAnnouncement(): HTMLElement {
-  const region = document.querySelector<HTMLElement>('[data-testid="chart-announcement"]')
-  if (!region) throw new Error('chart announcement region is missing')
-  return region
+/** A projection in one currency, so the charts load insights for it. */
+function charted() {
+  const base = testProjection()
+  return testProjection({ view: { ...base.view, currency: { currency: 'USD', scale: 2 } } })
 }
 
 function stubMedia(matches: (query: string) => boolean): () => void {
@@ -802,6 +709,7 @@ function stubController(projection = testProjection()): ViewController {
     showIndex: vi.fn(),
     showAnchor: vi.fn(),
     recheckNewer: vi.fn(),
+    insights: vi.fn(async (body) => testInsights({ query: body.query, revision: '0' })),
     apply: vi.fn(),
     beginSearch: vi.fn(),
     previewSearch: vi.fn(),

@@ -107,7 +107,8 @@ test('a header sort that keeps the cursor index brings the cursor row back', asy
   await openMoneyflow(page, server)
   await page.keyboard.press('d')
   await expect(grid(page).getByRole('columnheader', { name: 'Date' })).toBeVisible()
-  await workspace(page).evaluate((scroller) => (scroller.scrollTop = 100 * 30))
+  // Past row 100, beyond the charts above the table.
+  await workspace(page).evaluate((scroller) => (scroller.scrollTop = 120 * 30))
   await expect.poll(() => firstVisibleRowIndex(page)).toBeGreaterThan(100)
   await expect.poll(() => activeRowIndex(page)).toBe(-1)
 

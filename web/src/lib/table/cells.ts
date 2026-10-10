@@ -6,7 +6,7 @@ type Money = components['schemas']['Money']
 type AggregateRow = components['schemas']['AggregateRow']
 
 /** Formats an integer count of tenths of a percent, such as 62 as `6.2%`. */
-function tenthsPercent(tenths: number): string {
+export function tenthsPercent(tenths: number): string {
   const sign = tenths < 0 ? '-' : ''
   const magnitude = Math.abs(tenths)
   return `${sign}${Math.trunc(magnitude / 10)}.${magnitude % 10}%`

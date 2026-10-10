@@ -17,12 +17,13 @@ function p95(samples: number[]): number {
   return ordered[Math.ceil(ordered.length * 0.95) - 1]!
 }
 
+// Until the charts draw, the samplers time the same paths through the table: a cursor key to
+// the grid's new active row, and a row double-click to the drilled URL.
 test('chart cursor and drill p95 stay within measured budgets', async ({ page, server }) => {
   test.setTimeout(120_000)
   await openMoneyflow(page, server)
-  const visualizations = page.getByRole('complementary', { name: 'Visualizations' })
-  const marks = visualizations.getByRole('button')
-  expect(await marks.count()).toBeGreaterThanOrEqual(2)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  await expect(page.getByRole('region', { name: 'Charts' })).toBeVisible()
   await page.evaluate(() => {
     const performanceWindow = window as unknown as PerformanceWindow
     performanceWindow.moneyflowCursorSamples = []
@@ -30,36 +31,43 @@ test('chart cursor and drill p95 stay within measured budgets', async ({ page, s
   })
 
   for (let index = 0; index < sampleCount; index += 1) {
-    const mark = marks.nth((index + 1) % 2)
-    await mark.evaluate((element) => {
-      element.addEventListener(
-        'click',
+    await grid.evaluate((element) => {
+      const before = element.getAttribute('aria-activedescendant')
+      window.addEventListener(
+        'keydown',
         () => {
           const started = performance.now()
           const observer = new MutationObserver(() => {
-            if (element.getAttribute('aria-pressed') !== 'true') return
+            if (element.getAttribute('aria-activedescendant') === before) return
             observer.disconnect()
             const performanceWindow = window as unknown as PerformanceWindow
             performanceWindow.moneyflowCursorSamples.push(performance.now() - started)
           })
-          observer.observe(element, { attributes: true, attributeFilter: ['aria-pressed'] })
+          observer.observe(element, {
+            attributes: true,
+            attributeFilter: ['aria-activedescendant'],
+          })
         },
         { capture: true, once: true },
       )
     })
-    await mark.dispatchEvent('click')
-    await expect(mark).toHaveAttribute('aria-pressed', 'true')
+    await page.keyboard.press('j')
     await page.waitForFunction(
       (count) => (window as unknown as PerformanceWindow).moneyflowCursorSamples.length === count,
       index + 1,
     )
+    // Back up untimed, so the cursor never runs out of rows.
+    const moved = await grid.getAttribute('aria-activedescendant')
+    await page.keyboard.press('k')
+    await expect(grid).not.toHaveAttribute('aria-activedescendant', moved!)
   }
 
   const initialURL = page.url()
-  const drillMark = marks.nth(1)
-  const drillLabel = (await drillMark.getAttribute('aria-label'))!.split(',')[0]!
+  const drillRow = grid.locator('[role="row"][aria-rowindex="3"]')
+  const drillTarget = drillRow.locator('[role="gridcell"][data-column="count"]')
+  const drillLabel = await drillRow.locator('[role="gridcell"][data-column="name"]').innerText()
   for (let index = 0; index < sampleCount; index += 1) {
-    await drillMark.evaluate((element) => {
+    await drillTarget.evaluate((element) => {
       element.addEventListener(
         'dblclick',
         () => {
@@ -78,7 +86,7 @@ test('chart cursor and drill p95 stay within measured budgets', async ({ page, s
         { capture: true, once: true },
       )
     })
-    await drillMark.dispatchEvent('dblclick')
+    await drillTarget.dblclick()
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(drillLabel)
     await page.waitForFunction(
       (count) => (window as unknown as PerformanceWindow).moneyflowDrillSamples.length === count,
@@ -86,7 +94,7 @@ test('chart cursor and drill p95 stay within measured budgets', async ({ page, s
     )
     await page.goBack()
     await expect(page).toHaveURL(initialURL)
-    await expect(drillMark).toBeVisible()
+    await expect(drillTarget).toBeVisible()
   }
 
   const { cursorSamples, drillSamples } = await page.evaluate(() => {

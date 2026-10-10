@@ -1,5 +1,7 @@
 import {
   MoneyflowProblem,
+  type InsightsBody,
+  type InsightsResponse,
   type MoneyflowClient,
   type SelectionValue,
   type TransitionBody,
@@ -95,6 +97,8 @@ export interface ViewController {
    * the charts can show them. Does nothing for an equal or older revision.
    */
   recheckNewer(revision: string): Promise<void>
+  /** Sends one insights request for this profile; the charts' cache decides what to ask. */
+  insights(body: InsightsBody, signal: AbortSignal): Promise<InsightsResponse>
   apply(action: TransitionAction): Promise<boolean>
   /**
    * Makes later transitions wait for `work`, as they wait for an Esc return. `work` must not
@@ -848,6 +852,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     showIndex,
     showAnchor,
     recheckNewer,
+    insights: (body, signal) => options.client.insights(body, signal),
     apply,
     hold,
     beginSearch,

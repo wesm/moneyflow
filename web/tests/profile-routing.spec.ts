@@ -17,8 +17,8 @@ test('two profile tabs keep routes, data, and revisions independent', async ({ b
     await expect(second.getByRole('grid', { name: 'Financial results' })).toBeFocused()
     await first.keyboard.press('h')
 
-    await expect(first.getByText(/1 pending/)).toBeVisible()
-    await expect(second.getByText(/0 pending/)).toBeVisible()
+    await expect(first.getByText(/1 pending edit/)).toBeVisible()
+    await expect(second.getByText(/0 pending edit/)).toBeVisible()
     await expect(first).toHaveURL(new RegExp(`/p/${firstID}/`))
     await expect(second).toHaveURL(new RegExp(`/p/${secondID}/`))
     await context.close()

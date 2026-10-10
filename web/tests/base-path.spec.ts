@@ -16,7 +16,7 @@ test('@smoke root and nested deployments keep every request in their configured 
       /\/moneyflow\/p\/profile_[a-z2-7]{26}\/\?cur=USD%3A2&group=category&v=1$/,
     )
     await page.keyboard.press('h')
-    await expect(page.getByText(/1 pending/)).toBeVisible()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
 
     const health = await page.request.get(`${server.profileAPI}health`)
     expect(health.ok()).toBe(true)

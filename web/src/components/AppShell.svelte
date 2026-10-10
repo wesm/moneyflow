@@ -3,8 +3,6 @@
   import { MediaQuery } from 'svelte/reactivity'
   import { onMount, tick, untrack } from 'svelte'
   import ProviderConfirmation from './ProviderConfirmation.svelte'
-  import ChartDrawer from './shell/ChartDrawer.svelte'
-  import ChartRail from './shell/ChartRail.svelte'
   import NavDrawer from './shell/NavDrawer.svelte'
   import ShellAnnouncements from './shell/ShellAnnouncements.svelte'
   import ShellCommandBar from './shell/ShellCommandBar.svelte'
@@ -26,7 +24,6 @@
     confirmDirectDelete,
     focusedRow,
     localActions,
-    moveCursor,
     openTransactionInformation,
     type LocalActionContext,
   } from '../lib/shell/local-actions'
@@ -50,11 +47,7 @@
   const fullSidebar = new MediaQuery(SIDEBAR_FULL_QUERY)
   const pushScope = (name: string) => shortcuts?.manager.pushScope(name)
   const overlays = new OverlayState({ pushScope, focusGrid, grid: () => grid })
-  const charts = new ChartState({
-    fullSidebar: () => fullSidebar.current,
-    compact: () => compact.current,
-    pushScope,
-  })
+  const charts = new ChartState({ compact: () => compact.current, pushScope })
   const write = $derived(writeProgress(controller.providerWrite.state.status))
   const actions: LocalActionContext = {
     get controller() {
@@ -116,9 +109,6 @@
     if (open === 'navigation' || open === 'view') overlays.close()
   })
   $effect(() => {
-    if (charts.checked) untrack(() => charts.rail.load())
-  })
-  $effect(() => {
     if (!projection) return
     const current = createMoneyflowShortcuts(projection.capabilities ?? [], {
       local,
@@ -166,16 +156,6 @@
       {onreconnect}
     />
   {/snippet}
-  {#snippet chartRail()}
-    <ChartRail
-      loader={charts.rail}
-      {projection}
-      cursorIndex={controller.cursorIndex}
-      oncursor={(index) => moveCursor(() => controller.moveCursorTo(index))}
-      ondrill={(identity) =>
-        queueSend({ action: 'view.drill', target: { identity, kind: 'aggregate' } })}
-    />
-  {/snippet}
   <div class="app-shell">
     <CollapsibleSidebar
       hideSidebar={!fullSidebar.current}
@@ -209,22 +189,13 @@
             compact={compact.current}
             onfocusgrid={focusGrid}
           />
-          <main
-            class="app-shell__main"
-            class:app-shell__main--charts={charts.aside}
-            aria-label="Moneyflow workspace"
-          >
+          <main class="app-shell__main" aria-label="Moneyflow workspace">
             <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
             <div class="app-shell__table" bind:this={grid}>
-              <WorkspaceBody {projection} {actions} onapply={queueSend} />
+              <WorkspaceBody {projection} {actions} onapply={queueSend} {charts} />
             </div>
-            {#if charts.aside}
-              <aside aria-label="Visualizations">
-                {@render chartRail()}
-              </aside>
-            {/if}
           </main>
-          <ShellAnnouncements {controller} chartMessage={charts.rail.message} />
+          <ShellAnnouncements {controller} />
           <StatusLine
             hints={keyHints(projection, overlays.current !== undefined || charts.dialogOpen)}
             connection={connectionState(controller.problem, controller.loading)}
@@ -256,7 +227,4 @@
   {#if overlays.current !== 'navigation'}
     <ProviderConfirmation controller={controller.provider} />
   {/if}
-  <ChartDrawer open={compact.current && charts.dialogOpen} onclose={() => charts.setDialog(false)}>
-    {@render chartRail()}
-  </ChartDrawer>
 {/if}

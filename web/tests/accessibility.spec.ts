@@ -30,6 +30,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await openMoneyflow(page, server)
+    // The KPI strip and the chart row, whose charts are still skeletons.
+    await expect(page.getByText('Income', { exact: true })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Charts' })).toBeVisible()
     await expectNoAxeViolations(page)
 
     const grid = page.getByRole('grid', { name: 'Financial results' })
@@ -41,14 +44,6 @@ for (const colorScheme of ['light', 'dark'] as const) {
       'descending',
     )
     await expect(page.locator('[aria-live="polite"]')).not.toHaveCount(0)
-
-    const row = await activeRow(page)
-    const merchant = await cell(row, 'name').innerText()
-    const total = await cell(row, 'net').innerText()
-    const mark = page
-      .getByRole('complementary', { name: 'Visualizations' })
-      .getByRole('button', { name: `${merchant}, ${total}`, exact: true })
-    await expect(mark).toHaveCount(1)
   })
 }
 
@@ -67,8 +62,6 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(bar).toContainText('1 merchant · ')
     await expectNoAxeViolations(page)
 
-    // The detail chart rail scrolls with no focusable content; PR 6 replaces it.
-    await page.getByRole('switch', { name: 'Charts' }).uncheck()
     await grid.focus()
     await page.keyboard.press('d')
     await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
@@ -115,8 +108,6 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await openMoneyflow(page, server)
-    // The drilled chart rail scrolls with no focusable content; PR 6 replaces it.
-    await page.getByRole('switch', { name: 'Charts' }).uncheck()
     await page.getByRole('grid', { name: 'Financial results' }).focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('radiogroup', { name: 'Break down by' })).toBeVisible()

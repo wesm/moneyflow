@@ -271,15 +271,6 @@ test('x in a grouped view explains why it cannot delete', async ({ page, server 
   await expect(notice).toHaveText('', cleared)
   await page.keyboard.press('x')
   await expect(notice).toHaveText(reason)
-  await page
-    .getByRole('complementary', { name: 'Visualizations' })
-    .getByRole('button')
-    .nth(2)
-    .click()
-  await expect(notice).toHaveText('', cleared)
-
-  await page.keyboard.press('x')
-  await expect(notice).toHaveText(reason)
   const row = await activeRow(page)
   const merchant = await cell(row, 'name').innerText()
   await cell(row, 'count').dblclick()
@@ -287,7 +278,7 @@ test('x in a grouped view explains why it cannot delete', async ({ page, server 
   await expect(notice).toHaveText('', cleared)
 })
 
-test('a chart drill waits for an earlier table transition', async ({ page, server }) => {
+test('a double-click drill waits for an earlier table transition', async ({ page, server }) => {
   await openMoneyflow(page, server)
   const events: string[] = []
   await page.route('**/view/transition', async (route) => {
@@ -300,13 +291,10 @@ test('a chart drill waits for an earlier table transition', async ({ page, serve
     await route.fulfill({ response })
   })
   const grid = page.getByRole('grid', { name: 'Financial results' })
-  const mark = page
-    .getByRole('complementary', { name: 'Visualizations' })
-    .getByRole('button')
-    .nth(1)
-  const label = (await mark.getAttribute('aria-label'))!.split(',')[0]!
+  const second = grid.locator('[role="row"][aria-rowindex="3"]')
+  const label = await cell(second, 'name').innerText()
   await cell(grid.locator('[role="row"][aria-rowindex="4"]'), 'select').click()
-  await mark.dblclick()
+  await cell(second, 'count').dblclick()
   await expect(breadcrumb(page)).toContainText(label)
   expect(events).toEqual(['selection.toggle sent', 'selection.toggle answered', 'view.drill sent'])
 })
@@ -621,7 +609,7 @@ test('duplicate review remains keyboard driven and restores the finance grid', a
     await expect(review).toContainText('1 duplicate group')
     await expect(review.getByRole('row')).toHaveCount(3)
     await expect(review).toContainText('Staged deletion for 1 transaction.')
-    await expect(page.getByText(/1 pending/)).toBeVisible()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
 
@@ -631,7 +619,7 @@ test('duplicate review remains keyboard driven and restores the finance grid', a
     await pendingReview.getByRole('button', { name: 'Commit reviewed changes' }).focus()
     await page.keyboard.press('Enter')
     await expect(pendingReview).toBeHidden()
-    await expect(page.getByText(/0 pending/)).toBeVisible()
+    await expect(page.getByText(/0 pending edit/)).toBeVisible()
     await page.keyboard.press('Shift+D')
     await expect(review).toContainText('No duplicate transactions match the current view.')
     await page.keyboard.press('Escape')

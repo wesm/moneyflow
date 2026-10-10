@@ -32,7 +32,12 @@ export default tseslint.config(
   },
   {
     // Money stays exact: minor-unit strings and BigInt, never a JavaScript number.
-    files: ['src/lib/money/**/*.ts', 'src/lib/charts/**/*.ts', 'src/lib/insights/**/*.ts'],
+    files: [
+      'src/lib/money/**/*.ts',
+      'src/lib/charts/**/*.ts',
+      'src/lib/insights/**/*.ts',
+      'src/components/charts/**/*.svelte',
+    ],
     rules: {
       'no-restricted-syntax': [
         'error',
