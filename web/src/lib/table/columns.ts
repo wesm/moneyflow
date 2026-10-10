@@ -1,8 +1,8 @@
 import type { ViewProjection } from '../api/client'
 import { drillFrames, type DrillFrame } from '../shell/drills'
 
-/** Column keys. Every gridcell carries its key as `data-column`; `trend` and `vs_prior` arrive
- * with the insights client in PR 6. `actions` is the trailing › or ⋯ button of a compact row. */
+/** Column keys. Every gridcell carries its key as `data-column`. `actions` is the trailing › or
+ * ⋯ button of a compact row. */
 export type ColumnKey =
   | 'select'
   | 'name'
@@ -56,13 +56,33 @@ function capitalized(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
+/**
+ * The insights columns of a grouped view: Trend, and vs prior unless the scope is All, which
+ * has no prior range. Neither is sortable.
+ */
+function insightColumns(compared: boolean, comparisonLabel: string): Column[] {
+  const trend: Column = {
+    key: 'trend',
+    label: 'Trend',
+    align: 'end',
+    width: '4.5rem',
+    minWidth: 760,
+  }
+  if (!compared) return [trend]
+  return [
+    trend,
+    { key: 'vs_prior', label: comparisonLabel, align: 'end', width: '5.5rem', minWidth: 760 },
+  ]
+}
+
 function groupedColumns(dimension: string): Column[] {
   const name: Column = {
     key: 'name',
     label: capitalized(dimension),
     sortField: dimension as SortField,
     align: 'start',
-    width: 'minmax(10rem, 2fr)',
+    // Name and Context minimums leave every grouped column room at 1024 px beside the icon rail.
+    width: 'minmax(9rem, 2fr)',
   }
   const contextLabel = { merchant: 'Top category', category: 'Group' }[dimension]
   const context: Column[] = contextLabel
@@ -71,7 +91,7 @@ function groupedColumns(dimension: string): Column[] {
           key: 'context',
           label: contextLabel,
           align: 'start',
-          width: 'minmax(7rem, 1fr)',
+          width: 'minmax(5.5rem, 1fr)',
           minWidth: 760,
         },
       ]
@@ -199,14 +219,20 @@ export function compactColumnCount(layout: CompactLayout): number {
   return COMPACT_ORDERS[layout].length
 }
 
-/** The columns of the projection's view. Only the server's sort fields stay sortable. */
-export function columnsFor(projection: ViewProjection): Column[] {
+/**
+ * The columns of the projection's view. Only the server's sort fields stay sortable. The vs
+ * prior header is `comparisonLabel`, such as `vs Aug`, once the insights name it.
+ */
+export function columnsFor(projection: ViewProjection, comparisonLabel = 'vs prior'): Column[] {
   const view = projection.view
   const dimension = view.sub_grouping ?? view.grouping
   let columns: Column[]
   if (projection.detail_rows) columns = transactionColumns(projection)
   else if (dimension === 'time') columns = timeColumns()
-  else columns = groupedColumns(dimension)
+  else {
+    const compared = projection.filters.date_range !== undefined
+    columns = [...groupedColumns(dimension), ...insightColumns(compared, comparisonLabel)]
+  }
   const sortable = new Set<string>(view.sort_fields)
   return columns.map(({ sortField, ...column }) =>
     sortField && sortable.has(sortField) ? { ...column, sortField } : column,

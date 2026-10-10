@@ -229,7 +229,7 @@ for (const theme of ['light', 'dark'] as const) {
   }) => {
     await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
     await openMoneyflow(page, server, september)
-    await expect(page.getByText('vs Aug', { exact: true })).toHaveCount(1)
+    await expect(page.locator('.mf-kpis__caption')).toHaveText('vs Aug')
     await expect(page.locator('.mf-kpi__note').filter({ hasText: /^[▲▼] \d/ })).not.toHaveCount(0)
     await expect(page.getByRole('region', { name: 'Charts' })).toBeVisible()
     const result = await new AxeBuilder({ page }).include('.mf-chart-area').analyze()

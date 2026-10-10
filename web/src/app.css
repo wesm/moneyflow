@@ -1060,6 +1060,37 @@ input {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Trend and vs prior give up some left padding, so the grouped table fits at 1024 px. */
+.mf-table [data-column='trend'],
+.mf-table [data-column='vs_prior'] {
+  padding-left: var(--space-1);
+}
+/* The Trend sparkline: twelve months of Net around a zero line at mid-height. */
+.mf-trend {
+  display: block;
+  margin-left: auto;
+  overflow: visible;
+}
+.mf-trend__zero {
+  stroke: var(--border-default);
+}
+.mf-trend__line {
+  fill: none;
+  stroke: var(--text-secondary);
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+}
+.mf-trend__end {
+  fill: var(--text-secondary);
+}
+.mf-trend__end--hollow {
+  fill: var(--bg-primary);
+  stroke: var(--text-secondary);
+}
+.mf-table__cell > .mf-skeleton {
+  width: 100%;
+  max-width: 3.5rem;
+}
 .mf-table__muted {
   color: var(--text-secondary);
 }
@@ -1432,10 +1463,11 @@ input {
   color: var(--text-muted);
   font-size: var(--font-size-xs);
 }
-.mf-kpi__note--favorable {
+/* A change against the comparison range, in the KPI strip and the vs prior column. */
+.mf-tone--favorable {
   color: var(--mf-in);
 }
-.mf-kpi__note--unfavorable {
+.mf-tone--unfavorable {
   color: var(--mf-out);
 }
 .mf-kpis__caption {

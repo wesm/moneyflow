@@ -43,6 +43,7 @@ function detail(overrides: Partial<ViewProjection> = {}) {
   })
 }
 
+const filters = testProjection().filters
 const keys = (projection: ViewProjection) => columnsFor(projection).map((column) => column.key)
 const labels = (projection: ViewProjection) => columnsFor(projection).map((column) => column.label)
 
@@ -57,6 +58,7 @@ describe('columnsFor', () => {
       'out',
       'net',
       'share',
+      'trend',
     ])
     expect(keys(grouped({ grouping: 'category' }))).toContain('context')
     expect(keys(grouped({ grouping: 'group' }))).toEqual([
@@ -67,13 +69,37 @@ describe('columnsFor', () => {
       'out',
       'net',
       'share',
+      'trend',
     ])
     expect(keys(grouped({ grouping: 'account' }))).not.toContain('context')
   })
 
-  it('does not return the Trend and vs prior columns before the insights client exists', () => {
-    expect(keys(grouped({}))).not.toContain('trend')
+  it('ends grouped views with Trend, then vs prior when the scope has a comparison', () => {
+    const september = grouped(
+      {},
+      { filters: { ...filters, date_range: { from: '2026-09-01', to: '2026-09-30' } } },
+    )
+    expect(keys(september).slice(-3)).toEqual(['share', 'trend', 'vs_prior'])
+    // All has no prior range to compare with.
+    expect(keys(grouped({}))).toContain('trend')
     expect(keys(grouped({}))).not.toContain('vs_prior')
+    const added = columnsFor(september, 'vs Aug').slice(-2)
+    expect(added.map((column) => column.label)).toEqual(['Trend', 'vs Aug'])
+    expect(added.every((column) => column.minWidth === 760 && !column.sortField)).toBe(true)
+    // Until the insights name the comparison.
+    expect(labels(september).at(-1)).toBe('vs prior')
+  })
+
+  it('leaves Trend and vs prior out of transaction and Time views', () => {
+    const dated = { filters: { ...filters, date_range: { from: '2026-09-01', to: '2026-09-30' } } }
+    const time = grouped(
+      { grouping: 'time', sort_fields: ['time_period', 'count', 'amount'] },
+      dated,
+    )
+    for (const projection of [detail(dated), time]) {
+      expect(keys(projection)).not.toContain('trend')
+      expect(keys(projection)).not.toContain('vs_prior')
+    }
   })
 
   it('names the current dimension in the Name header, including a sub-grouping', () => {
@@ -186,7 +212,7 @@ describe('columnsAtWidth', () => {
   const merchants = () => columnsFor(grouped({ grouping: 'merchant' }))
   const at = (wide: boolean) => columnsAtWidth(merchants(), wide).map((column) => column.key)
 
-  it('drops Context below 760 px and keeps every other column', () => {
+  it('drops Context and Trend below 760 px and keeps every other column', () => {
     expect(at(false)).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
   })
 

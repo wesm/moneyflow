@@ -24,6 +24,7 @@
     type CompactTapAction,
     type RowKind,
   } from '../../lib/table/pointer'
+  import type { RowInsights } from '../../lib/table/trend'
   import { loadedRow, type TableRow } from '../../lib/table/virtual-rows'
 
   interface Props {
@@ -31,6 +32,8 @@
     projection: ViewProjection
     /** Cached windows next to it; their rows draw instead of placeholders. */
     neighbors?: readonly ViewProjection[]
+    /** The displayed view's insights, for grouped rows' Trend and vs prior. */
+    insights?: RowInsights | undefined
     cursorIndex: number
     /** Two-line phone rows at 640 px and narrower. */
     compact: boolean
@@ -63,6 +66,7 @@
   let {
     projection,
     neighbors = [],
+    insights,
     cursorIndex,
     compact,
     scroller,
@@ -84,7 +88,8 @@
   let grid = $state<HTMLDivElement>()
   const height = $derived(rowHeight(compact))
   const wide = new MediaQuery(WIDE_COLUMNS_QUERY)
-  const columns = $derived(columnsAtWidth(columnsFor(projection), wide.current))
+  const comparison = $derived(insights?.response?.ranges.comparison_label)
+  const columns = $derived(columnsAtWidth(columnsFor(projection, comparison), wide.current))
   const layout = $derived(compact ? compactLayout(projection) : undefined)
   const cellColumns = $derived(columns.filter((column) => column.key !== 'select'))
   const trackSizes = $derived(columns.map((column) => column.width).join(' '))
@@ -223,6 +228,7 @@
           {layout}
           columns={cellColumns}
           {dimension}
+          {insights}
           {oninformation}
           {onedit}
         />

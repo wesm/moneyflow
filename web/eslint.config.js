@@ -37,6 +37,9 @@ export default tseslint.config(
       'src/lib/charts/**/*.ts',
       'src/lib/insights/**/*.ts',
       'src/components/charts/**/*.svelte',
+      'src/lib/table/trend.ts',
+      'src/components/table/TrendCell.svelte',
+      'src/components/table/VsPriorCell.svelte',
     ],
     rules: {
       'no-restricted-syntax': [

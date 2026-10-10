@@ -241,7 +241,7 @@ test('header clicks sort by the server fields and keep the selection', async ({ 
   await expect(count).toHaveAttribute('aria-sort', 'ascending')
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
   await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
-  for (const name of ['In', 'Out', 'Share']) {
+  for (const name of ['In', 'Out', 'Share', 'Trend']) {
     await expect(header(page, name).getByRole('button')).toHaveCount(0)
     await expect(header(page, name)).not.toHaveAttribute('aria-sort')
   }

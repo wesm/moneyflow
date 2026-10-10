@@ -41,7 +41,7 @@ export function kpiTiles(
   const compared = comparisonLabel !== undefined
   const money = (minor: string) => formatMinor(minor, scale)
   const changeOf = (value: Change | undefined) => {
-    const change = compared && value !== undefined && kpiChange(value, scale, comparisonLabel)
+    const change = compared && value !== undefined && priorChange(value, scale, comparisonLabel)
     return change ? { change } : {}
   }
   const tiles: KpiTile[] = [
@@ -86,10 +86,11 @@ export function kpiTiles(
 }
 
 /**
- * The spec's vs prior display rules, shared by the KPI changes. An amount change without its
- * amount shows nothing rather than an invented zero.
+ * The spec's vs prior display rules, shared by the KPI changes and the table's vs prior column.
+ * `label` names the comparison, such as `vs Aug`. An amount change without its amount shows
+ * nothing rather than an invented zero.
  */
-function kpiChange(change: Change, scale: number, label: string): KpiChange | undefined {
+export function priorChange(change: Change, scale: number, label: string): KpiChange | undefined {
   const tone = change.favorable ? 'favorable' : 'unfavorable'
   switch (change.kind) {
     case 'none':

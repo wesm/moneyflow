@@ -22,6 +22,7 @@ test('desktop and medium layouts put the charts above a full-width table', async
     'Out',
     'Net',
     'Share',
+    'Trend',
   ])
   const amountHeaders = await Promise.all(
     ['Count', 'In', 'Out', 'Net'].map((name) =>
@@ -84,6 +85,52 @@ async function expectChartRow(charts: Locator, layout: 'beside' | 'stacked'): Pr
   expect(Math.abs(panel.y - cashflow.y)).toBeLessThanOrEqual(1)
   expect(cashflow.width / panel.width).toBeCloseTo(2, 0)
 }
+
+test('Trend and vs prior fill grouped rows and the table fits from 1024 px, Charts on or off', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-09-01&to=2026-09-30&v=1')
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const header = (key: string) => grid.locator(`.mf-table__header [data-column="${key}"]`)
+  await expect(header('trend')).toHaveText('Trend')
+  await expect(header('vs_prior')).toHaveText('vs Aug')
+  await expect(header('vs_prior')).not.toHaveAttribute('aria-sort')
+  const megastore = grid.getByRole('row').filter({ hasText: 'Online Megastore' })
+  await expect(cell(megastore, 'vs_prior')).toHaveText(/^▲ 15\.1%\s*up 15\.1% vs Aug$/)
+  await expect(cell(megastore, 'vs_prior').locator('.mf-tone--unfavorable')).toHaveCount(1)
+  const transit = grid.getByRole('row').filter({ hasText: 'Metro Transit' })
+  await expect(cell(transit, 'vs_prior').locator('.mf-tone--favorable')).toHaveText(/^▼ 20\.0%/)
+  const sparkline = cell(megastore, 'trend').locator('svg')
+  await expect(sparkline).toHaveAttribute('aria-hidden', 'true')
+  await expect(sparkline.locator('polyline')).toHaveCount(1)
+
+  const workspace = page.locator('.mf-workspace')
+  const toggle = page.getByRole('switch', { name: 'Charts' })
+  for (const width of [1440, 1280, 1024]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const charts of [true, false]) {
+      await toggle.setChecked(charts)
+      await expect(page.getByRole('region', { name: 'Charts' })).toHaveCount(charts ? 1 : 0)
+      const overflow = await workspace.evaluate((node) => node.scrollWidth - node.clientWidth)
+      expect(overflow, `${width} px, Charts ${charts ? 'on' : 'off'}`).toBe(0)
+      const shown = (await workspace.boundingBox())!
+      const last = (await header('vs_prior').boundingBox())!
+      expect(last.x + last.width).toBeLessThanOrEqual(shown.x + shown.width)
+    }
+  }
+
+  // All has no prior range, so only Trend joins the grouped columns.
+  await openMoneyflow(page, server)
+  await expect(header('trend')).toHaveText('Trend')
+  await expect(header('vs_prior')).toHaveCount(0)
+  await expect(grid.locator('[data-column="trend"] svg').first()).toBeVisible()
+
+  await page.setViewportSize({ width: 700, height: 900 })
+  await expect(header('trend')).toHaveCount(0)
+  await expect(grid.locator('[data-column="trend"]')).toHaveCount(0)
+})
 
 test('narrow resize preserves analytical URL and moves charts into a drawer', async ({
   page,

@@ -5,6 +5,7 @@
   import DetailRow from './DetailRow.svelte'
   import TimeRow from './TimeRow.svelte'
   import type { Column, CompactLayout } from '../../lib/table/columns'
+  import type { RowInsights } from '../../lib/table/trend'
   import type { TableRow } from '../../lib/table/virtual-rows'
 
   interface Props {
@@ -19,11 +20,14 @@
     columns: Column[]
     /** The dimension the rows group by, which decides a grouped row's Context cell. */
     dimension: string
+    /** The displayed view's insights, for a grouped row's Trend and vs prior. */
+    insights: RowInsights | undefined
     oninformation: (identity: string) => void
     onedit: (identity: string, field: 'merchant' | 'category') => void
   }
 
-  let { row, active, divider, layout, columns, dimension, oninformation, onedit }: Props = $props()
+  let { row, active, divider, layout, columns, dimension, insights, oninformation, onedit }: Props =
+    $props()
 </script>
 
 <div
@@ -58,6 +62,6 @@
   {:else if row.dimension === 'time'}
     <TimeRow {row} {columns} {divider} />
   {:else}
-    <AggregateRow {row} {columns} {dimension} {divider} />
+    <AggregateRow {row} {columns} {dimension} {divider} {insights} />
   {/if}
 </div>

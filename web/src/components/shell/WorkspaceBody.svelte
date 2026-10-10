@@ -30,6 +30,7 @@
   import { emptyScope, type Period } from '../../lib/shell/period'
   import { status } from '../../lib/shell/status.svelte'
   import type { SelectionButton } from '../../lib/table/selection'
+  import { tableInsights } from '../../lib/table/trend'
 
   interface Props {
     projection: ViewProjection
@@ -43,6 +44,7 @@
   const controller = $derived(actions.controller)
   // One cache per controller, and so per profile.
   const cache = $derived(insightsCache(controller))
+  const insights = $derived(tableInsights(cache, projection.canonical_query))
   const empty = $derived(emptyScope(projection))
   let scroller = $state<HTMLDivElement>()
   let scrollTop = $state(0)
@@ -142,6 +144,7 @@
     <FinanceGrid
       {projection}
       neighbors={controller.neighbors}
+      {insights}
       cursorIndex={controller.cursorIndex}
       {scroller}
       bind:scrollTop

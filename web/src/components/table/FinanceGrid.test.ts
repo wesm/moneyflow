@@ -2,7 +2,9 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import FinanceGrid from './FinanceGrid.svelte'
-import type { ViewProjection } from '../../lib/api/client'
+import type { InsightsSeries, ViewProjection } from '../../lib/api/client'
+import type { RowInsights } from '../../lib/table/trend'
+import { testInsights, testSeries } from '../../test/insights'
 import { testAggregateRow, testMoney, testProjection } from '../../test/projection'
 
 const callbacks = () => ({
@@ -230,7 +232,17 @@ describe('FinanceGrid', () => {
     const keys = within(row)
       .getAllByRole('gridcell')
       .map((gridcell) => gridcell.dataset['column'])
-    expect(keys).toEqual(['select', 'name', 'context', 'count', 'in', 'out', 'net', 'share'])
+    expect(keys).toEqual([
+      'select',
+      'name',
+      'context',
+      'count',
+      'in',
+      'out',
+      'net',
+      'share',
+      'trend',
+    ])
     const headerKeys = screen.getAllByRole('columnheader').map((header) => header.dataset['column'])
     expect(headerKeys).toEqual(keys)
   })
@@ -260,6 +272,7 @@ describe('FinanceGrid', () => {
       'Out',
       'Net',
       'Share',
+      'Trend',
     ])
     expect(screen.getByRole('columnheader', { name: 'Net' }).getAttribute('aria-sort')).toBe(
       'descending',
@@ -629,7 +642,48 @@ describe('FinanceGrid', () => {
     })
   })
 
-  it('drops Context below 760 px', () => {
+  it('draws Trend and vs prior from the row series and names the comparison', async () => {
+    const september = grouped({
+      filters: {
+        show_hidden: false,
+        show_transfers: false,
+        date_range: { from: '2026-09-01', to: '2026-09-30' },
+      },
+    })
+    const loaded = new Map<string, InsightsSeries>()
+    const insights = (): RowInsights => ({
+      response: testInsights(),
+      failed: false,
+      seriesFor: (identity) => loaded.get(identity),
+    })
+    const view = render(FinanceGrid, {
+      projection: september,
+      insights: insights(),
+      cursorIndex: 0,
+      compact: false,
+      ...callbacks(),
+    })
+    expect(headers().slice(-2)).toEqual(['Trend', 'vs Aug'])
+    const row = screen.getByRole('row', { name: /Example Merchant/ })
+    const text = () => row.textContent?.replace(/\s+/g, ' ').trim()
+    const before = text()
+    expect(cell(row, 'trend')?.querySelector('.mf-skeleton')).not.toBeNull()
+    expect(cell(row, 'vs_prior')?.querySelector('.mf-skeleton')).not.toBeNull()
+
+    loaded.set('agg-0', {
+      ...testSeries('agg-0', '-30000'),
+      vs_prior: { kind: 'percent', percent_tenths: 200, grew: true, favorable: false },
+    })
+    await view.rerender({ insights: insights() })
+    expect(cell(row, 'trend')?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(cell(row, 'vs_prior')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      '▲ 20.0% up 20.0% vs Aug',
+    )
+    // The sparkline adds nothing to what the row says.
+    expect(text()).toBe(`${before} ▲ 20.0% up 20.0% vs Aug`)
+  })
+
+  it('drops Context, Trend, and vs prior below 760 px', () => {
     wide = false
     render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: false, ...callbacks() })
     const keys = screen.getAllByRole('columnheader').map((header) => header.dataset['column'])
