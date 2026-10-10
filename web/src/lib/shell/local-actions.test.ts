@@ -103,6 +103,22 @@ describe('editor actions', () => {
     expect(overlays.editTarget).toEqual({ identity: 'row-7', kind: 'transaction' })
   })
 
+  it('anchors the editor to the edited row, or to the selection bar while rows are selected', () => {
+    const { context, overlays } = setup(1)
+    const row = document.createElement('div')
+    row.id = 'moneyflow-row-row-7'
+    const bar = document.createElement('section')
+    bar.className = 'mf-selection-bar'
+    document.body.append(row, bar)
+    openEditor(context, 'merchant', { identity: 'row-7', kind: 'transaction' })
+    expect(overlays.anchor).toBe(row)
+    overlays.close('keep')
+
+    context.controller.projection!.selection_count = 2
+    openEditor(context, 'category', { identity: 'row-7', kind: 'transaction' })
+    expect(overlays.anchor).toBe(bar)
+  })
+
   it('opens no editor without a cursor row', async () => {
     const { context, overlays } = setup(5)
     localActions(context)['edit.merchant']()

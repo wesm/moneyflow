@@ -21,7 +21,14 @@ const merchants = [
   choice('m-3', 'Grocery Outlet', 7),
 ]
 
-function setup(props: { value?: string; valid?: boolean; choices?: EditorChoice[] } = {}) {
+interface SetupProps {
+  value?: string
+  valid?: boolean
+  choices?: EditorChoice[]
+  onkeyaction?: (action: string, event: KeyboardEvent) => void
+}
+
+function setup(props: SetupProps = {}) {
   const onaccept = vi.fn()
   const onkeyaction = vi.fn()
   render(EditorComboboxHarness, {
@@ -163,7 +170,7 @@ describe('EditorCombobox', () => {
   it('stages on Enter with the list closed when the value is valid', async () => {
     const { input, onkeyaction } = setup({ value: 'Corner Grocery' })
     expect(await fireEvent.keyDown(input, { key: 'Enter' })).toBe(false)
-    expect(onkeyaction).toHaveBeenCalledWith('stage')
+    expect(onkeyaction).toHaveBeenCalledWith('stage', expect.any(KeyboardEvent))
   })
 
   it('does nothing on Enter with the list closed when the value is invalid', async () => {
@@ -180,7 +187,7 @@ describe('EditorCombobox', () => {
       await fireEvent.keyDown(input, { key: 'Enter', ...modifier })
       expect(input.value).toBe('Example Coffee')
       expect(onaccept).toHaveBeenCalledWith(expect.objectContaining({ id: 'm-2' }))
-      expect(onkeyaction).toHaveBeenCalledWith('accept-and-stage')
+      expect(onkeyaction).toHaveBeenCalledWith('accept-and-stage', expect.any(KeyboardEvent))
       expect(onaccept.mock.invocationCallOrder[0]).toBeLessThan(
         onkeyaction.mock.invocationCallOrder[0] ?? 0,
       )
@@ -192,7 +199,7 @@ describe('EditorCombobox', () => {
     async (modifier) => {
       const { input, onaccept, onkeyaction } = setup({ value: 'Corner Grocery' })
       await fireEvent.keyDown(input, { key: 'Enter', ...modifier })
-      expect(onkeyaction).toHaveBeenCalledWith('stage')
+      expect(onkeyaction).toHaveBeenCalledWith('stage', expect.any(KeyboardEvent))
       expect(onaccept).not.toHaveBeenCalled()
     },
   )
@@ -217,8 +224,18 @@ describe('EditorCombobox', () => {
     host.addEventListener('keydown', hostEscape)
     expect(await fireEvent.keyDown(input, { key: 'Escape' })).toBe(true)
     expect(hostEscape).toHaveBeenCalledTimes(1)
-    expect(onkeyaction).toHaveBeenCalledWith('cancel')
+    expect(onkeyaction).toHaveBeenCalledWith('cancel', expect.any(KeyboardEvent))
     expect(input.value).toBe('gro')
+  })
+
+  it('hands the host the cancelling Escape, so the host can claim it', async () => {
+    const onkeyaction = vi.fn((_action: string, event: KeyboardEvent) => event.preventDefault())
+    const { input } = setup({ value: 'gro', onkeyaction })
+    const host = screen.getByTestId('editor-host')
+    const seen = vi.fn((event: KeyboardEvent) => event.defaultPrevented)
+    host.addEventListener('keydown', seen)
+    expect(await fireEvent.keyDown(input, { key: 'Escape' })).toBe(false)
+    expect(seen).toHaveReturnedWith(true)
   })
 
   it('leaves Tab and Shift+Tab to the browser focus order', async () => {
@@ -242,7 +259,7 @@ describe('EditorCombobox', () => {
     await fireEvent.keyDown(input, { key: 'ArrowDown' })
     expect(input.getAttribute('aria-expanded')).toBe('false')
     await fireEvent.keyDown(input, { key: 'Escape' })
-    expect(onkeyaction).toHaveBeenCalledWith('cancel')
+    expect(onkeyaction).toHaveBeenCalledWith('cancel', expect.any(KeyboardEvent))
   })
 
   it('accepts an option chosen with the pointer without moving focus', async () => {
@@ -303,7 +320,7 @@ describe('EditorCombobox', () => {
     expect(onaccept).toHaveBeenCalledWith(
       expect.objectContaining({ id: '', label: 'New Bakery', create: true }),
     )
-    expect(onkeyaction).toHaveBeenCalledWith('accept-and-stage')
+    expect(onkeyaction).toHaveBeenCalledWith('accept-and-stage', expect.any(KeyboardEvent))
   })
 
   it('has no automated accessibility violations with the list open', async () => {

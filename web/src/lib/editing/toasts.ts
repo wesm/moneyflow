@@ -23,9 +23,9 @@ export function toastMessage(
   const transactionEdit = kind === 'hide' || kind === 'show' || kind === 'delete'
   if (action === 'mutate') {
     if (!transactionEdit) return undefined
-    return withHint(`${PAST_TENSE[kind]} ${transactions(affected)}`, undoable)
+    return withHint(`${PAST_TENSE[kind]} ${transactionCount(affected)}`, undoable)
   }
-  const edit = transactionEdit ? `${kind} · ${transactions(affected)}` : label
+  const edit = transactionEdit ? `${kind} · ${transactionCount(affected)}` : label
   if (action === 'undo') return `Undid ${edit} · ${REDO_HINT}`
   return withHint(`Redid ${edit}`, undoable)
 }
@@ -34,6 +34,7 @@ function withHint(message: string, undoable: boolean): string {
   return undoable ? `${message} · ${UNDO_HINT}` : message
 }
 
-function transactions(count: number): string {
+/** "1 transaction" or "N transactions". */
+export function transactionCount(count: number): string {
   return `${count} ${count === 1 ? 'transaction' : 'transactions'}`
 }

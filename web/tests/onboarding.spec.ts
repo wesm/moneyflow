@@ -100,8 +100,11 @@ test('@smoke YNAB setup, category clear, w Enter, and refresh preserve committed
 
     await page.keyboard.press('c')
     const category = page.getByRole('dialog', { name: 'Change category' })
-    await category.getByRole('searchbox', { name: 'Filter categories' }).fill('Uncategorized')
-    await category.getByRole('button', { name: 'Save pending change' }).click()
+    const field = category.getByRole('combobox', { name: 'Category' })
+    await field.fill('Uncategorized')
+    await field.press('Enter')
+    await expect(field).toHaveValue('Uncategorized')
+    await category.getByRole('button', { name: /^Stage change to / }).click()
     await expect(category).toBeHidden()
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await page.keyboard.press('w')

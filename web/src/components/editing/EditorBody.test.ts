@@ -1,0 +1,262 @@
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
+import { tick } from 'svelte'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import EditorBody from './EditorBody.svelte'
+import type { MerchantPreview, ViewProjection } from '../../lib/api/client'
+import type { EditingController } from '../../lib/controller/editing'
+import { testCatalog, testEditingController } from '../../test/editing'
+import { testAggregateRow, testProjection } from '../../test/projection'
+
+type Kind = 'merchant' | 'category'
+
+const merchantRows = testProjection({
+  detail_rows: null,
+  aggregate_rows: [testAggregateRow({ identity: 'agg-0', count: 4 })],
+})
+
+function preview(overrides: Partial<MerchantPreview> = {}): MerchantPreview {
+  return {
+    version: '1',
+    revision: '1',
+    affected_transactions: 5,
+    outside_view: 0,
+    outside_currencies: [],
+    transactions: [
+      {
+        index: 0,
+        identity: 'transaction-a',
+        date: '2024-01-01',
+        account: 'Example Account',
+        merchant: 'Current Merchant',
+        category: 'Example Category',
+        group: 'Example Group',
+        amount: { minor: '-100', currency: 'USD', scale: 2, decimal: '-1.00', display: '-1.00' },
+        flags: { selected: false, hidden: false, pending: false },
+      },
+    ],
+    ...overrides,
+  }
+}
+
+interface Setup {
+  kind?: Kind
+  projection?: ViewProjection
+  controller?: EditingController
+}
+
+function setup({ kind = 'merchant', projection, controller }: Setup = {}) {
+  const editing = controller ?? testEditingController()
+  const onstage = vi.fn()
+  const oncancel = vi.fn()
+  const view = projection ?? testProjection({ revision: '1' })
+  const target = view.detail_rows
+    ? { kind: 'transaction' as const, identity: 'row-0' }
+    : { kind: 'aggregate' as const, identity: 'agg-0' }
+  render(EditorBody, {
+    props: {
+      kind,
+      target,
+      controller: editing,
+      projection: view,
+      cursorIndex: 0,
+      id: 'editor',
+      onstage,
+      oncancel,
+    },
+  })
+  const name = kind === 'merchant' ? 'Merchant' : 'Category'
+  const input = screen.getByRole('combobox', { name }) as HTMLInputElement
+  return { editing, onstage, oncancel, input }
+}
+
+async function type(input: HTMLInputElement, text: string): Promise<void> {
+  await fireEvent.keyDown(input, { key: text.slice(-1) })
+  await fireEvent.input(input, { target: { value: text } })
+}
+
+const stageButton = (count: string) =>
+  screen.findByRole('button', { name: `Stage change to ${count}` })
+
+describe('EditorBody', () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+  afterEach(cleanup)
+
+  it('titles the editor, focuses the field, and previews the affected transactions', async () => {
+    const { input } = setup()
+    expect(screen.getByRole('heading', { name: 'Edit merchant' }).id).toBe('editor-title')
+    expect(document.getElementById('editor-count')?.textContent).toBe('· 1 transaction')
+    expect(document.activeElement).toBe(input)
+    expect(await stageButton('5 transactions')).toBeTruthy()
+    const rows = screen.getByRole('list', { name: 'Affected transactions' })
+    expect(within(rows).getByText('2024-01-01')).toBeTruthy()
+    expect(within(rows).getByText('-$1.00 USD')).toBeTruthy()
+  })
+
+  it('disables the whole merchant with its reason outside a merchant row', async () => {
+    setup()
+    const whole = await screen.findByRole('radio', { name: 'Whole merchant' })
+    expect(whole.hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText('Open a merchant to rename all its transactions')).toBeTruthy()
+  })
+
+  it('stages a new merchant name on Enter and reports it staged', async () => {
+    const { editing, input, onstage } = setup()
+    await stageButton('5 transactions')
+    await type(input, 'Renamed Example')
+    await fireEvent.keyDown(input, { key: 'Escape' })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    expect(editing.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'transaction.edit-merchant',
+        target: { kind: 'transaction', identity: 'row-0' },
+        input: expect.objectContaining({ scope: 'transactions', label: 'Renamed Example' }),
+      }),
+    )
+  })
+
+  it('re-requests the preview on a scope change and aborts the earlier request', async () => {
+    const signals: Record<string, AbortSignal[]> = { transactions: [], entity: [] }
+    const editing = testEditingController({
+      previewMerchant: vi.fn((_target, scope: string, signal?: AbortSignal) => {
+        if (signal) signals[scope]?.push(signal)
+        if (scope !== 'entity') return new Promise<MerchantPreview>(() => undefined)
+        return Promise.resolve(
+          preview({
+            affected_transactions: 141,
+            outside_view: 127,
+            outside_currencies: [{ currency: 'EUR', scale: 2 }],
+          }),
+        )
+      }),
+    })
+    setup({ projection: { ...merchantRows, revision: '1' }, controller: editing })
+    const whole = await screen.findByRole('radio', { name: 'Whole merchant · 141 transactions' })
+    expect(signals['transactions']?.[0]?.aborted).toBe(false)
+    await fireEvent.click(whole)
+    expect(signals['transactions']?.[0]?.aborted).toBe(true)
+    expect(signals['entity']).toHaveLength(2)
+    expect(await stageButton('141 transactions')).toBeTruthy()
+    expect(screen.getByText('Changes all 141 transactions of this merchant.')).toBeTruthy()
+    expect(
+      screen.getByText(
+        '127 of these are outside the current view (other periods, filters, or EUR).',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('offers nothing to accept or stage until the choices load', async () => {
+    let loaded!: (catalog: typeof testCatalog) => void
+    const editing = testEditingController({
+      catalog: vi.fn(() => new Promise<typeof testCatalog>((resolve) => (loaded = resolve))),
+    })
+    const { input, onstage } = setup({ controller: editing })
+    await stageButton('5 transactions')
+    await type(input, 'example merchant')
+    expect(screen.queryAllByRole('option')).toHaveLength(0)
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onstage).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /^Stage change/ }).hasAttribute('disabled')).toBe(
+      true,
+    )
+    loaded(testCatalog)
+    expect(await screen.findByText('Merges into Example Merchant')).toBeTruthy()
+  })
+
+  it('says a rename onto an existing merchant merges into it', async () => {
+    const { input } = setup()
+    await type(input, 'example merchant')
+    expect(screen.getByText('Merges into Example Merchant')).toBeTruthy()
+  })
+
+  it('cancels once on Escape with the list closed and claims the key', async () => {
+    const { input, oncancel } = setup()
+    const outer = vi.fn((event: KeyboardEvent) => event.defaultPrevented)
+    document.body.addEventListener('keydown', outer)
+    expect(await fireEvent.keyDown(input, { key: 'Escape' })).toBe(false)
+    document.body.removeEventListener('keydown', outer)
+    expect(oncancel).toHaveBeenCalledTimes(1)
+    expect(outer).not.toHaveBeenCalled()
+  })
+
+  it('cancels on Escape from a button and stages on Enter from the scope group', async () => {
+    const { input, oncancel, onstage } = setup({
+      projection: { ...merchantRows, revision: '1' },
+    })
+    await stageButton('5 transactions')
+    await type(input, 'Renamed')
+    const scope = screen.getByRole('radio', { name: /^\d+ transactions$/ })
+    expect(await fireEvent.keyDown(scope, { key: 'Enter' })).toBe(false)
+    await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    await fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Escape' })
+    expect(oncancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('stages nothing while the name is blank', async () => {
+    const { editing, input } = setup()
+    await stageButton('5 transactions')
+    await fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+    const stage = screen.getByRole('button', { name: 'Stage change to 5 transactions' })
+    expect(stage.hasAttribute('disabled')).toBe(true)
+    expect(editing.submit).not.toHaveBeenCalled()
+  })
+
+  it('shows why a staging attempt failed', async () => {
+    const editing = testEditingController({ submit: vi.fn(async () => false) })
+    editing.state.announcement = 'The profile request was rejected.'
+    const { input, onstage } = setup({ controller: editing })
+    await stageButton('5 transactions')
+    await type(input, 'Renamed')
+    await fireEvent.click(screen.getByRole('button', { name: 'Stage change to 5 transactions' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('The profile request was rejected.')
+    expect(onstage).not.toHaveBeenCalled()
+  })
+
+  it('moves transactions to an existing category, with no scope choice', async () => {
+    const { editing, input, onstage } = setup({ kind: 'category' })
+    expect(screen.getByRole('heading', { name: 'Change category' })).toBeTruthy()
+    expect(screen.queryByRole('radiogroup')).toBeNull()
+    await stageButton('5 transactions')
+    await type(input, 'example')
+    expect(screen.getByRole('option', { name: /Example Category, Example Group/ })).toBeTruthy()
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    expect(input.value).toBe('Example Category')
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    expect(editing.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'transaction.edit-category',
+        input: { scope: 'transactions', destination_id: 'category-a' },
+      }),
+    )
+  })
+
+  it('asks for a group after Create, and Escape there returns to the field', async () => {
+    const { editing, input, oncancel, onstage } = setup({ kind: 'category' })
+    await stageButton('5 transactions')
+    await type(input, 'Pet Care')
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    const group = await screen.findByRole('combobox', { name: /Category group/ })
+    await tick()
+    expect(document.activeElement).toBe(group)
+    expect(await fireEvent.keyDown(group, { key: 'Escape' })).toBe(false)
+    expect(oncancel).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(document.activeElement).toBe(input))
+    expect(screen.queryByRole('combobox', { name: /Category group/ })).toBeNull()
+
+    await fireEvent.keyDown(input, { key: 'ArrowDown' })
+    await fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+    expect(onstage).not.toHaveBeenCalled()
+    await fireEvent.click(screen.getByRole('button', { name: 'Stage change to 5 transactions' }))
+    await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(editing.submit).mock.calls[0]?.[0].input).toEqual({
+      scope: 'transactions',
+      destination_id: expect.stringMatching(/^category_/),
+      label: 'Pet Care',
+      group_id: testCatalog.groups?.[0]?.id,
+    })
+  })
+})

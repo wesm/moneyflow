@@ -1,13 +1,13 @@
 <script lang="ts">
   import HelpDialog from '../HelpDialog.svelte'
   import TransactionInformationDrawer from '../TransactionInformationDrawer.svelte'
-  import CategoryDialog from '../editing/CategoryDialog.svelte'
+  import AnchoredEditor from '../editing/AnchoredEditor.svelte'
   import CategoryManager from '../editing/CategoryManager.svelte'
   import DeleteConfirmation from '../editing/DeleteConfirmation.svelte'
   import DuplicateReview from '../editing/DuplicateReview.svelte'
   import ExportDialog from '../editing/ExportDialog.svelte'
   import GroupManager from '../editing/GroupManager.svelte'
-  import MerchantDialog from '../editing/MerchantDialog.svelte'
+  import EditorBody from '../editing/EditorBody.svelte'
   import ReviewDrawer from '../editing/ReviewDrawer.svelte'
   import WriteStatusDrawer from '../editing/WriteStatusDrawer.svelte'
   import type { ViewProjection } from '../../lib/api/client'
@@ -33,15 +33,27 @@
 
 {#if overlay === 'help'}
   <HelpDialog capabilities={projection.capabilities ?? []} {onclose} />
-{:else if overlay === 'merchant' && target}
-  <MerchantDialog
-    controller={controller.editing}
-    {target}
-    hasSelection={projection.selection_count > 0}
-    {onclose}
-  />
-{:else if overlay === 'category' && target}
-  <CategoryDialog controller={controller.editing} {target} {onclose} />
+{:else if (overlay === 'merchant' || overlay === 'category') && target}
+  <AnchoredEditor
+    anchor={overlays.anchor}
+    above={projection.selection_count > 0}
+    field={overlay}
+    id="mf-editor"
+    {overlays}
+    oncancel={onclose}
+    ondismiss={() => overlays.close('keep')}
+  >
+    <EditorBody
+      kind={overlay}
+      {target}
+      controller={controller.editing}
+      {projection}
+      cursorIndex={controller.cursorIndex}
+      id="mf-editor"
+      onstage={onclose}
+      oncancel={onclose}
+    />
+  </AnchoredEditor>
 {:else if overlay === 'categories'}
   <CategoryManager controller={controller.editing} {onclose} />
 {:else if overlay === 'groups'}

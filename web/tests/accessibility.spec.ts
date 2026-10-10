@@ -104,6 +104,26 @@ for (const colorScheme of ['light', 'dark'] as const) {
 }
 
 for (const colorScheme of ['light', 'dark'] as const) {
+  test(`the ${colorScheme} merchant editor with its list open passes axe`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openMoneyflow(page, server)
+    await page.keyboard.press('m')
+    const editor = page.getByRole('dialog', { name: 'Edit merchant' })
+    await expect(editor.getByRole('button', { name: /^Stage change to / })).toBeVisible()
+    await editor.getByRole('combobox', { name: 'Merchant' }).pressSequentially('Co')
+    const list = editor.getByRole('listbox', { name: 'Merchant' })
+    await page.keyboard.press('ArrowDown')
+    await expect(list.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true')
+    await list.getByRole('option').nth(3).hover()
+    await expectNoAxeViolations(page)
+  })
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
   test(`the ${colorScheme} icon rail view has no automated accessibility violations`, async ({
     page,
     server,

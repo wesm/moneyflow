@@ -1,6 +1,8 @@
 import { tick, untrack } from 'svelte'
+import type { Attachment } from 'svelte/attachments'
 
 import type { TransactionInformationResponse } from '../api/client'
+import { restoreFocus, rowIndex } from './focus'
 import type { FocusedRow } from './local-actions'
 
 export type Overlay =
@@ -31,8 +33,11 @@ export interface OverlayHost {
 
 /**
  * Tracks the open shell overlay, its shortcut scope, and its data. Closing returns focus to the
- * control that opened the overlay, or to the grid when the overlay opened from the grid or its
- * opener has left the page.
+ * control that opened the overlay; when it left with its row, to the same control in the row now
+ * at its index; otherwise to the grid.
+ *
+ * Overlays that take Escape on their own panel form a stack, and only the innermost takes it, so
+ * a kit `Modal` stacked above them keeps its Escape.
  */
 export class OverlayState {
   current = $state<Overlay | undefined>()
@@ -41,8 +46,12 @@ export class OverlayState {
   deleteTarget = $state<{ identity: string; kind: 'transaction' } | undefined>()
   deleteCount = $state(0)
   information = $state<TransactionInformationResponse | undefined>()
+  /** The element the merchant or category editor hangs from: a row or the selection bar. */
+  anchor = $state<HTMLElement | undefined>()
   #host: OverlayHost
   #opener: HTMLElement | undefined
+  #openerIndex: number | undefined
+  #layers: symbol[] = []
   #popScope: (() => void) | undefined
   #restoreFrame: number | undefined
 
@@ -58,7 +67,10 @@ export class OverlayState {
   open(next: Overlay, opener?: HTMLElement): void {
     untrack(() => {
       this.#cancelRestore()
-      if (this.current === undefined) this.#opener = opener ?? this.#openerOutsideGrid()
+      if (this.current === undefined) {
+        this.#opener = opener ?? this.#openerOutsideGrid()
+        this.#openerIndex = rowIndex(this.#opener)
+      }
       this.#popScope?.()
       this.#popScope = this.#host.pushScope(next)
       this.current = next
@@ -77,6 +89,7 @@ export class OverlayState {
     this.deleteTarget = undefined
     this.deleteCount = 0
     this.information = undefined
+    this.anchor = undefined
     if (focus === 'keep') {
       this.#opener = undefined
       return
@@ -87,6 +100,32 @@ export class OverlayState {
         if (this.current === undefined) this.#restoreFocus()
       })
     })
+  }
+
+  /**
+   * Attaches to an overlay panel that takes Escape itself. While the panel is the innermost
+   * layer, an Escape inside it that no control claimed calls `onescape`. An Escape on a control
+   * with an open popup belongs to that popup.
+   */
+  escapeLayer(onescape: () => void): Attachment<HTMLElement> {
+    return (panel) => {
+      const layer = Symbol('overlay layer')
+      this.#layers.push(layer)
+      const keydown = (event: KeyboardEvent) => {
+        if (event.key !== 'Escape' || event.defaultPrevented) return
+        if (this.#layers.at(-1) !== layer) return
+        const target = event.target
+        if (target instanceof Element && target.getAttribute('aria-expanded') === 'true') return
+        event.preventDefault()
+        event.stopPropagation()
+        onescape()
+      }
+      panel.addEventListener('keydown', keydown)
+      return () => {
+        panel.removeEventListener('keydown', keydown)
+        this.#layers.splice(this.#layers.indexOf(layer), 1)
+      }
+    }
   }
 
   /** Pushes the open overlay's scope onto a rebuilt shortcut manager. */
@@ -114,7 +153,6 @@ export class OverlayState {
   #restoreFocus(): void {
     const opener = this.#opener
     this.#opener = undefined
-    if (opener?.isConnected) opener.focus({ preventScroll: true })
-    else this.#host.focusGrid()
+    if (!restoreFocus(opener, this.#openerIndex, this.#host.grid())) this.#host.focusGrid()
   }
 }

@@ -460,8 +460,11 @@ describe('AppShell', () => {
     const grid = screen.getByRole('grid', { name: 'Financial results' })
     await fireEvent.keyDown(window, { key: 'm' })
     expect(screen.getByRole('dialog', { name: 'Edit merchant' })).not.toBeNull()
-    await fireEvent.keyDown(window, { key: 'Escape' })
+    const field = screen.getByRole('combobox', { name: 'Merchant' })
+    await vi.waitFor(() => expect(document.activeElement).toBe(field))
+    await fireEvent.keyDown(field, { key: 'Escape' })
     await vi.waitFor(() => expect(document.activeElement).toBe(grid))
+    expect(screen.queryByRole('dialog', { name: 'Edit merchant' })).toBeNull()
   })
 
   it('uses the profile-wide selection count when choosing merchant edit scope', async () => {
@@ -469,8 +472,12 @@ describe('AppShell', () => {
     render(AppShell, { controller })
     await fireEvent.keyDown(window, { key: 'm' })
     await vi.waitFor(() =>
-      expect(screen.getByRole('combobox', { name: /Selected transactions/ })).not.toBeNull(),
+      expect(screen.getByRole('radio', { name: /selected transactions/ })).not.toBeNull(),
     )
+    expect(screen.getByRole('radio', { name: 'Whole merchant' }).hasAttribute('disabled')).toBe(
+      true,
+    )
+    expect(screen.getByText('Clear the selection to rename the whole merchant')).not.toBeNull()
   })
 
   it('does not trap shortcuts when an editor has no focused row', async () => {
@@ -508,7 +515,9 @@ describe('AppShell', () => {
       render(AppShell, { controller })
       const grid = screen.getByRole('grid', { name: 'Financial results' })
       await fireEvent.keyDown(window, { key: 'm' })
-      await fireEvent.keyDown(window, { key: 'Escape' })
+      await fireEvent.keyDown(screen.getByRole('combobox', { name: 'Merchant' }), {
+        key: 'Escape',
+      })
       await vi.waitFor(() => expect(callbacks.length).toBe(1))
       await vi.waitFor(() =>
         expect(screen.queryByRole('dialog', { name: 'Edit merchant' })).toBeNull(),

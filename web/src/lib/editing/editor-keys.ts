@@ -77,3 +77,18 @@ function isTyping(event: KeyLike): boolean {
   if (event.ctrlKey || event.metaKey) return false
   return Array.from(event.key).length === 1
 }
+
+/**
+ * The key table for a control outside the combobox: a scope radio, a button, or the group step.
+ * A control with an open popup, such as the group list, keeps its own keys.
+ */
+export function controlKey(
+  event: KeyLike,
+  control: Element,
+  valid: boolean,
+): 'stage' | 'cancel' | 'none' {
+  if (control.getAttribute('aria-expanded') === 'true') return 'none'
+  const focus = control.getAttribute('role') === 'radio' ? 'scope' : 'stage'
+  const action = editorKey(event, { listOpen: false, valid, focus })
+  return action === 'stage' || action === 'cancel' ? action : 'none'
+}

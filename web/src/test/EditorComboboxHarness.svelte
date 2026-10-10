@@ -10,7 +10,7 @@
     value?: string
     valid?: boolean
     onaccept: (option: EditorOption) => void
-    onkeyaction: (action: EditorKeyAction) => void
+    onkeyaction: (action: EditorKeyAction, event: KeyboardEvent) => void
   }
 
   let {

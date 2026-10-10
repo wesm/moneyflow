@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { editorKey, type EditorFocus, type KeyLike } from './editor-keys'
+import { controlKey, editorKey, type EditorFocus, type KeyLike } from './editor-keys'
 
 const open = { listOpen: true, valid: true, focus: 'combobox' } as const
 const closed = { listOpen: false, valid: true, focus: 'combobox' } as const
@@ -169,5 +169,30 @@ describe('editorKey with modifiers it does not own', () => {
   it('keeps Ctrl+Enter and Cmd+Enter as the staging keys', () => {
     expect(editorKey(key('Enter', ctrl), open)).toBe('accept-and-stage')
     expect(editorKey(key('Enter', meta), closed)).toBe('stage')
+  })
+})
+
+describe('controlKey', () => {
+  const control = (attributes: Record<string, string> = {}) => {
+    const element = document.createElement('button')
+    for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value)
+    return element
+  }
+
+  it('stages on Enter from a scope radio, but leaves Enter on a button to the button', () => {
+    expect(controlKey({ key: 'Enter' }, control({ role: 'radio' }), true)).toBe('stage')
+    expect(controlKey({ key: 'Enter' }, control(), true)).toBe('none')
+    expect(controlKey({ key: 'Enter', ctrlKey: true }, control(), true)).toBe('stage')
+    expect(controlKey({ key: 'Enter' }, control({ role: 'radio' }), false)).toBe('none')
+  })
+
+  it('cancels on Escape unless the control has an open popup', () => {
+    expect(controlKey({ key: 'Escape' }, control(), true)).toBe('cancel')
+    expect(controlKey({ key: 'Escape' }, control({ 'aria-expanded': 'true' }), true)).toBe('none')
+  })
+
+  it('leaves arrows and typing to the control', () => {
+    expect(controlKey({ key: 'ArrowRight' }, control({ role: 'radio' }), true)).toBe('none')
+    expect(controlKey({ key: 'a' }, control(), true)).toBe('none')
   })
 })

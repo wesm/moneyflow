@@ -70,13 +70,21 @@ export async function openTransactionInformation(
   context.overlays.open('information')
 }
 
-/** Opens the merchant or category editor for `target`, such as the cursor or a pointed row. */
+/**
+ * Opens the merchant or category editor for `target`, such as the cursor or a pointed row. It
+ * hangs from that row, or from the selection bar while rows are selected.
+ */
 export function openEditor(
   context: LocalActionContext,
   field: 'merchant' | 'category',
   target: FocusedRow | undefined,
 ): void {
   if (!target) return
+  const bar = context.controller.projection?.selection_count
+    ? document.querySelector<HTMLElement>('.mf-selection-bar')
+    : null
+  context.overlays.anchor =
+    bar ?? document.getElementById(`moneyflow-row-${target.identity}`) ?? undefined
   context.overlays.editTarget = target
   context.overlays.open(field)
 }

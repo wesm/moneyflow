@@ -46,8 +46,11 @@ matches existing merchants, select the `Create` option below the matches.
 **Unreleased:** Merchant and category edits use the current filtered transactions by default.
 Editing a merchant group with a year or month selected leaves transactions outside that period
 unchanged. Editing a single transaction inside a merchant drill affects only that transaction.
-In the merchant editor, Tab explicitly switches to **whole merchant** when available; that
-scope includes transactions outside the current filters. Check its affected count before saving.
+In the TUI merchant editor, Tab switches to **whole merchant** when available. In the browser,
+choose **Whole merchant** in the editor's scope control; Tab only moves focus. Whole merchant is
+available when nothing is selected and the cursor is on a merchant row or inside a merchant
+drill. That scope includes transactions outside the current filters, and the browser editor
+says how many. Check its affected count before staging.
 
 ## Apply an edit
 

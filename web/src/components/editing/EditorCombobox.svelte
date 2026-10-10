@@ -14,8 +14,11 @@
     /** Whether the current text can be staged; Enter with the list closed stages only then. */
     valid: boolean
     onaccept: (option: EditorOption) => void
-    /** Receives `stage`, `accept-and-stage` (after `onaccept`), and `cancel`. */
-    onkeyaction: (action: EditorKeyAction) => void
+    /**
+     * Receives `stage`, `accept-and-stage` (after `onaccept`), and `cancel`, with the key event.
+     * The cancelling Escape is not claimed here; a host that acts on it claims it.
+     */
+    onkeyaction: (action: EditorKeyAction, event: KeyboardEvent) => void
   }
 
   let { label, options, value = $bindable(), valid, onaccept, onkeyaction }: Props = $props()
@@ -50,15 +53,15 @@
     const action = editorKey(event, { listOpen: expanded, valid, focus: 'combobox' })
     if (action === 'none') return
     if (action === 'cancel') {
-      onkeyaction(action)
+      onkeyaction(action, event)
       return
     }
     if (action === 'close-list') event.stopPropagation()
     if (action !== 'open' || event.key.startsWith('Arrow')) event.preventDefault()
-    run(action)
+    run(action, event)
   }
 
-  function run(action: EditorKeyAction): void {
+  function run(action: EditorKeyAction, event: KeyboardEvent): void {
     if (action === 'open') {
       reopen()
     } else if (action === 'move-next') {
@@ -71,7 +74,7 @@
       accept(options[activeIndex])
     } else {
       if (action === 'accept-and-stage') accept(options[activeIndex])
-      onkeyaction(action)
+      onkeyaction(action, event)
     }
   }
 
