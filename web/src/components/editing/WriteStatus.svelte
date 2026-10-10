@@ -11,6 +11,10 @@
 
   let { controller, providerName, onreconnect }: Props = $props()
   const status = $derived(controller.state.status)
+  const pauseNote = $derived(
+    `Pausing stops future provider calls. Changes already accepted by ${providerName} ` +
+      'cannot be cancelled.',
+  )
   const done = $derived(status && status.total > 0 ? (100 * status.completed) / status.total : 0)
   /** When a rate-limited write may resume, in the reader's locale. */
   const eligible = $derived.by(() => {
@@ -46,14 +50,10 @@
       </div>{/if}
   </dl>
   {#if controller.can('pause')}
-    <p class="mf-write__note">
-      Pausing stops future provider calls. Changes already accepted by {providerName} cannot be cancelled.
-    </p>
+    <p class="mf-quiet">{pauseNote}</p>
   {/if}
   {#if controller.can('reconcile')}
-    <p class="mf-write__note">
-      Stop and reconcile discards remaining edits and reloads provider data.
-    </p>
+    <p class="mf-quiet">Stop and reconcile discards remaining edits and reloads provider data.</p>
   {/if}
   <div class="mf-write__actions">
     {#if controller.can('pause')}<Button onclick={() => void controller.pause()}>Pause</Button>{/if}
@@ -113,10 +113,6 @@
     margin: 0;
     font-size: var(--font-size-lg);
     font-variant-numeric: tabular-nums;
-  }
-  .mf-write__note {
-    margin: 0;
-    color: var(--text-secondary);
   }
   .mf-write__actions {
     display: flex;

@@ -192,7 +192,7 @@ describe('ReviewDrawer in review mode', () => {
     expect(screen.queryByText('Example Merchant 201')).toBeNull()
   })
 
-  it('puts Commit in the footer with its Enter hint and focuses it once the review loads', async () => {
+  it('puts Commit with its Enter hint in the footer and focuses it after loading', async () => {
     setup()
     const commit = await loaded()
     expect(commit.closest('.kit-detail-drawer__footer')).not.toBeNull()
@@ -256,6 +256,25 @@ describe('ReviewDrawer in review mode', () => {
     // A rejected commit can be tried again.
     await fireEvent.keyDown(drawer, { key: 'Enter' })
     expect(editing.commit).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports a commit request that throws and lets Enter try again', async () => {
+    const commit = vi
+      .fn<EditingController['commit']>()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(true)
+    const { onclose } = setup({ editing: testEditingController({ commit }) })
+    const button = await loaded()
+    await fireEvent.keyDown(button, { key: 'Enter' })
+    const drawer = screen.getByRole('dialog', { name: 'Review pending changes' })
+    expect((await within(drawer).findByRole('alert')).textContent).toBe(
+      'The profile request failed.',
+    )
+    expect(onclose).not.toHaveBeenCalled()
+
+    await fireEvent.keyDown(button, { key: 'Enter' })
+    await waitFor(() => expect(onclose).toHaveBeenCalledTimes(1))
+    expect(commit).toHaveBeenCalledTimes(2)
   })
 
   it('retains one fast Enter during initial review loading, but never after closing', async () => {

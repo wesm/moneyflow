@@ -110,29 +110,24 @@ input {
 }
 
 .moneyflow-loading,
-.moneyflow-loaded,
 .moneyflow-message {
   max-width: 32rem;
 }
 
 .moneyflow-loading h1,
 .moneyflow-loading p,
-.moneyflow-loaded h1,
-.moneyflow-loaded p,
 .moneyflow-message h1,
 .moneyflow-message p {
   margin: 0;
 }
 
 .moneyflow-loading h1,
-.moneyflow-loaded h1,
 .moneyflow-message h1 {
   margin-block: var(--space-2);
   font-size: var(--font-size-xl);
 }
 
 .moneyflow-loading p:last-child,
-.moneyflow-loaded p:last-child,
 .moneyflow-message p,
 .moneyflow-eyebrow {
   color: var(--text-muted);
@@ -1348,16 +1343,11 @@ input {
   color: var(--text-primary);
   font-weight: 600;
 }
-
-.overlay-status {
-  min-height: 1.25rem;
+.mf-quiet {
   margin: 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
 }
-.overlay-status--error {
-  color: var(--accent-red);
-}
+
 .help-groups {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

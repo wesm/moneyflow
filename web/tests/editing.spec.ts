@@ -257,7 +257,7 @@ test('a merchant row renames the whole merchant through review and commit', asyn
     await page.keyboard.press('w')
     const review = page.getByRole('dialog', { name: 'Review pending changes' })
     await expect(
-      review.getByRole('button', { name: /^Rename merchant .* 34 transactions$/ }),
+      review.getByRole('button', { name: /^Rename merchant 34 transactions / }),
     ).toBeVisible()
     await review.getByRole('button', { name: 'Commit reviewed changes' }).click()
     await expect(page.getByText(/0 pending edit/)).toBeVisible()

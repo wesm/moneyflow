@@ -4,7 +4,7 @@
 
   import ReviewOperation from './ReviewOperation.svelte'
   import WriteStatus from './WriteStatus.svelte'
-  import type { EditingController } from '../../lib/controller/editing'
+  import { REQUEST_FAILED, type EditingController } from '../../lib/controller/editing'
   import type { ProviderWriteController } from '../../lib/controller/provider-write'
   import type { ReviewController } from '../../lib/controller/review'
   import { transactionCount } from '../../lib/editing/toasts'
@@ -35,6 +35,8 @@
   let commitRequested = false
   /** True while a commit runs, and for good once one is accepted, so Enter commits once. */
   let committing = false
+  /** Why the last commit request failed without an answer from the server. */
+  let error = $state('')
   let mounted = true
   const surface = () => body?.closest<HTMLElement>('[role="dialog"]') ?? undefined
   const commitButton = () =>
@@ -73,8 +75,11 @@
     if (revision === undefined || committing) return
     committing = true
     let accepted = false
+    error = ''
     try {
       accepted = await editing.commit(revision)
+    } catch {
+      error = REQUEST_FAILED
     } finally {
       committing = accepted
     }
@@ -104,9 +109,10 @@
       <WriteStatus controller={providerWrite} {providerName} {onreconnect} />
     {:else}
       {#if review.state.phase === 'loading' && review.state.reviewedRevision === undefined}
-        <p class="mf-review__quiet">Loading pending changes…</p>
+        <p class="mf-quiet">Loading pending changes…</p>
       {/if}
       {#if review.state.announcement}<p role="alert">{review.state.announcement}</p>{/if}
+      {#if error}<p class="editing-error" role="alert">{error}</p>{/if}
       <section aria-labelledby="mf-review-active">
         <h2 class="mf-review__heading" id="mf-review-active">Active operations</h2>
         <ol class="mf-review__list">
@@ -122,10 +128,10 @@
         </ol>
       </section>
       {#if review.state.inactiveOperations.length}
-        <section class="mf-review__redo" aria-labelledby="mf-review-redo">
+        <section aria-labelledby="mf-review-redo">
           <h2 class="mf-review__heading" id="mf-review-redo">Inactive redo operations</h2>
-          <p class="mf-review__quiet">Commit permanently discards this redo history.</p>
-          <ol class="mf-review__list">
+          <p class="mf-quiet">Commit permanently discards this redo history.</p>
+          <ol class="mf-review__list mf-quiet">
             {#each review.state.inactiveOperations as operation (operation.operation_id)}
               <li>{operation.label} · {transactionCount(operation.affected_count)}</li>
             {/each}
@@ -156,7 +162,7 @@
   .mf-review {
     display: grid;
     gap: var(--space-6);
-    padding: var(--space-6) var(--space-7);
+    padding: var(--space-6);
     font-size: var(--font-size-md);
   }
   .mf-review__heading {
@@ -169,18 +175,5 @@
     margin: 0;
     padding: 0;
     list-style: none;
-  }
-  .mf-review__quiet {
-    margin: 0;
-    color: var(--text-secondary);
-  }
-  .mf-review__redo li {
-    padding-block: var(--space-2);
-    color: var(--text-secondary);
-  }
-  @media (max-width: 640px) {
-    .mf-review {
-      padding: var(--space-5) var(--space-6);
-    }
   }
 </style>

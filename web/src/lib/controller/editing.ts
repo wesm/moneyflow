@@ -68,6 +68,9 @@ const emptyPending: PendingSummary = {
   affected_transactions: 0,
 }
 
+/** What an editing request that failed without a server answer reports. */
+export const REQUEST_FAILED = 'The profile request failed.'
+
 export function createEditingController(options: EditingControllerOptions): EditingController {
   const initial = options.host.current()
   let state: EditingState = {
@@ -265,7 +268,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
 
   async function handleFailure(error: unknown): Promise<void> {
     if (!(error instanceof MoneyflowProblem)) {
-      setState({ ...state, phase: 'failed', announcement: 'The profile request failed.' })
+      setState({ ...state, phase: 'failed', announcement: REQUEST_FAILED })
       return
     }
     const code = error.problem.code

@@ -52,13 +52,13 @@
   >
     <ChevronRightIcon class="mf-review-op__chevron" size="14" aria-hidden="true" />
     <span class="mf-review-op__label">{operation.label}</span>
+    <span class="mf-review-op__count">{transactionCount(total)}</span>
     {#if operation.before || operation.after}
       <span class="mf-review-op__change"
         >{#if operation.before}<s>{operation.before}</s>{/if} →
         <span class="mf-staged">{operation.after || '—'}</span></span
       >
     {/if}
-    <span class="mf-review-op__count">{transactionCount(total)}</span>
   </button>
   {#if expanded}
     <div class="mf-review-op__targets" id={`${id}-targets`}>
@@ -102,15 +102,19 @@
   .mf-review-op {
     border-bottom: 1px solid var(--border-muted);
   }
+  /* Sticky, so the control that collapses a long page of rows stays in reach. */
   .mf-review-op__toggle {
-    display: grid;
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     gap: var(--space-2) var(--space-5);
     width: 100%;
+    min-height: 44px;
     padding: var(--space-5) var(--space-4);
     color: var(--text-primary);
-    background: none;
+    background: var(--bg-surface);
     border: 0;
     font: inherit;
     text-align: left;
@@ -128,22 +132,28 @@
     align-self: center;
     color: var(--text-secondary);
   }
+  /* Rows scrolling under the sticky toggle pass below this line. */
+  .mf-review-op__toggle[aria-expanded='true'] {
+    box-shadow: 0 1px var(--border-muted);
+  }
   .mf-review-op__toggle[aria-expanded='true'] :global(.mf-review-op__chevron) {
     transform: rotate(90deg);
   }
   .mf-review-op__label {
     font-weight: var(--font-weight-semibold);
   }
-  .mf-review-op__change {
-    color: var(--text-secondary);
-  }
   .mf-review-op__count {
-    grid-column: -2;
+    margin-inline-start: auto;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
   }
+  .mf-review-op__change {
+    flex-basis: 100%;
+    padding-inline-start: calc(14px + var(--space-5));
+    color: var(--text-secondary);
+  }
   .mf-review-op__targets {
-    padding: 0 var(--space-4) var(--space-5) var(--space-8);
+    padding: 0 var(--space-4) var(--space-5) var(--space-6);
   }
   .mf-review-op__table {
     width: 100%;
@@ -169,17 +179,5 @@
     margin-top: var(--space-4);
     color: var(--text-secondary);
     font-size: var(--font-size-sm);
-  }
-  @media (max-width: 640px) {
-    .mf-review-op__toggle {
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      min-height: 44px;
-    }
-    .mf-review-op__change {
-      grid-area: 2 / 2 / 3 / -1;
-    }
-    .mf-review-op__targets {
-      padding-left: var(--space-4);
-    }
   }
 </style>
