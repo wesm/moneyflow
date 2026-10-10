@@ -53,7 +53,7 @@ function setup({ kind = 'merchant', projection, controller }: Setup = {}) {
   const target = view.detail_rows
     ? { kind: 'transaction' as const, identity: 'row-0' }
     : { kind: 'aggregate' as const, identity: 'agg-0' }
-  render(EditorBody, {
+  const rendered = render(EditorBody, {
     props: {
       kind,
       target,
@@ -67,7 +67,7 @@ function setup({ kind = 'merchant', projection, controller }: Setup = {}) {
   })
   const name = kind === 'merchant' ? 'Merchant' : 'Category'
   const input = screen.getByRole('combobox', { name }) as HTMLInputElement
-  return { editing, onstage, oncancel, input }
+  return { editing, onstage, oncancel, input, unmount: rendered.unmount }
 }
 
 async function type(input: HTMLInputElement, text: string): Promise<void> {
@@ -234,6 +234,33 @@ describe('EditorBody', () => {
     const { input } = setup()
     await type(input, 'example merchant')
     expect(screen.getByText('Merges into Example Merchant')).toBeTruthy()
+  })
+
+  it('does not say a rename merges into the merchant being renamed', async () => {
+    const own = { ...testCatalog.merchants![0]!, id: 'merchant-current', label: 'Current Merchant' }
+    const editing = testEditingController({
+      catalog: vi.fn(async () => ({ ...testCatalog, merchants: [own] })),
+      previewMerchant: vi.fn(async () => preview({ affected_transactions: 1 })),
+    })
+    const { input } = setup({ controller: editing })
+    await stageButton('1 transaction')
+    await type(input, 'current merchant')
+    expect(screen.getByRole('option', { name: /^Current Merchant, / })).toBeTruthy()
+    expect(screen.queryByText(/^Merges into/)).toBeNull()
+  })
+
+  it('does not report a stage that finishes after the editor closed', async () => {
+    const request = deferred<boolean>()
+    const editing = testEditingController({ submit: vi.fn(() => request.promise) })
+    const { input, onstage, unmount } = setup({ controller: editing })
+    await type(input, 'Renamed')
+    await fireEvent.click(await stageButton('5 transactions'))
+    expect(editing.submit).toHaveBeenCalledTimes(1)
+    unmount()
+    request.resolve(true)
+    await request.promise
+    await tick()
+    expect(onstage).not.toHaveBeenCalled()
   })
 
   it('cancels once on Escape with the list closed and claims the key', async () => {

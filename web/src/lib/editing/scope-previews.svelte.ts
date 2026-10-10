@@ -16,6 +16,14 @@ export class ScopePreviews {
     this.#fetch = fetch
   }
 
+  /** Each loaded scope's affected-transaction count, which labels its scope choice. */
+  get counts(): Partial<Record<EditScope, number | undefined>> {
+    return {
+      transactions: this.byScope.transactions?.affected_transactions,
+      entity: this.byScope.entity?.affected_transactions,
+    }
+  }
+
   /**
    * Requests `scope`'s preview and returns the function that aborts it. An aborted request
    * neither stores its preview nor reports an error.

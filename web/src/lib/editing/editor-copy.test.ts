@@ -9,6 +9,7 @@ import {
   stageLabel,
 } from './editor-copy'
 import type { MerchantPreview } from '../api/client'
+import type { components } from '../api/schema'
 import { testAggregateRow, testProjection } from '../../test/projection'
 
 function preview(overrides: Partial<MerchantPreview> = {}): MerchantPreview {
@@ -20,6 +21,20 @@ function preview(overrides: Partial<MerchantPreview> = {}): MerchantPreview {
     outside_currencies: [],
     transactions: [],
     ...overrides,
+  }
+}
+
+function row(merchant: string): components['schemas']['DetailRow'] {
+  return {
+    index: 0,
+    identity: `transaction-${merchant}`,
+    date: '2024-01-01',
+    account: 'Example Account',
+    merchant,
+    category: 'Example Category',
+    group: 'Example Group',
+    amount: { minor: '-100', currency: 'USD', scale: 2, decimal: '-1.00', display: '-1.00' },
+    flags: { selected: false, hidden: false, pending: false },
   }
 }
 
@@ -116,6 +131,29 @@ describe('impactLines', () => {
     expect(impactLines(preview(), 'entity', 'Corner Grocery', 'USD')).toContain(
       'Merges into Corner Grocery',
     )
+  })
+
+  it('does not merge a merchant into itself, as when a whole-merchant rename fixes case', () => {
+    const own = preview({ transactions: [row('corner grocery'), row('corner grocery')] })
+    expect(impactLines(own, 'entity', 'corner grocery', 'USD')).toEqual([
+      'Changes all 141 transactions of this merchant.',
+    ])
+    const listed = preview({ affected_transactions: 1, transactions: [row('Corner Grocery')] })
+    expect(impactLines(listed, 'transactions', 'Corner Grocery', 'USD')).toEqual([])
+  })
+
+  it('names the merge when the preview cannot show every affected merchant is the match', () => {
+    const partial = preview({ affected_transactions: 5, transactions: [row('Corner Grocery')] })
+    expect(impactLines(partial, 'transactions', 'Corner Grocery', 'USD')).toEqual([
+      'Merges into Corner Grocery',
+    ])
+    const mixed = preview({
+      affected_transactions: 2,
+      transactions: [row('Corner Grocery'), row('Maple Court')],
+    })
+    expect(impactLines(mixed, 'transactions', 'Corner Grocery', 'USD')).toEqual([
+      'Merges into Corner Grocery',
+    ])
   })
 
   it('says nothing for a transaction rename before the preview loads', () => {

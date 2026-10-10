@@ -71,11 +71,9 @@
   const valid = $derived(stageable && !!catalog && !!preview)
   const queue = new StageQueue()
   const impact = $derived(merchant ? impactLines(preview, scope, match?.label, currency) : [])
-  const counts = $derived({
-    transactions: previews.byScope.transactions?.affected_transactions,
-    entity: previews.byScope.entity?.affected_transactions,
-  })
 
+  let mounted = true
+  onMount(() => () => (mounted = false))
   onMount(() => {
     field?.querySelector('input')?.focus()
     controller
@@ -123,7 +121,7 @@
     } finally {
       submitting = false
     }
-    if (!error) onstage()
+    if (!error && mounted) onstage() // Not after Esc closed the editor during the request.
   }
 
   /** Accepting Create for a category opens the group step; a merchant name needs no group. */
@@ -203,7 +201,7 @@
     <SegmentedControl
       block
       ariaLabel="Scope"
-      options={scopeOptions(rule, counts, selecting)}
+      options={scopeOptions(rule, previews.counts, selecting)}
       value={scope}
       onchange={(value) => (scope = value as EditScope)}
     />

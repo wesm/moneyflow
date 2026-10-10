@@ -51,7 +51,8 @@ export function scopeOptions(
 
 /**
  * The impact notice. A whole-merchant rename states its full count and how many of those
- * transactions the current view hides; a rename onto an existing merchant names it.
+ * transactions the current view hides; a rename onto another existing merchant names it. A
+ * rename onto the merchant being edited, such as a case fix, is not a merge.
  *
  * @param preview The preview for `scope`, once loaded.
  * @param merge The existing merchant label the typed name matches.
@@ -75,8 +76,22 @@ export function impactLines(
       lines.push(`${outside} of these ${verb} outside the current view (${reasons}).`)
     }
   }
-  if (merge) lines.push(`Merges into ${merge}`)
+  if (merge && merge !== sourceMerchant(preview, scope)) lines.push(`Merges into ${merge}`)
   return lines
+}
+
+/**
+ * The one merchant every affected transaction has now, when the preview shows it: always for
+ * the whole merchant, and for chosen transactions only when the preview lists them all.
+ */
+function sourceMerchant(
+  preview: MerchantPreview | undefined,
+  scope: EditScope,
+): string | undefined {
+  const [first, ...rest] = preview?.transactions ?? []
+  if (!preview || !first) return undefined
+  if (scope === 'transactions' && rest.length + 1 < preview.affected_transactions) return undefined
+  return rest.every((row) => row.merchant === first.merchant) ? first.merchant : undefined
 }
 
 /** The Stage button's text, with the affected count once it is known. */

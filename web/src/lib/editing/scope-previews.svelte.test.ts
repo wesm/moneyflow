@@ -12,6 +12,7 @@ describe('ScopePreviews', () => {
     await vi.waitFor(() => expect(previews.byScope.entity).toEqual(preview))
     expect(previews.byScope.transactions).toBeUndefined()
     expect(previews.error).toBe('')
+    expect(previews.counts).toEqual({ transactions: undefined, entity: 3 })
   })
 
   it('reports a failed preview with how to retry', async () => {
