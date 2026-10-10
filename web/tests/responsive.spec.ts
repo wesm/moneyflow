@@ -844,57 +844,72 @@ test.describe('phone row actions with a selection', () => {
   })
 })
 
-test('641–899 px: Net fits, and a wide table scrolls under sticky ☐, Name, and the bar', async ({
+/** The views whose columns differ: grouped with Context, Trend, and vs prior, Time, and detail. */
+const FIT_VIEWS = [
+  { view: 'merchants', query: 'cur=USD%3A2&from=2026-09-01&to=2026-09-30&v=1', name: 'name' },
+  { view: 'categories', query: 'cur=USD%3A2&group=category&v=1', name: 'name' },
+  { view: 'time', query: 'cur=USD%3A2&group=time&v=1', name: 'period' },
+  { view: 'transactions', query: 'cur=USD%3A2&mode=detail&v=1', name: 'merchant' },
+] as const
+
+test('the table drops columns instead of scrolling sideways, at every width', async ({
   page,
   server,
 }) => {
-  await page.setViewportSize({ width: 641, height: 800 })
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const workspace = page.locator('.mf-workspace')
+  const headerKeys = () =>
+    grid
+      .locator('.mf-table__header [data-column]')
+      .evaluateAll((cells) => cells.map((node) => (node as HTMLElement).dataset['column']))
+  for (const { view, query, name } of FIT_VIEWS) {
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await openMoneyflow(page, server, query)
+    let fewest = 0
+    for (const width of [641, 700, 820, 900, 1010, 1280]) {
+      await page.setViewportSize({ width, height: 800 })
+      const context = `${view} at ${width} px`
+      await expect
+        .poll(() => workspace.evaluate((node) => node.scrollWidth - node.clientWidth), {
+          message: context,
+        })
+        .toBeLessThanOrEqual(0)
+      const keys = await headerKeys()
+      expect(keys, context).toContain(name)
+      const shown = (await workspace.boundingBox())!
+      const last = (await grid.locator('.mf-table__header [data-column]').last().boundingBox())!
+      expect(last.x + last.width, context).toBeLessThanOrEqual(shown.x + shown.width)
+      // A wider window never shows fewer columns than a narrower one.
+      expect(keys.length, context).toBeGreaterThanOrEqual(fewest)
+      fewest = keys.length
+    }
+  }
+})
+
+test('641–899 px: the selection bar and header stay inside the workspace', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 820, height: 800 })
   await openMoneyflow(page, server)
   const grid = page.getByRole('grid', { name: 'Financial results' })
   const workspace = page.locator('.mf-workspace')
   const header = (key: string) => grid.locator(`.mf-table__header [data-column="${key}"]`)
-  await expect(header('context')).toHaveCount(0)
   const shown = (await workspace.boundingBox())!
-  const net = (await header('net').boundingBox())!
-  expect(net.x + net.width).toBeLessThanOrEqual(shown.x + shown.width)
 
-  await page.setViewportSize({ width: 820, height: 800 })
-  await expect(header('context')).toHaveText('Top category')
-  const row = grid.locator('[role="row"][aria-rowindex="2"]')
-  const boxes = async () => ({
-    select: (await cell(row, 'select').boundingBox())!.x,
-    name: (await cell(row, 'name').boundingBox())!.x,
-    header: (await header('name').boundingBox())!.x,
-    context: (await cell(row, 'context').boundingBox())!.x,
-  })
-  const before = await boxes()
-  const overflow = await workspace.evaluate((node) => node.scrollWidth - node.clientWidth)
-  expect(overflow).toBeGreaterThan(0)
-  await workspace.evaluate((node) => (node.scrollLeft = node.scrollWidth))
-  await expect.poll(async () => (await boxes()).context).toBeLessThan(before.context - overflow + 1)
-  // ☐ sticks at the scroller's edge, over its focus-ring padding, and Name sticks beside it.
-  const after = await boxes()
-  expect(after.select).toBe((await workspace.boundingBox())!.x)
-  expect(after.name - after.select).toBe(before.name - before.select)
-  expect(after.header).toBe(after.name)
-
-  // The selection bar stays put too, inside the workspace.
   await page.keyboard.press('Space')
   const bar = page.getByRole('region', { name: 'Selection' })
   await expect(bar).toBeVisible()
   const pinned = (await bar.boundingBox())!
-  await workspace.evaluate((node) => (node.scrollLeft = 0))
-  await expect.poll(async () => (await bar.boundingBox())!.x).toBe(pinned.x)
   expect(pinned.x).toBeGreaterThanOrEqual(shown.x - 1)
-  expect(pinned.x + pinned.width).toBeLessThanOrEqual(
-    (await workspace.boundingBox())!.x + (await workspace.boundingBox())!.width + 1,
-  )
+  expect(pinned.x + pinned.width).toBeLessThanOrEqual(shown.x + shown.width + 1)
   await page.keyboard.press('Escape')
 
   // The header stays on top of the rows while the table scrolls down.
   const scrollport = (await workspace.boundingBox())!
-  await workspace.evaluate((node) => (node.scrollTop = 600))
-  await expect.poll(async () => (await header('name').boundingBox())!.y).toBe(scrollport.y)
+  await workspace.evaluate((node) => (node.scrollTop = node.scrollHeight))
+  const headerRow = grid.locator('.mf-table__header')
+  await expect.poll(async () => (await headerRow.boundingBox())!.y).toBe(scrollport.y)
   const covering = await header('name').evaluate((node) => {
     const box = node.getBoundingClientRect()
     return document.elementFromPoint(box.x + 4, box.y + box.height / 2)?.closest('[role]')?.role

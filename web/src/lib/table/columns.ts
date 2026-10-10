@@ -36,16 +36,14 @@ export interface Column {
   width: string
   /** The column shows only at or above this viewport width. */
   minWidth?: 760
-  /** The track's minimum in rem from 760 px, which `columnsThatFit` adds up. */
-  min?: number
+  /** The track's minimum in rem, which `columnsThatFit` adds up. */
+  min: number
   /** When the minimums overflow the workspace, columns drop in this order; others stay. */
-  dropOrder?: 1 | 2
+  dropOrder?: 1 | 2 | 3 | 4 | 5
 }
 
-/** Metric columns narrow below 760 px (app.css), so Net still fits at 641 px. */
-const METRIC_WIDTH = 'var(--mf-metric-width)'
-/** `--mf-metric-width` from 760 px, in rem. */
 const METRIC_MIN = 6.5
+const METRIC_WIDTH = `${METRIC_MIN}rem`
 const SELECT: Column = {
   key: 'select',
   label: 'Select all matching',
@@ -55,9 +53,15 @@ const SELECT: Column = {
 }
 const NARROWED_DIMENSIONS = ['merchant', 'category', 'account'] as const
 
-function metric(key: ColumnKey, label: string, sortField?: SortField): Column {
+function metric(
+  key: ColumnKey,
+  label: string,
+  sortField?: SortField,
+  dropOrder?: Column['dropOrder'],
+): Column {
   const sort = sortField ? { sortField } : {}
-  return { key, label, align: 'end', width: METRIC_WIDTH, min: METRIC_MIN, ...sort }
+  const drop = dropOrder ? { dropOrder } : {}
+  return { key, label, align: 'end', width: METRIC_WIDTH, min: METRIC_MIN, ...sort, ...drop }
 }
 
 function capitalized(text: string): string {
@@ -112,11 +116,11 @@ function groupedColumns(dimension: string): Column[] {
     SELECT,
     name,
     ...context,
-    metric('count', 'Count', 'count'),
-    metric('in', 'In'),
-    metric('out', 'Out'),
+    metric('count', 'Count', 'count', 4),
+    metric('in', 'In', undefined, 5),
+    metric('out', 'Out', undefined, 5),
     metric('net', 'Net', 'amount'),
-    { key: 'share', label: 'Share', align: 'end', width: METRIC_WIDTH, min: METRIC_MIN },
+    metric('share', 'Share', undefined, 3),
   ]
 }
 
@@ -129,13 +133,21 @@ function timeColumns(): Column[] {
       sortField: 'time_period',
       align: 'start',
       width: 'minmax(8rem, 1fr)',
+      min: 8,
     },
-    metric('count', 'Count', 'count'),
-    metric('in', 'In'),
-    metric('out', 'Out'),
+    metric('count', 'Count', 'count', 3),
+    metric('in', 'In', undefined, 4),
+    metric('out', 'Out', undefined, 4),
     metric('net', 'Net', 'amount'),
-    { key: 'net_bar', label: 'Net bar', align: 'start', width: 'minmax(8rem, 1.5fr)' },
-    { key: 'savings', label: 'Savings rate', align: 'end', width: METRIC_WIDTH },
+    {
+      key: 'net_bar',
+      label: 'Net bar',
+      align: 'start',
+      width: 'minmax(8rem, 1.5fr)',
+      min: 8,
+      dropOrder: 1,
+    },
+    metric('savings', 'Savings rate', undefined, 2),
   ]
 }
 
@@ -149,23 +161,39 @@ function narrowedFrame(projection: ViewProjection): DrillFrame | undefined {
   return undefined
 }
 
-/** Fits the drilled label, as the TUI does, without cutting off the column's own header. */
-function narrowedWidth(frame: DrillFrame, header: string): string {
-  return `${Math.min(30, Math.max([...frame.label].length, header.length) + 2)}ch`
+/** Room in rem for one `ch` of the table's font, rounded up so a fit never scrolls. */
+const CH_REM = 0.5
+
+/**
+ * Fits the drilled label, as the TUI does, without cutting off the column's own header. The
+ * minimum overestimates the `ch` track in rem.
+ */
+function narrowed(column: Column, frame: DrillFrame): Column {
+  const characters = Math.min(30, Math.max([...frame.label].length, column.label.length) + 2)
+  return { ...column, width: `${characters}ch`, min: characters * CH_REM }
 }
 
 function transactionColumns(projection: ViewProjection): Column[] {
   const amazon = projection.profile_kind === 'amazon'
-  const narrowed = narrowedFrame(projection)
+  const drilled = narrowedFrame(projection)
   const columns: Column[] = [
     SELECT,
-    { key: 'date', label: 'Date', sortField: 'date', align: 'start', width: '6rem' },
+    {
+      key: 'date',
+      label: 'Date',
+      sortField: 'date',
+      align: 'start',
+      width: '6rem',
+      min: 6,
+      dropOrder: 3,
+    },
     {
       key: 'merchant',
       label: amazon ? 'Product' : 'Merchant',
       sortField: 'merchant',
       align: 'start',
       width: 'minmax(10rem, 2fr)',
+      min: 10,
     },
     {
       key: 'category',
@@ -173,6 +201,8 @@ function transactionColumns(projection: ViewProjection): Column[] {
       sortField: 'category',
       align: 'start',
       width: 'minmax(8rem, 1.5fr)',
+      min: 8,
+      dropOrder: 4,
     },
     {
       key: 'account',
@@ -180,14 +210,14 @@ function transactionColumns(projection: ViewProjection): Column[] {
       sortField: 'account',
       align: 'start',
       width: 'minmax(8rem, 1fr)',
+      min: 8,
+      dropOrder: 1,
     },
     metric('amount', 'Amount', 'amount'),
-    { key: 'flags', label: 'Flags', align: 'start', width: '6.5rem' },
+    { key: 'flags', label: 'Flags', align: 'start', width: '6.5rem', min: 6.5, dropOrder: 2 },
   ]
   return columns.map((column) =>
-    narrowed && column.key === narrowed.dimension
-      ? { ...column, width: narrowedWidth(narrowed, column.label) }
-      : column,
+    drilled && column.key === drilled.dimension ? narrowed(column, drilled) : column,
   )
 }
 
@@ -208,25 +238,26 @@ export function columnsAtWidth(columns: Column[], wide: boolean): Column[] {
   return columns.filter((column) => column.minWidth === undefined || wide)
 }
 
-/** The window width in px from which `columnsThatFit` drops columns instead of scrolling. */
-export const FIT_COLUMNS_WIDTH = 900
-
 function minimum(columns: readonly Column[]): number {
-  return columns.reduce((total, column) => total + (column.min ?? 0), 0)
+  return columns.reduce((total, column) => total + column.min, 0)
 }
 
 /** Room the columns must leave, because the measured width rounds to whole pixels. */
 const FIT_TOLERANCE_REM = 0.25
 
 /**
- * The columns whose minimum widths fit in `room` rem with `FIT_TOLERANCE_REM` to spare, so
- * sub-pixel rounding never scrolls the table sideways: Context drops first, then Trend and vs
- * prior together. Everything stays when `room` is unknown. Only grouped columns can drop.
+ * The columns whose minimum widths fit in `room` rem with `FIT_TOLERANCE_REM` to spare, so the
+ * table never scrolls sideways. Columns drop by `dropOrder`, lowest first:
+ * - grouped: Context, then Trend and vs prior, Share, Count, and In and Out;
+ * - Time: the Net bar, then Savings rate, Count, and In and Out;
+ * - transactions: Account, then Flags, Date, and Category.
+ *
+ * ☐, the name column, and Net or Amount always stay. Everything stays when `room` is unknown.
  */
 export function columnsThatFit(columns: Column[], room: number | undefined): Column[] {
   if (room === undefined) return columns
   let shown = columns
-  for (const order of [1, 2] as const) {
+  for (const order of [1, 2, 3, 4, 5] as const) {
     if (minimum(shown) + FIT_TOLERANCE_REM <= room) break
     shown = shown.filter((column) => column.dropOrder !== order)
   }

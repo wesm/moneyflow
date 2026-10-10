@@ -255,17 +255,47 @@ describe('columnsThatFit', () => {
     expect(fit(54.5)).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
   })
 
-  it('never drops the columns that carry the row’s totals', () => {
-    expect(fit(10)).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
+  it('then drops Share, Count, and In and Out together, but never Name or Net', () => {
+    expect(fit(44.75)).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
+    expect(fit(44.5)).toEqual(['select', 'name', 'count', 'in', 'out', 'net'])
+    expect(fit(38)).toEqual(['select', 'name', 'in', 'out', 'net'])
+    expect(fit(10)).toEqual(['select', 'name', 'net'])
   })
 
-  it('leaves transaction and Time views alone', () => {
+  it('drops Account, Flags, Date, and Category from transactions, never Merchant or Amount', () => {
+    // ☐ 2, Date 6, Merchant 10, Category 8, Account 8, Amount and Flags 6.5 each.
     const transactions = columnsFor(detail(dated))
-    expect(columnsThatFit(transactions, 10)).toEqual(transactions)
+    const shown = (rem: number) => columnsThatFit(transactions, rem).map((column) => column.key)
+    expect(shown(47.25)).toEqual(transactions.map((column) => column.key))
+    expect(shown(47)).toEqual(['select', 'date', 'merchant', 'category', 'amount', 'flags'])
+    expect(shown(38)).toEqual(['select', 'date', 'merchant', 'category', 'amount'])
+    expect(shown(32)).toEqual(['select', 'merchant', 'category', 'amount'])
+    expect(shown(10)).toEqual(['select', 'merchant', 'amount'])
+  })
+
+  it('drops the Net bar, Savings rate, Count, and In and Out from Time, never Period or Net', () => {
+    // ☐ 2, Period 8, Count, In, Out, and Net 6.5 each, Net bar 8, Savings rate 6.5.
     const time = columnsFor(
       grouped({ grouping: 'time', sort_fields: ['time_period', 'count', 'amount'] }, dated),
     )
-    expect(columnsThatFit(time, 10)).toEqual(time)
+    const shown = (rem: number) => columnsThatFit(time, rem).map((column) => column.key)
+    expect(shown(50.75)).toEqual(time.map((column) => column.key))
+    expect(shown(50.5)).toEqual(['select', 'period', 'count', 'in', 'out', 'net', 'savings'])
+    expect(shown(42.5)).toEqual(['select', 'period', 'count', 'in', 'out', 'net'])
+    expect(shown(36)).toEqual(['select', 'period', 'in', 'out', 'net'])
+    expect(shown(10)).toEqual(['select', 'period', 'net'])
+  })
+
+  it('counts a drilled column at its narrowed width', () => {
+    const category = columnsFor(
+      detail({
+        canonical_query: 'v=1&drill=category',
+        breadcrumbs: [{ dimension: 'category', label: 'Groceries' }],
+      }),
+    )
+    // Category narrows to 11ch, about 5.5 rem, so the minimums total 44.5 rem.
+    expect(columnsThatFit(category, 44.75)).toEqual(category)
+    expect(columnsThatFit(category, 44.5).map((column) => column.key)).not.toContain('account')
   })
 })
 

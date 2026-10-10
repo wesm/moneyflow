@@ -843,21 +843,12 @@ input {
   overflow: auto;
 }
 .mf-table {
-  /* Narrower below 760 px, so Net still fits beside the icon rail at 641 px. */
-  --mf-metric-width: 5.75rem;
-  /* As wide as its columns' minimums, so the focus ring and rows span a table that scrolls. */
-  min-width: min-content;
   margin-top: var(--space-2);
   outline: none;
   display: grid;
   grid-template-columns: var(--mf-columns);
   align-content: start;
   font-size: var(--font-size-sm);
-}
-@media (min-width: 760px) {
-  .mf-table {
-    --mf-metric-width: 6.5rem;
-  }
 }
 .mf-table:focus-visible {
   /* Neutral and outside the rows, so the blue left rule still marks only the cursor row. */
@@ -904,7 +895,6 @@ input {
 }
 .mf-table__row {
   --mf-row-tint: transparent;
-  --mf-row-rule: linear-gradient(transparent, transparent);
   position: relative;
   background-color: var(--mf-row-tint);
 }
@@ -927,58 +917,12 @@ input {
 .mf-table__row--selected {
   --mf-row-tint: var(--mf-selected);
 }
-/* A table wider than the workspace scrolls sideways under ☐ and the name column, which stay
-   put. Opaque cells hide what scrolls beneath them and repeat the row's tint and rules. They
-   stick over the scroller's focus-ring padding too, so nothing shows through left of ☐. */
-.mf-table:not(.mf-table--compact)
-  > :is(.mf-table__header, .mf-table__row)
-  > :is(
-    [data-column='select'],
-    [data-column='name'],
-    [data-column='period'],
-    [data-column='merchant']
-  ) {
-  position: sticky;
-  left: calc(2rem - var(--space-2));
-  z-index: 1;
-  /* Full row height, so nothing shows above or below the opaque cell. */
-  align-self: stretch;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-content: center;
-  background:
-    var(--mf-row-rule) top / 100% 1px no-repeat,
-    linear-gradient(var(--mf-row-tint), var(--mf-row-tint)),
-    var(--bg-primary);
-}
-.mf-table:not(.mf-table--compact)
-  > :is(.mf-table__header, .mf-table__row)
-  > [data-column='select'] {
-  left: calc(-1 * var(--space-2));
-}
-.mf-table:not(.mf-table--compact) > .mf-table__header > [data-column] {
-  background: var(--bg-surface);
-}
-.mf-table__row--active > [data-column='select'] {
-  box-shadow: inset 3px 0 var(--mf-focus);
-}
-/* A sticky cell stays opaque, so its content dims instead. */
-.mf-table__row--hidden
-  > .mf-table__cell:not(
-    [data-column='flags'],
-    [data-column='select'],
-    [data-column='name'],
-    [data-column='period'],
-    [data-column='merchant']
-  ),
-.mf-table__row--hidden
-  > :is([data-column='name'], [data-column='period'], [data-column='merchant'])
-  > * {
+/* A hidden row dims its values; its selection box and flags stay legible. */
+.mf-table__row--hidden > .mf-table__cell:not([data-column='flags'], [data-column='select']) {
   opacity: var(--opacity-disabled);
 }
 .mf-table__row--divided {
-  --mf-row-rule: linear-gradient(var(--text-muted), var(--text-muted));
-  background-image: var(--mf-row-rule);
+  background-image: linear-gradient(var(--text-muted), var(--text-muted));
   background-size: 100% 1px;
   background-repeat: no-repeat;
 }
@@ -1285,12 +1229,10 @@ input {
   font-size: var(--font-size-xs);
 }
 /* In the scroll flow after the table, so the last row scrolls clear of it. The negative bottom
-   reaches past the workspace's focus-ring padding to its edge. As wide as the workspace and
-   pinned to its left, so it stays put while a wide table scrolls sideways at 641–899 px. */
+   reaches past the workspace's focus-ring padding to its edge. */
 .mf-selection-bar {
   position: sticky;
   bottom: calc(-1 * var(--space-2));
-  left: 0;
   z-index: 2;
   display: flex;
   flex-wrap: wrap;
@@ -1365,10 +1307,7 @@ input {
   color: var(--text-muted);
   text-decoration: line-through;
 }
-/* The editing lock banner pins left like the chart area while the table scrolls sideways. */
 .mf-lock-banner {
-  position: sticky;
-  left: 0;
   padding-bottom: var(--space-4);
 }
 .mf-lock-banner__row {
@@ -1385,9 +1324,8 @@ input {
 }
 /* Charts: the KPI strip and the chart row, above the table in its scroller. */
 .mf-chart-area {
-  /* Pinned while the table scrolls sideways; a block child already spans the scroller. */
-  position: sticky;
-  left: 0;
+  /* Positioned, so a tooltip can raise the area above the table's sticky header. */
+  position: relative;
   display: grid;
   gap: var(--space-4);
   padding-bottom: var(--space-5);

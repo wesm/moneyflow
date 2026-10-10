@@ -94,7 +94,7 @@
   const comparison = $derived(insights?.response?.ranges.comparison_label)
   const room = new ColumnRoom(() => scroller)
   const all = $derived(columnsAtWidth(columnsFor(projection, comparison), wide))
-  const columns = $derived(columnsThatFit(all, room.rem))
+  const columns = $derived(columnsThatFit(all, compact ? undefined : room.rem))
   const layout = $derived(compact ? compactLayout(projection) : undefined)
   const cellColumns = $derived(columns.filter((column) => column.key !== 'select'))
   const trackSizes = $derived(columns.map((column) => column.width).join(' '))

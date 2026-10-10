@@ -138,35 +138,6 @@ test('a failed insights request offers Retry and leaves the table working', asyn
   await expect(failure).toHaveCount(0)
 })
 
-test('the charts stay put while the table scrolls sideways, with nothing showing left of ☐', async ({
-  page,
-  server,
-}) => {
-  await page.setViewportSize({ width: 700, height: 844 })
-  await openMoneyflow(page, server)
-  await page.keyboard.press('d')
-  await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
-  const income = page.locator('.mf-kpis').getByText('Income', { exact: true })
-  await expect(income).toBeVisible()
-  const before = (await income.boundingBox())!
-  const area = page.locator('.mf-chart-area')
-  const port = (await workspace(page).boundingBox())!
-
-  for (const scrollLeft of [60, 10_000]) {
-    await workspace(page).evaluate((element, left) => (element.scrollLeft = left), scrollLeft)
-    await expect
-      .poll(() => workspace(page).evaluate((element) => element.scrollLeft))
-      .toBeGreaterThan(0)
-    expect((await income.boundingBox())!.x).toBe(before.x)
-    const areaBox = (await area.boundingBox())!
-    expect(areaBox.x).toBeGreaterThanOrEqual(port.x)
-    expect(areaBox.x + areaBox.width).toBeLessThanOrEqual(port.x + port.width)
-    // The sticky ☐ column reaches the scroller's edge, so scrolled cells cannot show beside it.
-    const select = page.locator('[role="columnheader"][data-column="select"]')
-    expect((await select.boundingBox())!.x).toBeLessThanOrEqual(port.x)
-  }
-})
-
 test('an empty month inside a merchant keeps the strip and chart row above the empty table', async ({
   page,
   server,

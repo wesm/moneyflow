@@ -61,16 +61,14 @@ const headers = () =>
 const cell = (row: HTMLElement, key: string) =>
   row.querySelector<HTMLElement>(`[role="gridcell"][data-column="${key}"]`)
 
-/** The window is 760 px wide while `wide` is true, 900 px while `roomy` is, else 700 px. */
+/** The window is 760 px wide while `wide` is true, else 700 px. */
 let wide = true
-let roomy = false
 const windowWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
 beforeEach(() => {
   wide = true
-  roomy = false
   Object.defineProperty(window, 'innerWidth', {
     configurable: true,
-    get: () => (roomy ? 900 : wide ? 760 : 700),
+    get: () => (wide ? 760 : 700),
   })
 })
 afterEach(() => Object.defineProperty(window, 'innerWidth', windowWidth))
@@ -715,8 +713,7 @@ describe('FinanceGrid', () => {
     expect(columnKeys()).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
   })
 
-  it('from 900 px drops the columns that overflow the scroller instead of scrolling', () => {
-    roomy = true
+  it('drops the columns that overflow the scroller instead of scrolling, below 900 px too', () => {
     const scroller = document.createElement('div')
     // 56 rem at a 16 px root: Context drops, Trend and vs prior still fit.
     Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: 56 * 16 })
@@ -739,6 +736,13 @@ describe('FinanceGrid', () => {
 
   describe('scrolling through every row of the result', () => {
     afterEach(() => vi.useRealTimers())
+
+    /** A scroller element whose `scrollTop` keeps what the grid writes, as jsdom's does not. */
+    function scrollerAt(scrollTop: number): HTMLElement {
+      const scroller = document.createElement('div')
+      Object.defineProperty(scroller, 'scrollTop', { value: scrollTop, writable: true })
+      return scroller
+    }
 
     /** One loaded window of the 450-row result, as the server sends it. */
     function loaded(offset: number): ViewProjection {
@@ -916,7 +920,7 @@ describe('FinanceGrid', () => {
     it('still follows a scroll when a key the grid ignores is pressed meanwhile', async () => {
       vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
       const events = { ...callbacks(), onshow: vi.fn() }
-      const scroller = { scrollTop: 0 } as HTMLElement
+      const scroller = scrollerAt(0)
       const view = render(FinanceGrid, {
         projection: loaded(0),
         cursorIndex: 0,
@@ -941,7 +945,7 @@ describe('FinanceGrid', () => {
     it('stays in the window k moved the cursor into at its top edge', async () => {
       vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
       const events = { ...callbacks(), onshow: vi.fn() }
-      const scroller = { scrollTop: 200 * 30 } as HTMLElement
+      const scroller = scrollerAt(200 * 30)
       // Rows 200 to 219 show, with the cursor on the first of them.
       const view = render(FinanceGrid, {
         projection: loaded(200),
@@ -988,7 +992,7 @@ describe('FinanceGrid', () => {
     })
 
     it('reveals the cursor row again when the viewport shrinks under it', async () => {
-      const scroller = { scrollTop: 0 } as HTMLElement
+      const scroller = scrollerAt(0)
       // Rows 0 to 19 show, with the cursor on the last of them.
       const view = render(FinanceGrid, {
         projection: loaded(0),
@@ -1004,7 +1008,7 @@ describe('FinanceGrid', () => {
     })
 
     it('keeps the cursor row on screen when rows change height at 640 px', async () => {
-      const scroller = { scrollTop: 0 } as HTMLElement
+      const scroller = scrollerAt(0)
       // Rows 0 to 19 show at 30 px, with the cursor on the last of them.
       const view = render(FinanceGrid, {
         projection: loaded(0),
@@ -1021,7 +1025,7 @@ describe('FinanceGrid', () => {
     })
 
     it('leaves a scrolled-away cursor alone when the viewport shrinks', async () => {
-      const scroller = { scrollTop: 0 } as HTMLElement
+      const scroller = scrollerAt(0)
       const view = render(FinanceGrid, {
         projection: loaded(0),
         cursorIndex: 19,
@@ -1040,7 +1044,7 @@ describe('FinanceGrid', () => {
     it('reveals the cursor row after a view change that keeps its index', async () => {
       // A header sort, a grouping key, and a period change each send a new canonical query.
       for (const query of ['v=1&sort=amount', 'v=1&group=category', 'v=1&period=2026-09']) {
-        const scroller = { scrollTop: 0 } as HTMLElement
+        const scroller = scrollerAt(0)
         const view = render(FinanceGrid, {
           projection: loaded(0),
           cursorIndex: 0,
