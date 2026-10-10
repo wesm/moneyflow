@@ -75,14 +75,18 @@ describe('ChartState', () => {
     expect(pop).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the phone switch apart from the wider-width choice', () => {
+  it('leaves the chart row on after the phone dialog opens and closes', () => {
     const width = { compact: true }
     const { charts } = chartState(width)
     charts.toggle(true)
+    charts.toggle(false)
     width.compact = false
     expect(charts.row).toBe(true)
-    charts.setDialog(false)
-    width.compact = false
+  })
+
+  it('keeps the chart row off after the phone dialog opens', () => {
+    const width = { compact: false }
+    const { charts } = chartState(width)
     charts.toggle(false)
     width.compact = true
     charts.toggle(true)

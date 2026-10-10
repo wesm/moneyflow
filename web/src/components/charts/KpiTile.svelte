@@ -14,7 +14,12 @@
     <dt class="mf-kpi__label">{tile.label}</dt>
     <dd class="mf-kpi__value">{tile.value}</dd>
     <dd class={['mf-kpi__note', tile.change && `mf-kpi__note--${tile.change.tone}`]}>
-      {tile.change?.text ?? tile.detail ?? ''}
+      {#if tile.change}
+        <span aria-hidden="true">{tile.change.text}</span>
+        <span class="kit-sr-only">{tile.change.spoken}</span>
+      {:else}
+        {tile.detail ?? ''}
+      {/if}
     </dd>
   </div>
 {:else}

@@ -44,7 +44,7 @@ function tile(tiles: ReturnType<typeof kpiTiles>, key: string) {
 
 describe('kpiTiles', () => {
   it('shows the scope totals with exact money', () => {
-    const tiles = kpiTiles(entry({ savings_rate_tenths: 305 }), 'vs Aug')
+    const tiles = kpiTiles(entry({ savings_rate_tenths: 305 }), 'vs Aug', false)
     expect(tiles.map(({ label, value }) => [label, value])).toEqual([
       ['Income', '+8,410.72'],
       ['Spending', '-5,844.18'],
@@ -56,22 +56,22 @@ describe('kpiTiles', () => {
 
   it('shows a dash for zero Income and Spending, and Net zero unsigned', () => {
     const scope = { ...september, in: '0', out: '0', net: '0', count: 0 }
-    const tiles = kpiTiles(entry({ scope }), undefined)
+    const tiles = kpiTiles(entry({ scope }), undefined, false)
     expect(tile(tiles, 'income').value).toBe('—')
     expect(tile(tiles, 'spending').value).toBe('—')
     expect(tile(tiles, 'net').value).toBe('0.00')
   })
 
   it('shows the savings rate, negative too, only when the server sends one', () => {
-    expect(tile(kpiTiles(entry({ savings_rate_tenths: -125 }), 'vs Aug'), 'savings').value).toBe(
-      '-12.5%',
-    )
-    const keys = kpiTiles(entry({}), 'vs Aug').map((candidate) => candidate.key)
+    expect(
+      tile(kpiTiles(entry({ savings_rate_tenths: -125 }), 'vs Aug', false), 'savings').value,
+    ).toBe('-12.5%')
+    const keys = kpiTiles(entry({}), 'vs Aug', false).map((candidate) => candidate.key)
     expect(keys).toEqual(['income', 'spending', 'net', 'transactions'])
   })
 
   it('shows Avg per transaction in place of the savings rate inside a drill', () => {
-    const tiles = kpiTiles(entry({ average_per_transaction: '-9000' }), 'vs Aug')
+    const tiles = kpiTiles(entry({ average_per_transaction: '-9000' }), 'vs Aug', true)
     expect(tiles.map((candidate) => candidate.key)).toEqual([
       'income',
       'spending',
@@ -82,27 +82,35 @@ describe('kpiTiles', () => {
     expect(tile(tiles, 'average')).toMatchObject({ label: 'Avg per transaction', value: '-90.00' })
   })
 
+  it('shows a dash for Avg per transaction in a drill without a visible transaction', () => {
+    const scope = { ...september, in: '0', out: '0', net: '0', count: 2, hidden_count: 2 }
+    const tiles = kpiTiles(entry({ scope }), 'vs Aug', true)
+    expect(tile(tiles, 'average')).toMatchObject({ label: 'Avg per transaction', value: '—' })
+    const top = kpiTiles(entry({ scope }), 'vs Aug', false)
+    expect(top.map((candidate) => candidate.key)).not.toContain('average')
+  })
+
   it('formats money at the response scale', () => {
     const scope = { ...september, in: '1500', out: '-20', net: '1480' }
-    const tiles = kpiTiles(entry({ scope }, { scale: 0 }), undefined)
+    const tiles = kpiTiles(entry({ scope }, { scale: 0 }), undefined, false)
     expect(tile(tiles, 'income').value).toBe('+1,500')
     expect(tile(tiles, 'spending').value).toBe('-20')
   })
 
   it('counts transactions and appends hidden and pending only above zero', () => {
-    const tiles = kpiTiles(entry({}), undefined)
+    const tiles = kpiTiles(entry({}), undefined, false)
     expect(tile(tiles, 'transactions')).toMatchObject({
       value: '1,204',
-      detail: '12 hidden · 3 pending',
+      detail: '12 hidden · 3 bank-pending',
     })
     const plain = { ...september, count: 1, hidden_count: 0, pending_count: 0 }
-    expect(tile(kpiTiles(entry({ scope: plain }), undefined), 'transactions').detail).toBe(
+    expect(tile(kpiTiles(entry({ scope: plain }), undefined, false), 'transactions').detail).toBe(
       undefined,
     )
     const pendingOnly = { ...september, hidden_count: 0 }
-    expect(tile(kpiTiles(entry({ scope: pendingOnly }), undefined), 'transactions').detail).toBe(
-      '3 pending',
-    )
+    expect(
+      tile(kpiTiles(entry({ scope: pendingOnly }), undefined, false), 'transactions').detail,
+    ).toBe('3 bank-pending')
   })
 
   it('shows changes as arrows and percents colored by favorable', () => {
@@ -113,10 +121,23 @@ describe('kpiTiles', () => {
         net_change: change({ percent_tenths: 123, grew: false, favorable: false }),
       }),
       'vs Aug',
+      false,
     )
-    expect(tile(tiles, 'income').change).toEqual({ text: '▲ 4.1%', tone: 'favorable' })
-    expect(tile(tiles, 'spending').change).toEqual({ text: '▲ 20.0%', tone: 'unfavorable' })
-    expect(tile(tiles, 'net').change).toEqual({ text: '▼ 12.3%', tone: 'unfavorable' })
+    expect(tile(tiles, 'income').change).toEqual({
+      text: '▲ 4.1%',
+      spoken: 'up 4.1% vs Aug',
+      tone: 'favorable',
+    })
+    expect(tile(tiles, 'spending').change).toEqual({
+      text: '▲ 20.0%',
+      spoken: 'up 20.0% vs Aug',
+      tone: 'unfavorable',
+    })
+    expect(tile(tiles, 'net').change).toEqual({
+      text: '▼ 12.3%',
+      spoken: 'down 12.3% vs Aug',
+      tone: 'unfavorable',
+    })
   })
 
   it('shows new, a signed amount on a sign change, and no arrow for an unchanged percent', () => {
@@ -127,20 +148,42 @@ describe('kpiTiles', () => {
         net_change: change({ kind: 'amount', amount: '46000', favorable: true }),
       }),
       'vs Aug',
+      false,
     )
-    expect(tile(tiles, 'income').change).toEqual({ text: 'new', tone: 'favorable' })
-    expect(tile(tiles, 'spending').change).toEqual({ text: '0.0%', tone: 'favorable' })
-    expect(tile(tiles, 'net').change).toEqual({ text: '+460.00', tone: 'favorable' })
+    expect(tile(tiles, 'income').change).toEqual({
+      text: 'new',
+      spoken: 'new vs Aug',
+      tone: 'favorable',
+    })
+    expect(tile(tiles, 'spending').change).toEqual({
+      text: '0.0%',
+      spoken: '0.0% vs Aug',
+      tone: 'favorable',
+    })
+    expect(tile(tiles, 'net').change).toEqual({
+      text: '+460.00',
+      spoken: '+460.00 vs Aug',
+      tone: 'favorable',
+    })
+  })
+
+  it('shows no change for an amount change that carries no amount', () => {
+    const tiles = kpiTiles(entry({ net_change: change({ kind: 'amount' }) }), 'vs Aug', false)
+    expect(tile(tiles, 'net').change).toBe(undefined)
   })
 
   it('shows a dash when both periods are zero', () => {
-    const tiles = kpiTiles(entry({ net_change: change({ kind: 'none' }) }), 'vs Aug')
-    expect(tile(tiles, 'net').change).toEqual({ text: '—', tone: 'neutral' })
+    const tiles = kpiTiles(entry({ net_change: change({ kind: 'none' }) }), 'vs Aug', false)
+    expect(tile(tiles, 'net').change).toEqual({
+      text: '—',
+      spoken: 'no change vs Aug',
+      tone: 'neutral',
+    })
   })
 
   it('hides every change without a comparison, as for All', () => {
     const kpis = { net_change: change({ percent_tenths: 50, grew: true }) }
-    const tiles = kpiTiles(entry(kpis), undefined)
+    const tiles = kpiTiles(entry(kpis), undefined, false)
     expect(tiles.every((candidate) => candidate.change === undefined)).toBe(true)
   })
 })

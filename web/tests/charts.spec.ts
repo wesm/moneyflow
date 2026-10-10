@@ -64,7 +64,9 @@ test('toggling Charts keeps the table rows aligned with the cursor', async ({ pa
   await focusGrid(page)
   const header = (await page.getByRole('columnheader').first().boundingBox())!
   const port = (await workspace(page).boundingBox())!
-  const shown = Math.floor((port.y + port.height - header.y - header.height) / header.height)
+  // Rows are a pixel taller than the header.
+  const rowHeight = (await (await activeRow(page)).boundingBox())!.height
+  const shown = Math.floor((port.y + port.height - header.y - header.height) / rowHeight)
   for (let index = 1; index < shown; index += 1) await page.keyboard.press('j')
   await expect(await activeRow(page)).toHaveAttribute('aria-rowindex', String(shown + 1))
   await expectCursorRowShown(page)
@@ -163,6 +165,61 @@ test('the charts stay put while the table scrolls sideways, with nothing showing
     const select = page.locator('[role="columnheader"][data-column="select"]')
     expect((await select.boundingBox())!.x).toBeLessThanOrEqual(port.x)
   }
+})
+
+test('an empty month inside a merchant keeps the strip and chart row above the empty table', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page
+    .getByRole('radiogroup', { name: 'Period', exact: true })
+    .getByRole('radio', { name: 'Month' })
+    .click()
+  const period = page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')
+  await expect(period).toHaveText('Oct 2026')
+  await page.getByRole('grid', { name: 'Financial results' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/[?&]drill=merchant/)
+  await page.getByRole('button', { name: 'Next period' }).click()
+  await expect(period).toHaveText('Nov 2026')
+
+  const area = page.locator('.mf-chart-area')
+  await expect(workspace(page).getByText('No transactions', { exact: true })).toBeVisible()
+  await expect(area.getByText('Avg per transaction', { exact: true })).toBeVisible()
+  await expect(area.locator('.mf-kpi').filter({ hasText: 'Avg per transaction' })).toContainText(
+    '—',
+  )
+  await expect(area.getByRole('region', { name: 'Charts' })).toBeVisible()
+})
+
+test('a comparison arriving where the strip wraps shifts neither the chart row nor the table', async ({
+  page,
+  server,
+}) => {
+  let release = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  await page.route('**/view/insights', async (route) => {
+    await held
+    await route.continue()
+  })
+  await page.setViewportSize({ width: 700, height: 844 })
+  await openMoneyflow(page, server, september)
+  const row = page.getByRole('region', { name: 'Charts' })
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  await expect(row).toHaveAttribute('aria-busy', 'true')
+  const before = [(await row.boundingBox())!.y, (await grid.boundingBox())!.y]
+
+  release()
+  const caption = page.getByText('vs Aug', { exact: true })
+  await expect(caption).toBeVisible()
+  await expect(row).toHaveAttribute('aria-busy', 'false')
+  expect([(await row.boundingBox())!.y, (await grid.boundingBox())!.y]).toEqual(before)
+  // The caption sits right under the last row of tiles, not on a line of its own further down.
+  const tiles = (await page.locator('.mf-kpis__tiles').boundingBox())!
+  const captionBox = (await caption.boundingBox())!
+  expect(captionBox.y - (tiles.y + tiles.height)).toBeLessThanOrEqual(8)
+  expect(captionBox.x).toBe(tiles.x)
 })
 
 for (const theme of ['light', 'dark'] as const) {

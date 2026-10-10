@@ -19,9 +19,8 @@
         <KpiTile {tile} />
       {/each}
     </dl>
-    {#if comparisonLabel}
-      <p class="mf-kpis__caption">{comparisonLabel}</p>
-    {/if}
+    <!-- Each change already says what it compares with, so this line is for sighted readers. -->
+    <p class="mf-kpis__caption" aria-hidden="true">{comparisonLabel ?? ''}</p>
   </div>
 {:else}
   <div class="mf-kpis">
@@ -30,5 +29,6 @@
         <KpiTile />
       {/each}
     </div>
+    <p class="mf-kpis__caption" aria-hidden="true"></p>
   </div>
 {/if}

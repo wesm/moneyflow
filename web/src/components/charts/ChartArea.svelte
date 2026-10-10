@@ -5,6 +5,7 @@
   import type { ViewProjection } from '../../lib/api/client'
   import { kpiTiles } from '../../lib/charts/kpis'
   import type { InsightsCache } from '../../lib/insights/cache.svelte'
+  import { drilled } from '../../lib/shell/drills'
 
   interface Props {
     /** The displayed view; the cache syncs to it. */
@@ -21,7 +22,7 @@
   const failed = $derived(cache.status === 'failed')
   const entry = $derived(failed ? undefined : cache.entry)
   const comparisonLabel = $derived(entry?.response.ranges.comparison_label)
-  const tiles = $derived(entry && kpiTiles(entry, comparisonLabel))
+  const tiles = $derived(entry && kpiTiles(entry, comparisonLabel, drilled(entry.query)))
   // Without a currency (every currency at once) there is nothing to chart.
   const shown = $derived(projection.view.currency !== undefined)
 
@@ -38,20 +39,20 @@
   })
 </script>
 
-<div class="mf-chart-area" bind:this={area}>
-  {#if shown}
+{#if shown}
+  <div class="mf-chart-area" bind:this={area}>
     <ChartStates
       failed={failed || cache.seriesFailed}
       stale={cache.stale}
       onretry={() => cache.retry()}
       content={failed ? undefined : charts}
     />
-  {/if}
-</div>
+  </div>
+{/if}
 
 {#snippet charts()}
   <KpiStrip {tiles} {comparisonLabel} />
   {#if chartsOn}
-    <ChartRow busy={entry === undefined} />
+    <ChartRow busy={entry === undefined || cache.stale} />
   {/if}
 {/snippet}

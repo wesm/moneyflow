@@ -10,6 +10,8 @@ export type KpiTone = 'favorable' | 'unfavorable' | 'neutral'
 /** A change against the comparison range, such as `▲ 4.1%`, colored by its tone. */
 export interface KpiChange {
   readonly text: string
+  /** What a screen reader hears instead of the glyphs, such as `up 4.1% vs Aug`. */
+  readonly spoken: string
   readonly tone: KpiTone
 }
 
@@ -18,23 +20,30 @@ export interface KpiTile {
   readonly label: string
   readonly value: string
   readonly change?: KpiChange
-  /** A quiet line under the value, such as `12 hidden · 3 pending`. */
+  /** A quiet line under the value, such as `12 hidden · 3 bank-pending`. */
   readonly detail?: string
 }
 
 /**
  * The KPI strip's tiles for an insights entry, following the spec's Metrics table. Changes show
- * only with a comparison label, so All shows none.
+ * only with a comparison label, so All shows none. A drill shows Avg per transaction in place of
+ * the savings rate; the server omits the average when no transaction is visible, which shows `—`.
  */
-export function kpiTiles(entry: InsightsEntry, comparisonLabel: string | undefined): KpiTile[] {
+export function kpiTiles(
+  entry: InsightsEntry,
+  comparisonLabel: string | undefined,
+  drill: boolean,
+): KpiTile[] {
   const { scale, summary } = entry.response
   const kpis = summary?.kpis
   if (kpis === undefined) return []
   const { scope } = kpis
   const compared = comparisonLabel !== undefined
   const money = (minor: string) => formatMinor(minor, scale)
-  const changeOf = (value: Change | undefined) =>
-    compared && value !== undefined ? { change: kpiChange(value, scale) } : {}
+  const changeOf = (value: Change | undefined) => {
+    const change = compared && value !== undefined && kpiChange(value, scale, comparisonLabel)
+    return change ? { change } : {}
+  }
   const tiles: KpiTile[] = [
     {
       key: 'income',
@@ -61,34 +70,43 @@ export function kpiTiles(entry: InsightsEntry, comparisonLabel: string | undefin
       label: 'Savings rate',
       value: tenthsPercent(kpis.savings_rate_tenths),
     })
-  } else if (kpis.average_per_transaction !== undefined) {
-    const value = unsignedZero(kpis.average_per_transaction, money)
+  } else if (drill || kpis.average_per_transaction !== undefined) {
+    const average = kpis.average_per_transaction
+    const value = average === undefined ? '—' : unsignedZero(average, money)
     tiles.push({ key: 'average', label: 'Avg per transaction', value })
   }
   const counts = [
     scope.hidden_count > 0 ? `${count(scope.hidden_count)} hidden` : '',
-    scope.pending_count > 0 ? `${count(scope.pending_count)} pending` : '',
+    // Transactions the bank still lists as pending, not pending edits.
+    scope.pending_count > 0 ? `${count(scope.pending_count)} bank-pending` : '',
   ].filter(Boolean)
   const detail = counts.length > 0 ? { detail: counts.join(' · ') } : {}
   tiles.push({ key: 'transactions', label: 'Transactions', value: count(scope.count), ...detail })
   return tiles
 }
 
-/** The spec's vs prior display rules, shared by the KPI changes. */
-function kpiChange(change: Change, scale: number): KpiChange {
+/**
+ * The spec's vs prior display rules, shared by the KPI changes. An amount change without its
+ * amount shows nothing rather than an invented zero.
+ */
+function kpiChange(change: Change, scale: number, label: string): KpiChange | undefined {
   const tone = change.favorable ? 'favorable' : 'unfavorable'
   switch (change.kind) {
     case 'none':
-      return { text: '—', tone: 'neutral' }
+      return { text: '—', spoken: `no change ${label}`, tone: 'neutral' }
     case 'new':
-      return { text: 'new', tone }
-    case 'amount':
-      return { text: formatMinor(change.amount ?? '0', scale), tone }
+      return { text: 'new', spoken: `new ${label}`, tone }
+    case 'amount': {
+      if (change.amount === undefined) return undefined
+      const text = formatMinor(change.amount, scale)
+      return { text, spoken: `${text} ${label}`, tone }
+    }
     case 'percent': {
       const percent = tenthsPercent(change.percent_tenths)
       // A change that rounds to 0.0% has no direction worth an arrow.
-      if (change.percent_tenths === 0) return { text: percent, tone }
-      return { text: `${change.grew ? '▲' : '▼'} ${percent}`, tone }
+      if (change.percent_tenths === 0) return { text: percent, spoken: `${percent} ${label}`, tone }
+      const [arrow, direction] = change.grew ? ['▲', 'up'] : ['▼', 'down']
+      return { text: `${arrow} ${percent}`, spoken: `${direction} ${percent} ${label}`, tone }
     }
   }
 }

@@ -75,7 +75,10 @@ describe('ChartArea', () => {
     const income = screen.getByText('Income')
     expect(income.tagName).toBe('DT')
     expect(income.nextElementSibling?.textContent).toBe('+8,410.72')
-    expect(screen.getByText('▲ 12.3%').tagName).toBe('DD')
+    const change = screen.getByText('▲ 12.3%')
+    expect(change.closest('dd')?.previousElementSibling?.textContent).toBe('+2,566.54')
+    expect(change.closest('[aria-hidden="true"]')).not.toBeNull()
+    expect(change.closest('dd')?.textContent).toContain('up 12.3% vs Aug')
     expect(screen.getAllByText('vs Aug')).toHaveLength(1)
     expect(screen.getByRole('region', { name: 'Charts' }).getAttribute('aria-busy')).toBe('false')
 
@@ -96,10 +99,23 @@ describe('ChartArea', () => {
     const content = screen.getByText('Income').closest<HTMLElement>('.mf-chart-states')!
     expect(content.classList.contains('mf-chart-states--stale')).toBe(true)
     expect(content.inert).toBe(true)
+    const row = screen.getByRole('region', { name: 'Charts', hidden: true })
+    expect(row.getAttribute('aria-busy')).toBe('true')
 
     calls[1]?.resolve(september(calls[1]))
     await settle()
     expect(content.inert).toBe(false)
+    expect(row.getAttribute('aria-busy')).toBe('false')
+  })
+
+  it('shows a dash for Avg per transaction in a drill with no visible transaction', async () => {
+    const { cache, calls } = harness()
+    const projection = view('v=1&drill=merchant%3AUSD%3A2%3Aexample-key')
+    cache.sync(projection, [])
+    calls[0]?.resolve(testInsights({ query: calls[0].body.query, revision: '1' }))
+    await settle()
+    render(ChartArea, { projection, cache, chartsOn: true })
+    expect(screen.getByText('Avg per transaction').nextElementSibling?.textContent).toBe('—')
   })
 
   it('offers Retry after a failure without a live announcement', async () => {
@@ -166,7 +182,6 @@ describe('ChartArea', () => {
   it('shows nothing for a view of every currency at once', () => {
     const { cache } = harness()
     render(ChartArea, { projection: testProjection(), cache, chartsOn: true })
-    expect(screen.queryByRole('region', { name: 'Charts' })).toBeNull()
-    expect(document.querySelector('.mf-kpi')).toBeNull()
+    expect(document.querySelector('.mf-chart-area')).toBeNull()
   })
 })

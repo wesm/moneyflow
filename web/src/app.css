@@ -1394,7 +1394,10 @@ input {
 .mf-chart-dialog {
   padding: var(--space-5) var(--space-6);
 }
-.mf-kpis,
+.mf-kpis {
+  display: grid;
+  gap: var(--space-1);
+}
 .mf-kpis__tiles {
   display: flex;
   flex-wrap: wrap;
@@ -1432,6 +1435,8 @@ input {
   color: var(--mf-out);
 }
 .mf-kpis__caption {
+  /* Always one line under the tiles, so a comparison arriving or leaving shifts nothing. */
+  min-height: 1lh;
   margin: 0;
   color: var(--text-muted);
   font-size: var(--font-size-xs);
