@@ -6,12 +6,20 @@ import type { ReviewController } from '../lib/controller/review'
 export const testCatalog: EditorCatalog = {
   version: '1',
   revision: '1',
-  merchants: [{ id: 'merchant-a', label: 'Example Merchant', protected: false }],
-  categories: [
-    { id: 'category-uncategorized', label: 'Uncategorized', protected: true },
-    { id: 'category-a', label: 'Example Category', parent_id: 'group-a', protected: false },
+  merchants: [
+    { id: 'merchant-a', label: 'Example Merchant', protected: false, transaction_count: 4 },
   ],
-  groups: [{ id: 'group-a', label: 'Example Group', protected: false }],
+  categories: [
+    { id: 'category-uncategorized', label: 'Uncategorized', protected: true, transaction_count: 0 },
+    {
+      id: 'category-a',
+      label: 'Example Category',
+      parent_id: 'group-a',
+      protected: false,
+      transaction_count: 4,
+    },
+  ],
+  groups: [{ id: 'group-a', label: 'Example Group', protected: false, transaction_count: 4 }],
 }
 
 export function testEditingController(

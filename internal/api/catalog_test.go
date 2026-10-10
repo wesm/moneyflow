@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 )
 
 func TestEditorCatalogReturnsBoundedActiveChoicesAtExactRevision(t *testing.T) {
@@ -57,4 +58,35 @@ func TestMerchantPreviewEndpointReturnsAffectedTransactionContextWithoutMutation
 	after := projectPersistentView(t, server)
 	assert.Equal(t, initial.Revision, after.Revision)
 	assert.Zero(t, after.Pending.ActiveOperations)
+}
+
+func TestEditorCatalogReturnsTransactionCountsAndIgnoresStagedEdits(t *testing.T) {
+	t.Parallel()
+	first := apiTransactionWith(t, "first", func(*domain.Transaction) {})
+	second := apiTransactionWith(t, "second", func(*domain.Transaction) {})
+	server := newPersistentAPITestServerFor(t, []domain.Transaction{first, second}, nil)
+	initial := projectPersistentView(t, server)
+
+	catalog := editorCatalog(t, server, initial.Revision)
+	merchant := findEditorChoiceByLabel(t, catalog.Merchants, "Example Merchant")
+	assert.Equal(t, 2, merchant.TransactionCount)
+	counted := 0
+	for _, choice := range catalog.Categories {
+		counted += choice.TransactionCount
+	}
+	assert.Equal(t, 2, counted, "every transaction counts toward exactly one category")
+
+	staged := mutateHTTP(t, server, MutationBody{
+		Version: MutationSchemaVersion, ExpectedRevision: initial.Revision,
+		Query: initial.CanonicalQuery, Selection: initial.Selection,
+		Action: app.ActionEditMerchant,
+		Target: &TransitionTarget{
+			Kind: app.IdentityAggregate, Identity: initial.AggregateRows[0].Identity,
+		},
+		Input:  MutationInput{Scope: string(app.EditScopeEntity), Label: "Renamed Merchant"},
+		Window: Window{Limit: 200},
+	})
+	after := editorCatalog(t, server, staged.Revision)
+	renamed := findEditorChoiceByLabel(t, after.Merchants, "Renamed Merchant")
+	assert.Equal(t, 2, renamed.TransactionCount)
 }

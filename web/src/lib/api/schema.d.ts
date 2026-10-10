@@ -964,6 +964,8 @@ export interface components {
       label: string
       parent_id?: string
       protected: boolean
+      /** Format: int64 */
+      transaction_count: number
     }
     ErrorDetail: {
       /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */

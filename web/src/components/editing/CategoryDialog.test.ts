@@ -32,7 +32,13 @@ describe('CategoryDialog', () => {
         ...testCatalog,
         categories: [
           ...(testCatalog.categories ?? []),
-          { id: 'category-b', label: 'Second Category', parent_id: 'group-a', protected: false },
+          {
+            id: 'category-b',
+            label: 'Second Category',
+            parent_id: 'group-a',
+            protected: false,
+            transaction_count: 0,
+          },
         ],
       })),
     })

@@ -23,10 +23,11 @@ type EditorCatalogBody struct {
 
 // EditorChoice is one stable, renderer-safe taxonomy or merchant choice.
 type EditorChoice struct {
-	ID        string `json:"id"`
-	Label     string `json:"label"`
-	ParentID  string `json:"parent_id,omitempty"`
-	Protected bool   `json:"protected"`
+	ID               string `json:"id"`
+	Label            string `json:"label"`
+	ParentID         string `json:"parent_id,omitempty"`
+	Protected        bool   `json:"protected"`
+	TransactionCount int    `json:"transaction_count"`
 }
 
 // EditorCatalogResponse returns bounded active editor choices without transaction data.
@@ -74,7 +75,7 @@ func editorChoicesToWire(choices []app.EditorChoice) []EditorChoice {
 	for _, choice := range choices {
 		result = append(result, EditorChoice{
 			ID: string(choice.ID), Label: choice.Label, ParentID: string(choice.ParentID),
-			Protected: choice.Protected,
+			Protected: choice.Protected, TransactionCount: choice.TransactionCount,
 		})
 	}
 	return result

@@ -53,3 +53,76 @@ func TestEditorCatalogAtRefreshesBeforeCheckingRevision(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, catalog.Categories)
 }
+
+func catalogCounts(t *testing.T, service *app.Service) map[domain.EntityID]int {
+	t.Helper()
+	catalog, err := service.EditorCatalog()
+	require.NoError(t, err)
+	counts := make(map[domain.EntityID]int)
+	for _, choices := range [][]app.EditorChoice{
+		catalog.Merchants, catalog.Categories, catalog.Groups,
+	} {
+		for _, choice := range choices {
+			counts[choice.ID] = choice.TransactionCount
+		}
+	}
+	return counts
+}
+
+func TestEditorCatalogCountsCommittedTransactionsPerChoice(t *testing.T) {
+	t.Parallel()
+	service, err := app.NewProfileService(t.Context(), newMemoryProfile(t, 5))
+	require.NoError(t, err)
+
+	counts := catalogCounts(t, service)
+
+	// A hidden transaction still belongs to its merchant, category, and group.
+	assert.Equal(t, 1, counts["merchant_a"])
+	assert.Equal(t, 1, counts["merchant_b"])
+	assert.Equal(t, 1, counts["category_a"])
+	assert.Equal(t, 1, counts["category_b"])
+	assert.Equal(t, 1, counts["group_a"])
+	assert.Equal(t, 1, counts["group_b"])
+	assert.Zero(t, counts[domain.UncategorizedCategoryID])
+	assert.Zero(t, counts[domain.UncategorizedGroupID])
+}
+
+func TestEditorCatalogCountsIgnoreStagedEdits(t *testing.T) {
+	t.Parallel()
+	service, err := app.NewProfileService(t.Context(), newMemoryProfile(t, 5))
+	require.NoError(t, err)
+	before := catalogCounts(t, service)
+
+	stagedMutate(t, service, app.ActionEditCategory, "transaction_a",
+		app.EditInput{Scope: app.EditScopeTransactions, DestinationID: "category_b"})
+	stagedMutate(t, service, app.ActionDeleteTransaction, "transaction_b", app.EditInput{})
+	stagedMutate(t, service, app.ActionEditMerchant, "transaction_a",
+		app.EditInput{Scope: app.EditScopeEntity, Label: "Renamed Merchant"})
+
+	assert.Equal(t, before, catalogCounts(t, service))
+	catalog, err := service.EditorCatalog()
+	require.NoError(t, err)
+	var labels []string
+	for _, merchant := range catalog.Merchants {
+		labels = append(labels, merchant.Label)
+	}
+	assert.Contains(t, labels, "Renamed Merchant", "the catalog still shows the staged label")
+}
+
+func TestEditorCatalogCountsDropDeletedTransactionsOnceCommitted(t *testing.T) {
+	t.Parallel()
+	service, err := app.NewProfileService(t.Context(), newMemoryProfile(t, 5))
+	require.NoError(t, err)
+	stagedMutate(t, service, app.ActionDeleteTransaction, "transaction_a", app.EditInput{})
+	_, err = service.Commit(t.Context(), app.CommitRequest{
+		ExpectedRevision: service.Revision(), ReviewedRevision: service.Revision(),
+	})
+	require.NoError(t, err)
+
+	counts := catalogCounts(t, service)
+
+	assert.Zero(t, counts["merchant_a"])
+	assert.Zero(t, counts["category_a"])
+	assert.Zero(t, counts["group_a"])
+	assert.Equal(t, 1, counts["merchant_b"])
+}
