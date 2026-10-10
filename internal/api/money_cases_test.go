@@ -18,7 +18,7 @@ import (
 const moneyCasesPath = "../../web/src/lib/money/format-cases.json"
 
 var updateMoneyCases = flag.Bool(
-	"update", false, "rewrite web/src/lib/money/format-cases.json from formatMoney",
+	"update-money-cases", false, "rewrite web/src/lib/money/format-cases.json from formatMoney",
 )
 
 // moneyCase is one browser formatter expectation. Minor is a decimal string so that the int64
@@ -57,7 +57,8 @@ func buildMoneyCases() []moneyCase {
 }
 
 // TestWebMoneyCases keeps the browser's money formatter tied to formatMoney. Vitest reads the
-// committed file. Run `go test ./internal/api -run TestWebMoneyCases -update` to rewrite it.
+// committed file. To rewrite it, run
+// `go test ./internal/api -run TestWebMoneyCases -update-money-cases`.
 func TestWebMoneyCases(t *testing.T) {
 	cases := buildMoneyCases()
 	require.GreaterOrEqual(t, len(cases), 40)
@@ -81,8 +82,8 @@ func TestWebMoneyCases(t *testing.T) {
 		require.NoError(t, os.WriteFile(moneyCasesPath, generated, 0o600))
 		return
 	}
+	rewrite := "run go test ./internal/api -run TestWebMoneyCases -update-money-cases"
 	committed, err := os.ReadFile(moneyCasesPath)
-	require.NoError(t, err, "run go test ./internal/api -run TestWebMoneyCases -update")
-	assert.Equal(t, string(generated), string(committed),
-		"format-cases.json is stale; run go test ./internal/api -run TestWebMoneyCases -update")
+	require.NoError(t, err, rewrite)
+	assert.Equal(t, string(generated), string(committed), "format-cases.json is stale; "+rewrite)
 }

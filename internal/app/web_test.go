@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -1048,6 +1049,36 @@ func TestProjectViewAnchorKeepsTheLimitAlignmentOfTheRequest(t *testing.T) {
 	assert.Equal(t, 0, projection.Window.Offset%250)
 	assert.LessOrEqual(t, projection.Window.Offset, *projection.AnchorIndex)
 	assert.Less(t, *projection.AnchorIndex, projection.Window.Offset+projection.Window.Limit)
+}
+
+func TestProjectViewAnchorFindsATimePeriodRow(t *testing.T) {
+	t.Parallel()
+
+	transactions := make([]domain.Transaction, 12)
+	for index := range transactions {
+		date := fmt.Sprintf("2024-%02d-10", index+1)
+		transactions[index] = appTransaction(
+			t, "txn-"+date, date, "-1.00", "Example", "Category", "Group",
+		)
+	}
+	service, err := NewService(transactions)
+	require.NoError(t, err)
+	state := timeRatioState()
+	all, err := service.ProjectView(state, EmptySelection(), WindowRequest{Limit: 12})
+	require.NoError(t, err)
+	require.Len(t, all.AggregateRows, 12)
+	anchored := all.AggregateRows[9]
+
+	projection, err := service.ProjectView(
+		state, EmptySelection(), WindowRequest{Limit: 4, Anchor: anchored.Identity},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, Window{Offset: 8, Limit: 4, Count: 4}, projection.Window)
+	require.NotNil(t, projection.AnchorIndex)
+	assert.Equal(t, 9, *projection.AnchorIndex)
+	assert.False(t, projection.AnchorMissing)
+	assert.Equal(t, anchored.Identity, projection.AggregateRows[1].Identity)
+	assert.Equal(t, "Oct 2024", projection.AggregateRows[1].Row.Label)
 }
 
 func TestProjectViewWithoutAnchorReportsNoAnchor(t *testing.T) {

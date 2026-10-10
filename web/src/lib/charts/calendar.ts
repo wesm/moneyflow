@@ -45,7 +45,12 @@ export type CalendarWeek = (CalendarCell | undefined)[]
 export interface CalendarTick {
   column: number
   label: string
+  /** The label ends at the strip's right edge, because its column is too near the edge to fit. */
+  end?: true
 }
+
+/** Week columns a month name needs at the narrowest strip, about 4.6 px a column at 900 px. */
+const tickColumns = 4
 
 /** One month's calendar grid, labeled, or the whole strip of week columns with month ticks. */
 export interface CalendarBlock {
@@ -124,7 +129,10 @@ function strip(cells: readonly CalendarCell[]): CalendarBlock {
     const label = MONTHS[utc(cell.date).getUTCMonth()] ?? ''
     ticks.push({ column: Math.floor((lead + index) / 7), label })
   })
-  return { weeks: weeksOf(cells, lead), ticks }
+  const weeks = weeksOf(cells, lead)
+  const last = ticks.at(-1)
+  if (last && weeks.length - last.column <= tickColumns) last.end = true
+  return { weeks, ticks }
 }
 
 /**

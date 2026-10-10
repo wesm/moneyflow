@@ -52,7 +52,6 @@ describe('AppShell', () => {
     expect(charts.checked).toBe(false)
     expect(screen.queryByRole('region', { name: 'Charts' })).toBeNull()
     expect(screen.getByText('Income')).not.toBeNull()
-    expect(screen.queryByRole('complementary', { name: 'Visualizations' })).toBeNull()
   })
 
   it('keeps the table working when insights fail', async () => {

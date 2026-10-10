@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import FinanceGrid from './FinanceGrid.svelte'
 import type { InsightsSeries, ViewProjection } from '../../lib/api/client'
@@ -706,6 +706,10 @@ describe('FinanceGrid', () => {
     const scroller = document.createElement('div')
     // 56 rem at a 16 px root: Context drops, Trend and vs prior still fit.
     Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: 56 * 16 })
+    const rootFontSize = document.documentElement.style.fontSize
+    onTestFinished(() => {
+      document.documentElement.style.fontSize = rootFontSize
+    })
     document.documentElement.style.fontSize = '16px'
     const props = { projection: september, cursorIndex: 0, compact: false, scroller }
     render(FinanceGrid, { ...props, ...callbacks() })

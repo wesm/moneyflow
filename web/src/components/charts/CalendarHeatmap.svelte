@@ -18,6 +18,9 @@
   let { entry, cursorDate, onperiod, onleave }: Props = $props()
   const id = $props.id()
   let grid = $state<HTMLElement>()
+  let ticksRow = $state<HTMLElement>()
+  /** The last month's name, ended at the strip's edge, would cover the name before it. */
+  let crowded = $state(false)
   const response = $derived(entry.response)
   const heatmap = $derived(response.ranges.heatmap)
   const blocks = $derived.by(() => {
@@ -49,6 +52,21 @@
       ? { ArrowUp: -1, ArrowDown: 1, ArrowLeft: -7, ArrowRight: 7 }
       : { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 },
   )
+
+  $effect(() => {
+    const row = ticksRow
+    if (!row || blocks.length === 0) return
+    const check = () => (crowded = overlapping(row))
+    check()
+    const observer = new ResizeObserver(check)
+    observer.observe(row)
+    return () => observer.disconnect()
+  })
+
+  function overlapping(row: HTMLElement): boolean {
+    const [before, last] = [...row.children].slice(-2).map((tick) => tick.getBoundingClientRect())
+    return before !== undefined && last !== undefined && last.left < before.right
+  }
 
   function keydown(event: KeyboardEvent, cell: CalendarCell): void {
     if (event.key === 'Escape' && onleave) {
@@ -93,9 +111,15 @@
   >
     {#each blocks as block, index (index)}
       {#if block.ticks}
-        <div class="mf-calendar__ticks" aria-hidden="true">
+        <div class="mf-calendar__ticks" aria-hidden="true" bind:this={ticksRow}>
           {#each block.ticks as tick (tick.column)}
-            <span style:grid-column={tick.column + 1}>{tick.label}</span>
+            <span
+              class={[
+                tick.end && 'mf-calendar__tick--end',
+                tick.end && crowded && 'mf-calendar__tick--hidden',
+              ]}
+              style:grid-column-start={tick.column + 1}>{tick.label}</span
+            >
           {/each}
         </div>
         <div class="mf-calendar__rows" aria-hidden="true">

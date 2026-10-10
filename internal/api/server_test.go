@@ -1055,6 +1055,24 @@ func TestServerViewAnchorReturnsTheWindowHoldingTheRow(t *testing.T) {
 	assert.Empty(t, projection.Warnings)
 }
 
+func TestServerViewAnchorWithAnInvalidSelectionResetsItAndStillFindsTheRow(t *testing.T) {
+	t.Parallel()
+	server := anchorTestServer(t, 450)
+	third := projectWindow(t, server, ViewBody{Query: "v=1", Window: Window{Offset: 400, Limit: 200}})
+	require.NotEmpty(t, third.AggregateRows)
+	anchored := third.AggregateRows[len(third.AggregateRows)-1]
+
+	projection := projectWindow(t, server, ViewBody{
+		Query: "v=1", Selection: "invalid", Window: Window{Limit: 200}, Anchor: anchored.Identity,
+	})
+	require.Len(t, projection.Warnings, 1)
+	assert.Equal(t, string(app.SelectionReset), projection.Warnings[0].Code)
+	assert.Equal(t, string(app.EmptySelection()), projection.Selection)
+	assert.Equal(t, 400, projection.Window.Offset)
+	require.NotNil(t, projection.AnchorIndex)
+	assert.Equal(t, anchored.Index, *projection.AnchorIndex)
+}
+
 func TestServerViewWithoutAnchorOmitsAnchorIndex(t *testing.T) {
 	t.Parallel()
 	server := anchorTestServer(t, 3)

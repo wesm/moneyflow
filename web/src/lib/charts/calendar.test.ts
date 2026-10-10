@@ -115,6 +115,8 @@ describe('calendarCells', () => {
       { column: 8, label: 'Mar' },
     ])
     expect(blocks[0]!.ticks).toHaveLength(12)
+    // December starts five columns from the end, with room for its label.
+    expect(blocks[0]!.ticks?.at(-1)).toEqual({ column: 48, label: 'Dec' })
   })
 
   it('keeps Sunday-first rows for the strip that ends at Latest', () => {
@@ -133,6 +135,8 @@ describe('calendarCells', () => {
     expect(cells(blocks)).toHaveLength(371)
     // The first column holds no first of a month, so October gets no tick.
     expect(blocks[0]!.ticks?.[0]).toEqual({ column: 4, label: 'Nov' })
+    // October starts two columns from the end, so its label ends at the strip's edge instead.
+    expect(blocks[0]!.ticks?.at(-1)).toEqual({ column: 52, label: 'Oct', end: true })
   })
 
   it('splits days with Out into four levels by size, leaving days without Out at zero', () => {

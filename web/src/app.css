@@ -1735,6 +1735,19 @@ button.mf-bar:hover {
   grid-template-columns: repeat(var(--mf-weeks), minmax(0, 1fr));
   white-space: nowrap;
 }
+/* Each name is as wide as its text, so a name that would cover the one before it can be found. */
+.mf-calendar__ticks > span {
+  justify-self: start;
+}
+/* A name too near the right edge to fit ends at the edge; one that would then cover the name
+   before it hides, because the strip is too narrow for both. */
+.mf-calendar__ticks > .mf-calendar__tick--end {
+  grid-column-end: -1;
+  justify-self: end;
+}
+.mf-calendar__tick--hidden {
+  visibility: hidden;
+}
 .mf-calendar__rows,
 .mf-calendar--weeks .mf-calendar__days {
   display: grid;

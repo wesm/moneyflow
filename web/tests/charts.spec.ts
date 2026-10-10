@@ -524,6 +524,37 @@ test('a year of transactions shows the 53-week strip with future days blank', as
   expect(columns).toBe(41)
 })
 
+test('the strip ending at Latest keeps its month names inside the panel, apart', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  const strip = heatmap(page)
+  await expect(strip).toHaveClass(/mf-calendar--weeks/)
+  for (const width of [1440, 1280, 1024, 900]) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect
+      .poll(
+        () =>
+          strip.evaluate((node) => {
+            const edge = node.getBoundingClientRect().right
+            const shown = [...node.querySelectorAll('.mf-calendar__ticks > span')]
+              .filter((tick) => getComputedStyle(tick).visibility === 'visible')
+              .map((tick) => tick.getBoundingClientRect())
+            const overhang = Math.max(...shown.map((box) => box.right)) - edge
+            const overlaps = shown.slice(1).filter((box, index) => box.left < shown[index]!.right)
+            return { overhang: overhang > 0.5, overlaps: overlaps.length }
+          }),
+        { message: `${width} px` },
+      )
+      .toEqual({ overhang: false, overlaps: 0 })
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(strip.locator('.mf-calendar__ticks > span').last()).toBeVisible()
+  await expect(strip.locator('.mf-calendar__ticks > span').last()).toHaveText('Oct')
+})
+
 for (const theme of ['light', 'dark'] as const) {
   test(`the ${theme} heatmap passes axe`, async ({ page, server }) => {
     await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
