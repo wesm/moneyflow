@@ -200,7 +200,7 @@ describe('InsightsCache', () => {
     expect(cache.status).toBe('failed')
   })
 
-  it('asks nothing more for the old revision when a new day also brings a new revision', async () => {
+  it('skips the old revision when a new day also brings a newer revision', async () => {
     const { cache, calls, onNewer } = harness()
     cache.sync(view('v=1', '3'), ['a'])
     await answer(calls[0], '3', '2026-10-07')

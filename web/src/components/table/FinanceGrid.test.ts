@@ -60,7 +60,7 @@ const headers = () =>
 const cell = (row: HTMLElement, key: string) =>
   row.querySelector<HTMLElement>(`[role="gridcell"][data-column="${key}"]`)
 
-/** The window is 760 px wide while `wide` is true, 900 px while `roomy` is, and 700 px otherwise. */
+/** The window is 760 px wide while `wide` is true, 900 px while `roomy` is, else 700 px. */
 let wide = true
 let roomy = false
 const windowWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth')!

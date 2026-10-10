@@ -48,7 +48,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 }
 
 for (const colorScheme of ['light', 'dark'] as const) {
-  test(`${colorScheme} rising and falling changes pass axe on the cursor and selected rows`, async ({
+  test(`${colorScheme} rising and falling changes pass axe on cursor and selected rows`, async ({
     page,
     server,
   }) => {

@@ -1,21 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ChartState } from './chart-state.svelte'
+import { memoryStorage } from '../../test/storage'
 
 function chartState(width: { compact: boolean }) {
   const pop = vi.fn()
   const pushScope = vi.fn<(name: string) => () => void>(() => pop)
   const charts = new ChartState({ compact: () => width.compact, pushScope })
   return { charts, pushScope, pop }
-}
-
-/** A browser storage that keeps values in memory, as jsdom's test origin has none. */
-function memoryStorage(): Pick<Storage, 'getItem' | 'setItem'> {
-  const values = new Map<string, string>()
-  return {
-    getItem: (key) => values.get(key) ?? null,
-    setItem: (key, value) => void values.set(key, value),
-  }
 }
 
 describe('ChartState', () => {

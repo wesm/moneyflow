@@ -53,9 +53,17 @@
       : { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 },
   )
 
+  /** The strip's month names as text, so a cursor move, which rebuilds the cells, keeps it. */
+  const tickLabels = $derived(
+    blocks
+      .flatMap((block) => block.ticks ?? [])
+      .map((tick) => `${tick.column}:${tick.label}`)
+      .join(' '),
+  )
+
   $effect(() => {
     const row = ticksRow
-    if (!row || blocks.length === 0) return
+    if (!row || tickLabels === '') return
     const check = () => (crowded = overlapping(row))
     check()
     const observer = new ResizeObserver(check)

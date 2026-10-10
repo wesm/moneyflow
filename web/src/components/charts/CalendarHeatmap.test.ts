@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import CalendarHeatmap from './CalendarHeatmap.svelte'
 import type { InsightsResponse } from '../../lib/api/client'
@@ -119,6 +119,26 @@ describe('CalendarHeatmap', () => {
       (cell) => cell.textContent,
     )
     expect(rows).toEqual(['', 'M', '', 'W', '', 'F', ''])
+  })
+
+  it('keeps watching the strip’s month names while the cursor moves', async () => {
+    const observe = vi.fn()
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe = observe
+        unobserve(): void {}
+        disconnect(): void {}
+      },
+    )
+    onTestFinished(() => void vi.unstubAllGlobals())
+    const onperiod = vi.fn()
+    const props = { entry: october('weeks'), onperiod, cursorDate: '2026-10-02' }
+    const { rerender } = render(CalendarHeatmap, props)
+    expect(observe).toHaveBeenCalledTimes(1)
+
+    await rerender({ ...props, cursorDate: '2026-10-05' })
+    expect(observe).toHaveBeenCalledTimes(1)
   })
 
   it('is one Tab stop that the arrows move by day and week, and Esc leaves', async () => {
