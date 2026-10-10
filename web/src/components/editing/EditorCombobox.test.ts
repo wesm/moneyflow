@@ -174,6 +174,15 @@ describe('EditorCombobox', () => {
     expect(onkeyaction).toHaveBeenCalledWith('stage', expect.any(KeyboardEvent))
   })
 
+  it('accepts on Enter and leaves a held Enter from staging', async () => {
+    const { input, onaccept, onkeyaction } = setup()
+    await type(input, 'outlet')
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    await fireEvent.keyDown(input, { key: 'Enter', repeat: true })
+    expect(onaccept).toHaveBeenCalledTimes(1)
+    expect(onkeyaction).not.toHaveBeenCalled()
+  })
+
   it('does nothing on Enter with the list closed when the value is invalid', async () => {
     const { input, onkeyaction } = setup({ valid: false })
     await fireEvent.keyDown(input, { key: 'Enter' })

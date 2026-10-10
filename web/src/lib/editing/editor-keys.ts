@@ -25,6 +25,7 @@ export interface KeyLike {
   isComposing?: boolean
   /** Safari reports 229 on the Enter that ends a composition, after `isComposing` clears. */
   keyCode?: number
+  repeat?: boolean
 }
 
 export interface EditorKeyState {
@@ -39,7 +40,8 @@ export interface EditorKeyState {
  * Tab always returns `none`: focus moves in normal order and never changes scope. Keys the
  * focused control handles natively (typing into an open list, arrows in the scope group, Enter
  * on a button) also return `none`, as do keys during an input method composition, arrows with
- * Ctrl, Cmd, or Alt, and Enter with Shift or Alt.
+ * Ctrl, Cmd, or Alt, Enter with Shift or Alt, and a held Enter's repeats, so accepting a choice
+ * and staging it always take two presses.
  */
 export function editorKey(event: KeyLike, state: EditorKeyState): EditorKeyAction {
   if (event.isComposing || event.keyCode === 229) return 'none'
@@ -60,7 +62,7 @@ export function editorKey(event: KeyLike, state: EditorKeyState): EditorKeyActio
 }
 
 function enterAction(event: KeyLike, state: EditorKeyState, listOpen: boolean): EditorKeyAction {
-  if (event.shiftKey || event.altKey) return 'none'
+  if (event.repeat || event.shiftKey || event.altKey) return 'none'
   const staging = event.ctrlKey === true || event.metaKey === true
   if (listOpen) return staging ? 'accept-and-stage' : 'accept'
   if (!state.valid) return 'none'

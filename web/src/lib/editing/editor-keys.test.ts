@@ -166,6 +166,14 @@ describe('editorKey with modifiers it does not own', () => {
     }
   })
 
+  it('ignores a held Enter, so an accept and a stage take two presses', () => {
+    for (const state of [open, closed, { ...closed, focus: 'scope' as const }]) {
+      expect(editorKey(key('Enter', { repeat: true }), state)).toBe('none')
+      expect(editorKey(key('Enter', { ...ctrl, repeat: true }), state)).toBe('none')
+    }
+    expect(editorKey(key('ArrowDown', { repeat: true }), open)).toBe('move-next')
+  })
+
   it('keeps Ctrl+Enter and Cmd+Enter as the staging keys', () => {
     expect(editorKey(key('Enter', ctrl), open)).toBe('accept-and-stage')
     expect(editorKey(key('Enter', meta), closed)).toBe('stage')

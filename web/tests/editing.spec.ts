@@ -348,6 +348,29 @@ test('Enter accepts then stages, and Esc closes the list then cancels', async ({
   }
 })
 
+test('a held Enter accepts the suggestion but does not stage it', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('m')
+    const editor = page.getByRole('dialog', { name: 'Edit merchant' })
+    const field = editor.getByRole('combobox', { name: 'Merchant' })
+    await field.fill('Browser Merchant')
+    await expect(editor.getByRole('option', { name: 'Create "Browser Merchant"' })).toBeVisible()
+    await page.keyboard.down('Enter')
+    await page.keyboard.down('Enter')
+    await page.keyboard.up('Enter')
+    await expect(field).toHaveValue('Browser Merchant')
+    await expect(editor.getByRole('listbox', { name: 'Merchant' })).toBeHidden()
+    await expect(editor).toBeVisible()
+    await expect(page.getByText(/0 pending edit/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
 test('x confirms inline below the row, Enter stages once, and review keeps commit explicit', async ({
   page,
 }) => {
@@ -407,8 +430,13 @@ test('x confirms inline below the row, Enter stages once, and review keeps commi
     await page.keyboard.down('Enter')
     await page.keyboard.down('Enter')
     await page.keyboard.down('Enter')
-    await page.keyboard.up('Enter')
     await expect(page.getByText(/2 pending edits/)).toBeVisible()
+    await expect(confirmation).toBeHidden()
+    // A repeat that reaches the grid after the confirmation closes does not open the row.
+    await page.keyboard.down('Enter')
+    await page.keyboard.up('Enter')
+    await expect(grid).toBeFocused()
+    await expect(page.getByRole('dialog', { name: 'Transaction information' })).toHaveCount(0)
     expect(deletes).toHaveLength(2)
 
     await page.keyboard.press('w')
