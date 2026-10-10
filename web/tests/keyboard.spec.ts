@@ -290,6 +290,27 @@ test('x in a grouped view explains why it cannot delete', async ({ page, server 
   await expect(notice).toHaveText('', cleared)
 })
 
+test('a composition drill waits for an earlier table transition', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const events: string[] = []
+  await page.route('**/view/transition', async (route) => {
+    const action = route.request().postDataJSON().action
+    events.push(`${action} sent`)
+    if (action !== 'selection.toggle') return route.continue()
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const response = await route.fetch()
+    events.push(`${action} answered`)
+    await route.fulfill({ response })
+  })
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const bar = page.getByRole('list', { name: 'Where it went' }).getByRole('button').nth(1)
+  const label = (await bar.getAttribute('aria-label'))!.split(',')[0]!
+  await cell(grid.locator('[role="row"][aria-rowindex="4"]'), 'select').click()
+  await bar.dblclick()
+  await expect(breadcrumb(page)).toContainText(label)
+  expect(events).toEqual(['selection.toggle sent', 'selection.toggle answered', 'view.drill sent'])
+})
+
 test('a double-click drill waits for an earlier table transition', async ({ page, server }) => {
   await openMoneyflow(page, server)
   const events: string[] = []

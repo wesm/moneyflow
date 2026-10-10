@@ -89,7 +89,8 @@ function extent(value: string, scale: Scale): number {
   return Math.max((scale.plot * ratioBasisPoints(value, scale.span)) / basisPoints, 1)
 }
 
-function periodName(period: ContextPeriod, label: string): string {
+/** A period's name: the day as `Sep 15, 2026`, or the server's label for a month or year. */
+export function periodName(period: ContextPeriod, label: string): string {
   return period.period.granularity === 'day' ? dayLabel(period.start) : label
 }
 
@@ -243,7 +244,8 @@ export function tickEvery(
   return monthSteps.find((candidate) => candidate >= step) ?? 12
 }
 
-function samePeriod(left: ContextPeriod['period'], right: ContextPeriod['period']): boolean {
+/** Whether two periods are the same day, month, or year. */
+export function samePeriod(left: ContextPeriod['period'], right: ContextPeriod['period']): boolean {
   return (
     left.granularity === right.granularity &&
     left.year === right.year &&

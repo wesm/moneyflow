@@ -33,7 +33,7 @@ test('the KPI strip stays while the switch hides the chart row, and the choice p
 }) => {
   await openMoneyflow(page, server)
   const charts = page.getByRole('region', { name: 'Charts' })
-  const income = page.getByText('Income', { exact: true })
+  const income = page.locator('.mf-kpis').getByText('Income', { exact: true })
   await expect(income).toBeVisible()
   await expect(charts).toBeVisible()
   const grid = page.getByRole('grid', { name: 'Financial results' })
@@ -134,7 +134,7 @@ test('a failed insights request offers Retry and leaves the table working', asyn
 
   await page.unroute('**/view/insights')
   await failure.getByRole('button', { name: 'Retry' }).click()
-  await expect(page.getByText('Income', { exact: true })).toBeVisible()
+  await expect(page.locator('.mf-kpis').getByText('Income', { exact: true })).toBeVisible()
   await expect(failure).toHaveCount(0)
 })
 
@@ -146,7 +146,7 @@ test('the charts stay put while the table scrolls sideways, with nothing showing
   await openMoneyflow(page, server)
   await page.keyboard.press('d')
   await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
-  const income = page.getByText('Income', { exact: true })
+  const income = page.locator('.mf-kpis').getByText('Income', { exact: true })
   await expect(income).toBeVisible()
   const before = (await income.boundingBox())!
   const area = page.locator('.mf-chart-area')
@@ -245,6 +245,18 @@ function column(page: Page, label: string): Locator {
   return cashflow(page).getByRole('button', { name: new RegExp(`^${label}, in [+-]`) })
 }
 
+/**
+ * Moves focus back from the table until `target` has it. The right panel's Tab stops sit between
+ * the cash-flow chart and the table, and their number depends on the panel shown.
+ */
+async function tabBackTo(page: Page, target: Locator): Promise<void> {
+  for (let press = 0; press < 4; press += 1) {
+    await page.keyboard.press('Shift+Tab')
+    if (await target.evaluate((element) => element === document.activeElement)) return
+  }
+  await expect(target).toBeFocused()
+}
+
 function periodControl(page: Page): Locator {
   return page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')
 }
@@ -281,9 +293,8 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   await openMoneyflow(page, server)
   const grid = page.getByRole('grid', { name: 'Financial results' })
   await expect(cashflow(page).locator('button[tabindex="0"]')).toHaveCount(1)
-  // The chart sits just before the table in the Tab order; its stop starts on the last month.
-  await page.keyboard.press('Shift+Tab')
-  await expect(column(page, 'Oct 2026')).toBeFocused()
+  // The chart comes before the right panel and the table; its stop starts on the last month.
+  await tabBackTo(page, column(page, 'Oct 2026'))
   await page.keyboard.press('ArrowLeft')
   await expect(column(page, 'Sep 2026')).toBeFocused()
   await expect(page.getByRole('tooltip')).toContainText('Sep 2026')
@@ -292,8 +303,7 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   await expect(grid).toBeFocused()
 
   // Shift+Enter extends the scope to the focused column, as a shift-click does.
-  await page.keyboard.press('Shift+Tab')
-  await expect(column(page, 'Sep 2026')).toBeFocused()
+  await tabBackTo(page, column(page, 'Sep 2026'))
   await page.keyboard.press('ArrowLeft')
   await page.keyboard.press('ArrowLeft')
   await expect(column(page, 'Jul 2026')).toBeFocused()
@@ -304,8 +314,7 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   // Inside a drill, Esc leaves the chart for the table without also going back a level.
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/[?&]drill=merchant/)
-  await page.keyboard.press('Shift+Tab')
-  await expect(column(page, 'Sep 2026')).toBeFocused()
+  await tabBackTo(page, column(page, 'Sep 2026'))
   await page.keyboard.press('Escape')
   await expect(grid).toBeFocused()
   await expect(page).toHaveURL(/[?&]drill=merchant/)
@@ -341,3 +350,128 @@ test('cash-flow columns stay even in the phone drawer, labeled or not', async ({
     /mf-cashflow__dot--partial/,
   )
 })
+
+function whereItWent(page: Page): Locator {
+  return page.getByRole('list', { name: 'Where it went' })
+}
+
+function bar(page: Page, label: string): Locator {
+  return whereItWent(page).getByRole('button', { name: new RegExp(`^${label}, \\d+\\.\\d%, -`) })
+}
+
+test('a composition bar click moves the cursor, and a double-click drills', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server, september)
+  await expect(bar(page, 'Online Megastore')).toHaveAccessibleName(
+    /^Online Megastore, \d+\.\d%, -[\d,]+\.\d\d$/,
+  )
+  await expect(whereItWent(page).getByText(/^\d+ others$/)).toBeVisible()
+  await bar(page, 'Online Megastore').click()
+  await expect(await activeRow(page)).toContainText('Online Megastore')
+  await expect(bar(page, 'Online Megastore')).toHaveClass(/mf-bar--cursor/)
+
+  // The switch shows Income from the same insights, without asking the server again.
+  let requests = 0
+  await page.route('**/view/insights', async (route) => {
+    requests += 1
+    await route.continue()
+  })
+  await page
+    .getByRole('radiogroup', { name: 'Composition' })
+    .getByRole('radio', { name: 'Income' })
+    .click()
+  await expect(
+    whereItWent(page).getByRole('button', { name: /^Northwind Payroll, / }),
+  ).toBeVisible()
+  expect(requests).toBe(0)
+  await page
+    .getByRole('radiogroup', { name: 'Composition' })
+    .getByRole('radio', { name: 'Spending' })
+    .click()
+
+  await bar(page, 'Online Megastore').dblclick()
+  await expect(page).toHaveURL(/[?&]drill=merchant/)
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(
+    'Online Megastore',
+  )
+})
+
+test('the Time grouping shows the cursor day’s groups as the cursor moves', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server, september)
+  await page.keyboard.press('5')
+  const groups = page.getByRole('list', { name: /by group$/ })
+  await expect(groups).toHaveAttribute('aria-label', 'Sep 1, 2026 by group')
+  let requests = 0
+  await page.route('**/view/insights', async (route) => {
+    requests += 1
+    await route.continue()
+  })
+  await page.keyboard.press('j')
+  await expect(groups).toHaveAttribute('aria-label', 'Sep 2, 2026 by group')
+  await expect(groups.getByRole('listitem')).not.toHaveCount(0)
+  expect(requests).toBe(0)
+})
+
+function heatmap(page: Page): Locator {
+  return page.getByRole('group', { name: 'Daily spending' })
+}
+
+test('a transaction view shows the month’s heatmap, and a day click scopes to it', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server, september)
+  await page.keyboard.press('d')
+  // Every September day up to the demo's today is a button, outlined on the cursor's date.
+  await expect(heatmap(page).getByRole('button')).toHaveCount(30)
+  const date = await (await activeRow(page)).locator('[data-column="date"]').innerText()
+  const cursorDay = heatmap(page).locator('.mf-day--cursor')
+  await expect(cursorDay).toHaveCount(1)
+  await expect(cursorDay).toHaveAccessibleName(
+    new RegExp(`^Sep ${Number(date.slice(8))}, 2026, out -[\\d,]+\\.\\d\\d`),
+  )
+
+  await heatmap(page)
+    .getByRole('button', { name: /^Sep 15, 2026, / })
+    .click()
+  await expect(periodControl(page)).toHaveText('Sep 15, 2026')
+  await expect(page).toHaveURL(/[?&]from=2026-09-15(&|$)/)
+  await expect(page).toHaveURL(/[?&]to=2026-09-15(&|$)/)
+  // A Day scope keeps the month's grid, with only that day at full strength.
+  await expect(heatmap(page).getByRole('button')).toHaveCount(30)
+  await expect(heatmap(page).locator('.mf-day:not(.mf-day--outside)')).toHaveCount(1)
+})
+
+test('a year of transactions shows the 53-week strip with future days blank', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-01-01&to=2026-12-31&v=1')
+  await page.keyboard.press('d')
+  await expect(heatmap(page)).toHaveClass(/mf-calendar--weeks/)
+  // January 1 through the demo's today, October 7; the rest of the year is blank.
+  await expect(heatmap(page).getByRole('button')).toHaveCount(280)
+  await expect(heatmap(page).locator('.mf-day--future')).toHaveCount(85)
+  const columns = await heatmap(page)
+    .getByRole('button')
+    .evaluateAll(
+      (days) => new Set(days.map((day) => Math.round(day.getBoundingClientRect().x))).size,
+    )
+  expect(columns).toBe(41)
+})
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`the ${theme} heatmap passes axe`, async ({ page, server }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
+    await openMoneyflow(page, server, september)
+    await page.keyboard.press('d')
+    await expect(heatmap(page).getByRole('button')).toHaveCount(30)
+    const result = await new AxeBuilder({ page }).include('.mf-chart-area').analyze()
+    expect(result.violations).toEqual([])
+  })
+}

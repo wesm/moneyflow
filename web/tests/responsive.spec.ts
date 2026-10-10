@@ -11,7 +11,7 @@ test('desktop and medium layouts put the charts above a full-width table', async
   const charts = page.getByRole('region', { name: 'Charts' })
   await expect(grid).toBeVisible()
   await expect(charts).toBeVisible()
-  await expect(page.getByText('Income', { exact: true })).toBeVisible()
+  await expect(page.locator('.mf-kpis').getByText('Income', { exact: true })).toBeVisible()
   // The selection header holds only the "Select all matching" box.
   await expect(grid.getByRole('columnheader')).toHaveText([
     '',
@@ -47,7 +47,7 @@ test('desktop and medium layouts put the charts above a full-width table', async
 
   await toggle.uncheck()
   await expect(charts).toHaveCount(0)
-  await expect(page.getByText('Income', { exact: true })).toBeVisible()
+  await expect(page.locator('.mf-kpis').getByText('Income', { exact: true })).toBeVisible()
   await toggle.check()
 
   await page.setViewportSize({ width: 820, height: 700 })
@@ -98,7 +98,7 @@ test('narrow resize preserves analytical URL and moves charts into a drawer', as
   await expect(page).toHaveURL(analyticalURL)
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeVisible()
   // Phones show no KPI strip inline; the Charts switch opens it in a drawer.
-  await expect(page.getByText('Income', { exact: true })).toHaveCount(0)
+  await expect(page.locator('.mf-kpis').getByText('Income', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Charts' })).toHaveCount(0)
   const rows = page.getByRole('grid', { name: 'Financial results' }).getByRole('row')
   expect(await rows.count()).toBeGreaterThan(1)
@@ -110,7 +110,7 @@ test('narrow resize preserves analytical URL and moves charts into a drawer', as
   await charts.check()
   const drawer = page.getByRole('dialog', { name: 'Moneyflow visualizations' })
   await expect(drawer).toBeVisible()
-  await expect(drawer.getByText('Income', { exact: true })).toBeVisible()
+  await expect(drawer.locator('.mf-kpis').getByText('Income', { exact: true })).toBeVisible()
   await expectChartRow(drawer.getByRole('region', { name: 'Charts' }), 'stacked')
   await expect(page).toHaveURL(analyticalURL)
 

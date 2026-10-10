@@ -31,7 +31,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await openMoneyflow(page, server)
     // The KPI strip and the chart row, whose charts are still skeletons.
-    await expect(page.getByText('Income', { exact: true })).toBeVisible()
+    await expect(page.locator('.mf-kpis').getByText('Income', { exact: true })).toBeVisible()
     await expect(page.getByRole('region', { name: 'Charts' })).toBeVisible()
     await expectNoAxeViolations(page)
 

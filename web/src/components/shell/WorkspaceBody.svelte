@@ -11,6 +11,7 @@
   import EmptyScope from './EmptyScope.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import type { components } from '../../lib/api/schema'
+  import { moveToRow } from '../../lib/charts/composition'
   import type {
     TransitionAction,
     ViewController,
@@ -88,6 +89,14 @@
     onapply({ action: 'time.set-period', period })
   }
 
+  function onrow(identity: string): void {
+    void moveCursor(() => moveToRow(controller, projection, identity))
+  }
+
+  function ondrill(identity: string): void {
+    onapply({ action: 'view.drill', target: { identity, kind: 'aggregate' } })
+  }
+
   /** Runs a selection bar button as its key does, then leaves focus on the table. */
   function select(action: SelectionButton['action']): void {
     if (action === 'clear') {
@@ -118,6 +127,8 @@
       chartsOn={charts.row}
       cursorIndex={controller.cursorIndex}
       {onperiod}
+      {onrow}
+      {ondrill}
       onleave={actions.focusGrid}
       measure={(height) => (above = height)}
     />
@@ -172,5 +183,13 @@
   />
 {/if}
 <ChartDrawer open={compact.current && charts.dialogOpen} onclose={() => charts.setDialog(false)}>
-  <ChartArea {projection} {cache} chartsOn cursorIndex={controller.cursorIndex} {onperiod} />
+  <ChartArea
+    {projection}
+    {cache}
+    chartsOn
+    cursorIndex={controller.cursorIndex}
+    {onperiod}
+    {onrow}
+    {ondrill}
+  />
 </ChartDrawer>

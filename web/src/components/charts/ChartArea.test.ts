@@ -275,4 +275,120 @@ describe('ChartArea', () => {
     expect(screen.getByText('Income')).not.toBeNull()
     expect(screen.queryByRole('group', { name: 'Cash flow' })).toBeNull()
   })
+
+  it('shows where it went for a grouped view, and the switch asks for nothing', async () => {
+    const { cache, calls } = harness()
+    const projection = merchants()
+    cache.sync(projection, ['merchant:a', 'merchant:b'])
+    const response = withSeries(calls[0])
+    response.summary!.composition = {
+      spending: [
+        { key: 'a', identity: 'merchant:a', label: 'Merchant A', net: '-300', share_tenths: 600 },
+        { key: 'b', identity: 'merchant:b', label: 'Merchant B', net: '-200', share_tenths: 400 },
+      ],
+      income: [],
+    }
+    calls[0]?.resolve(response)
+    await settle()
+    const onrow = vi.fn()
+    const ondrill = vi.fn()
+    const props = { projection, cache, chartsOn: true, onperiod: vi.fn(), onrow, ondrill }
+    const { rerender } = render(ChartArea, { ...props, cursorIndex: 0 })
+    const list = screen.getByRole('list', { name: 'Where it went' })
+    const bar = (name: string) =>
+      within(list).getByRole('button', { name: new RegExp(`^${name},`) })
+    expect(bar('Merchant A').classList.contains('mf-bar--cursor')).toBe(true)
+
+    await rerender({ ...props, cursorIndex: 1 })
+    expect(bar('Merchant B').classList.contains('mf-bar--cursor')).toBe(true)
+    await fireEvent.click(bar('Merchant A'))
+    expect(onrow).toHaveBeenCalledWith('merchant:a')
+    await fireEvent.dblClick(bar('Merchant A'))
+    expect(ondrill).toHaveBeenCalledWith('merchant:a')
+
+    await fireEvent.click(screen.getByRole('radio', { name: 'Income' }))
+    expect(screen.getByText('No income')).not.toBeNull()
+    expect(calls).toHaveLength(1)
+  })
+
+  it('shows the cursor period’s group shares in the Time grouping without a request', async () => {
+    const { cache, calls } = harness()
+    const base = merchants()
+    const months = [8, 9].map((month) => ({ granularity: 'month', year: 2026, month }))
+    const projection: ViewProjection = {
+      ...base,
+      aggregate_rows: months.map((period, index) =>
+        testAggregateRow({ identity: `time:${index}`, index, label: `Month ${index}`, period }),
+      ),
+    }
+    cache.sync(projection, [])
+    const response = september(calls[0])
+    response.ranges.context = months.map((period) => ({
+      start: `2026-0${period.month}-01`,
+      end: `2026-0${period.month}-28`,
+      partial: false,
+      absent: false,
+      period,
+    }))
+    response.summary!.cashflow = {
+      labels: ['Aug 2026', 'Sep 2026'],
+      in: ['0', '0'],
+      out: ['0', '0'],
+      net: ['0', '0'],
+      count: [0, 0],
+    }
+    response.summary!.period_composition = ['Food', 'Travel'].map((label) => ({
+      spending: [{ key: label, label, net: '-100', share_tenths: 1000 }],
+      income: [],
+    }))
+    calls[0]?.resolve(response)
+    await settle()
+    const props = { projection, cache, chartsOn: true, onperiod: vi.fn() }
+    const { rerender } = render(ChartArea, { ...props, cursorIndex: 0 })
+    const list = () => screen.getByRole('list', { name: /by group$/ })
+    expect(list().getAttribute('aria-label')).toBe('Aug 2026 by group')
+    expect(within(list()).getByText('Food')).not.toBeNull()
+    expect(within(list()).queryAllByRole('button')).toHaveLength(0)
+
+    await rerender({ ...props, cursorIndex: 1 })
+    expect(list().getAttribute('aria-label')).toBe('Sep 2026 by group')
+    expect(within(list()).getByText('Travel')).not.toBeNull()
+    expect(calls).toHaveLength(1)
+  })
+
+  it('shows the calendar heatmap in a transaction view, outlining the cursor’s day', async () => {
+    const { cache, calls } = harness()
+    const projection = view()
+    cache.sync(projection, [])
+    const response = september(calls[0])
+    response.ranges.heatmap = { layout: 'months', start: '2024-01-01', end: '2024-01-31' }
+    response.summary!.calendar = {
+      in: Array.from({ length: 31 }, () => '0'),
+      out: Array.from({ length: 31 }, (_, index) => (index === 1 ? '-1234' : '0')),
+    }
+    calls[0]?.resolve(response)
+    await settle()
+    render(ChartArea, { projection, cache, chartsOn: true, ...interaction })
+    const group = screen.getByRole('group', { name: 'Daily spending' })
+    // The test projection's one transaction is on Jan 2, 2024.
+    const day = within(group).getByRole('button', { name: 'Jan 2, 2024, out -12.34' })
+    expect(day.classList.contains('mf-day--cursor')).toBe(true)
+    expect(screen.queryByRole('list', { name: 'Where it went' })).toBeNull()
+  })
+
+  it('shows the failure line in the panel, not a broken page, for a misaligned calendar', async () => {
+    const { cache, calls } = harness()
+    const projection = view()
+    cache.sync(projection, [])
+    const response = september(calls[0])
+    response.ranges.heatmap = { layout: 'months', start: '2024-01-01', end: '2024-01-31' }
+    response.summary!.calendar = { in: ['0'], out: ['0'] }
+    calls[0]?.resolve(response)
+    await settle()
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    render(ChartArea, { projection, cache, chartsOn: true, ...interaction })
+    expect(screen.getByText(/Couldn't load charts/)).not.toBeNull()
+    expect(screen.queryByRole('group', { name: 'Daily spending' })).toBeNull()
+    expect(screen.getByRole('group', { name: 'Cash flow' })).not.toBeNull()
+  })
 })

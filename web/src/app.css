@@ -1574,6 +1574,152 @@ input {
   margin: 0;
   font-weight: 600;
 }
+/* The right panel: composition bars or the calendar heatmap, under a title line. */
+.mf-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  height: 100%;
+}
+.mf-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.mf-panel__title,
+.mf-calendar__label {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+.mf-bars {
+  display: grid;
+  flex: 1;
+  grid-auto-rows: minmax(0, 1.25rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mf-bar {
+  display: grid;
+  grid-template-columns: minmax(4rem, 30%) minmax(0, 1fr) auto 3rem;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 100%;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  text-align: left;
+}
+button.mf-bar:hover {
+  background: var(--mf-cursor);
+  cursor: pointer;
+}
+.mf-bar:focus-visible,
+.mf-day:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+.mf-bar__label {
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mf-bar__fill {
+  display: block;
+  height: 0.5rem;
+  border-radius: 2px;
+  background: var(--mf-out-muted);
+}
+.mf-bar--cursor .mf-bar__fill {
+  background: var(--mf-out);
+}
+.mf-bars--income .mf-bar__fill {
+  background: var(--mf-in-muted);
+}
+.mf-bars--income .mf-bar--cursor .mf-bar__fill {
+  background: var(--mf-in);
+}
+.mf-bar__net,
+.mf-bar__share {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+/* Cells are square and as large as the panel allows: the panel is the size container. */
+.mf-calendar {
+  container-type: size;
+  display: flex;
+  flex: 1;
+  gap: var(--space-4);
+}
+.mf-calendar__block {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+}
+.mf-calendar__days {
+  /* One month's six week rows below its label, and the months side by side. */
+  --mf-cell: min(
+    calc((100cqw - var(--space-4) * (var(--mf-months) - 1)) / (7 * var(--mf-months)) - 2px),
+    calc((100cqh - 1.25rem) / 6 - 2px)
+  );
+  display: grid;
+  grid-template-columns: repeat(7, var(--mf-cell));
+  grid-auto-rows: var(--mf-cell);
+  gap: 2px;
+}
+.mf-calendar--weeks .mf-calendar__days {
+  --mf-cell: min(calc(100cqw / 53 - 1px), calc(100cqh / 7 - 1px));
+  grid-template: repeat(7, var(--mf-cell)) / none;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--mf-cell);
+  gap: 1px;
+}
+.mf-day {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--bg-inset);
+  cursor: pointer;
+}
+.mf-day--l1 {
+  background: color-mix(in srgb, var(--mf-out) 25%, var(--bg-inset));
+}
+.mf-day--l2 {
+  background: color-mix(in srgb, var(--mf-out) 50%, var(--bg-inset));
+}
+.mf-day--l3 {
+  background: color-mix(in srgb, var(--mf-out) 75%, var(--bg-inset));
+}
+.mf-day--l4 {
+  background: var(--mf-out);
+}
+.mf-day--in::after {
+  content: '';
+  width: 40%;
+  max-width: 5px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--mf-in);
+}
+.mf-day--outside {
+  opacity: var(--opacity-disabled);
+}
+.mf-day--cursor {
+  outline: 2px solid var(--text-primary);
+}
 @media (min-width: 900px) {
   .mf-chart-row {
     grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);

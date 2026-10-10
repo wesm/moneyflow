@@ -28,7 +28,7 @@ async function cursorIdentity(grid: Locator): Promise<string> {
 }
 
 // chart_cursor times a cursor key to the cash-flow chart drawing the new row's columns solid.
-// Until the composition chart takes input, chart_drill times a row double-click to the drilled URL.
+// chart_drill times a double-click on a composition bar to the drilled URL.
 test('chart cursor and drill p95 stay within measured budgets', async ({ page, server }) => {
   test.setTimeout(120_000)
   await openMoneyflow(page, server)
@@ -75,9 +75,8 @@ test('chart cursor and drill p95 stay within measured budgets', async ({ page, s
   }
 
   const initialURL = page.url()
-  const drillRow = grid.locator('[role="row"][aria-rowindex="3"]')
-  const drillTarget = drillRow.locator('[role="gridcell"][data-column="count"]')
-  const drillLabel = await drillRow.locator('[role="gridcell"][data-column="name"]').innerText()
+  const drillTarget = page.getByRole('list', { name: 'Where it went' }).getByRole('button').nth(1)
+  const drillLabel = (await drillTarget.getAttribute('aria-label'))!.split(',')[0]!
   for (let index = 0; index < sampleCount; index += 1) {
     await drillTarget.evaluate((element) => {
       element.addEventListener(
