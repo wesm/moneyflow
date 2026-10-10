@@ -1345,6 +1345,18 @@ export interface components {
       provider?: components['schemas']['ProviderStatusResponse']
       provider_write?: components['schemas']['ProviderWriteStatusResponse']
       provider_write_confirmation_token?: string
+      /** @enum {string} */
+      reason?:
+        | 'refresh_request'
+        | 'refresh_binding'
+        | 'refresh_planner'
+        | 'refresh_plan'
+        | 'provider_write_request'
+        | 'provider_write_planner'
+        | 'provider_write_plan'
+        | 'provider_write_batch'
+        | 'provider_refresh_lease'
+        | 'taxonomy_label_collision'
       selection?: components['schemas']['SelectionDisposition']
       /** Format: int64 */
       status: number

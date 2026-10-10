@@ -21,6 +21,7 @@ import (
 	"github.com/wesm/moneyflow/internal/exporter"
 	"github.com/wesm/moneyflow/internal/importer/amazon"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 // Config supplies immutable dependencies for a stateless API handler.
@@ -624,6 +625,7 @@ func problemFromError(err error) *Problem {
 		}
 		problem := newProblem(status, string(code), application.Detail)
 		problem.CurrentRevision = strconv.FormatUint(application.CurrentRevision, 10)
+		problem.Reason = invalidOperationReason(err)
 		if application.Code == app.AppSelectionStale {
 			selection := application.Selection
 			kind := "refreshed"
@@ -666,6 +668,14 @@ func problemFromError(err error) *Problem {
 		return newProblem(status, string(webErr.Code), webErr.Detail)
 	}
 	return newProblem(500, "internal_error", "The request could not be completed.")
+}
+
+func invalidOperationReason(err error) string {
+	reason, ok := store.InvalidOperationReasonOf(err)
+	if !ok {
+		return ""
+	}
+	return string(reason)
 }
 
 func problemFromProviderError(

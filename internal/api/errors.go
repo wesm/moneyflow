@@ -154,6 +154,7 @@ type Problem struct {
 	Status                         int                          `json:"status"`
 	Detail                         string                       `json:"detail"`
 	Code                           string                       `json:"code"`
+	Reason                         string                       `json:"reason,omitempty" enum:"refresh_request,refresh_binding,refresh_planner,refresh_plan,provider_write_request,provider_write_planner,provider_write_plan,provider_write_batch,provider_refresh_lease,taxonomy_label_collision"`
 	CurrentRevision                string                       `json:"current_revision,omitempty" pattern:"^[0-9]+$"`
 	Selection                      *SelectionDisposition        `json:"selection,omitempty"`
 	Provider                       *ProviderStatusResponse      `json:"provider,omitempty"`

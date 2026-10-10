@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 // BuildTaxonomyOperation validates one category-manager or group-manager intent.
@@ -370,21 +371,43 @@ func availableTaxonomyCollisionKey(
 	}
 	switch kind {
 	case domain.EntityKindCategory:
-		for _, category := range profile.Categories {
-			if !category.Retired && category.ID != sourceID && category.CollisionKey == key {
-				return "", errors.New("category label collides; use explicit merge")
-			}
+		if categoryKeyInUse(profile, sourceID, key) {
+			return "", taxonomyLabelCollision(
+				errors.New("category label collides; use explicit merge"),
+			)
 		}
 	case domain.EntityKindGroup:
-		for _, group := range profile.Groups {
-			if !group.Retired && group.ID != sourceID && group.CollisionKey == key {
-				return "", errors.New("group label collides; use explicit merge")
-			}
+		if groupKeyInUse(profile, sourceID, key) {
+			return "", taxonomyLabelCollision(
+				errors.New("group label collides; use explicit merge"),
+			)
 		}
 	default:
 		return "", fmt.Errorf("unsupported taxonomy entity kind %q", kind)
 	}
 	return key, nil
+}
+
+func categoryKeyInUse(profile domain.CommittedProfile, sourceID domain.EntityID, key string) bool {
+	for _, category := range profile.Categories {
+		if !category.Retired && category.ID != sourceID && category.CollisionKey == key {
+			return true
+		}
+	}
+	return false
+}
+
+func groupKeyInUse(profile domain.CommittedProfile, sourceID domain.EntityID, key string) bool {
+	for _, group := range profile.Groups {
+		if !group.Retired && group.ID != sourceID && group.CollisionKey == key {
+			return true
+		}
+	}
+	return false
+}
+
+func taxonomyLabelCollision(cause error) error {
+	return store.NewInvalidOperationError(store.InvalidOperationTaxonomyLabelCollision, cause)
 }
 
 func entityIDExists(profile domain.CommittedProfile, id domain.EntityID) bool {
