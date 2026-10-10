@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -125,4 +126,31 @@ func TestEditorCatalogCountsDropDeletedTransactionsOnceCommitted(t *testing.T) {
 	assert.Zero(t, counts["category_a"])
 	assert.Zero(t, counts["group_a"])
 	assert.Equal(t, 1, counts["merchant_b"])
+}
+
+func TestEditorCatalogCountsSumSeveralTransactionsPerChoice(t *testing.T) {
+	t.Parallel()
+	profile := newMemoryProfile(t, 5)
+	committed := &profile.snapshot.Committed
+	committed.Categories = append(committed.Categories, domain.Category{
+		ID: "category_a2", GroupID: "group_a", Label: "Category A2", CollisionKey: "category a2",
+	})
+	for index, categoryID := range []domain.EntityID{"category_a", "category_a2", "category_a2"} {
+		extra := committed.Transactions[0]
+		extra.ID = domain.EntityID("transaction_extra_" + strconv.Itoa(index))
+		extra.ProviderID = "provider-extra-" + strconv.Itoa(index)
+		extra.CategoryID = categoryID
+		committed.Transactions = append(committed.Transactions, extra)
+	}
+	require.NoError(t, committed.Validate())
+	service, err := app.NewProfileService(t.Context(), profile)
+	require.NoError(t, err)
+
+	counts := catalogCounts(t, service)
+
+	assert.Equal(t, 4, counts["merchant_a"], "the original row and three extras")
+	assert.Equal(t, 2, counts["category_a"])
+	assert.Equal(t, 2, counts["category_a2"])
+	assert.Equal(t, 4, counts["group_a"], "a group sums the transactions of its categories")
+	assert.Equal(t, 1, counts["group_b"])
 }

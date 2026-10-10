@@ -26,6 +26,7 @@ type MutationResult struct {
 	Affected             int
 	OperationKind        OperationKind
 	OperationLabel       string
+	Undoable             bool
 	State                ViewState
 	Selection            SelectionValue
 	SelectionDisposition SelectionDisposition
@@ -290,7 +291,7 @@ func (service *Service) Mutate(
 	result, err := service.mutationResult(
 		plan.State, selection, plan.SelectionDisposition, request.Window,
 	)
-	return result.withSummary(summary), err
+	return result.withSummaryUnlessError(summary, err)
 }
 
 func (service *Service) planMutationLocked(
@@ -513,7 +514,7 @@ func (service *Service) moveCursor(
 			return MutationResult{}, mapAppError(err, current)
 		}
 	}
-	summary := summarizeOperation(before, snapshot.Journal[operationIndex])
+	summary := summarizeCursorOperation(before, snapshot.Journal[operationIndex])
 	next, err := service.profile.MoveCursor(ctx, expected, direction)
 	if err != nil {
 		return MutationResult{}, service.refreshAfterFailure(ctx, err, current)
@@ -522,7 +523,7 @@ func (service *Service) moveCursor(
 		return MutationResult{}, err
 	}
 	result, err := service.cursorMutationResult(state, selection, window)
-	return result.withSummary(summary), err
+	return result.withSummaryUnlessError(summary, err)
 }
 
 func (service *Service) cursorMutationResult(

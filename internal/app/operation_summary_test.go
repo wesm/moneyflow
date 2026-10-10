@@ -73,6 +73,7 @@ func TestMutateReportsOperationKindLabelAndAffectedCount(t *testing.T) {
 			assert.Equal(t, test.kind, result.OperationKind)
 			assert.Equal(t, test.label, result.OperationLabel)
 			assert.Equal(t, test.affected, result.Affected)
+			assert.True(t, result.Undoable, "an appended operation is the next undo")
 		})
 	}
 }
@@ -122,6 +123,8 @@ func TestUndoRedoReportTheCursorOperationSummary(t *testing.T) {
 	assert.Equal(t, app.OperationRename, redone.OperationKind)
 	assert.Equal(t, "Rename merchant", redone.OperationLabel)
 	assert.Equal(t, 1, redone.Affected)
+	assert.True(t, undone.Undoable)
+	assert.True(t, redone.Undoable)
 }
 
 func TestUndoRedoOfAHideReportTheDirectionTheOperationHadWhenApplied(t *testing.T) {

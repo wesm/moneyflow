@@ -70,11 +70,26 @@ type SelectionDisposition struct {
 	Value string `json:"value"`
 }
 
+// OperationKind is the feedback category of a staged operation.
+type OperationKind string
+
+// Schema lists the kinds the application layer can report.
+func (OperationKind) Schema(huma.Registry) *huma.Schema {
+	kinds := app.AllOperationKinds()
+	values := make([]any, len(kinds))
+	for index, kind := range kinds {
+		values[index] = string(kind)
+	}
+	return &huma.Schema{Type: huma.TypeString, Enum: values}
+}
+
 // OperationSummary names the staged operation a mutation, undo, or redo applied.
+// Undoable is false when the edit rewrote the journal, so one undo reverts an earlier edit.
 type OperationSummary struct {
-	Kind     string `json:"kind" enum:"rename,recategorize,hide,show,delete,manage_category,manage_group"`
-	Label    string `json:"label"`
-	Affected int    `json:"affected"`
+	Kind     OperationKind `json:"kind"`
+	Label    string        `json:"label"`
+	Affected int           `json:"affected"`
+	Undoable bool          `json:"undoable"`
 }
 
 // MutationResponse returns committed rows and pending markers after an accepted mutation.
@@ -277,7 +292,8 @@ func operationToWire(result app.MutationResult) *OperationSummary {
 		return nil
 	}
 	return &OperationSummary{
-		Kind: string(result.OperationKind), Label: result.OperationLabel, Affected: result.Affected,
+		Kind: OperationKind(result.OperationKind), Label: result.OperationLabel,
+		Affected: result.Affected, Undoable: result.Undoable,
 	}
 }
 

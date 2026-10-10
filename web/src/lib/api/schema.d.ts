@@ -1318,6 +1318,7 @@ export interface components {
         | 'manage_category'
         | 'manage_group'
       label: string
+      undoable: boolean
     }
     PendingSummary: {
       /** Format: int64 */

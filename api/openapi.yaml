@@ -1530,10 +1530,13 @@ components:
           type: string
         label:
           type: string
+        undoable:
+          type: boolean
       required:
         - kind
         - label
         - affected
+        - undoable
       type: object
     PendingSummary:
       additionalProperties: false

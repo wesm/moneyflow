@@ -14,7 +14,9 @@ func TestMutationUndoAndRedoReturnTheOperationSummary(t *testing.T) {
 	t.Parallel()
 	server := newPersistentAPITestServer(t)
 	mutated := appendMerchantMutation(t, server, "Renamed Merchant")
-	want := &OperationSummary{Kind: "rename", Label: "Rename merchant", Affected: 1}
+	want := &OperationSummary{
+		Kind: "rename", Label: "Rename merchant", Affected: 1, Undoable: true,
+	}
 	assert.Equal(t, want, mutated.Operation)
 
 	undone := requestRevisionAction(t, server, "/api/v1/undo", RevisionBody{
@@ -54,10 +56,12 @@ func TestMutationHideTwiceReportsHideThenShow(t *testing.T) {
 		})
 	}
 	hidden := toggle(initial, initial.Revision)
-	assert.Equal(t, &OperationSummary{Kind: "hide", Label: "Toggle report visibility", Affected: 1},
-		hidden.Operation)
+	assert.Equal(t, &OperationSummary{
+		Kind: "hide", Label: "Toggle report visibility", Affected: 1, Undoable: true,
+	}, hidden.Operation)
 	shown := toggle(hidden.Projection, hidden.Revision)
-	assert.Equal(t, &OperationSummary{Kind: "show", Label: "Toggle report visibility", Affected: 1},
-		shown.Operation)
+	assert.Equal(t, &OperationSummary{
+		Kind: "show", Label: "Toggle report visibility", Affected: 1, Undoable: false,
+	}, shown.Operation, "cancelling a pending hide rewrites the journal, so u cannot undo it")
 	assert.Zero(t, shown.Pending.ActiveOperations, "the second toggle cancels the first")
 }
