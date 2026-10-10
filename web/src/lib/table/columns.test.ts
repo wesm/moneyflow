@@ -22,6 +22,8 @@ function grouped(view: Partial<View>, overrides: Partial<ViewProjection> = {}) {
       sort_field: 'amount',
       sort_direction: 'desc',
       sort_fields: ['merchant', 'count', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
       ...view,
     },
     detail_rows: null,
@@ -39,6 +41,8 @@ function detail(overrides: Partial<ViewProjection> = {}) {
       sort_field: 'date',
       sort_direction: 'desc',
       sort_fields: ['date', 'merchant', 'category', 'account', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'detail', grouping: 'merchant', time_granularity: 'year' },
     },
     ...overrides,
   })

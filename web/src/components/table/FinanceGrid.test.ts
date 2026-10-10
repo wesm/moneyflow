@@ -28,6 +28,8 @@ const detailView: ViewProjection['view'] = {
   sort_field: 'date',
   sort_direction: 'desc',
   sort_fields: ['date', 'merchant', 'category', 'account', 'amount'],
+  drill_depth: 0,
+  root: { mode: 'detail', grouping: 'merchant', time_granularity: 'year' },
 }
 
 /** A Sep 2026 scope, which has an August comparison. */
@@ -46,6 +48,8 @@ function grouped(overrides: Partial<ViewProjection> = {}): ViewProjection {
       sort_field: 'amount',
       sort_direction: 'desc',
       sort_fields: ['merchant', 'count', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
     },
     detail_rows: null,
     aggregate_rows: [testAggregateRow()],
@@ -299,6 +303,8 @@ describe('FinanceGrid', () => {
           sort_field: 'category',
           sort_direction: 'asc',
           sort_fields: ['category', 'count', 'amount'],
+          drill_depth: 1,
+          root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
         },
         aggregate_rows: [testAggregateRow({ dimension: 'category', group: 'Food' })],
       }),
@@ -337,6 +343,8 @@ describe('FinanceGrid', () => {
           sort_field: 'time_period',
           sort_direction: 'asc',
           sort_fields: ['time_period', 'count', 'amount'],
+          drill_depth: 0,
+          root: { mode: 'aggregate', grouping: 'time', time_granularity: 'month' },
         },
         aggregate_rows: [
           testAggregateRow({
@@ -391,6 +399,8 @@ describe('FinanceGrid', () => {
           sort_field: 'amount',
           sort_direction: 'asc',
           sort_fields: ['merchant', 'count', 'amount'],
+          drill_depth: 0,
+          root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
         },
       }),
       cursorIndex: 0,

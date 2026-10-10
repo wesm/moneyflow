@@ -32,6 +32,8 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
       sort_field: 'amount',
       sort_direction: 'desc',
       sort_fields: ['merchant', 'count', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
     },
     detail_rows: null,
     total_rows: 2,

@@ -2797,10 +2797,16 @@ components:
       properties:
         currency:
           $ref: "#/components/schemas/CurrencyScope"
+        drill_depth:
+          format: int64
+          minimum: 0
+          type: integer
         grouping:
           type: string
         mode:
           type: string
+        root:
+          $ref: "#/components/schemas/ViewRoot"
         search:
           type: string
         sort_direction:
@@ -2831,6 +2837,22 @@ components:
         - sort_field
         - sort_direction
         - sort_fields
+        - drill_depth
+        - root
+      type: object
+    ViewRoot:
+      additionalProperties: false
+      properties:
+        grouping:
+          type: string
+        mode:
+          type: string
+        time_granularity:
+          type: string
+      required:
+        - mode
+        - grouping
+        - time_granularity
       type: object
     Warning:
       additionalProperties: false

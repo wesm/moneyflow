@@ -1782,8 +1782,11 @@ export interface components {
     }
     ViewMetadata: {
       currency?: components['schemas']['CurrencyScope']
+      /** Format: int64 */
+      drill_depth: number
       grouping: string
       mode: string
+      root: components['schemas']['ViewRoot']
       search?: string
       sort_direction: string
       sort_field: string
@@ -1798,6 +1801,11 @@ export interface components {
         | 'time_period'
       )[]
       sub_grouping?: string
+      time_granularity: string
+    }
+    ViewRoot: {
+      grouping: string
+      mode: string
       time_granularity: string
     }
     Warning: {

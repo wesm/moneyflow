@@ -19,6 +19,8 @@ export function testProjection(overrides: Partial<ViewProjection> = {}): ViewPro
       sort_field: 'amount',
       sort_direction: 'desc',
       sort_fields: ['merchant', 'count', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'detail', grouping: 'merchant', time_granularity: 'year' },
     },
     breadcrumbs: [{ dimension: 'merchant', label: 'All transactions' }],
     breadcrumb_text: 'All transactions',

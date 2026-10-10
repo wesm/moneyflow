@@ -156,6 +156,10 @@ type WebProjection struct {
 	AnchorMissing bool
 	Status        string
 	AuditWarning  string
+	// DrillDepth is the number of drill frames in the current view.
+	DrillDepth int
+	// Root is the view that view.back-to with depth 0 reaches.
+	Root AnalyticalRoot
 }
 
 // AmazonProjectionSettings carries immutable import money settings without source facts.
@@ -202,6 +206,10 @@ func (service *Service) projectViewWith(
 	if err != nil {
 		return WebProjection{}, err
 	}
+	root, err := service.rootView(state, currencies)
+	if err != nil {
+		return WebProjection{}, invalidWebRequest(err)
+	}
 	snapshot, err := service.resolveSelection(state.Current, selection, currencies)
 	if err != nil {
 		return WebProjection{}, err
@@ -212,23 +220,10 @@ func (service *Service) projectViewWith(
 		return WebProjection{}, invalidWebRequest(err)
 	}
 
-	actions := webActionIDs()
-	var revision uint64
-	var pending PendingSummary
-	var capabilities []Capability
-	if snapshot, snapshotErr := service.effectiveSnapshot(); snapshotErr == nil {
-		revision = snapshot.Revision
-		pending = pendingSummary(snapshot)
-		capabilities = service.capabilitiesForStateSnapshot(snapshot, state)
-		for _, capability := range capabilities {
-			if capability.Available {
-				actions = appendActionID(actions, capability.Action)
-			}
-		}
-	}
 	projection := WebProjection{
-		Revision: revision, ProfileKind: service.ProfileKind(), Pending: pending, Capabilities: capabilities,
-		State: state.Clone(), Selection: selection, SelectionCount: len(snapshot.IDs),
+		ProfileKind: service.ProfileKind(), State: state.Clone(),
+		DrillDepth: len(state.Current.Drilldowns), Root: root,
+		Selection: selection, SelectionCount: len(snapshot.IDs),
 		SelectionSummary: summary,
 		Breadcrumbs:      breadcrumbs,
 		BreadcrumbText:   resolvedSession.Breadcrumb(result.DateRange),
@@ -236,10 +231,10 @@ func (service *Service) projectViewWith(
 			DateRange:  cloneDateRange(state.Current.DateRange),
 			ShowHidden: state.Current.ShowHidden, ShowTransfers: state.Current.ShowTransfers,
 		},
-		Actions:    actions,
 		Statistics: append([]domain.CurrencyStats(nil), result.Statistics...),
 		Currencies: currencies,
 	}
+	service.decorateEditState(&projection)
 	service.mu.RLock()
 	projection.AuditWarning = service.auditWarning
 	if service.amazonSettings != nil {
@@ -255,6 +250,24 @@ func (service *Service) projectViewWith(
 		projection.Status = "No transactions match the current view."
 	}
 	return projection, nil
+}
+
+// decorateEditState sets the projection's revision, pending summary, capabilities, and the
+// web actions those capabilities make available.
+func (service *Service) decorateEditState(projection *WebProjection) {
+	projection.Actions = webActionIDs()
+	snapshot, err := service.effectiveSnapshot()
+	if err != nil {
+		return
+	}
+	projection.Revision = snapshot.Revision
+	projection.Pending = pendingSummary(snapshot)
+	projection.Capabilities = service.capabilitiesForStateSnapshot(snapshot, projection.State)
+	for _, capability := range projection.Capabilities {
+		if capability.Available {
+			projection.Actions = appendActionID(projection.Actions, capability.Action)
+		}
+	}
 }
 
 // queryProjection derives the view's Time granularity, then resolves its breadcrumbs and the

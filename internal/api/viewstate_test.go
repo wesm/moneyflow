@@ -1,7 +1,10 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"strings"
@@ -345,4 +348,131 @@ func assertSafeCode(t testing.TB, err error, code ErrorCode) {
 	var safe *SafeError
 	require.True(t, errors.As(err, &safe), err)
 	assert.Equal(t, code, safe.Code)
+}
+
+func TestProjectionReportsDrillDepthAndRoot(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	merchants := ViewRoot{Mode: "aggregate", Grouping: "merchant", TimeGranularity: "year"}
+	transactions := ViewRoot{Mode: "detail", Grouping: "merchant", TimeGranularity: "year"}
+
+	merchantDrill := drillFirstAggregate(t, server, "v=1")
+	detailView := rootTransition(t, server, "v=1", TransitionBody{Action: app.ActionShowDetail})
+	subGroupedDetail := subGroupedByTime(t, detailView.CanonicalQuery)
+	monthDrill := drillFirstAggregate(t, server, timeQuery(t, func(state *app.AnalyticalState) {
+		state.TimeGranularity = domain.TimeGranularityMonth
+	}))
+	currencyDrill := drillFirstAggregate(t, server, timeQuery(t, func(state *app.AnalyticalState) {
+		state.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+	}))
+	category := "category"
+	nested := rootTransition(t, server, merchantDrill.CanonicalQuery, TransitionBody{
+		Action: app.ActionSetSubGrouping, Dimension: &category,
+	})
+
+	for _, test := range []struct {
+		name  string
+		query string
+		depth int
+		root  ViewRoot
+	}{
+		{"the top level", "v=1", 0, merchants},
+		{"a merchant drill from Merchants", merchantDrill.CanonicalQuery, 1, merchants},
+		{"a drill from the d view",
+			drillFirstAggregate(t, server, subGroupedDetail).CanonicalQuery, 1, transactions},
+		{"a drill opened from a link", withoutReturns(t, merchantDrill.CanonicalQuery), 1, merchants},
+		{"a sub-grouped d view", subGroupedDetail, 0, transactions},
+		{"a month drill from Time by month", monthDrill.CanonicalQuery, 1,
+			ViewRoot{Mode: "aggregate", Grouping: "time", TimeGranularity: "month"}},
+		{"a drill whose return frame is currency-scoped", currencyDrill.CanonicalQuery, 1,
+			ViewRoot{Mode: "aggregate", Grouping: "time", TimeGranularity: "month"}},
+		{"two drills deep",
+			drillFirstAggregate(t, server, nested.CanonicalQuery).CanonicalQuery, 2, merchants},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := requestJSON(t, server, "/api/v1/view", ViewBody{
+				Query: test.query, Window: Window{Limit: 200},
+			})
+			projection := decodeRootProjection(t, response)
+			assert.Equal(t, test.depth, projection.View.DrillDepth)
+			assert.Equal(t, test.root, projection.View.Root)
+		})
+	}
+}
+
+// decodeRootProjection decodes a projection whose view names its drill depth and root.
+func decodeRootProjection(t testing.TB, response *httptest.ResponseRecorder) Projection {
+	t.Helper()
+	var raw struct {
+		View map[string]json.RawMessage `json:"view"`
+	}
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &raw))
+	assert.Contains(t, raw.View, "drill_depth")
+	assert.Contains(t, raw.View, "root")
+	return decodeProjection(t, response)
+}
+
+func rootTransition(t testing.TB, server *Server, query string, body TransitionBody) Projection {
+	t.Helper()
+	return decodeRootProjection(t, transitionFrom(t, server, query, body))
+}
+
+func drillFirstAggregate(t testing.TB, server *Server, query string) Projection {
+	t.Helper()
+	response := requestJSON(t, server, "/api/v1/view", ViewBody{
+		Query: query, Window: Window{Limit: 200},
+	})
+	projection := decodeRootProjection(t, response)
+	require.NotEmpty(t, projection.AggregateRows)
+	return rootTransition(t, server, query, TransitionBody{
+		Action: app.ActionDrill,
+		Target: &TransitionTarget{
+			Kind: app.IdentityAggregate, Identity: projection.AggregateRows[0].Identity,
+		},
+	})
+}
+
+// subGroupedByTime breaks a view down by Time, as the terminal's Time key does; the browser
+// has no transition for it, so a link is its only source there.
+func subGroupedByTime(t testing.TB, query string) string {
+	t.Helper()
+	state, _, err := DecodeViewQuery(query)
+	require.NoError(t, err)
+	state.Returns = append(state.Returns, app.ReturnFrame{
+		Kind: app.ReturnSubgroup, State: state.Current.Clone(),
+	})
+	timeDimension := domain.DimensionTime
+	state.Current.SubGrouping = &timeDimension
+	state.Current.Sort = domain.SortSpec{
+		Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc,
+	}
+	encoded, err := EncodeViewQuery(state)
+	require.NoError(t, err)
+	return encoded
+}
+
+// timeQuery encodes the top-level Time view after mutate.
+func timeQuery(t testing.TB, mutate func(*app.AnalyticalState)) string {
+	t.Helper()
+	encoded, err := EncodeViewQuery(withState(func(state *app.AnalyticalState) {
+		state.Dimension = domain.DimensionTime
+		state.Sort = domain.SortSpec{
+			Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc,
+		}
+		mutate(state)
+	}))
+	require.NoError(t, err)
+	return encoded
+}
+
+func withoutReturns(t testing.TB, query string) string {
+	t.Helper()
+	state, _, err := DecodeViewQuery(query)
+	require.NoError(t, err)
+	state.Returns = nil
+	encoded, err := EncodeViewQuery(state)
+	require.NoError(t, err)
+	return encoded
 }

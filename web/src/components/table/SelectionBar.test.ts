@@ -26,6 +26,8 @@ function projection(overrides: Partial<ViewProjection> = {}): ViewProjection {
       sort_field: 'amount',
       sort_direction: 'desc',
       sort_fields: ['merchant', 'count', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
       currency: { currency: 'USD', scale: 2 },
     },
     selection_summary: [{ currency: 'USD', scale: 2, count: 127, in: net, out: net, net }],
