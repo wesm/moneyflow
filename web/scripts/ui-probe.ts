@@ -31,19 +31,22 @@ export function browserCampaign(seed: number): BrowserAction[] {
   let changed: BrowserAction['changed']
   switch (seed % 3) {
     case 0:
+      // The keyboard path: Enter accepts the suggestion, and a second Enter stages it.
       actions.push(
         { kind: 'key', value: 'm' },
-        { kind: 'fill', role: 'textbox', name: 'Merchant name', value: 'Destination Shop' },
-        { kind: 'click', role: 'button', name: 'Save pending change' },
+        { kind: 'fill', role: 'combobox', name: 'Merchant', value: 'Destination Shop' },
+        { kind: 'wait', role: 'listbox', name: 'Merchant' },
+        { kind: 'wait', role: 'button', name: 'Stage change to 2 transactions' },
+        { kind: 'key', value: 'Enter' },
+        { kind: 'key', value: 'Enter' },
       )
       changed = { merchant: 'Destination Shop' }
       break
     case 1:
       actions.push(
         { kind: 'key', value: 'c' },
-        { kind: 'fill', role: 'searchbox', name: 'Filter categories', value: 'Heal' },
-        { kind: 'wait', role: 'combobox', name: 'Category: Health' },
-        { kind: 'key', value: 'Enter' },
+        { kind: 'fill', role: 'combobox', name: 'Category', value: 'Health' },
+        { kind: 'click', role: 'button', name: 'Stage change to 2 transactions' },
       )
       changed = { category: 'Health' }
       break
