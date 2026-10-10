@@ -86,10 +86,15 @@ async function expectChartRow(charts: Locator, layout: 'beside' | 'stacked'): Pr
   expect(cashflow.width / panel.width).toBeCloseTo(2, 0)
 }
 
-test('Trend and vs prior fill grouped rows and the table fits from 1024 px, Charts on or off', async ({
+test('Trend and vs prior fill grouped rows, and from 900 px columns drop instead of scrolling', async ({
   page,
   server,
 }) => {
+  const series: number[] = []
+  page.on('request', (request) => {
+    const rows = request.url().endsWith('/view/insights') && request.postDataJSON()?.rows
+    if (rows) series.push(rows.length)
+  })
   await page.setViewportSize({ width: 1440, height: 900 })
   await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-09-01&to=2026-09-30&v=1')
   const grid = page.getByRole('grid', { name: 'Financial results' })
@@ -105,21 +110,54 @@ test('Trend and vs prior fill grouped rows and the table fits from 1024 px, Char
   const sparkline = cell(megastore, 'trend').locator('svg')
   await expect(sparkline).toHaveAttribute('aria-hidden', 'true')
   await expect(sparkline.locator('polyline')).toHaveCount(1)
+  const requested = series.length
+  expect(requested).toBeGreaterThan(0)
 
   const workspace = page.locator('.mf-workspace')
   const toggle = page.getByRole('switch', { name: 'Charts' })
-  for (const width of [1440, 1280, 1024]) {
+  const shownKeys = async () =>
+    grid
+      .locator('.mf-table__header [data-column]')
+      .evaluateAll((cells) => cells.map((node) => (node as HTMLElement).dataset['column']))
+  for (const width of [1440, 1280, 1024, 960, 900]) {
     await page.setViewportSize({ width, height: 900 })
     for (const charts of [true, false]) {
       await toggle.setChecked(charts)
       await expect(page.getByRole('region', { name: 'Charts' })).toHaveCount(charts ? 1 : 0)
-      const overflow = await workspace.evaluate((node) => node.scrollWidth - node.clientWidth)
-      expect(overflow, `${width} px, Charts ${charts ? 'on' : 'off'}`).toBe(0)
+      const context = `${width} px, Charts ${charts ? 'on' : 'off'}`
+      await expect
+        .poll(() => workspace.evaluate((node) => node.scrollWidth - node.clientWidth), {
+          message: context,
+        })
+        .toBe(0)
       const shown = (await workspace.boundingBox())!
-      const last = (await header('vs_prior').boundingBox())!
-      expect(last.x + last.width).toBeLessThanOrEqual(shown.x + shown.width)
+      const last = (await header('net').boundingBox())!
+      expect(last.x + last.width, context).toBeLessThanOrEqual(shown.x + shown.width)
+      // Every row has a cell under every header.
+      const keys = await shownKeys()
+      const cells = await megastore
+        .locator('[role="gridcell"]')
+        .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset['column']))
+      expect(cells, context).toEqual(keys)
     }
+    const keys = await shownKeys()
+    if (width >= 1280) expect(keys).toContain('context')
+    if (width === 1024) {
+      expect(keys).not.toContain('context')
+      expect(keys.slice(-2)).toEqual(['trend', 'vs_prior'])
+    }
+    if (width === 900) expect(keys).not.toContain('trend')
   }
+  // Trend comes back from the cached series, without asking the server again.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(header('context')).toHaveText('Top category')
+  await expect(sparkline.locator('polyline')).toHaveCount(1)
+  expect(series).toHaveLength(requested)
+
+  // The longest everyday label, the partial year's, fits its header.
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-01-01&to=2026-12-31&v=1')
+  await expect(header('vs_prior')).toHaveText('vs 2025 to date')
+  expect(await header('vs_prior').evaluate((node) => node.scrollWidth - node.clientWidth)).toBe(0)
 
   // All has no prior range, so only Trend joins the grouped columns.
   await openMoneyflow(page, server)

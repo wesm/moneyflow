@@ -1,6 +1,6 @@
 import type { InsightsResponse, InsightsSeries } from '../api/client'
 import type { components } from '../api/schema'
-import { maxMagnitude, ratioBasisPoints } from '../charts/scale'
+import { maxMagnitude, ratioBasisPoints, stopShort } from '../charts/scale'
 import type { InsightsCache } from '../insights/cache.svelte'
 
 type TrendMonth = components['schemas']['InsightsPeriodRange']
@@ -10,6 +10,8 @@ export const SPARK_WIDTH = 56
 export const SPARK_HEIGHT = 24
 /** Room at every edge for the last month's dot. */
 const INSET = 2.5
+/** The radius of the last month's dot. */
+export const END_RADIUS = 2
 
 export interface SparkPoint {
   readonly x: number
@@ -61,11 +63,16 @@ export function sparkline(trend: readonly string[], months: readonly TrendMonth[
   }
   const last = months.length - 1
   const final = present(last) ? segments.at(-1)?.at(-1) : undefined
-  return {
-    zero,
-    segments,
-    ...(final ? { end: { ...final, hollow: months[last]?.partial === true } } : {}),
+  if (final === undefined) return { zero, segments }
+  const hollow = months[last]?.partial === true
+  const tail = segments.at(-1)
+  const before = tail?.at(-2)
+  // The line stops at a hollow dot's ring, so the ring stays empty on any row tint.
+  if (hollow && tail && before) {
+    const stop = stopShort(before, final, END_RADIUS)
+    tail[tail.length - 1] = { x: rounded(stop.x), y: rounded(stop.y) }
   }
+  return { zero, segments, end: { ...final, hollow } }
 }
 
 /** What the grouped table reads from the displayed view's insights. */

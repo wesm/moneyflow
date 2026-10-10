@@ -2,7 +2,7 @@ import type { InsightsResponse, InsightsSeries, ViewProjection } from '../api/cl
 import type { InsightsEntry } from '../insights/cache.svelte'
 import { formatMinor, parseMinor } from '../money/format'
 import { dayLabel, MONTHS, type Period } from '../shell/period'
-import { maxMagnitude, ratioBasisPoints } from './scale'
+import { maxMagnitude, ratioBasisPoints, stopShort, type Point } from './scale'
 
 type ContextPeriod = InsightsResponse['ranges']['context'][number]
 type Cashflow = NonNullable<InsightsResponse['summary']>['cashflow']
@@ -191,8 +191,34 @@ export function cashflowGeometry(
   const scale = scaleOf(cashflow, height)
   const layout = { cashflow, ranges, digits, scale, slot: count === 0 ? 0 : width / count }
   const columns = ranges.context.map((period, index) => columnAt(layout, period, index))
-  const points = columns.map((column) => `${column.x + column.width / 2},${column.netY}`)
-  return { columns, zeroY: scale.zeroY, netPath: points.length ? `M${points.join('L')}` : '' }
+  return { columns, zeroY: scale.zeroY, netPath: netPath(columns) }
+}
+
+/** The radius of each column's Net dot. */
+export const NET_DOT_RADIUS = 2.5
+
+/** The Net line through the columns' dots; it stops at a partial period's hollow ring. */
+function netPath(columns: readonly ColumnGeometry[]): string {
+  const dots = columns.map((column) => ({
+    x: column.x + column.width / 2,
+    y: column.netY,
+    hollow: column.partial,
+  }))
+  const text = (point: Point) => `${point.x},${point.y}`
+  if (dots.length === 1 && dots[0]) return `M${text(dots[0])}`
+  let path = ''
+  let pen: Point | undefined
+  dots.forEach((to, index) => {
+    const from = dots[index - 1]
+    if (from === undefined) return
+    const start = from.hollow ? stopShort(to, from, NET_DOT_RADIUS) : from
+    const end = to.hollow ? stopShort(from, to, NET_DOT_RADIUS) : to
+    // Lines meet at a solid dot; a hollow dot's ring breaks the line.
+    if (pen !== start) path += `M${text(start)}`
+    path += `L${text(end)}`
+    pen = end
+  })
+  return path
 }
 
 /** The cursor's bars inside each column, on the chart's scale for the same `height`. */

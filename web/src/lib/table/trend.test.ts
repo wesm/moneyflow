@@ -6,6 +6,7 @@ import { InsightsCache } from '../insights/cache.svelte'
 import { testInsights, testSeries } from '../../test/insights'
 import { testProjection } from '../../test/projection'
 import {
+  END_RADIUS,
   rowSeries,
   sparkline,
   SPARK_HEIGHT,
@@ -81,12 +82,28 @@ describe('sparkline', () => {
     expect(line.segments[0]!.every((point) => point.y === zero)).toBe(true)
   })
 
+  const trend = [...Array<string>(11).fill('-100'), '-20']
+  const full = sparkline(trend, months())
+
   it('marks the last month hollow only when it is partial', () => {
-    const trend = [...Array<string>(11).fill('-100'), '-20']
-    expect(sparkline(trend, months()).end).toMatchObject({ hollow: false })
+    expect(full.end).toMatchObject({ hollow: false })
     const partial = sparkline(trend, months(0, true))
-    expect(partial.end).toMatchObject({ hollow: true })
-    expect(partial.end).toMatchObject(partial.segments[0]![11]!)
+    expect(partial.end).toMatchObject({ hollow: true, x: full.end!.x, y: full.end!.y })
+  })
+
+  it('stops the line at the hollow dot’s ring, so the ring stays empty', () => {
+    const solid = sparkline(trend, months())
+    const hollow = sparkline(trend, months(0, true))
+    const [before, end] = solid.segments[0]!.slice(-2)
+    const stop = hollow.segments[0]!.at(-1)!
+    // The line still heads for the dot, but ends END_RADIUS short of its center.
+    expect(Math.hypot(end!.x - stop.x, end!.y - stop.y)).toBeCloseTo(END_RADIUS, 1)
+    expect(Math.hypot(stop.x - before!.x, stop.y - before!.y)).toBeCloseTo(
+      Math.hypot(end!.x - before!.x, end!.y - before!.y) - END_RADIUS,
+      1,
+    )
+    expect(solid.segments[0]!.at(-1)).toEqual(end)
+    expect(hollow.segments[0]!.slice(0, -1)).toEqual(solid.segments[0]!.slice(0, -1))
   })
 
   it('draws nothing when every month is absent', () => {

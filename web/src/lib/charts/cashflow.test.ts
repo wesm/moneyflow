@@ -9,6 +9,7 @@ import {
   cashflowGeometry,
   cursorGeometry,
   dashZero,
+  NET_DOT_RADIUS,
   rangeAnchor,
   rowAmounts,
   scopeFromColumns,
@@ -143,6 +144,9 @@ describe('cashflowGeometry', () => {
     )
     expect(custom.columns.map((column) => column.inScope)).toEqual([true, true, false])
     expect(custom.columns.map((column) => column.partial)).toEqual([false, false, true])
+
+    // The Net line stops at the ring of the partial period's hollow dot.
+    expect(custom.netPath).toBe(`M50,50L150,50L${250 - NET_DOT_RADIUS},50`)
 
     const everything = entry(context, flow, { kind: 'all' })
     delete everything.response.ranges.scope

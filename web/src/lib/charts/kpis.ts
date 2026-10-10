@@ -1,25 +1,16 @@
 import type { components } from '../api/schema'
 import type { InsightsEntry } from '../insights/cache.svelte'
+import { priorChange, type PriorChange } from '../insights/change'
 import { formatMinor } from '../money/format'
 import { tenthsPercent } from '../table/cells'
 
 type Change = components['schemas']['InsightsChange']
 
-export type KpiTone = 'favorable' | 'unfavorable' | 'neutral'
-
-/** A change against the comparison range, such as `▲ 4.1%`, colored by its tone. */
-export interface KpiChange {
-  readonly text: string
-  /** What a screen reader hears instead of the glyphs, such as `up 4.1% vs Aug`. */
-  readonly spoken: string
-  readonly tone: KpiTone
-}
-
 export interface KpiTile {
   readonly key: 'income' | 'spending' | 'net' | 'savings' | 'average' | 'transactions'
   readonly label: string
   readonly value: string
-  readonly change?: KpiChange
+  readonly change?: PriorChange
   /** A quiet line under the value, such as `12 hidden · 3 bank-pending`. */
   readonly detail?: string
 }
@@ -83,33 +74,6 @@ export function kpiTiles(
   const detail = counts.length > 0 ? { detail: counts.join(' · ') } : {}
   tiles.push({ key: 'transactions', label: 'Transactions', value: count(scope.count), ...detail })
   return tiles
-}
-
-/**
- * The spec's vs prior display rules, shared by the KPI changes and the table's vs prior column.
- * `label` names the comparison, such as `vs Aug`. An amount change without its amount shows
- * nothing rather than an invented zero.
- */
-export function priorChange(change: Change, scale: number, label: string): KpiChange | undefined {
-  const tone = change.favorable ? 'favorable' : 'unfavorable'
-  switch (change.kind) {
-    case 'none':
-      return { text: '—', spoken: `no change ${label}`, tone: 'neutral' }
-    case 'new':
-      return { text: 'new', spoken: `new ${label}`, tone }
-    case 'amount': {
-      if (change.amount === undefined) return undefined
-      const text = formatMinor(change.amount, scale)
-      return { text, spoken: `${text} ${label}`, tone }
-    }
-    case 'percent': {
-      const percent = tenthsPercent(change.percent_tenths)
-      // A change that rounds to 0.0% has no direction worth an arrow.
-      if (change.percent_tenths === 0) return { text: percent, spoken: `${percent} ${label}`, tone }
-      const [arrow, direction] = change.grew ? ['▲', 'up'] : ['▼', 'down']
-      return { text: `${arrow} ${percent}`, spoken: `${direction} ${percent} ${label}`, tone }
-    }
-  }
 }
 
 /** In and Out show a dash for zero. */

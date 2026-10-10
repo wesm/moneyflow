@@ -7,9 +7,11 @@
   import type { ViewProjection } from '../../lib/api/client'
   import type { components } from '../../lib/api/schema'
   import { incomeDivider } from '../../lib/table/cells'
+  import { ColumnRoom } from '../../lib/table/column-room.svelte'
   import {
     columnsAtWidth,
     columnsFor,
+    columnsThatFit,
     compactColumnCount,
     compactLayout,
     WIDE_COLUMNS_QUERY,
@@ -89,7 +91,9 @@
   const height = $derived(rowHeight(compact))
   const wide = new MediaQuery(WIDE_COLUMNS_QUERY)
   const comparison = $derived(insights?.response?.ranges.comparison_label)
-  const columns = $derived(columnsAtWidth(columnsFor(projection, comparison), wide.current))
+  const room = new ColumnRoom(() => scroller)
+  const all = $derived(columnsAtWidth(columnsFor(projection, comparison), wide.current))
+  const columns = $derived(columnsThatFit(all, room.rem))
   const layout = $derived(compact ? compactLayout(projection) : undefined)
   const cellColumns = $derived(columns.filter((column) => column.key !== 'select'))
   const trackSizes = $derived(columns.map((column) => column.width).join(' '))

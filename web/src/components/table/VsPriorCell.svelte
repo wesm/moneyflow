@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { priorChange } from '../../lib/charts/kpis'
+  import { priorChange } from '../../lib/insights/change'
   import type { RowSeries } from '../../lib/table/trend'
 
   interface Props {

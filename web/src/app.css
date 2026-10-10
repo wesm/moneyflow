@@ -1072,7 +1072,9 @@ input {
   overflow: visible;
 }
 .mf-trend__zero {
-  stroke: var(--border-default);
+  /* Stronger than a border, so the line still shows on the dark theme's rows. */
+  stroke: var(--text-muted);
+  stroke-opacity: 0.45;
 }
 .mf-trend__line {
   fill: none;
@@ -1084,7 +1086,7 @@ input {
   fill: var(--text-secondary);
 }
 .mf-trend__end--hollow {
-  fill: var(--bg-primary);
+  fill: none;
   stroke: var(--text-secondary);
 }
 .mf-table__cell > .mf-skeleton {
@@ -1587,7 +1589,7 @@ input {
   fill: var(--text-secondary);
 }
 .mf-cashflow__dot--partial {
-  fill: var(--bg-primary);
+  fill: none;
   stroke: var(--text-secondary);
 }
 .mf-cashflow-tip {

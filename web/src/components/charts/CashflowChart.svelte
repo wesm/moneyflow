@@ -3,6 +3,7 @@
   import {
     cashflowGeometry,
     cursorGeometry,
+    NET_DOT_RADIUS,
     rangeAnchor,
     rowAmounts,
     scopeFromColumns,
@@ -134,7 +135,7 @@
             class={['mf-cashflow__dot', column.partial && 'mf-cashflow__dot--partial']}
             cx={column.x + column.width / 2}
             cy={column.netY}
-            r="2.5"
+            r={NET_DOT_RADIUS}
           />
         {/each}
       </svg>

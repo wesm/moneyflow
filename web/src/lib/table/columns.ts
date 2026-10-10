@@ -36,20 +36,28 @@ export interface Column {
   width: string
   /** The column shows only at or above this viewport width. */
   minWidth?: 760
+  /** The track's minimum in rem from 760 px, which `columnsThatFit` adds up. */
+  min?: number
+  /** When the minimums overflow the workspace, columns drop in this order; others stay. */
+  dropOrder?: 1 | 2
 }
 
 /** Metric columns narrow below 760 px (app.css), so Net still fits at 641 px. */
 const METRIC_WIDTH = 'var(--mf-metric-width)'
+/** `--mf-metric-width` from 760 px, in rem. */
+const METRIC_MIN = 6.5
 const SELECT: Column = {
   key: 'select',
   label: 'Select all matching',
   align: 'start',
   width: '2rem',
+  min: 2,
 }
 const NARROWED_DIMENSIONS = ['merchant', 'category', 'account'] as const
 
 function metric(key: ColumnKey, label: string, sortField?: SortField): Column {
-  return { key, label, align: 'end', width: METRIC_WIDTH, ...(sortField ? { sortField } : {}) }
+  const sort = sortField ? { sortField } : {}
+  return { key, label, align: 'end', width: METRIC_WIDTH, min: METRIC_MIN, ...sort }
 }
 
 function capitalized(text: string): string {
@@ -57,22 +65,24 @@ function capitalized(text: string): string {
 }
 
 /**
+ * Room in rem for the vs prior header, such as `vs Feb 7 – Mar 9`, so it is never cut off: about
+ * 0.36 rem per character of the small header font plus the cell's padding, in quarter rems, and
+ * never narrower than the cells' 5.5 rem.
+ */
+function labelRem(label: string): number {
+  return Math.max(5.5, Math.ceil(([...label].length * 0.36 + 1) * 4) / 4)
+}
+
+/**
  * The insights columns of a grouped view: Trend, and vs prior unless the scope is All, which
  * has no prior range. Neither is sortable.
  */
 function insightColumns(compared: boolean, comparisonLabel: string): Column[] {
-  const trend: Column = {
-    key: 'trend',
-    label: 'Trend',
-    align: 'end',
-    width: '4.5rem',
-    minWidth: 760,
-  }
+  const shared = { align: 'end', minWidth: 760, dropOrder: 2 } as const
+  const trend: Column = { key: 'trend', label: 'Trend', width: '4.5rem', min: 4.5, ...shared }
   if (!compared) return [trend]
-  return [
-    trend,
-    { key: 'vs_prior', label: comparisonLabel, align: 'end', width: '5.5rem', minWidth: 760 },
-  ]
+  const min = labelRem(comparisonLabel)
+  return [trend, { key: 'vs_prior', label: comparisonLabel, width: `${min}rem`, min, ...shared }]
 }
 
 function groupedColumns(dimension: string): Column[] {
@@ -81,8 +91,8 @@ function groupedColumns(dimension: string): Column[] {
     label: capitalized(dimension),
     sortField: dimension as SortField,
     align: 'start',
-    // Name and Context minimums leave every grouped column room at 1024 px beside the icon rail.
-    width: 'minmax(9rem, 2fr)',
+    width: 'minmax(10rem, 2fr)',
+    min: 10,
   }
   const contextLabel = { merchant: 'Top category', category: 'Group' }[dimension]
   const context: Column[] = contextLabel
@@ -91,8 +101,10 @@ function groupedColumns(dimension: string): Column[] {
           key: 'context',
           label: contextLabel,
           align: 'start',
-          width: 'minmax(5.5rem, 1fr)',
+          width: 'minmax(7rem, 1fr)',
           minWidth: 760,
+          min: 7,
+          dropOrder: 1,
         },
       ]
     : []
@@ -104,7 +116,7 @@ function groupedColumns(dimension: string): Column[] {
     metric('in', 'In'),
     metric('out', 'Out'),
     metric('net', 'Net', 'amount'),
-    { key: 'share', label: 'Share', align: 'end', width: METRIC_WIDTH },
+    { key: 'share', label: 'Share', align: 'end', width: METRIC_WIDTH, min: METRIC_MIN },
   ]
 }
 
@@ -190,6 +202,27 @@ export const WIDE_COLUMNS_QUERY = '(min-width: 760px)'
 /** The columns that fit: a column with a `minWidth` drops out unless the viewport is `wide`. */
 export function columnsAtWidth(columns: Column[], wide: boolean): Column[] {
   return columns.filter((column) => column.minWidth === undefined || wide)
+}
+
+/** The viewport widths at which `columnsThatFit` drops columns instead of scrolling sideways. */
+export const FIT_COLUMNS_QUERY = '(min-width: 900px)'
+
+function minimum(columns: readonly Column[]): number {
+  return columns.reduce((total, column) => total + (column.min ?? 0), 0)
+}
+
+/**
+ * The columns whose minimum widths fit in `room` rem: Context drops first, then Trend and vs
+ * prior together. Everything stays when `room` is unknown. Only grouped columns can drop.
+ */
+export function columnsThatFit(columns: Column[], room: number | undefined): Column[] {
+  if (room === undefined) return columns
+  let shown = columns
+  for (const order of [1, 2] as const) {
+    if (minimum(shown) <= room) break
+    shown = shown.filter((column) => column.dropOrder !== order)
+  }
+  return shown
 }
 
 /** Phone rows' cells in reading order. A phone header shows two of them, so cells are numbered. */

@@ -29,6 +29,13 @@ const detailView: ViewProjection['view'] = {
   sort_fields: ['date', 'merchant', 'category', 'account', 'amount'],
 }
 
+/** A Sep 2026 scope, which has an August comparison. */
+const septemberFilters: ViewProjection['filters'] = {
+  show_hidden: false,
+  show_transfers: false,
+  date_range: { from: '2026-09-01', to: '2026-09-30' },
+}
+
 function grouped(overrides: Partial<ViewProjection> = {}): ViewProjection {
   return testProjection({
     view: {
@@ -45,22 +52,27 @@ function grouped(overrides: Partial<ViewProjection> = {}): ViewProjection {
   })
 }
 
+const september = grouped({ filters: septemberFilters })
+
 /** Header text; the selection header holds only the "Select all matching" box. */
 const headers = () =>
   screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())
 const cell = (row: HTMLElement, key: string) =>
   row.querySelector<HTMLElement>(`[role="gridcell"][data-column="${key}"]`)
 
-/** Matches `(min-width: 760px)` while `wide` is true, as the window would. */
+/** Matches `(min-width: 760px)` while `wide` is true and `(min-width: 900px)` while `roomy` is. */
 let wide = true
+let roomy = false
 const matchMedia = window.matchMedia
 beforeEach(() => {
   wide = true
+  roomy = false
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: (query: string) => ({
       ...matchMedia(query),
-      matches: query === '(min-width: 760px)' && wide,
+      matches:
+        (query === '(min-width: 760px)' && wide) || (query === '(min-width: 900px)' && roomy),
     }),
   })
 })
@@ -643,13 +655,6 @@ describe('FinanceGrid', () => {
   })
 
   it('draws Trend and vs prior from the row series and names the comparison', async () => {
-    const september = grouped({
-      filters: {
-        show_hidden: false,
-        show_transfers: false,
-        date_range: { from: '2026-09-01', to: '2026-09-30' },
-      },
-    })
     const loaded = new Map<string, InsightsSeries>()
     const insights = (): RowInsights => ({
       response: testInsights(),
@@ -665,8 +670,15 @@ describe('FinanceGrid', () => {
     })
     expect(headers().slice(-2)).toEqual(['Trend', 'vs Aug'])
     const row = screen.getByRole('row', { name: /Example Merchant/ })
-    const text = () => row.textContent?.replace(/\s+/g, ' ').trim()
-    const before = text()
+    /** The row's accessible name, as a screen reader announces it. */
+    const spoken = () => {
+      let name = ''
+      screen.getByRole('row', {
+        name: (accessible, element) => (element === row ? ((name = accessible), true) : false),
+      })
+      return name
+    }
+    const before = spoken()
     expect(cell(row, 'trend')?.querySelector('.mf-skeleton')).not.toBeNull()
     expect(cell(row, 'vs_prior')?.querySelector('.mf-skeleton')).not.toBeNull()
 
@@ -679,15 +691,38 @@ describe('FinanceGrid', () => {
     expect(cell(row, 'vs_prior')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
       '▲ 20.0% up 20.0% vs Aug',
     )
-    // The sparkline adds nothing to what the row says.
-    expect(text()).toBe(`${before} ▲ 20.0% up 20.0% vs Aug`)
+    // The sparkline and the glyphs add nothing to what the row says; vs prior adds its words.
+    expect(spoken()).toBe(`${before} up 20.0% vs Aug`)
   })
 
+  const columnKeys = () =>
+    screen.getAllByRole('columnheader').map((header) => header.dataset['column'])
+
   it('drops Context, Trend, and vs prior below 760 px', () => {
+    render(FinanceGrid, { projection: september, cursorIndex: 0, compact: false, ...callbacks() })
+    expect(columnKeys()).toContain('vs_prior')
+    cleanup()
     wide = false
-    render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: false, ...callbacks() })
-    const keys = screen.getAllByRole('columnheader').map((header) => header.dataset['column'])
-    expect(keys).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
+    render(FinanceGrid, { projection: september, cursorIndex: 0, compact: false, ...callbacks() })
+    expect(columnKeys()).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
+  })
+
+  it('from 900 px drops the columns that overflow the scroller instead of scrolling', () => {
+    roomy = true
+    const scroller = document.createElement('div')
+    // 56 rem at a 16 px root: Context drops, Trend and vs prior still fit.
+    Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: 56 * 16 })
+    document.documentElement.style.fontSize = '16px'
+    const props = { projection: september, cursorIndex: 0, compact: false, scroller }
+    render(FinanceGrid, { ...props, ...callbacks() })
+    const keys = ['select', 'name', 'count', 'in', 'out', 'net', 'share']
+    expect(columnKeys()).toEqual([...keys, 'trend', 'vs_prior'])
+    const row = screen.getByRole('row', { name: /Example Merchant/ })
+    expect(cell(row, 'context')).toBeNull()
+    cleanup()
+    Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: 50 * 16 })
+    render(FinanceGrid, { ...props, ...callbacks() })
+    expect(columnKeys()).toEqual(keys)
   })
 
   describe('scrolling through every row of the result', () => {

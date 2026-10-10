@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { sparkline, SPARK_HEIGHT, SPARK_WIDTH, type RowSeries } from '../../lib/table/trend'
+  import {
+    END_RADIUS,
+    sparkline,
+    SPARK_HEIGHT,
+    SPARK_WIDTH,
+    type RowSeries,
+  } from '../../lib/table/trend'
 
   interface Props {
     series: RowSeries
@@ -35,7 +41,7 @@
         class={['mf-trend__end', line.end.hollow && 'mf-trend__end--hollow']}
         cx={line.end.x}
         cy={line.end.y}
-        r="2"
+        r={END_RADIUS}
       />
     {/if}
   </svg>
