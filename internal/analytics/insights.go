@@ -258,7 +258,7 @@ func validateInsightsKeys(keys []string, grouping domain.Dimension) error {
 // effectiveScope removes date bounds from the filter query and folds any time drill-down into
 // the scope, so a drill into September of 2026 scopes the charts to that month. A drill-down
 // outside the date range leaves an empty view, as in the table: the scope stays the date range
-// and the drill-down keeps filtering every range.
+// and the filter keeps both the date range and the drill-down, so they exclude every row.
 func effectiveScope(query domain.QuerySpec) (domain.QuerySpec, *domain.DateRange, error) {
 	base := query.Clone()
 	base.DateRange = nil
@@ -275,7 +275,7 @@ func effectiveScope(query domain.QuerySpec) (domain.QuerySpec, *domain.DateRange
 		}
 		narrowed, overlaps := intersectScope(scope, domain.DateRange{Start: start, End: end})
 		if !overlaps {
-			return base, query.Clone().DateRange, nil
+			return query.Clone(), query.Clone().DateRange, nil
 		}
 		scope = narrowed
 	}
