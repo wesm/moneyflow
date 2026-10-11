@@ -105,7 +105,9 @@ downstream code receives its root just as it does any other profile.
 Selection resolves ID/key first, then a unique normalized display name. Without an explicit choice,
 CLI commands use the sole persistent profile only when exactly one exists. Interactive commands
 provide the selector. Temporary demo/fixture profiles are unregistered and never reuse the default
-financial profile.
+financial profile. The web selector's demo lives in a `moneyflow-v2-demo-*` directory under the
+private catalog root, so it needs no private system temporary directory. The web server keeps it
+open, never idle-closes it, and removes it on shutdown.
 
 [Home locks][source-7] are OS advisory locks, not marker-file ownership guesses.
 Acquire catalog before profile lifecycle when both are needed, then the operation-specific lock.

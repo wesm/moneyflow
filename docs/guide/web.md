@@ -11,6 +11,10 @@ instead, so a demo starts even while another server holds port 8080. With `--ext
 keeps `127.0.0.1:8080` so the proxy has a fixed target. `--listen` sets the host and port in every
 case.
 
+**Unreleased:** The profile selector's **Demo** entry, or `d`, opens the same synthetic household
+as `--demo` without restarting the server. Its data and edits stay separate from saved profiles.
+Edits last until the server stops, which deletes the demo.
+
 Keyboard-driven refinement remains central: grouping, drill/back, search, selection, edits and
 review use the [shared workflows](navigation.md). Text fields and overlays own their keys while
 focused. Browser navigation retains analytical view state, not transient selection. The

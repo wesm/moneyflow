@@ -117,7 +117,8 @@ func TestHandlerPreselectionRedirectsBaseAndIssuesProfileScopedHTMLToken(t *test
 	)
 	require.NoError(t, err)
 	handler, err := newHandler(
-		"/moneyflow/", testDistribution(), origin, security, false, profileID,
+		"/moneyflow/", testDistribution(), origin, security, false,
+		profileRoutes{preselectedID: profileID},
 	)
 	require.NoError(t, err)
 
@@ -132,6 +133,42 @@ func TestHandlerPreselectionRedirectsBaseAndIssuesProfileScopedHTMLToken(t *test
 	match := mutationTokenMetaPattern.FindStringSubmatch(profile.Body.String())
 	require.Len(t, match, 2)
 	require.NoError(t, security.Verify(match[1], profileID))
+}
+
+func TestHandlerDemoRouteRedirectsToTheTemporaryProfile(t *testing.T) {
+	t.Parallel()
+	demoID := "profile_bbbbbbbbbbbbbbbbbbbbbbbbba"
+	origin, err := api.ResolveOrigin("example.com:80", "/moneyflow/", "")
+	require.NoError(t, err)
+	security, err := api.NewMutationSecurity(
+		origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), nil,
+	)
+	require.NoError(t, err)
+	handler, err := newHandler(
+		"/moneyflow/", testDistribution(), origin, security, false,
+		profileRoutes{demoID: demoID},
+	)
+	require.NoError(t, err)
+
+	redirect := request(t, handler, http.MethodGet, "/moneyflow/demo/", "text/html")
+	assert.Equal(t, http.StatusTemporaryRedirect, redirect.Code)
+	assert.Equal(t, "/moneyflow/p/"+demoID+"/", redirect.Header().Get("Location"))
+	selector := request(t, handler, http.MethodGet, "/moneyflow/", "text/html")
+	assert.Equal(t, http.StatusOK, selector.Code, "a demo route must not preselect the demo")
+	profile := request(t, handler, http.MethodGet, "/moneyflow/p/"+demoID+"/", "text/html")
+	require.Equal(t, http.StatusOK, profile.Code)
+	match := mutationTokenMetaPattern.FindStringSubmatch(profile.Body.String())
+	require.Len(t, match, 2)
+	require.NoError(t, security.Verify(match[1], demoID))
+
+	withoutDemo := newTestHandler(t, "/moneyflow/")
+	missing := request(t, withoutDemo, http.MethodGet, "/moneyflow/demo/", "text/html")
+	assert.Equal(t, http.StatusNotFound, missing.Code)
+	_, err = newHandler(
+		"/moneyflow/", testDistribution(), origin, security, false,
+		profileRoutes{demoID: "profile_demo"},
+	)
+	require.Error(t, err)
 }
 
 func TestHandlerRejectsUnsafePathsAndMethods(t *testing.T) {
@@ -170,7 +207,9 @@ func TestHandlerWarnsOnDirectListenerAndLinksCanonicalOrigin(t *testing.T) {
 		origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), nil,
 	)
 	require.NoError(t, err)
-	handler, err := newHandler("/moneyflow", testDistribution(), origin, security, true, "")
+	handler, err := newHandler(
+		"/moneyflow", testDistribution(), origin, security, true, profileRoutes{},
+	)
 	require.NoError(t, err)
 
 	direct := request(t, handler, http.MethodGet, "/moneyflow/", "text/html")
@@ -201,7 +240,9 @@ func newTestHandler(t testing.TB, basePath string) http.Handler {
 		origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), nil,
 	)
 	require.NoError(t, err)
-	handler, err := newHandler(basePath, testDistribution(), origin, security, false, "")
+	handler, err := newHandler(
+		basePath, testDistribution(), origin, security, false, profileRoutes{},
+	)
 	require.NoError(t, err)
 	return handler
 }

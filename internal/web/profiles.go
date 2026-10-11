@@ -300,7 +300,8 @@ func (registry *ProfileRegistry) CloseIdle(ctx context.Context) error {
 	now := registry.now()
 	ids := make([]string, 0)
 	for id, entry := range registry.entries {
-		if !entry.opening && !entry.evicting && entry.refs == 0 &&
+		// Closing a temporary profile deletes it, so it stays open until shutdown.
+		if !entry.opening && !entry.evicting && !entry.profile.Temporary && entry.refs == 0 &&
 			now.Sub(entry.lastUsed) >= registry.idleTimeout {
 			ids = append(ids, id)
 		}

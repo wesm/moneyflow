@@ -32,7 +32,15 @@ type handler struct {
 	origin           api.OriginConfig
 	security         *api.MutationSecurity
 	warnNonCanonical bool
-	preselectedID    string
+	routes           profileRoutes
+}
+
+// profileRoutes names the profiles the server routes browsers to without the selector.
+type profileRoutes struct {
+	// preselectedID receives the base path instead of the profile selector.
+	preselectedID string
+	// demoID receives the selector's demo/ route.
+	demoID string
 }
 
 // NewHandler constructs the static application handler from the generated production assets.
@@ -45,7 +53,7 @@ func NewHandler(basePath string) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new web handler security: %w", err)
 	}
-	return newHandler(basePath, embeddedDistribution, origin, security, false, "")
+	return newHandler(basePath, embeddedDistribution, origin, security, false, profileRoutes{})
 }
 
 func newHandler(
@@ -54,7 +62,7 @@ func newHandler(
 	origin api.OriginConfig,
 	security *api.MutationSecurity,
 	warnNonCanonical bool,
-	preselectedID string,
+	routes profileRoutes,
 ) (http.Handler, error) {
 	normalized, err := api.NormalizeBasePath(basePath)
 	if err != nil {
@@ -67,12 +75,15 @@ func newHandler(
 	if origin.Canonical == nil || origin.BasePath != normalized || security == nil {
 		return nil, errors.New("new web handler: bootstrap configuration is invalid")
 	}
-	if preselectedID != "" && !profilecatalog.ValidProfileID(preselectedID) {
+	if routes.preselectedID != "" && !profilecatalog.ValidProfileID(routes.preselectedID) {
 		return nil, errors.New("new web handler: preselected profile ID is invalid")
+	}
+	if routes.demoID != "" && !profilecatalog.ValidProfileID(routes.demoID) {
+		return nil, errors.New("new web handler: demo profile ID is invalid")
 	}
 	return &handler{
 		basePath: normalized, distribution: distribution, origin: origin,
-		security: security, warnNonCanonical: warnNonCanonical, preselectedID: preselectedID,
+		security: security, warnNonCanonical: warnNonCanonical, routes: routes,
 	}, nil
 }
 
@@ -96,9 +107,14 @@ func (handler *handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 		return
 	}
 	relative := strings.TrimPrefix(request.URL.Path, handler.basePath)
+	if relative == "demo/" && handler.routes.demoID != "" {
+		target := handler.basePath + "p/" + handler.routes.demoID + "/"
+		http.Redirect(response, request, target, http.StatusTemporaryRedirect)
+		return
+	}
 	if relative == "" {
-		if handler.preselectedID != "" {
-			target := handler.basePath + "p/" + handler.preselectedID + "/"
+		if handler.routes.preselectedID != "" {
+			target := handler.basePath + "p/" + handler.routes.preselectedID + "/"
 			location := (&url.URL{Path: target, RawQuery: request.URL.RawQuery}).RequestURI()
 			http.Redirect(response, request, location, http.StatusTemporaryRedirect)
 			return

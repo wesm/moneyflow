@@ -48,13 +48,15 @@ type ProfileOptions struct {
 	Demo         bool
 	ExplicitHome string
 	FixturePath  string
-	ProviderKind string
-	Profile      string
+	// TemporaryParent holds a demo's temporary root instead of the system temporary directory.
+	TemporaryParent string
+	ProviderKind    string
+	Profile         string
 }
 
 func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, error) {
 	if options.Demo || options.FixturePath != "" {
-		return openDemoProfile(ctx, options.FixturePath)
+		return openDemoProfile(ctx, options.FixturePath, options.TemporaryParent)
 	}
 	catalog, entry, exists, err := resolvePersistentSelection(
 		ctx, options.ExplicitHome, options.Profile,
@@ -218,24 +220,29 @@ func openProfileCatalog(explicitHome string) (*profilecatalog.Catalog, error) {
 	return catalog, nil
 }
 
-func openDemoProfile(ctx context.Context, fixturePath string) (OpenedProfile, error) {
-	root, err := os.MkdirTemp("", demoDirectoryPrefix)
+func openDemoProfile(ctx context.Context, fixturePath, parent string) (OpenedProfile, error) {
+	if parent == "" {
+		parent = os.TempDir()
+	} else if err := home.PreparePrivateRoot(parent); err != nil {
+		return OpenedProfile{}, fmt.Errorf("open demo profile: prepare temporary parent: %w", err)
+	}
+	root, err := os.MkdirTemp(parent, demoDirectoryPrefix)
 	if err != nil {
 		return OpenedProfile{}, fmt.Errorf("open demo profile: create temporary root: %w", err)
 	}
 	paths, err := home.ResolveRoot(root, nil, "")
 	if err != nil {
-		_ = removeOwnedTemporaryRoot(root, demoDirectoryPrefix)
+		_ = removeOwnedTemporaryRoot(root, demoDirectoryPrefix, parent)
 		return OpenedProfile{}, fmt.Errorf("open demo profile: %w", err)
 	}
 	profile, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
 	if err != nil {
-		_ = removeOwnedTemporaryRoot(root, demoDirectoryPrefix)
+		_ = removeOwnedTemporaryRoot(root, demoDirectoryPrefix, parent)
 		return OpenedProfile{}, fmt.Errorf("open demo profile: %w", err)
 	}
 	fail := func(cause error) (OpenedProfile, error) {
 		return OpenedProfile{}, errors.Join(
-			cause, profile.Close(), removeOwnedTemporaryRoot(root, demoDirectoryPrefix),
+			cause, profile.Close(), removeOwnedTemporaryRoot(root, demoDirectoryPrefix, parent),
 		)
 	}
 	service, err := seedDemoService(ctx, profile, fixturePath)
@@ -246,7 +253,7 @@ func openDemoProfile(ctx context.Context, fixturePath string) (OpenedProfile, er
 		ID: "profile_demo", DisplayName: "Demo", Service: service,
 		Close: idempotentClose(func() error {
 			return errors.Join(
-				profile.Close(), removeOwnedTemporaryRoot(root, demoDirectoryPrefix),
+				profile.Close(), removeOwnedTemporaryRoot(root, demoDirectoryPrefix, parent),
 			)
 		}),
 		Path:  paths.Database,
@@ -299,13 +306,13 @@ func openTemporaryContractProfile(ctx context.Context) (OpenedProfile, error) {
 	}
 	opened, err := openProfile(ctx, ProfileOptions{ExplicitHome: root})
 	if err != nil {
-		_ = removeOwnedTemporaryRoot(root, contractDirectoryPrefix)
+		_ = removeOwnedTemporaryRoot(root, contractDirectoryPrefix, os.TempDir())
 		return OpenedProfile{}, fmt.Errorf("open contract profile: %w", err)
 	}
 	closeProfile := opened.Close
 	opened.Close = idempotentClose(func() error {
 		return errors.Join(
-			closeProfile(), removeOwnedTemporaryRoot(root, contractDirectoryPrefix),
+			closeProfile(), removeOwnedTemporaryRoot(root, contractDirectoryPrefix, os.TempDir()),
 		)
 	})
 	return opened, nil
@@ -320,9 +327,9 @@ func idempotentClose(closeProfile func() error) func() error {
 	}
 }
 
-func removeOwnedTemporaryRoot(root string, prefix string) error {
+func removeOwnedTemporaryRoot(root, prefix, parent string) error {
 	clean := filepath.Clean(root)
-	temporary := filepath.Clean(os.TempDir())
+	temporary := filepath.Clean(parent)
 	if prefix == "" || filepath.Dir(clean) != temporary || !strings.HasPrefix(filepath.Base(clean), prefix) {
 		return errors.New("refuse to remove unowned temporary profile root")
 	}
