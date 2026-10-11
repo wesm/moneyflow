@@ -58,6 +58,9 @@ test('@smoke a narrow empty search view keeps Clear search reachable', async ({ 
   await withScenarioServer(info.outputPath('scenario'), async (server) => {
     await september(page, server)
     await page.setViewportSize({ width: 390, height: 844 })
+    // WebKit reports the phone media query after the resize resolves. Typing before it would
+    // go to the desktop field, which the phone layout then replaces mid-search.
+    await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible()
     await page.keyboard.press('/')
     await page
       .getByRole('searchbox', { name: 'Search transactions' })
