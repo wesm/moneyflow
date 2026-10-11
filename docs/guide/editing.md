@@ -208,11 +208,13 @@ changes and discards redo history. Esc returns without committing.
 
 **Unreleased:** In the browser, `w` or the pending-edits card's **Review** button opens **Review
 pending changes** as a large drawer. It lists each staged operation as its old and new value with
-the affected count. Select an operation to list its transactions 100 at a time, with each
-transaction's date, merchant, category, and amount in its currency. Enter commits
-unless focus is on a button or another control with its own Enter. Esc or **Cancel** closes the
-drawer without committing. For Monarch and YNAB, the same drawer becomes write status after the
-commit starts the provider write.
+the affected count. Each operation starts expanded and lists its first 20 transactions, with each
+transaction's date, merchant, category, and amount in its currency. When the operation changes
+a transaction's merchant, category, or visibility, the row shows that field's old and new value.
+**Show all N** loads the rest of a longer operation. Select an operation's heading to collapse
+or expand it. Enter commits unless focus is on a button or another control with its own Enter.
+Esc or **Cancel** closes the drawer without committing. For Monarch and YNAB, the same drawer
+becomes write status after the commit starts the provider write.
 
 **Unreleased:** The browser and TUI review name each hide operation by its direction:
 **Hide transactions** or **Show transactions**.
