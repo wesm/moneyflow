@@ -350,7 +350,6 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await expect(page.getByText(/1 pending edit/)).toBeVisible()
       await page.keyboard.press('w')
       const review = page.getByRole('dialog', { name: 'Review pending changes' })
-      await review.getByRole('button', { expanded: false }).first().click()
       await expect(review.getByRole('row').nth(1)).toBeVisible()
       await expectNoAxeViolations(page)
       await page.keyboard.press('Escape')

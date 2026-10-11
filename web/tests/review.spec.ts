@@ -3,14 +3,14 @@ import { expect, test } from '@playwright/test'
 import { activeAggregateCount, openMoneyflow } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
-test('review keeps redo separate, expands bounded targets, and commits its captured revision', async ({
+test('review keeps redo separate, lists affected rows, and commits its captured revision', async ({
   page,
 }) => {
   const server = await startE2EServer()
   try {
     await openMoneyflow(page, server)
     const affected = await activeAggregateCount(page, 2)
-    const pageSize = 100
+    const preview = 20
     await page.keyboard.press('h')
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await page.keyboard.press('u')
@@ -34,18 +34,22 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
     const commit = review.getByRole('button', { name: 'Commit reviewed changes' })
     await expect(commit).toBeFocused()
 
-    // Enter on a control with its own Enter does that action and does not commit.
+    // The operation starts expanded, with its first rows and Show all for the rest.
     const operation = review.getByRole('button', { name: /^Hide transactions/ })
+    await expect(operation).toHaveAttribute('aria-expanded', 'true')
+    await expect(review.getByRole('row')).toHaveCount(Math.min(affected, preview) + 1)
+    const showAll = review.getByRole('button', { name: `Show all ${affected}` })
+    if (affected <= preview) await expect(showAll).toHaveCount(0)
+    else {
+      await showAll.click()
+      await expect(review.getByRole('row')).toHaveCount(affected + 1)
+    }
+
+    // Enter on a control with its own Enter does that action and does not commit.
     await operation.focus()
     await page.keyboard.press('Enter')
-    await expect(operation).toHaveAttribute('aria-expanded', 'true')
-    await expect(review.getByRole('row')).toHaveCount(Math.min(affected, pageSize) + 1)
-    await expect(
-      review.getByText(`Showing 1–${Math.min(affected, pageSize)} of ${affected}`),
-    ).toBeVisible()
-    const next = review.getByRole('button', { name: 'Next' })
-    if (affected <= pageSize) await expect(next).toBeDisabled()
-    else await expect(next).toBeEnabled()
+    await expect(operation).toHaveAttribute('aria-expanded', 'false')
+    await expect(review.getByRole('row')).toHaveCount(0)
     await review.getByRole('button', { name: 'Close' }).focus()
     await page.keyboard.press('Enter')
     await expect(review).toBeHidden()
@@ -65,7 +69,7 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
   }
 })
 
-test('an expanded operation shows each amount with its currency, right-aligned, at 390 px too', async ({
+test('a staged hide lists its transaction without a click, with each amount right-aligned', async ({
   page,
 }) => {
   const server = await startE2EServer()
@@ -77,8 +81,10 @@ test('an expanded operation shows each amount with its currency, right-aligned, 
       await expect(page.getByText(/1 pending edit/).first()).toBeAttached()
       await page.keyboard.press('w')
       const review = page.getByRole('dialog', { name: 'Review pending changes' })
-      await review.getByRole('button', { name: /^Hide transactions/ }).click()
       const table = review.getByRole('table', { name: 'Affected transactions' })
+      await expect(table.getByRole('row').nth(1).getByRole('cell').nth(1)).toContainText(
+        'Visible → Hidden',
+      )
       await expect(table.getByRole('columnheader')).toHaveText([
         'Date',
         'Merchant',

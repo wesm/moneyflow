@@ -28,9 +28,12 @@ export interface ReviewState {
 export interface ReviewController {
   readonly state: ReviewState
   load(): Promise<boolean>
-  loadTargets(operationID: string, offset: number): Promise<boolean>
-  targets(operationID: string, offset: number): ReviewTarget[]
-  targetOffsets(operationID: string): number[]
+  /** Loads an operation's affected rows, in order, until `count` have loaded. */
+  loadTargets(operationID: string, count: number): Promise<boolean>
+  /** The operation's affected rows loaded so far. */
+  targets(operationID: string): ReviewTarget[]
+  /** True while the operation's rows load. */
+  targetsLoading(operationID: string): boolean
   isStale(): boolean
   clear(): void
 }
@@ -40,7 +43,8 @@ interface ReviewControllerOptions {
   revision(): bigint
 }
 
-const targetWindowSize = 100
+/** The server's largest target window. */
+const targetRequestLimit = 400
 const emptyPending: PendingSummary = {
   active_operations: 0,
   inactive_operations: 0,
@@ -56,7 +60,10 @@ export function createReviewController(options: ReviewControllerOptions): Review
     inactiveOperations: [],
     announcement: '',
   }
-  const targetWindows = new Map<string, Map<number, ReviewTarget[]>>()
+  const loadedTargets = new Map<string, ReviewTarget[]>()
+  const loadingTargets = new Set<string>()
+  /** Advances when the review reloads or clears, so rows for the old review are dropped. */
+  let generation = 0
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
     notify = update
@@ -70,8 +77,15 @@ export function createReviewController(options: ReviewControllerOptions): Review
     notify()
   }
 
+  function resetTargets(): void {
+    generation += 1
+    loadedTargets.clear()
+    loadingTargets.clear()
+  }
+
   async function load(): Promise<boolean> {
     const expected = options.revision()
+    resetTargets()
     setState({ ...state, phase: 'loading', announcement: '' })
     const body: ReviewBody = { version: '1', expected_revision: expected.toString(10) }
     try {
@@ -81,7 +95,7 @@ export function createReviewController(options: ReviewControllerOptions): Review
         body,
       )
       const reviewedRevision = parseRevision(response.revision)
-      targetWindows.clear()
+      resetTargets()
       setState({
         phase: 'idle',
         reviewedRevision,
@@ -97,42 +111,44 @@ export function createReviewController(options: ReviewControllerOptions): Review
     }
   }
 
-  async function loadTargets(operationID: string, offset: number): Promise<boolean> {
-    if (state.reviewedRevision === undefined || !Number.isSafeInteger(offset) || offset < 0) {
-      return false
-    }
-    const aligned = Math.floor(offset / targetWindowSize) * targetWindowSize
-    const body: ReviewTargetsBody = {
-      version: '1',
-      expected_revision: state.reviewedRevision.toString(10),
-      operation_id: operationID,
-      window: { offset: aligned, limit: targetWindowSize },
-    }
-    setState({ ...state, phase: 'loading', announcement: '' })
+  async function loadTargets(operationID: string, count: number): Promise<boolean> {
+    const revision = state.reviewedRevision
+    if (revision === undefined || !Number.isSafeInteger(count)) return false
+    if (loadingTargets.has(operationID)) return false
+    const started = generation
+    loadingTargets.add(operationID)
+    setState({ ...state, phase: 'idle', announcement: '' })
     try {
-      const response = await requestProfileJSON<ReviewResponse>(
-        options.transport,
-        'api/v1/review/targets',
-        body,
-      )
-      let windows = targetWindows.get(operationID)
-      if (!windows) {
-        windows = new Map()
-        targetWindows.set(operationID, windows)
+      let rows = loadedTargets.get(operationID) ?? []
+      while (rows.length < count) {
+        const limit = Math.min(targetRequestLimit, count - rows.length)
+        const body: ReviewTargetsBody = {
+          version: '1',
+          expected_revision: revision.toString(10),
+          operation_id: operationID,
+          window: { offset: rows.length, limit },
+        }
+        const response = await requestProfileJSON<ReviewResponse>(
+          options.transport,
+          'api/v1/review/targets',
+          body,
+        )
+        if (generation !== started) return false
+        const received = response.targets ?? []
+        rows = [...rows, ...received]
+        loadedTargets.set(operationID, rows)
+        notify()
+        if (received.length < limit) break
       }
-      windows.set(response.window.offset, response.targets ?? [])
-      for (const candidate of windows.keys()) {
-        if (Math.abs(candidate - response.window.offset) > targetWindowSize)
-          windows.delete(candidate)
-      }
-      for (const candidate of targetWindows.keys()) {
-        if (candidate !== operationID) targetWindows.delete(candidate)
-      }
-      setState({ ...state, phase: 'idle' })
       return true
     } catch (error) {
-      fail(error)
+      if (generation === started) fail(error)
       return false
+    } finally {
+      if (generation === started) {
+        loadingTargets.delete(operationID)
+        notify()
+      }
     }
   }
 
@@ -148,7 +164,7 @@ export function createReviewController(options: ReviewControllerOptions): Review
   }
 
   function clear(): void {
-    targetWindows.clear()
+    resetTargets()
     setState({
       phase: 'idle',
       reviewedRevision: undefined,
@@ -166,12 +182,14 @@ export function createReviewController(options: ReviewControllerOptions): Review
     },
     load,
     loadTargets,
-    targets: (operationID, offset) => {
+    targets: (operationID) => {
       subscribe()
-      return targetWindows.get(operationID)?.get(offset) ?? []
+      return loadedTargets.get(operationID) ?? []
     },
-    targetOffsets: (operationID) =>
-      [...(targetWindows.get(operationID)?.keys() ?? [])].sort((a, b) => a - b),
+    targetsLoading: (operationID) => {
+      subscribe()
+      return loadingTargets.has(operationID)
+    },
     isStale: () =>
       state.reviewedRevision !== undefined && state.reviewedRevision !== options.revision(),
     clear,

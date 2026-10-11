@@ -120,7 +120,7 @@ export function testReviewController(overrides: Partial<ReviewController> = {}):
         hidden: false,
       },
     ]),
-    targetOffsets: vi.fn(() => [0]),
+    targetsLoading: vi.fn(() => false),
     isStale: vi.fn(() => false),
     clear: vi.fn(),
     ...overrides,

@@ -21,34 +21,89 @@ describe('bounded review controller', () => {
     expect(JSON.parse(body)).toEqual({ version: '1', expected_revision: '12' })
   })
 
-  it('fetches target details only on demand and retains the current and adjacent windows', async () => {
-    const transport: MutationFetch = {
-      request: vi.fn(async (path, body) => {
-        const request = JSON.parse(body) as { window?: { offset: number; limit: number } }
-        return jsonResponse(
-          path.endsWith('/targets')
-            ? reviewResponse('7', request.window?.offset ?? 0, request.window?.limit ?? 100)
-            : reviewResponse('7'),
-        )
-      }),
-    }
+  it('loads an operation’s first rows, then the rest in bounded requests', async () => {
+    const transport = targetServer(901)
     const controller = createReviewController({ transport, revision: () => 7n })
     await controller.load()
     expect(transport.request).toHaveBeenCalledTimes(1)
 
-    await controller.loadTargets('active-1', 0)
-    await controller.loadTargets('active-1', 100)
-    await controller.loadTargets('active-1', 200)
-    await controller.loadTargets('active-1', 300)
+    await expect(controller.loadTargets('active-1', 20)).resolves.toBe(true)
+    expect(controller.targets('active-1')).toHaveLength(20)
+    await expect(controller.loadTargets('active-1', 901)).resolves.toBe(true)
 
-    expect(controller.targetOffsets('active-1')).toEqual([200, 300])
+    const rows = controller.targets('active-1')
+    expect(rows).toHaveLength(901)
+    expect(rows[0]?.merchant).toBe('Example Merchant 1')
+    expect(rows[900]?.merchant).toBe('Example Merchant 901')
+    const windows = vi
+      .mocked(transport.request)
+      .mock.calls.slice(1)
+      .map(([, body]) => (JSON.parse(body) as { window: unknown }).window)
+    expect(windows).toEqual([
+      { offset: 0, limit: 20 },
+      { offset: 20, limit: 400 },
+      { offset: 420, limit: 400 },
+      { offset: 820, limit: 81 },
+    ])
+    await controller.loadTargets('active-1', 901)
     expect(transport.request).toHaveBeenCalledTimes(5)
-    const [, rawBody] = vi.mocked(transport.request).mock.calls[4]!
-    expect(JSON.parse(rawBody)).toMatchObject({
-      expected_revision: '7',
-      operation_id: 'active-1',
-      window: { offset: 300, limit: 100 },
-    })
+  })
+
+  it('keeps each operation’s rows and reports which operation is loading', async () => {
+    let release = (): void => undefined
+    const transport = targetServer(30, () => new Promise<void>((resolve) => (release = resolve)))
+    const controller = createReviewController({ transport, revision: () => 7n })
+    await controller.load()
+
+    const first = controller.loadTargets('active-1', 20)
+    expect(controller.targetsLoading('active-1')).toBe(true)
+    expect(controller.targetsLoading('redo-1')).toBe(false)
+    await vi.waitFor(() => expect(transport.request).toHaveBeenCalledTimes(2))
+    release()
+    await first
+    expect(controller.targetsLoading('active-1')).toBe(false)
+    const second = controller.loadTargets('redo-1', 20)
+    await vi.waitFor(() => expect(transport.request).toHaveBeenCalledTimes(3))
+    release()
+    await second
+
+    expect(controller.targets('active-1')).toHaveLength(20)
+    expect(controller.targets('redo-1')).toHaveLength(20)
+  })
+
+  it('drops rows that arrive after the review reloads', async () => {
+    let release = (): void => undefined
+    const transport = targetServer(30, () => new Promise<void>((resolve) => (release = resolve)))
+    const controller = createReviewController({ transport, revision: () => 7n })
+    await controller.load()
+    const stale = controller.loadTargets('active-1', 20)
+    await vi.waitFor(() => expect(transport.request).toHaveBeenCalledTimes(2))
+    const reload = controller.load()
+    release()
+    await expect(stale).resolves.toBe(false)
+    await reload
+
+    expect(controller.targets('active-1')).toEqual([])
+    expect(controller.targetsLoading('active-1')).toBe(false)
+  })
+
+  it('keeps the rows it loaded when a later request fails', async () => {
+    const transport = targetServer(500)
+    const controller = createReviewController({ transport, revision: () => 7n })
+    await controller.load()
+    await controller.loadTargets('active-1', 20)
+    vi.mocked(transport.request).mockRejectedValueOnce(new Error('offline'))
+
+    await expect(controller.loadTargets('active-1', 500)).resolves.toBe(false)
+
+    expect(controller.targets('active-1')).toHaveLength(20)
+    expect(controller.targetsLoading('active-1')).toBe(false)
+    expect(controller.state.announcement).toBe('Pending changes could not be loaded.')
+
+    // Trying again clears the failure.
+    await expect(controller.loadTargets('active-1', 500)).resolves.toBe(true)
+    expect(controller.targets('active-1')).toHaveLength(500)
+    expect(controller.state.announcement).toBe('')
   })
 
   it('does not replace the captured reviewed revision when the live revision advances', async () => {
@@ -63,6 +118,24 @@ describe('bounded review controller', () => {
     expect(controller.isStale()).toBe(true)
   })
 })
+
+/** A review server whose operations each affect `affected` rows, named by row number. */
+function targetServer(affected: number, wait?: () => Promise<void>): MutationFetch {
+  return {
+    request: vi.fn(async (path: string, body: string) => {
+      if (!path.endsWith('/targets')) return jsonResponse(reviewResponse('7'))
+      await wait?.()
+      const { offset, limit } = (JSON.parse(body) as { window: { offset: number; limit: number } })
+        .window
+      const count = Math.max(0, Math.min(limit, affected - offset))
+      const targets = Array.from({ length: count }, (_, index) => ({
+        ...reviewResponse('7').targets[0],
+        merchant: `Example Merchant ${offset + index + 1}`,
+      }))
+      return jsonResponse({ ...reviewResponse('7'), window: { offset, limit, count }, targets })
+    }),
+  }
+}
 
 function responseTransport(body: unknown): MutationFetch {
   return { request: vi.fn(async () => jsonResponse(body)) }

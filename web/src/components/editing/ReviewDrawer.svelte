@@ -29,7 +29,6 @@
     mode === 'review' ? 'Review pending changes' : `${providerName} write status`,
   )
   let body = $state<HTMLElement>()
-  let expanded = $state('')
   /** True until the first review loads. An Enter before then commits once it has. */
   let initialLoad = true
   let commitRequested = false
@@ -118,13 +117,7 @@
         <h2 class="mf-review__heading" id="mf-review-active">Active operations</h2>
         <ol class="mf-review__list">
           {#each review.state.activeOperations as operation (operation.operation_id)}
-            <ReviewOperation
-              {operation}
-              {review}
-              expanded={expanded === operation.operation_id}
-              ontoggle={() =>
-                (expanded = expanded === operation.operation_id ? '' : operation.operation_id)}
-            />
+            <ReviewOperation {operation} {review} />
           {/each}
         </ol>
       </section>
