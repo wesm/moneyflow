@@ -29,6 +29,26 @@ Down / Up choose the previous / next period. Type `YYYY`, `YYYY-MM`, or `YYYY-MM
 to jump directly, then Enter to apply. See [time navigation](navigation.md#choose-a-year-month-or-day)
 for quick paths to this month, last month, and other periods.
 
+## Charts
+
+**Unreleased:** In the browser, the columns, bars, or days of each chart are one Tab stop. Tab or
+Shift+Tab moves into a chart, and these keys act on the focused column, bar, or day. See
+[charts](web.md#charts).
+
+| Chart | Key | Action |
+| --- | --- | --- |
+| Cash flow | Left / Right, Home / End | Move between columns |
+| Cash flow | Enter | Choose the column's period |
+| Cash flow | Shift+Enter | Stretch the current period to the column |
+| Where it went | Up / Down, Home / End | Move between bars |
+| Where it went | Enter | Drill into the bar's row |
+| Where it went | Space | Move the table cursor to the bar's row |
+| Daily spending | Arrows, Home / End | Move between days |
+| Daily spending | Enter | Choose the day |
+| Any chart | Esc | Return to the table |
+
+In the phone layout's **Visualizations** drawer, Esc closes the drawer instead.
+
 ## Edit
 
 | Key | Action |
