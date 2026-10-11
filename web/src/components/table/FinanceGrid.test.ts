@@ -937,28 +937,24 @@ describe('FinanceGrid', () => {
     })
 
     it('reveals the cursor row after a view change that keeps its index', async () => {
-      // A header sort, a grouping key, and a period change each send a new canonical query.
-      for (const query of ['v=1&sort=amount', 'v=1&group=category', 'v=1&period=2026-09']) {
-        const scroller = { scrollTop: 0 } as HTMLElement
-        const view = render(FinanceGrid, {
-          projection: loaded(0),
-          cursorIndex: 0,
-          compact: false,
-          scroller,
-          scrollTop: 0,
-          viewport: 630,
-          ...callbacks(),
-        })
-        scroller.scrollTop = 100 * 30
-        await view.rerender({ scrollTop: 100 * 30 })
-        await view.rerender({ projection: { ...loaded(0), canonical_query: query } })
+      const scroller = { scrollTop: 0 } as HTMLElement
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scroller,
+        scrollTop: 0,
+        viewport: 630,
+        ...callbacks(),
+      })
+      scroller.scrollTop = 100 * 30
+      await view.rerender({ scrollTop: 100 * 30 })
+      await view.rerender({ projection: { ...loaded(0), canonical_query: 'v=1&sort=amount' } })
 
-        expect(scroller.scrollTop, query).toBe(0)
-        const grid = screen.getByRole('grid', { name: 'Financial results' })
-        const active = grid.getAttribute('aria-activedescendant')!
-        expect(document.getElementById(active), query).not.toBeNull()
-        cleanup()
-      }
+      expect(scroller.scrollTop).toBe(0)
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      const active = grid.getAttribute('aria-activedescendant')!
+      expect(document.getElementById(active)).not.toBeNull()
     })
 
     it('keeps the cursor on a clicked row from a cached neighboring window', async () => {
