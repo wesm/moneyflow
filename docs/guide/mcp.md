@@ -92,6 +92,10 @@ floating-point money.
 | `get_refresh_status` | Return process-local provider refresh status. |
 | `confirm_refresh_deletions` | Confirm one process-local provider deletion candidate. |
 
+`refresh_data` and `confirm_refresh_deletions` run without `--allow-write`, but they change the
+local profile: a refresh imports provider data, and a confirmed deletion removes the local
+transactions that the provider no longer lists.
+
 Effective results apply your pending edits. Committed results ignore them until you commit:
 `get_transaction_details` and `get_amazon_order_details` show a transaction as last committed,
 even while an edit to it is pending.
@@ -112,9 +116,11 @@ Write-enabled tools follow this workflow:
 3. Use `review_changes`, `undo_changes`, or `redo_changes` as needed. With an `operation_id`,
    `review_changes` lists that operation's transactions with their date, merchant, category,
    hidden state, and exact `money`: an object with `amount`, `amount_minor`, `currency`, and
-   `scale`. A hide operation's `before` and `after` read `Visible` and `Hidden`, or `Hidden`
-   and `Visible` when it shows hidden transactions again.
+   `scale`.
 4. Call `commit_changes` with the exact reviewed revision.
+
+**Unreleased:** In `review_changes`, a hide operation's `before` and `after` read `Visible` and
+`Hidden`, or `Hidden` and `Visible` when it shows hidden transactions again.
 
 Use the current `expected_revision` for staging/undo/redo. Commit takes both `expected_revision`
 and `reviewed_revision`; use the revision from the review, not an earlier search. On a revision
@@ -164,9 +170,11 @@ they never commit automatically. Revision `"0"` is valid for a pristine local pr
 Delete replacement IDs refer to the same entity kind as the source. Category merge/delete
 reassigns its transactions; group merge/delete moves its categories. Neither deletes transactions.
 An empty category/group can be deleted without a replacement. Protected system entities cannot
-be changed. A create or rename onto a label another entry already uses is rejected with
-`invalid_operation` and the detail `That label already exists; use merge instead.` Use an explicit
-merge instead. Fields unrelated to the chosen action are rejected rather than ignored.
+be changed, and a create or rename onto a label another entry already uses is rejected: use an
+explicit merge instead. Fields unrelated to the chosen action are rejected rather than ignored.
+
+**Unreleased:** That collision returns `invalid_operation`, and its `detail` ends with
+`That label already exists; use merge instead.`
 
 For example, preview a category move (replace the example IDs and revision with values from
 `get_categories`):
@@ -217,10 +225,18 @@ value, without fetching the full history. See [write recovery](editing.md#recove
 
 ### Audit warning
 
-When Moneyflow saves your changes but cannot record their completion in the profile's
-[audit log](../config/caching.md#where-can-i-inspect-past-edits), `commit_changes` returns
+**Unreleased:** Moneyflow can save your changes but fail to record their completion in the
+profile's [audit log](../config/caching.md#where-can-i-inspect-past-edits). Results then carry
 `audit_warning` with the fixed text `Changes saved, but the audit log could not record completion.`
-`get_commit_status` and `get_account_info` report the same field in their `write` status object.
+
+- `commit_changes` reports it for a commit that saves locally, without a provider write.
+- For Monarch and YNAB, the warning usually first appears in `get_commit_status` after the
+  background write finishes, because `commit_changes` has already returned. `get_account_info`
+  reports it in the same `write` status object.
+- `get_reconcile_status` and `confirm_reconcile` carry it in their `write` object once a
+  reconcile saves.
+- `pause_commit` and `resume_commit` results never carry it.
+
 Later reads in the same server process repeat it until the next saved commit or write result
 clears it.
 
@@ -229,10 +245,10 @@ is missing.
 
 ## Chart insights
 
-`get_insights` returns the chart data behind one web view: KPIs with the prior-period comparison,
-cash flow per chart period, spending and income composition, the calendar, and per-row trend
-series. It reads **committed** values only, so it can differ from the effective transaction reads
-until you commit.
+**Unreleased:** `get_insights` returns the chart data behind one web view: KPIs with the
+prior-period comparison, cash flow per chart period, spending and income composition, the
+calendar, and per-row trend series. It reads **committed** values only, so it can differ from the
+effective transaction reads until you commit.
 
 | Input | Meaning |
 | --- | --- |
