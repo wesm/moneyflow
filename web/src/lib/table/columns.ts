@@ -293,17 +293,19 @@ export function compactColumnCount(layout: CompactLayout): number {
 
 /**
  * The columns of the projection's view. Only the server's sort fields stay sortable. The vs
- * prior header is `comparisonLabel`, such as `vs Aug`, once the insights name it.
+ * prior header is `comparisonLabel`, such as `vs Aug`, once the insights name it. A label also
+ * shows the scope has a comparison when the session has no date range, as in a Time drill.
  */
-export function columnsFor(projection: ViewProjection, comparisonLabel = 'vs prior'): Column[] {
+export function columnsFor(projection: ViewProjection, comparisonLabel?: string): Column[] {
   const view = projection.view
   const dimension = view.sub_grouping ?? view.grouping
   let columns: Column[]
   if (projection.detail_rows) columns = transactionColumns(projection)
   else if (dimension === 'time') columns = timeColumns()
   else {
-    const compared = projection.filters.date_range !== undefined
-    columns = [...groupedColumns(dimension), ...insightColumns(compared, comparisonLabel)]
+    const compared = projection.filters.date_range !== undefined || !!comparisonLabel
+    const label = comparisonLabel || 'vs prior'
+    columns = [...groupedColumns(dimension), ...insightColumns(compared, label)]
   }
   const sortable = new Set<string>(view.sort_fields)
   return columns.map(({ sortField, ...column }) =>

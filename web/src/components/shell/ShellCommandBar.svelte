@@ -3,7 +3,7 @@
   import MenuIcon from '@lucide/svelte/icons/menu'
   import SearchIcon from '@lucide/svelte/icons/search'
   import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal'
-  import { onDestroy, tick, untrack } from 'svelte'
+  import { onDestroy, tick } from 'svelte'
 
   import Breadcrumbs from './Breadcrumbs.svelte'
   import BreakDownBy from './BreakDownBy.svelte'
@@ -39,7 +39,7 @@
   let search = $state<CommandSearch>()
   let filters = $state<FiltersChip>()
   let searchToggle = $state<HTMLElement>()
-  /** Phone width: the search row was opened; it also shows while a search is applied. */
+  /** Phone width: the search row was opened or has focus; it also shows while a search applies. */
   let searchShown = $state(false)
   const searchVisible = $derived(searchShown || (projection.view.search ?? '') !== '')
   /** The search row opened from its icon, so closing it returns there instead of the grid. */
@@ -49,22 +49,6 @@
   /** Keeps a search being typed when the window crosses the phone width and the field changes. */
   const searchCarry = new SearchCarry()
   onDestroy(() => searchCarry.destroy())
-  let wasCompact = untrack(() => compact)
-
-  // Narrowing past the phone width replaces a focused desktop field with the phone row's field,
-  // which starts hidden. Open it so the user keeps typing where they were. Runs before the swap,
-  // while the desktop field still has focus.
-  $effect.pre(() => {
-    const now = compact
-    untrack(() => {
-      const typing = now && !wasCompact && search?.hasFocus()
-      wasCompact = now
-      if (!typing) return
-      searchShown = true
-      searchFromIcon = false
-      void tick().then(() => search?.focus(false))
-    })
-  })
 
   /** Focuses the search field, for the `/` key; at phone width it reveals the field first. */
   export async function focusSearch(): Promise<void> {
@@ -93,11 +77,6 @@
     onfocusgrid()
   }
 
-  function revealSearch(): void {
-    searchFromIcon = true
-    void focusSearch()
-  }
-
   // Pressing the icon moves focus out of the field, which folds the row before the click.
   function notePress(node: HTMLElement) {
     const press = () => (shownAtPress = searchShown)
@@ -108,9 +87,9 @@
   function toggleSearch(): void {
     const shown = shownAtPress || searchShown
     shownAtPress = false
-    if (!shown) return revealSearch()
+    searchFromIcon = !shown
+    if (!shown) return void focusSearch()
     searchShown = false
-    searchFromIcon = false
   }
 
   // kit Button has no aria-haspopup prop; set it on its button.
@@ -173,6 +152,7 @@
     bind:this={search}
     {controller}
     carry={searchCarry}
+    reveal={() => (searchShown = compact)}
     ondone={() => void searchDone()}
   />
 {/snippet}
@@ -227,6 +207,7 @@
         class="mf-command-bar__search"
         id="mf-command-search-row"
         hidden={!searchVisible}
+        onfocusin={() => (searchShown = true)}
         onfocusout={searchLeft}
       >
         {@render searchField()}

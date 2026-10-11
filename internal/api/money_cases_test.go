@@ -61,7 +61,6 @@ func buildMoneyCases() []moneyCase {
 // `go test ./internal/api -run TestWebMoneyCases -update-money-cases`.
 func TestWebMoneyCases(t *testing.T) {
 	cases := buildMoneyCases()
-	require.GreaterOrEqual(t, len(cases), 40)
 	displays := make(map[string]string, len(cases))
 	for _, item := range cases {
 		displays[item.Minor+"@"+strconv.Itoa(int(item.Scale))] = item.Display

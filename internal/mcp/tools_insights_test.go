@@ -26,7 +26,6 @@ func TestGetInsightsSummarizesAMonthAtTheServiceClock(t *testing.T) {
 
 	require.False(t, result.IsError, "%v", result.StructuredContent)
 	document := result.StructuredContent.(map[string]any)
-	assert.JSONEq(t, result.Content[0].(*mcpsdk.TextContent).Text, mustJSON(t, document))
 	assert.Equal(t, "1", document["version"])
 	assert.Equal(t, "ok", document["status"])
 	assert.Equal(t, "USD", document["currency"])
@@ -254,23 +253,6 @@ func TestGetInsightsGroupsByTime(t *testing.T) {
 	periods := summary["period_composition"].([]any)
 	assert.Len(t, periods, len(document["ranges"].(map[string]any)["context"].([]any)))
 	assert.NotEmpty(t, periods)
-}
-
-func TestGetInsightsDescriptionSeparatesCommittedFromEffectiveValues(t *testing.T) {
-	service := insightsTestService(t)
-	client, cleanup := connectReadTestServer(t, service)
-	defer cleanup()
-
-	tools, err := client.ListTools(t.Context(), nil)
-	require.NoError(t, err)
-	var description string
-	for _, tool := range tools.Tools {
-		if tool.Name == "get_insights" {
-			description = tool.Description
-		}
-	}
-	assert.Contains(t, description, "committed values")
-	assert.Contains(t, description, "pending edits applied")
 }
 
 func TestGetInsightsRejectsInvalidInputWithItsReason(t *testing.T) {

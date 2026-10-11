@@ -92,7 +92,13 @@ describe('rowToShow', () => {
 
   it('keeps the window of a cursor that shows on screen', () => {
     expect(rowToShow({ first: 181, last: 200 }, 200, { offset: 200, limit: 200 })).toBeUndefined()
-    expect(rowToShow({ first: 300, last: 319 }, 319, loaded)).toBeUndefined()
+    expect(rowToShow({ first: 195, last: 215 }, 205, { offset: 200, limit: 200 })).toBeUndefined()
+  })
+
+  it('asks for the cursor row when it shows on screen outside the loaded window', () => {
+    // A late selection response can bring back an older window around the moved cursor.
+    expect(rowToShow({ first: 195, last: 215 }, 205, loaded)).toBe(205)
+    expect(rowToShow({ first: 300, last: 319 }, 319, loaded)).toBe(319)
   })
 
   it('asks for nothing without rows', () => {

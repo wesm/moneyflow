@@ -32,7 +32,7 @@ function bodyActions(
   const actions: LocalActionContext = {
     controller,
     overlays: new OverlayState({ ...host, focusGrid: () => undefined, grid: () => undefined }),
-    afterTransitions: async () => undefined,
+    queue: async (work) => work(),
     focusGrid: () => undefined,
     importAmazon: () => undefined,
     focusSearch: () => undefined,
