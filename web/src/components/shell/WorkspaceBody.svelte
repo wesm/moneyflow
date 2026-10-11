@@ -161,8 +161,6 @@
       viewport={viewport - covered}
       {above}
       compact={compact.current}
-      onmove={(delta) => moveCursor(() => controller.moveCursor(delta))}
-      onhome={() => moveCursor(() => controller.moveHome())}
       oncursor={(index) => moveCursor(() => controller.moveCursorTo(index))}
       ontoggle={(identity, kind) =>
         onapply({ action: 'selection.toggle', target: { identity, kind } })}

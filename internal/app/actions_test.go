@@ -24,7 +24,10 @@ func TestActionRegistryMatchesReadOnlyContract(t *testing.T) {
 	}{
 		{app.ActionCursorUp, []string{"up", "k"}, "↑/k", "Move cursor up", "", app.ScopeCursor, true, true},
 		{app.ActionCursorDown, []string{"down", "j"}, "↓/j", "Move cursor down", "", app.ScopeCursor, true, true},
-		{app.ActionCursorHome, []string{"home"}, "home", "Move to first row", "", app.ScopeCursor, true, true},
+		{app.ActionCursorHome, []string{"home", "T"}, "Home/T", "Move to first row", "Views", app.ScopeCursor, true, true},
+		{app.ActionCursorEnd, []string{"end", "B"}, "End/B", "Move to last row", "Views", app.ScopeCursor, true, true},
+		{app.ActionCursorPageUp, []string{"pgup"}, "PgUp", "Move up one page", "Views", app.ScopeCursor, true, true},
+		{app.ActionCursorPageDown, []string{"pgdown"}, "PgDn", "Move down one page", "Views", app.ScopeCursor, true, true},
 		{app.ActionCycleGrouping, []string{"g"}, "g", "Cycle grouping (Merchant→Category→Group→Account→Time)", "Views", app.ScopeAnalytical, true, true},
 		{app.ActionSetGrouping, []string{"1", "2", "3", "4", "5"}, "1-5", "Group by Merchant, Category, Group, Account, or Time", "Views", app.ScopeAnalytical, true, true},
 		{app.ActionSetSubGrouping, nil, "", "Break down the drilled rows by a dimension", "", app.ScopeAnalytical, true, true},

@@ -2,6 +2,7 @@ import { virtualSlice } from '@kenn-io/kit-ui'
 import { untrack } from 'svelte'
 
 import type { ViewProjection } from '../api/client'
+import { cursorTarget, setPageRows, type CursorMove } from './cursor-keys'
 import { revealScrollTop, visibleRange } from './layout'
 import { coveredCursor, loadedRow, rowToShow } from './virtual-rows'
 
@@ -87,11 +88,24 @@ export class GridScroll {
     $effect(() => this.#keepCursorAboveCover())
     $effect(() => this.#keepCursorAcrossRowHeights())
     $effect(() => this.#showScrolledRows())
+    // Paging keys pressed outside the grid move by the page it shows.
+    $effect(() => setPageRows(this.#page))
   }
 
-  /** A grid key moves the cursor, so the next cursor move is the user's and is revealed. */
-  keyed(): void {
+  /** The rows wholly visible below the sticky header, which a paging key moves by. */
+  get #page(): number {
+    return this.range.last - this.range.first + 1
+  }
+
+  /**
+   * Moves the cursor as a grid key asks. The move is the user's, so its row is revealed, even
+   * when the cursor already sits on it but scrolling carried it off screen.
+   */
+  key(move: CursorMove): void {
     this.#shown = undefined
+    const index = cursorTarget(move, this.#cursor, this.#total, this.#page)
+    if (index === this.#cursor) this.#reveal(index)
+    else this.#source.oncursor(index)
   }
 
   // Effects run after the DOM updates, so the offset read here is current. `above` changes when

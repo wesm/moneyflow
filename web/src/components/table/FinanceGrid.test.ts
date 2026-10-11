@@ -9,8 +9,6 @@ import { testInsights, testSeries } from '../../test/insights'
 import { testAggregateRow, testMoney, testProjection } from '../../test/projection'
 
 const callbacks = () => ({
-  onmove: vi.fn(),
-  onhome: vi.fn(),
   oncursor: vi.fn(() => Promise.resolve()),
   ontoggle: vi.fn(),
   ontoggleall: vi.fn(),
@@ -103,12 +101,6 @@ describe('FinanceGrid', () => {
     expect(screen.getByRole('columnheader', { name: 'Amount' }).hasAttribute('aria-sort')).toBe(
       false,
     )
-    await fireEvent.keyDown(grid, { key: 'j' })
-    expect(events.onmove).toHaveBeenCalledWith(1)
-    await fireEvent.keyDown(grid, { key: 'Home' })
-    expect(events.onhome).toHaveBeenCalled()
-    await fireEvent.keyDown(grid, { key: 'End' })
-    expect(events.onmove).toHaveBeenCalledTimes(1)
   })
 
   it('moves the cursor on a row click and toggles selection only from the box', async () => {
@@ -655,17 +647,23 @@ describe('FinanceGrid', () => {
 
     it('takes focus back from a row button before a grid key moves the cursor', async () => {
       const events = callbacks()
+      const first = testProjection().detail_rows![0]!
       render(FinanceGrid, {
-        projection: testProjection({ view: detailView }),
+        projection: testProjection({
+          view: detailView,
+          total_rows: 2,
+          window: { offset: 0, limit: 200, count: 2 },
+          detail_rows: [first, { ...first, index: 1, identity: 'row-1' }],
+        }),
         cursorIndex: 0,
         compact: true,
         ...events,
       })
       const grid = screen.getByRole('grid', { name: 'Financial results' })
-      const more = screen.getByRole('button', { name: 'Actions for Example Merchant' })
-      more.focus()
-      await fireEvent.keyDown(more, { key: 'j' })
-      expect(events.onmove).toHaveBeenCalledWith(1)
+      const [more] = screen.getAllByRole('button', { name: 'Actions for Example Merchant' })
+      more!.focus()
+      await fireEvent.keyDown(more!, { key: 'j' })
+      expect(events.oncursor).toHaveBeenCalledWith(1)
       expect(document.activeElement).toBe(grid)
     })
   })
@@ -968,7 +966,8 @@ describe('FinanceGrid', () => {
       })
       const grid = screen.getByRole('grid', { name: 'Financial results' })
       await fireEvent.keyDown(grid, { key: 'k' })
-      expect(events.onmove).toHaveBeenCalledWith(-1)
+      expect(events.oncursor).toHaveBeenCalledWith(199)
+      events.oncursor.mockClear()
       await view.rerender({ projection: loaded(0), cursorIndex: 199 })
       vi.advanceTimersToNextFrame()
 
@@ -993,12 +992,65 @@ describe('FinanceGrid', () => {
       })
       const grid = screen.getByRole('grid', { name: 'Financial results' })
       await fireEvent.keyDown(grid, { key: 'j' })
-      expect(events.onmove).toHaveBeenCalledWith(1)
+      expect(events.oncursor).toHaveBeenCalledWith(200)
       await view.rerender({ projection: loaded(200), cursorIndex: 200 })
       vi.advanceTimersToNextFrame()
 
       expect(rowAt(200)).not.toBeNull()
       expect(events.onshow).not.toHaveBeenCalled()
+    })
+
+    it('moves the cursor with the TUI keys, paging by the rows on screen', async () => {
+      const events = callbacks()
+      // Rows 100 to 119 show below the header, with the cursor on row 105.
+      render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 105,
+        compact: false,
+        scroller: scrollerAt(100 * 30),
+        scrollTop: 100 * 30,
+        viewport: 630,
+        ...events,
+      })
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      const moves = [
+        ['j', 106],
+        ['ArrowUp', 104],
+        ['PageDown', 125],
+        ['PageUp', 85],
+        ['End', 449],
+        ['B', 449],
+        ['Home', 0],
+        ['T', 0],
+      ] as const
+      for (const [key, target] of moves) {
+        await fireEvent.keyDown(grid, { key, shiftKey: key.length === 1 && key !== 'j' })
+        expect(events.oncursor, key).toHaveBeenLastCalledWith(target)
+      }
+      for (const key of ['t', 'b']) await fireEvent.keyDown(grid, { key })
+      await fireEvent.keyDown(grid, { key: 'Home', ctrlKey: true })
+      expect(events.oncursor).toHaveBeenCalledTimes(moves.length)
+    })
+
+    it('scrolls back to the cursor row when T finds the cursor already on row 1', async () => {
+      const events = callbacks()
+      const scroller = scrollerAt(0)
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scroller,
+        scrollTop: 0,
+        viewport: 630,
+        ...events,
+      })
+      scroller.scrollTop = 100 * 30
+      await view.rerender({ scrollTop: 100 * 30 })
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      await fireEvent.keyDown(grid, { key: 'T', shiftKey: true })
+
+      expect(scroller.scrollTop).toBe(0)
+      expect(events.oncursor).not.toHaveBeenCalled()
     })
 
     it('reveals the cursor row again when the viewport shrinks under it', async () => {

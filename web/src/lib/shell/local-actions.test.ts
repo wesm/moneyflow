@@ -13,6 +13,7 @@ import {
 } from './local-actions'
 import { OverlayState } from './overlay-state.svelte'
 import { status } from './status.svelte'
+import { setPageRows } from '../table/cursor-keys'
 import type { ViewController } from '../controller/view-controller.svelte'
 import { testAggregateRow, testProjection } from '../../test/projection'
 
@@ -289,5 +290,26 @@ describe('moveCursor', () => {
     moveCursor(move)
     expect(move).toHaveBeenCalledTimes(1)
     expect(status.notice).toBe('')
+  })
+})
+
+describe('paging keys outside the table', () => {
+  afterEach(() => setPageRows(1))
+
+  it('move the cursor by the page the table last showed, or to the last row', () => {
+    const moveCursorTo = vi.fn(() => Promise.resolve())
+    const controller = {
+      projection: testProjection({ total_rows: 500 }),
+      cursorIndex: 40,
+      moveCursorTo,
+    } as unknown as ViewController
+    const actions = localActions({ ...setup(0).context, controller })
+    setPageRows(18)
+    actions['cursor.page-down']()
+    expect(moveCursorTo).toHaveBeenLastCalledWith(58)
+    actions['cursor.page-up']()
+    expect(moveCursorTo).toHaveBeenLastCalledWith(22)
+    actions['cursor.end']()
+    expect(moveCursorTo).toHaveBeenLastCalledWith(499)
   })
 })

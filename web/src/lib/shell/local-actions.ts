@@ -5,6 +5,7 @@ import type { ViewController } from '../controller/view-controller.svelte'
 import { EditorDraft } from '../editing/draft.svelte'
 import type { LocalAction } from '../shortcuts'
 import type { RowActionButton } from '../table/actions'
+import { currentPageRows, cursorTarget, type CursorMove } from '../table/cursor-keys'
 import type { EditorAnchor, OverlayState } from './overlay-state.svelte'
 import { activeCurrency } from './period'
 import { status } from './status.svelte'
@@ -101,6 +102,12 @@ export function openEditor(
   context.overlays.open(field)
 }
 
+/** Moves the cursor as a key pressed outside the table asks, by the page the table last showed. */
+function moveBy(controller: ViewController, move: CursorMove): void {
+  const total = controller.projection?.total_rows ?? 0
+  void controller.moveCursorTo(cursorTarget(move, controller.cursorIndex, total, currentPageRows()))
+}
+
 /** Maps each browser-only shortcut to its handler. */
 export function localActions(context: LocalActionContext): Record<LocalAction, () => void> {
   const { controller, overlays } = context
@@ -110,6 +117,9 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
     'cursor.up': () => void controller.moveCursor(-1),
     'cursor.down': () => void controller.moveCursor(1),
     'cursor.home': () => void controller.moveHome(),
+    'cursor.end': () => moveBy(controller, 'end'),
+    'cursor.page-up': () => moveBy(controller, 'page-up'),
+    'cursor.page-down': () => moveBy(controller, 'page-down'),
     'overlay.search': () => context.focusSearch(),
     'overlay.filters': () => context.openFilters(),
     'overlay.help': () => overlays.open('help'),

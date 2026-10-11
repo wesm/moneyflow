@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import AppShell from './AppShell.svelte'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
+import type { ViewProjection } from '../lib/api/client'
 import { testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
 import { testProviderWriteController } from '../test/provider-write'
@@ -14,7 +15,7 @@ describe('AppShell', () => {
     cleanup()
   })
   it('keeps the finance grid primary and routes the TUI cursor shortcut', async () => {
-    const controller = stubController()
+    const controller = stubController(twoRows(testProjection()))
     render(AppShell, { controller })
     expect(screen.getByRole('main', { name: 'Moneyflow workspace' })).not.toBeNull()
     expect(screen.getByRole('grid', { name: 'Financial results' })).not.toBeNull()
@@ -22,7 +23,8 @@ describe('AppShell', () => {
     expect(controller.moveCursor).toHaveBeenCalledWith(1)
     vi.mocked(controller.moveCursor).mockClear()
     await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), { key: 'j' })
-    expect(controller.moveCursor).toHaveBeenCalledTimes(1)
+    expect(controller.moveCursorTo).toHaveBeenCalledWith(1)
+    expect(controller.moveCursor).not.toHaveBeenCalled()
   })
 
   it('focuses the command bar search on / and opens the Filters menu on f', async () => {
@@ -55,12 +57,12 @@ describe('AppShell', () => {
   })
 
   it('keeps the table working when insights fail', async () => {
-    const controller = stubController(charted())
+    const controller = stubController(twoRows(charted()))
     vi.mocked(controller.insights).mockRejectedValue(new Error('insights unavailable'))
     render(AppShell, { controller })
     expect(await screen.findByText(/Couldn't load charts/)).not.toBeNull()
     await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), { key: 'j' })
-    expect(controller.moveCursor).toHaveBeenCalledWith(1)
+    expect(controller.moveCursorTo).toHaveBeenCalledWith(1)
   })
 
   it('keeps the table full width and opens the charts in a labelled compact drawer', async () => {
@@ -559,6 +561,17 @@ function captureFrames(): { flush: () => Promise<void> } {
 function charted() {
   const base = testProjection()
   return testProjection({ view: { ...base.view, currency: { currency: 'USD', scale: 2 } } })
+}
+
+/** `projection` with a second row, so the cursor has a row to move down to. */
+function twoRows(projection: ViewProjection): ViewProjection {
+  const first = projection.detail_rows![0]!
+  return {
+    ...projection,
+    total_rows: 2,
+    window: { offset: 0, limit: 200, count: 2 },
+    detail_rows: [first, { ...first, index: 1, identity: 'row-1' }],
+  }
 }
 
 function stubMedia(matches: (query: string) => boolean): () => void {
