@@ -319,14 +319,15 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     generation += 1
     activeRequest?.abort()
     loading = false
-    // Later transitions wait for this return, so they must run even if installing it fails.
+    // Later transitions wait for this return and its cursor window, so a row key targets the
+    // restored cursor row. They must run even if installing it fails.
     try {
       accept(returned.projection, 'replace', owned)
+      if (alignedOffset(owned.cursorIndex) !== returned.projection.window.offset) {
+        await moveToIndex(owned.cursorIndex)
+      }
     } finally {
       returned.settle()
-    }
-    if (alignedOffset(owned.cursorIndex) !== returned.projection.window.offset) {
-      await moveToIndex(owned.cursorIndex)
     }
   }
 

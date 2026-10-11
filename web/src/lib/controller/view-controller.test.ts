@@ -468,7 +468,7 @@ describe('browser view controller', () => {
     const done = controller.apply({ action: 'view.back' })
     await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
     const restoring = controller.restore(new PopStateEvent('popstate', { state: parent }))
-    await done
+    await vi.waitFor(() => expect(client.view).toHaveBeenCalledTimes(1), { interval: 1 })
 
     expect(controller.projection?.canonical_query).toBe('v=1')
     expect(controller.projection?.window.offset).toBe(0)
@@ -482,10 +482,48 @@ describe('browser view controller', () => {
     )
 
     release(projection('v=1', 200, 450, '0', cleared))
-    await restoring
+    await Promise.all([restoring, done])
     expect(controller.projection?.window.offset).toBe(200)
     expect(controller.cursorIndex).toBe(250)
     expect(controller.loading).toBe(false)
+  })
+
+  it('runs a row key pressed during an Esc return after the parent cursor window loads', async () => {
+    vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    let release!: (value: ViewProjection) => void
+    const client = clientWith({
+      view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+      transition: vi.fn(async (body) =>
+        body.action === 'view.back'
+          ? projection('v=1', body.window.offset, 450)
+          : projection('v=1&drill=x', 0, 450),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.moveCursorTo(250)
+    const parent = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill' })
+    await controller.moveHome()
+    vi.mocked(client.view).mockImplementationOnce(
+      () => new Promise<ViewProjection>((resolve) => (release = resolve)),
+    )
+    const go = vi.mocked(history.go)
+    const before = go.mock.calls.length
+    const back = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+    const restoring = controller.restore(new PopStateEvent('popstate', { state: parent }))
+    let cursorAtKey: string | undefined = 'not run'
+    const key = back.then(() => {
+      cursorAtKey = controller.cursorIdentity
+    })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(cursorAtKey).toBe('not run')
+    expect(vi.mocked(client.view).mock.calls.at(-1)?.[1]?.aborted).toBe(false)
+    release(projection('v=1', 200, 450))
+    await Promise.all([restoring, key])
+    expect(cursorAtKey).toBe('row-250')
   })
 
   it('holds keys behind the first-load currency transition instead of aborting it', async () => {
