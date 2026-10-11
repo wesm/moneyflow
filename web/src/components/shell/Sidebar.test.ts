@@ -94,6 +94,18 @@ describe('Sidebar', () => {
     })
   })
 
+  it('focuses a clicked entry before it runs, as WebKit does not', async () => {
+    let focused: Element | null = null
+    const onrun = vi.fn(() => {
+      focused = document.activeElement
+    })
+    render(Sidebar, props({ onrun }))
+    const item = screen.getByRole('button', { name: 'Edit categories' })
+    await fireEvent.click(item)
+    expect(onrun).toHaveBeenCalledTimes(1)
+    expect(focused).toBe(item)
+  })
+
   it('keeps unavailable entries focusable, explains them, and ignores their clicks', async () => {
     const onrun = vi.fn()
     render(Sidebar, props({ onrun }))

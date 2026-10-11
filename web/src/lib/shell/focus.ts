@@ -37,6 +37,15 @@ export function restoreFocus(
   return control !== undefined && control !== null
 }
 
+/**
+ * Focuses the control a click landed on. WebKit does not focus a button on click, and an overlay
+ * records `document.activeElement` as its opener when it opens, so a click handler calls this
+ * first to make the overlay return focus to the control.
+ */
+export function focusClicked(event: MouseEvent): void {
+  if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus({ preventScroll: true })
+}
+
 const TABBABLE = ['a[href]', 'button', 'input', 'select', 'textarea', '[tabindex]']
   .map((selector) => `${selector}:not(:disabled):not([tabindex="-1"])`)
   .join(', ')

@@ -7,6 +7,7 @@
   import type { ProviderController } from '../../lib/controller/provider'
   import { navIcons } from '../../lib/shell/nav-icons'
   import { availableCapabilities, unavailableReason } from '../../lib/shell/capabilities'
+  import { focusClicked } from '../../lib/shell/focus'
   import {
     ariaKeyshortcuts,
     hasProviderStatus,
@@ -64,7 +65,10 @@
             title=""
             class={item.active ? 'mf-rail__item mf-rail__item--active' : 'mf-rail__item'}
             ariaDisabled={!item.available}
-            onclick={() => onrun(item.run)}
+            onclick={(event) => {
+              focusClicked(event)
+              onrun(item.run)
+            }}
           >
             {#if Icon}<Icon size={16} aria-hidden="true" />{/if}
           </IconButton>
@@ -88,7 +92,10 @@
           title=""
           class="mf-rail__item"
           ariaDisabled={!reviewOffered}
-          onclick={onreview}
+          onclick={(event) => {
+            focusClicked(event)
+            onreview()
+          }}
         >
           <PenLineIcon size={16} aria-hidden="true" />
         </IconButton>

@@ -7,6 +7,7 @@
   import type { ProviderController } from '../../lib/controller/provider'
   import { navIcons } from '../../lib/shell/nav-icons'
   import { availableCapabilities } from '../../lib/shell/capabilities'
+  import { focusClicked } from '../../lib/shell/focus'
   import {
     ariaKeyshortcuts,
     hasProviderStatus,
@@ -59,8 +60,10 @@
           aria-keyshortcuts={ariaKeyshortcuts(item.key)}
           aria-disabled={item.available ? undefined : 'true'}
           title={item.reason}
-          onclick={() => {
-            if (item.available) onrun(item.run)
+          onclick={(event) => {
+            if (!item.available) return
+            focusClicked(event)
+            onrun(item.run)
           }}
         >
           {#if Icon}<Icon size={14} aria-hidden="true" />{/if}

@@ -28,4 +28,17 @@ describe('EditLockBanner', () => {
 
     expect(onstatus).toHaveBeenCalledTimes(1)
   })
+
+  it('focuses Status before it opens, as WebKit does not', async () => {
+    let focused: Element | null = null
+    const onstatus = vi.fn(() => {
+      focused = document.activeElement
+    })
+    render(EditLockBanner, { providerName: 'Monarch', phase: 'writing', onstatus })
+    const status = screen.getByRole('button', { name: /^Status\s*w$/ })
+
+    await fireEvent.click(status)
+
+    expect(focused).toBe(status)
+  })
 })

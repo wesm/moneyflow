@@ -63,6 +63,20 @@ describe('SidebarRail', () => {
     ).toBe('Shift+G')
   })
 
+  it('focuses a clicked entry and Review before they run, as WebKit does not', async () => {
+    let focused: Element | null = null
+    const record = () => {
+      focused = document.activeElement
+    }
+    render(SidebarRail, props({ onrun: vi.fn(record), onreview: vi.fn(record) }))
+    const entry = screen.getByRole('button', { name: 'Categories' })
+    await fireEvent.click(entry)
+    expect(focused).toBe(entry)
+    const review = screen.getByRole('button', { name: 'Review pending changes' })
+    await fireEvent.click(review)
+    expect(focused).toBe(review)
+  })
+
   it('keeps unavailable entries focusable and explains them in the tooltip', async () => {
     const onrun = vi.fn()
     render(SidebarRail, props({ onrun }))
