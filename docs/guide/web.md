@@ -196,6 +196,10 @@ The **comparison** is the range just before the scope:
 The day number is clamped to the earlier month's last day, and February 29 becomes
 February 28.
 
+**Unreleased:** In a period in progress, such as 2026 to date, transactions dated after today
+still count in the current amounts and KPIs, so they match the table. The comparison still stops
+at today's date in the earlier period, such as the same day last year.
+
 The **vs prior** column compares each row's Net with its Net in the comparison range. The KPI
 strip compares Income, the size of Spending, and Net the same way. Changes show:
 
