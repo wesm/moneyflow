@@ -33,6 +33,8 @@
   let session: { search: SearchCoordinator; unsubscribe: () => void } | undefined
   /** A search that lost focus and is still being applied; new typing waits for it. */
   let leaving: Promise<void> | undefined
+  /** The search `leaving` applies, so browser history can end it. */
+  let leavingSearch: SearchCoordinator | undefined
 
   const applied = $derived(controller.projection?.view.search ?? '')
 
@@ -107,6 +109,7 @@
     if (!(await search.commit())) search.cancel()
     search.destroy()
     leaving = undefined
+    leavingSearch = undefined
     if (draft !== undefined && draft !== typed && document.activeElement === inputEl) {
       begin().input(draft)
       return
@@ -134,12 +137,13 @@
     if (!session || (next instanceof Node && wrapper?.contains(next))) return
     // Switching windows blurs the field too; the search stays open for the user's return.
     if (!document.hasFocus()) return
-    const search = detach()
-    if (search) leaving = controller.hold(leave(search, draft))
+    leavingSearch = detach()
+    if (leavingSearch) leaving = controller.hold(leave(leavingSearch, draft))
   }
 
   // Browser history replaced the view and dropped this search's starting point.
   function historyChanged(): void {
+    leavingSearch?.destroy()
     if (session) end()
   }
 

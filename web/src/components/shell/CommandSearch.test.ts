@@ -182,6 +182,26 @@ describe('CommandSearch', () => {
     expect(controller.restoreSearch).not.toHaveBeenCalled()
   })
 
+  it('drops a search still applying after focus left when browser history changes the view', async () => {
+    const controller = host()
+    let release!: (outcome: SearchPreview) => void
+    controller.previewSearch.mockImplementationOnce(
+      () => new Promise<SearchPreview>((resolve) => (release = resolve)),
+    )
+    render(CommandSearch, { controller, ondone: vi.fn() })
+    field().focus()
+    await fireEvent.input(field(), { target: { value: 'noodle' } })
+    await waitFor(() => expect(controller.previewSearch).toHaveBeenCalledWith('noodle'))
+    await fireEvent.focusOut(field(), { relatedTarget: document.body })
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    release('superseded')
+    await new Promise((resolve) => setTimeout(resolve, 200))
+
+    expect(controller.previewSearch).toHaveBeenCalledOnce()
+    expect(controller.commitSearch).not.toHaveBeenCalled()
+    expect(controller.restoreSearch).not.toHaveBeenCalled()
+  })
+
   it('drops an invalid search when focus leaves the field', async () => {
     const controller = host('', false)
     render(CommandSearch, { controller, ondone: vi.fn() })
