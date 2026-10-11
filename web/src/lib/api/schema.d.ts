@@ -1183,6 +1183,7 @@ export interface components {
       /** Format: int64 */
       outside_view: number
       revision: string
+      source_merchant_id?: string
       transactions: components['schemas']['DetailRow'][] | null
       version: string
     }

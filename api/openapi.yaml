@@ -1167,6 +1167,8 @@ components:
         revision:
           pattern: ^[0-9]+$
           type: string
+        source_merchant_id:
+          type: string
         transactions:
           items:
             $ref: "#/components/schemas/DetailRow"

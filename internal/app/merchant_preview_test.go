@@ -283,3 +283,58 @@ func mustDate(t *testing.T, text string) domain.Date {
 	require.NoError(t, err)
 	return date
 }
+
+func TestMerchantPreviewNamesItsSourceMerchant(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	profile.snapshot.Committed.Transactions = append(profile.snapshot.Committed.Transactions,
+		merchantARecord(t, "transaction_c", "2026-07-10", "USD"),
+		merchantARecord(t, "transaction_d", "2026-07-11", "USD"),
+		merchantARecord(t, "transaction_e", "2026-07-12", "USD"),
+		merchantARecord(t, "transaction_f", "2026-07-13", "USD"),
+	)
+	lastRow := merchantARecord(t, "transaction_z", "2026-07-14", "USD")
+	lastRow.MerchantID = "merchant_b"
+	profile.snapshot.Committed.Transactions = append(profile.snapshot.Committed.Transactions, lastRow)
+	profile.advanceExternally(reassignOperation(
+		1, domain.OperationMerchantReassign, "merchant_b", "transaction_c",
+	))
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	effective, err := app.Replay(profile.snapshot)
+	require.NoError(t, err)
+	state := detailViewState()
+	preview := func(scope app.EditScope, ids ...string) app.MerchantEditPreview {
+		t.Helper()
+		request := focusedMerchantRequest("Renamed Merchant", scope)
+		request.ExpectedRevision = 6
+		if len(ids) > 0 {
+			request.Selection = selectedValue(t, effective, state.Current, 6, ids...)
+		}
+		result, err := service.PreviewMerchantEdit(ctx, request)
+		require.NoError(t, err)
+		return result
+	}
+
+	whole := preview(app.EditScopeEntity)
+	assert.Equal(t, 4, whole.AffectedTransactions, "transaction_c now belongs to merchant_b")
+	assert.Equal(t, domain.EntityID("merchant_a"), whole.SourceMerchantID)
+
+	sameMerchant := preview(app.EditScopeTransactions, "transaction_d", "transaction_e")
+	assert.Equal(t, domain.EntityID("merchant_a"), sameMerchant.SourceMerchantID)
+
+	reassigned := preview(app.EditScopeTransactions, "transaction_b", "transaction_c")
+	assert.Equal(t, domain.EntityID("merchant_b"), reassigned.SourceMerchantID,
+		"a pending reassignment counts as the transaction's merchant")
+
+	mixed := preview(app.EditScopeTransactions, "transaction_a", "transaction_b")
+	assert.Empty(t, mixed.SourceMerchantID)
+
+	mixedBeyondSample := preview(app.EditScopeTransactions,
+		"transaction_a", "transaction_d", "transaction_e", "transaction_f", "transaction_z")
+	assert.Equal(t, 5, mixedBeyondSample.AffectedTransactions)
+	assert.Empty(t, mixedBeyondSample.SourceMerchantID,
+		"a differing merchant beyond the three sampled rows still means no single source")
+}
