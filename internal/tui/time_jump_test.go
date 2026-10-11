@@ -190,8 +190,9 @@ func TestTimeJumpFromRootDetailRestoresList(t *testing.T) {
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
 
 	require.NotEmpty(t, model.result.DetailRows)
-	model.session.SetSearch(before.Search)
-	assert.Equal(t, before.QuerySpec(), model.session.QuerySpec(), "only the search was cleared")
+	want := before.QuerySpec()
+	want.Search = ""
+	assert.Equal(t, want, model.session.QuerySpec(), "only the search was cleared")
 	assert.Empty(t, model.session.SelectedTransactionIDs, "Esc does not restore the selection")
 	assert.Equal(t, cursor, model.cursor)
 	assert.Equal(t, scroll, model.scroll)

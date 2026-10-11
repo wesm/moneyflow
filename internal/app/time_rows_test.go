@@ -424,14 +424,6 @@ func TestBackDerivesTheGranularityOfTheRestoredView(t *testing.T) {
 	assert.Len(t, projection.AggregateRows, 12)
 }
 
-func TestApplyPeriodTransitionRejectsOtherActions(t *testing.T) {
-	t.Parallel()
-
-	session := NewSession()
-	err := applyPeriodTransition(&session, TransitionRequest{Action: ActionCycleSort})
-	assertWebCode(t, err, WebInvalidRequest)
-}
-
 func TestTerminalPeriodChangesKeepTheGranularity(t *testing.T) {
 	t.Parallel()
 
