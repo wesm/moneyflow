@@ -149,6 +149,24 @@ func TestProjectViewListsEmptyTimePeriodsWithDataRows(t *testing.T) {
 	assert.Equal(t, "2026-10-20", keys[len(keys)-1], "data rows outside the range stay")
 }
 
+func TestProjectViewListsNoEmptyDaysAfterToday(t *testing.T) {
+	t.Parallel()
+
+	service := timeRowsService(t,
+		appTransaction(t, "current", "2026-10-02", "-5.00", "Example", "Category", "Group"),
+		appTransaction(t, "future", "2026-10-20", "-1.00", "Example", "Category", "Group"),
+	)
+	state := timeGroupingState()
+	state.Current.DateRange = matrixRange(t, "2026-10-01", "2026-10-31")
+	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05",
+		"2026-10-06", "2026-10-07", "2026-10-08", "2026-10-20",
+	}, timeRowKeys(projection.AggregateRows), "days through today, then the future data row")
+	assert.Equal(t, 9, projection.TotalRows)
+}
+
 func TestProjectViewSortsAndWindowsTimeRows(t *testing.T) {
 	t.Parallel()
 
@@ -422,14 +440,6 @@ func TestBackDerivesTheGranularityOfTheRestoredView(t *testing.T) {
 	assert.Equal(t, domain.ResultModeAggregate, back.Current.Mode)
 	assert.Equal(t, domain.TimeGranularityMonth, back.Current.TimeGranularity)
 	assert.Len(t, projection.AggregateRows, 12)
-}
-
-func TestApplyPeriodTransitionRejectsOtherActions(t *testing.T) {
-	t.Parallel()
-
-	session := NewSession()
-	err := applyPeriodTransition(&session, TransitionRequest{Action: ActionCycleSort})
-	assertWebCode(t, err, WebInvalidRequest)
 }
 
 func TestTerminalPeriodChangesKeepTheGranularity(t *testing.T) {

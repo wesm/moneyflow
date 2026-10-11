@@ -1,6 +1,6 @@
 <script lang="ts">
   import { SearchInput } from '@kenn-io/kit-ui'
-  import { onDestroy, onMount } from 'svelte'
+  import { onDestroy, onMount, tick } from 'svelte'
 
   import {
     createSearchCoordinator,
@@ -10,7 +10,8 @@
   import type { ViewController } from '../../lib/controller/view-controller.svelte'
   import type { SearchCarry } from '../../lib/shell/search-carry'
 
-  type SearchController = SearchHost<unknown> & Pick<ViewController, 'projection' | 'hold'>
+  type SearchController = SearchHost<unknown> &
+    Pick<ViewController, 'projection' | 'hold' | 'opening'>
 
   interface Props {
     controller: SearchController
@@ -21,9 +22,11 @@
      * the phone width, so the next field continues it. Its owner ends a search left in it.
      */
     carry?: SearchCarry | undefined
+    /** Shows the field, for a carried search that had focus to take it again. */
+    reveal?: () => void
   }
 
-  let { controller, ondone, carry }: Props = $props()
+  let { controller, ondone, carry, reveal }: Props = $props()
   let wrapper = $state<HTMLDivElement>()
   // kit types `inputEl` without `| undefined`, so the binding below casts the unmounted field.
   let inputEl = $state<HTMLInputElement>()
@@ -33,19 +36,17 @@
   let session: { search: SearchCoordinator; unsubscribe: () => void } | undefined
   /** A search that lost focus and is still being applied; new typing waits for it. */
   let leaving: Promise<void> | undefined
+  /** The search `leaving` applies, so browser history can end it. */
+  let leavingSearch: SearchCoordinator | undefined
+  /** Whether the field has focus. It stays set when the field is removed with focus. */
+  let focused = false
 
   const applied = $derived(controller.projection?.view.search ?? '')
 
-  /** Focuses the field and selects its text, for the `/` key; or keeps typing at its end. */
-  export function focus(select = true): void {
+  /** Focuses the field and selects its text, for the `/` key. */
+  export function focus(): void {
     inputEl?.focus()
-    if (select) inputEl?.select()
-    else inputEl?.setSelectionRange(inputEl.value.length, inputEl.value.length)
-  }
-
-  /** Whether the field has focus. */
-  export function hasFocus(): boolean {
-    return wrapper?.contains(document.activeElement) ?? false
+    inputEl?.select()
   }
 
   function begin(): SearchCoordinator {
@@ -61,14 +62,23 @@
   /**
    * Continues a search that an earlier field left in `carry`. Svelte creates a replacing
    * field before it destroys the old one, so this waits until mount, after the old field
-   * stored its search.
+   * stored its search and focus.
    */
   function resume() {
     const carried = carry?.take()
-    if (!carried) return undefined
+    if (carried?.focused) void refocus()
+    if (!carried?.search) return undefined
     draft = carried.draft
     error = carried.search.error
     return attach(carried.search)
+  }
+
+  /** Focuses the field with the caret after the carried text, so typing continues there. */
+  async function refocus(): Promise<void> {
+    reveal?.()
+    await tick()
+    inputEl?.focus()
+    inputEl?.setSelectionRange(inputEl.value.length, inputEl.value.length)
   }
 
   /** Detaches the session from the field without restoring or applying it. */
@@ -113,6 +123,7 @@
     if (!(await search.commit())) search.cancel()
     search.destroy()
     leaving = undefined
+    leavingSearch = undefined
     if (draft !== undefined && draft !== typed && document.activeElement === inputEl) {
       begin().input(draft)
       return
@@ -137,15 +148,26 @@
 
   function focusout(event: FocusEvent): void {
     const next = event.relatedTarget
-    if (!session || (next instanceof Node && wrapper?.contains(next))) return
+    if (next instanceof Node && wrapper?.contains(next)) return
     // Switching windows blurs the field too; the search stays open for the user's return.
     if (!document.hasFocus()) return
-    const search = detach()
-    if (search) leaving = controller.hold(leave(search, draft))
+    // Chromium also blurs a field as it removes it, before it is detached. A field replaced at
+    // the phone width hands its search and focus to the next field instead of leaving.
+    queueMicrotask(() => {
+      if (wrapper?.isConnected) left()
+    })
+  }
+
+  function left(): void {
+    focused = false
+    if (!session) return
+    leavingSearch = detach()
+    if (leavingSearch) leaving = controller.hold(leave(leavingSearch, draft))
   }
 
   // Browser history replaced the view and dropped this search's starting point.
   function historyChanged(): void {
+    leavingSearch?.destroy()
     if (session) end()
   }
 
@@ -155,18 +177,25 @@
 
   onDestroy(() => {
     const search = detach()
-    if (search && carry) carry.keep(search, draft)
+    if (carry && (search || focused)) carry.keep(search, draft, focused)
     else search?.destroy()
   })
 </script>
 
 <svelte:window onpopstate={historyChanged} />
 
-<div class="mf-command-search" bind:this={wrapper} onkeydowncapture={escape} onfocusout={focusout}>
+<div
+  class="mf-command-search"
+  bind:this={wrapper}
+  onkeydowncapture={escape}
+  onfocusin={() => (focused = true)}
+  onfocusout={focusout}
+>
   <SearchInput
     bind:inputEl={() => inputEl as HTMLInputElement, (element) => (inputEl = element)}
     value={draft ?? applied}
     size="sm"
+    disabled={controller.opening}
     keys={['/']}
     invalid={error !== ''}
     ariaLabel="Search transactions"

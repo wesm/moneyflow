@@ -242,16 +242,14 @@ func (session *Session) rebaseSearchAnchor() {
 }
 
 // topLevelSort picks the sort for a top-level aggregate. A detail sort field other than
-// amount has no aggregate meaning, so it starts from the amount default. An amount or count
-// sort keeps its direction.
+// amount has no aggregate meaning, so it starts from the amount default. An amount sort
+// keeps its direction.
 func topLevelSort(
 	dimension domain.Dimension,
 	current domain.SortSpec,
 	fromDetail bool,
 ) domain.SortSpec {
-	keepsDirection := current.Field == domain.SortFieldAmount ||
-		current.Field == domain.SortFieldCount
-	if fromDetail && !keepsDirection {
+	if fromDetail && current.Field != domain.SortFieldAmount {
 		current = amountDescending()
 	}
 	return sortForTopLevelTransition(dimension, current)
