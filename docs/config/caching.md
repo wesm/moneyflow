@@ -54,9 +54,8 @@ For Monarch, `r` downloads complete history. Saving edits does not trigger a Mon
 Successful edits update saved transactions without invalidating the rest of the cache.
 
 TUI and web schedule eligible YNAB and SimpleFIN refreshes while running.
-**Unreleased:** They also refresh Monarch: the last 90 days once the data is 6 hours old, and
-complete history every 30 days. The time of the last full Monarch refresh is kept in
-`provider-refresh.json` beside `moneyflow.db`; it is not exported.
+**Unreleased:** They also refresh Monarch on the schedule in
+[Monarch refresh](../guide/monarch.md#refresh-data).
 MCP refresh is always explicit. Recovering an interrupted write with **Stop and reconcile**
 also reloads provider data.
 

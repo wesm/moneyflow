@@ -36,7 +36,8 @@ success and a full refresh 30 days after the last full one, or when that time is
 profile with no successful import is never due. A manual refresh is full unless it is a
 month-to-date first import. The last full refresh time is advisory state in the profile's
 `provider-refresh.json`, outside the schema and the JSONL transfer; only a folded complete
-Monarch candidate writes it.
+Monarch candidate writes it. [Monarch refresh](../guide/monarch.md#refresh-data) owns the
+user-facing schedule.
 
 A recent refresh fetches a candidate whose `TransactionWindow` is the 90 days ending on the
 clock's local date. The Monarch reader sends it as `startDate` and `endDate` on every page and
