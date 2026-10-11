@@ -84,6 +84,49 @@ test('the mouse wheel reaches the last row of a long result and j moves from the
   await expect.poll(async () => (await scrollState(page)).top).toBe(0)
 })
 
+test('the cursor follows the scroll below a write banner that appeared later', async ({
+  page,
+  server,
+}) => {
+  // Hold the write status until the charts above the table have been measured.
+  let release = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  await page.route('**/provider/write-status', async (route) => {
+    await held
+    await route.fulfill({
+      json: {
+        version: '1',
+        revision: '1',
+        generation: '1',
+        total: 4,
+        completed: 1,
+        failed: 0,
+        remaining: 3,
+        overrides: 0,
+        actions: ['pause'],
+        phase: 'writing',
+      },
+    })
+  })
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  await expect(grid(page).getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  await expect(page.locator('.mf-chart-area')).toBeVisible()
+  release()
+  await expect(page.getByText(/Editing is locked until the write finishes/)).toBeVisible()
+
+  const total = Number(await grid(page).getAttribute('aria-rowcount')) - 1
+  await grid(page).hover()
+  await page.mouse.wheel(0, total * 100)
+  await expect.poll(async () => (await scrollState(page)).atEnd).toBe(true)
+  const first = await firstVisibleRowIndex(page)
+  await expect.poll(() => activeRowIndex(page)).toBe(first)
+  const before = (await scrollState(page)).top
+  await page.keyboard.press('j')
+  await expect.poll(() => activeRowIndex(page)).toBe(first + 1)
+  expect((await scrollState(page)).top).toBe(before)
+})
+
 test('j moves down across the edge of the 200 loaded rows', async ({ page, server }) => {
   await openMoneyflow(page, server)
   await page.keyboard.press('d')

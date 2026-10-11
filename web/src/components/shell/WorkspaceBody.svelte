@@ -60,8 +60,9 @@
   /** A Clear is queued; another click must not also go back a level. */
   let clearing = false
   const compact = new MediaQuery(MEDIA.compact)
-  /** The measured height of the charts above the table. */
+  /** The measured heights of the charts and the write banner above the table. */
   let above = $state(0)
+  let bannerHeight = $state(0)
   // The KPI strip shows above phone width; on phones only the chart drawer reads insights.
   const charting = $derived(!compact.current || charts.dialogOpen)
   /** The row whose ⋯ button opened the actions sheet. */
@@ -125,13 +126,16 @@
   bind:clientHeight={viewport}
   onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
 >
-  {#if writePhase}
-    <EditLockBanner
-      providerName={providerName(projection.profile_kind)}
-      phase={writePhase}
-      onstatus={() => actions.overlays.open('write')}
-    />
-  {/if}
+  <!-- Always present, so the table learns when the banner above it comes or goes. -->
+  <div bind:offsetHeight={bannerHeight}>
+    {#if writePhase}
+      <EditLockBanner
+        providerName={providerName(projection.profile_kind)}
+        phase={writePhase}
+        onstatus={() => actions.overlays.open('write')}
+      />
+    {/if}
+  </div>
   {#if !compact.current}
     <ChartArea
       {projection}
@@ -159,7 +163,7 @@
       {scroller}
       bind:scrollTop
       viewport={viewport - covered}
-      {above}
+      above={above + bannerHeight}
       compact={compact.current}
       onmove={(delta) => moveCursor(() => controller.moveCursor(delta))}
       onhome={() => moveCursor(() => controller.moveHome())}
