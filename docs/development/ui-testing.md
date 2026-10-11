@@ -109,11 +109,10 @@ issues manually in the affected terminal and tmux configuration.
 
 The browser probe provides a repeatable starting point for a usability pass. Inspect
 both themes, narrow layouts, keyboard focus, filtering, editing, review, recovery,
-and empty results. Remaining browser differences include the lack of the TUI time
-chooser and merchant autocomplete; the browser currently uses the date filter and
-a merchant-name field. These are product gaps, not behaviors the harness simulates.
-The completed-write drawer loses its original progress counts. This needs a
-follow-up usability change; data assertions use exact committed amounts and calls.
+and empty results. One browser difference remains: the period chooser picks dates
+from calendars and lists, and does not accept the typed dates that the TUI time
+chooser does. This is a product gap, not a behavior the harness simulates. Data
+assertions use exact committed amounts and calls.
 
 ## Chart contracts
 
@@ -127,7 +126,7 @@ tests compare them with literal synthetic values.
 | Phone drawer | Dialog `Moneyflow visualizations`, holding the KPI strip and the chart row |
 | KPI strip | Description list of terms such as `Income`, `Spending`, `Net`, `Savings rate`, `Avg per transaction`, and `Transactions` |
 | Cash flow | Group `Cash flow`; one button per period named `{label}, in {in}, out {out}, net {net}` |
-| Composition | List named by its panel title, such as `Where it went`; one button per bar named `{label}, {share}%, {net}` |
+| Composition | List named by its panel title, such as `Where it went`; one button per bar named `{label}, {share}, {net}`, where `{share}` ends in `%` and `{net}` is signed |
 | Heatmap | Group `Daily spending`; one cell per day named `{Mon D, YYYY}, out {out}`, with `, in {in}` added when In is not zero |
 
 Cash-flow labels for days are ISO dates in the response. The axis shows the day number
