@@ -496,8 +496,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function moveHome(): Promise<void> {
-    if (!projection || projection.total_rows === 0 || cursorIndex === 0) return
-    await moveToIndex(0)
+    if (!projection || projection.total_rows === 0) return
+    if (cursorIndex !== 0) return moveToIndex(0)
+    // The cursor stays on the first row, so a window that scrolling asked for must not move it.
+    showing?.abort.abort()
+    showing = undefined
   }
 
   async function moveCursorTo(index: number): Promise<void> {

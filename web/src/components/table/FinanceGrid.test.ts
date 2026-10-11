@@ -957,6 +957,25 @@ describe('FinanceGrid', () => {
       expect(document.getElementById(active)).not.toBeNull()
     })
 
+    it('reveals the cursor row on a key that cannot move it, such as Home on the first row', async () => {
+      const scroller = { scrollTop: 0 } as HTMLElement
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scroller,
+        scrollTop: 0,
+        viewport: 630,
+        ...callbacks(),
+      })
+      scroller.scrollTop = 100 * 30
+      await view.rerender({ scrollTop: 100 * 30 })
+      await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), {
+        key: 'Home',
+      })
+      expect(scroller.scrollTop).toBe(0)
+    })
+
     it('names an active descendant only while the cursor row is rendered', async () => {
       const view = render(FinanceGrid, {
         projection: loaded(0),

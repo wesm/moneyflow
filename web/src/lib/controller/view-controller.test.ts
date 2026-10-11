@@ -756,6 +756,26 @@ describe('browser view controller', () => {
       expect(controller.cursorIndex).toBe(0)
     })
 
+    it('drops a scrolled-to window when Home is pressed on the first row', async () => {
+      let release!: (value: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          if (body.window.offset === 0) return projection('v=1', 0, 450)
+          return await new Promise<ViewProjection>((resolve) => (release = resolve))
+        }),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const shown = controller.showIndex(250)
+      await controller.moveHome()
+      release(projection('v=1', 200, 450))
+      await shown
+
+      expect(controller.projection?.window.offset).toBe(0)
+      expect(controller.cursorIndex).toBe(0)
+    })
+
     it('drops a scrolled-to window once a key moves the cursor, and can load it again', async () => {
       const releases: ((value: ViewProjection) => void)[] = []
       const client = clientWith({

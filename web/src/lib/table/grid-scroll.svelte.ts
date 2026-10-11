@@ -90,9 +90,13 @@ export class GridScroll {
     $effect(() => this.#showScrolledRows())
   }
 
-  /** A grid key moves the cursor, so the next cursor move is the user's and is revealed. */
+  /**
+   * A grid key reveals the cursor row, and the next cursor move is the user's and is revealed
+   * too. A key that cannot move the cursor, such as Home on the first row, still scrolls to it.
+   */
   keyed(): void {
     this.#shown = undefined
+    this.#reveal(this.#cursor)
   }
 
   // The grid keeps focus while the cursor moves, so the browser never scrolls the active row
