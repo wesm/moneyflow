@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import AppShell from './AppShell.svelte'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
-import { testProjection } from '../test/projection'
+import { testAggregateRow, testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
 import { testProviderWriteController } from '../test/provider-write'
 import { loadRail } from '../lib/shell/rail'
@@ -595,6 +595,48 @@ describe('AppShell', () => {
     await new Promise((resolve) => setTimeout(resolve))
     expect(controller.apply).toHaveBeenCalledTimes(1)
     expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' }))
+  })
+
+  it('toggles the cursor row of the new view when Space follows a queued view change', async () => {
+    const grouped = testProjection({
+      view: { ...testProjection().view, mode: 'aggregate' },
+      detail_rows: null,
+      aggregate_rows: [testAggregateRow()],
+    })
+    const controller = stubController(grouped)
+    controller.projection!.capabilities!.push(
+      ...[
+        ['view.show-detail', 'd'],
+        ['selection.toggle', 'space'],
+      ].map(([id, key_display]) => ({
+        id: id!,
+        key_display: key_display!,
+        description: id!,
+        category: 'Views',
+        available: true,
+      })),
+    )
+    let showDetail!: () => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          showDetail = () => {
+            controller.projection = testProjection({ canonical_query: 'v=1&mode=detail' })
+            resolve(true)
+          }
+        }),
+    )
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: 'd' })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(1))
+
+    showDetail()
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(controller.apply).toHaveBeenLastCalledWith({
+      action: 'selection.toggle',
+      target: { identity: 'row-0', kind: 'transaction' },
+    })
   })
 
   it('does not trap shortcuts when an editor has no focused row', async () => {
