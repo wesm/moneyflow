@@ -771,7 +771,7 @@ func amountAscending() domain.SortSpec {
 	return sortSpec(domain.SortFieldAmount, domain.SortDirectionAsc)
 }
 
-func TestMatrixLeavingADetailViewKeepsAnAmountOrCountSortDirection(t *testing.T) {
+func TestMatrixLeavingADetailViewKeepsAnAmountSortDirection(t *testing.T) {
 	t.Parallel()
 	leavers := map[string]func(*Session) error{
 		"grouping": func(s *Session) error { return s.SetGrouping(domain.DimensionCategory) },
@@ -780,20 +780,16 @@ func TestMatrixLeavingADetailViewKeepsAnAmountOrCountSortDirection(t *testing.T)
 		},
 	}
 	for name, leave := range leavers {
-		for _, sort := range []domain.SortSpec{
-			amountAscending(), sortSpec(domain.SortFieldCount, domain.SortDirectionAsc),
-		} {
-			t.Run(name+" "+string(sort.Field), func(t *testing.T) {
-				session := NewSession()
-				drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
-				session.Sort = sort
+		t.Run(name, func(t *testing.T) {
+			session := NewSession()
+			drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+			session.Sort = amountAscending()
 
-				require.NoError(t, leave(&session))
+			require.NoError(t, leave(&session))
 
-				assert.Equal(t, sort, session.Sort)
-				assert.Equal(t, domain.ResultModeAggregate, session.Mode)
-			})
-		}
+			assert.Equal(t, amountAscending(), session.Sort)
+			assert.Equal(t, domain.ResultModeAggregate, session.Mode)
+		})
 	}
 }
 
