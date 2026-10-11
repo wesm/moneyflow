@@ -39,7 +39,7 @@
   let search = $state<CommandSearch>()
   let filters = $state<FiltersChip>()
   let searchToggle = $state<HTMLElement>()
-  /** Phone width: the search row was opened; it also shows while a search is applied. */
+  /** Phone width: the search row was opened or has focus; it also shows while a search applies. */
   let searchShown = $state(false)
   const searchVisible = $derived(searchShown || (projection.view.search ?? '') !== '')
   /** The search row opened from its icon, so closing it returns there instead of the grid. */
@@ -77,11 +77,6 @@
     onfocusgrid()
   }
 
-  function revealSearch(): void {
-    searchFromIcon = true
-    void focusSearch()
-  }
-
   // Pressing the icon moves focus out of the field, which folds the row before the click.
   function notePress(node: HTMLElement) {
     const press = () => (shownAtPress = searchShown)
@@ -92,9 +87,9 @@
   function toggleSearch(): void {
     const shown = shownAtPress || searchShown
     shownAtPress = false
-    if (!shown) return revealSearch()
+    searchFromIcon = !shown
+    if (!shown) return void focusSearch()
     searchShown = false
-    searchFromIcon = false
   }
 
   // kit Button has no aria-haspopup prop; set it on its button.
@@ -211,6 +206,7 @@
         class="mf-command-bar__search"
         id="mf-command-search-row"
         hidden={!searchVisible}
+        onfocusin={() => (searchShown = true)}
         onfocusout={searchLeft}
       >
         {@render searchField()}
