@@ -33,6 +33,7 @@ const (
 	heatmapWeekDays      = 53 * 7
 	trendMonths          = 12
 	monthContextMonths   = 13
+	yearContextYears     = 10
 	customDayLimit       = 62
 	customMonthLimit     = 36
 	allTimeMonthLimit    = 60
@@ -175,10 +176,8 @@ func contextPeriods(
 		)
 		return domain.TimeGranularityMonth, periods, err
 	case ScopeYear:
-		periods, err := enumeratePeriods(
-			throughToday(*input.Scope, input.Today), domain.TimeGranularityMonth, input.Today, false,
-		)
-		return domain.TimeGranularityMonth, periods, err
+		periods, err := yearContextPeriods(input)
+		return domain.TimeGranularityYear, periods, err
 	case ScopeCustom:
 		granularity := customGranularity(*input.Scope)
 		periods, err := enumeratePeriods(*input.Scope, granularity, input.Today, true)
@@ -186,6 +185,24 @@ func contextPeriods(
 	default:
 		return allTimePeriods(input)
 	}
+}
+
+// yearContextPeriods lists one period per year from the currency's first transaction year
+// through the scope year, capped at the yearContextYears years ending at the scope year. A
+// currency without transactions, or a scope year before the first one, charts only that year.
+func yearContextPeriods(input RangeInput) ([]PeriodRange, error) {
+	scope := *input.Scope
+	firstYear := scope.Start.Year()
+	if !input.First.IsZero() {
+		firstYear = max(min(input.First.Year(), firstYear), firstYear-yearContextYears+1)
+	}
+	start, err := domain.NewDate(firstYear, time.January, 1)
+	if err != nil {
+		return nil, err
+	}
+	return enumeratePeriods(
+		domain.DateRange{Start: start, End: scope.End}, domain.TimeGranularityYear, input.Today, false,
+	)
 }
 
 // timeRowPeriods returns the Time grouping's rows, which are also its chart columns.

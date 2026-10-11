@@ -50,15 +50,15 @@ func TestResolveRangesWorkedExamples(t *testing.T) {
 		},
 		{
 			name: "year", scope: [2]string{"2025-01-01", "2025-12-31"},
-			kind: ScopeYear, contextGranularity: domain.TimeGranularityMonth,
-			context: [2]string{"2025-01", "2025-12"}, contextCount: 12,
+			kind: ScopeYear, contextGranularity: domain.TimeGranularityYear,
+			context: [2]string{"2024", "2025"}, contextCount: 2,
 			trend:      [2]string{"2025-01", "2025-12"},
 			comparison: [2]string{"2024-01-01", "2024-12-31"}, comparisonLabel: "vs 2024",
 		},
 		{
 			name: "partial year", scope: [2]string{"2026-01-01", "2026-12-31"},
-			kind: ScopeYear, contextGranularity: domain.TimeGranularityMonth,
-			context: [2]string{"2026-01", "2026-10"}, contextCount: 10, contextLastPartial: true,
+			kind: ScopeYear, contextGranularity: domain.TimeGranularityYear,
+			context: [2]string{"2024", "2026"}, contextCount: 3, contextLastPartial: true,
 			trend: [2]string{"2025-11", "2026-10"}, trendLastPartial: true,
 			comparison:      [2]string{"2025-01-01", "2025-10-08"},
 			comparisonLabel: "vs 2025 to date",
@@ -112,8 +112,8 @@ func TestResolveRangesEdges(t *testing.T) {
 		{
 			name: "leap day year to date", scope: [2]string{"2028-01-01", "2028-12-31"},
 			today: "2028-02-29", first: "2024-01-01", latest: "2028-02-28",
-			kind: ScopeYear, contextGranularity: domain.TimeGranularityMonth,
-			context: [2]string{"2028-01", "2028-02"}, contextCount: 2, contextLastPartial: false,
+			kind: ScopeYear, contextGranularity: domain.TimeGranularityYear,
+			context: [2]string{"2024", "2028"}, contextCount: 5, contextLastPartial: true,
 			trend:           [2]string{"2027-03", "2028-02"},
 			comparison:      [2]string{"2027-01-01", "2027-02-28"},
 			comparisonLabel: "vs 2027 to date",
@@ -185,6 +185,66 @@ func TestResolveRangesEdges(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+			assertRanges(t, test)
+		})
+	}
+}
+
+func TestResolveRangesYearContextRunsFromTheFirstYear(t *testing.T) {
+	t.Parallel()
+	tests := []rangeCase{
+		{
+			name: "more than ten years of data is capped", scope: [2]string{"2026-01-01", "2026-12-31"},
+			first:   "2010-03-01",
+			context: [2]string{"2017", "2026"}, contextCount: 10, contextLastPartial: true,
+			trend: [2]string{"2025-11", "2026-10"}, trendLastPartial: true,
+			comparison:      [2]string{"2025-01-01", "2025-10-08"},
+			comparisonLabel: "vs 2025 to date",
+		},
+		{
+			name: "exactly ten years of data", scope: [2]string{"2026-01-01", "2026-12-31"},
+			first:   "2017-12-31",
+			context: [2]string{"2017", "2026"}, contextCount: 10, contextLastPartial: true,
+			trend: [2]string{"2025-11", "2026-10"}, trendLastPartial: true,
+			comparison:      [2]string{"2025-01-01", "2025-10-08"},
+			comparisonLabel: "vs 2025 to date",
+		},
+		{
+			name:  "a past year is capped at the ten years ending there",
+			scope: [2]string{"2020-01-01", "2020-12-31"}, first: "2005-06-15",
+			context: [2]string{"2011", "2020"}, contextCount: 10,
+			trend:      [2]string{"2020-01", "2020-12"},
+			comparison: [2]string{"2019-01-01", "2019-12-31"}, comparisonLabel: "vs 2019",
+		},
+		{
+			name: "a year before the first transaction", scope: [2]string{"2022-01-01", "2022-12-31"},
+			first:   "2024-01-01",
+			context: [2]string{"2022", "2022"}, contextCount: 1,
+			trend: [2]string{"2022-01", "2022-12"}, trendAbsent: 12,
+			comparison: [2]string{"2021-01-01", "2021-12-31"}, comparisonLabel: "vs 2021",
+		},
+		{
+			name: "years near the first representable year", scope: [2]string{"0005-01-01", "0005-12-31"},
+			first:   "0001-01-01",
+			context: [2]string{"0001", "0005"}, contextCount: 5,
+			trend:      [2]string{"0005-01", "0005-12"},
+			comparison: [2]string{"0004-01-01", "0004-12-31"}, comparisonLabel: "vs 0004",
+		},
+		{
+			name: "a currency without transactions", scope: [2]string{"2025-01-01", "2025-12-31"},
+			context: [2]string{"2025", "2025"}, contextCount: 1,
+			trend: [2]string{"2025-01", "2025-12"}, trendAbsent: 12,
+			comparison: [2]string{"2024-01-01", "2024-12-31"}, comparisonLabel: "vs 2024",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			test.today, test.kind = "2026-10-08", ScopeYear
+			test.contextGranularity = domain.TimeGranularityYear
+			if test.first != "" {
+				test.latest = "2026-10-07"
+			}
 			assertRanges(t, test)
 		})
 	}
