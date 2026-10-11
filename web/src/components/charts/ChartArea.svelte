@@ -10,7 +10,6 @@
   import { cashflowCursor } from '../../lib/charts/cashflow'
   import { kpiTiles } from '../../lib/charts/kpis'
   import type { InsightsCache } from '../../lib/insights/cache.svelte'
-  import { drilled } from '../../lib/shell/drills'
   import type { Period } from '../../lib/shell/period'
 
   interface Props {
@@ -48,7 +47,7 @@
   const failed = $derived(cache.status === 'failed')
   const entry = $derived(failed ? undefined : cache.entry)
   const comparisonLabel = $derived(entry?.response.ranges.comparison_label)
-  const tiles = $derived(entry && kpiTiles(entry, comparisonLabel, drilled(entry.query)))
+  const tiles = $derived(entry && kpiTiles(entry, comparisonLabel))
   // Reads cached series only, so moving the cursor never waits for the network.
   const cursor = $derived(
     entry &&

@@ -164,14 +164,11 @@ describe('canShiftPeriod', () => {
   })
 
   it('shifts a time drill under all time, the only drill-down included', () => {
-    const query = 'v=1&g=time&drill=time%3AUSD%3A2%3Amonth%3A2026-09'
+    const drilled = { ...testProjection().view, drill_depth: 1 }
     const time = [{ dimension: 'time', label: 'Sep 2026' }]
-    expect(canShiftPeriod(testProjection({ canonical_query: query, breadcrumbs: time }))).toBe(true)
-    const merchant = 'v=1&drill=merchant%3AUSD%3A2%3Aexample-key'
+    expect(canShiftPeriod(testProjection({ view: drilled, breadcrumbs: time }))).toBe(true)
     const corner = [{ dimension: 'merchant', label: 'Corner Grocery' }]
-    expect(canShiftPeriod(testProjection({ canonical_query: merchant, breadcrumbs: corner }))).toBe(
-      false,
-    )
+    expect(canShiftPeriod(testProjection({ view: drilled, breadcrumbs: corner }))).toBe(false)
   })
 
   it('does not count a time drill inside a return frame', () => {
@@ -301,19 +298,14 @@ describe('emptyScope', () => {
   })
 
   it('leaves every empty drill-down to the table', () => {
-    const merchant = 'v=1&drill=merchant%3AUSD%3A2%3Aexample-key'
+    const view = { ...base.view, currency: { currency: 'USD', scale: 2 }, drill_depth: 1 }
     const corner = [{ dimension: 'merchant', label: 'Corner Grocery' }]
     expect(
-      emptyScope(
-        scoped('2026-11-01', '2026-11-30', { canonical_query: merchant, breadcrumbs: corner }),
-      ),
+      emptyScope(scoped('2026-11-01', '2026-11-30', { view, breadcrumbs: corner })),
     ).toBeUndefined()
-    const time = 'v=1&g=time&drill=time%3AUSD%3A2%3Amonth%3A2026-11'
     const november = [{ dimension: 'time', label: 'Nov 2026' }]
     expect(
-      emptyScope(
-        scoped('2026-11-01', '2026-11-30', { canonical_query: time, breadcrumbs: november }),
-      ),
+      emptyScope(scoped('2026-11-01', '2026-11-30', { view, breadcrumbs: november })),
     ).toBeUndefined()
   })
 

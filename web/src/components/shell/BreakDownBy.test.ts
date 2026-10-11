@@ -8,10 +8,10 @@ import { testProjection } from '../../test/projection'
 function drilled(subGrouping?: string): ViewProjection {
   const base = testProjection()
   return testProjection({
-    canonical_query: 'v=1&mode=detail&drill=merchant%3AUSD%3A2%3Aexample-key',
     view: {
       ...base.view,
       mode: 'detail',
+      drill_depth: 1,
       ...(subGrouping === undefined ? {} : { sub_grouping: subGrouping }),
     },
     breadcrumbs: [{ dimension: 'merchant', label: 'Corner Grocery' }],

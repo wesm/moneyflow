@@ -89,7 +89,7 @@ describe('navItems', () => {
 
   it('marks the active grouping inside a drill and All transactions only at top level', () => {
     const drilled = aggregate({
-      view: { ...aggregate().view, mode: 'detail', grouping: 'category' },
+      view: { ...aggregate().view, mode: 'detail', grouping: 'category', drill_depth: 1 },
       canonical_query: 'drill=category%3Aexample&mode=detail&v=1',
     })
     expect(

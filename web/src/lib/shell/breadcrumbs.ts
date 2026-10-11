@@ -26,40 +26,14 @@ function dimension(value: string) {
   return dimensions.find((entry) => entry.value === value)
 }
 
-interface RootView {
-  mode: string
-  grouping: string
-  /** The time unit, when the view names it; a currency-scoped return frame leaves it out. */
-  granularity?: string
-}
-
-/**
- * The view the root crumb returns to. `view.back-to` depth 0 steps back through the saved
- * `return` frames (newest last) to the newest one without a drill. A drill opened from a link
- * has none; it is cut back to the top level of its own grouping.
- */
-function rootView(projection: ViewProjection, drilled: boolean): RootView {
-  const { mode, grouping } = projection.view
-  if (!drilled) return { mode, grouping, granularity: projection.view.time_granularity }
-  const returns = new URLSearchParams(projection.canonical_query)
-    .getAll('return')
-    .map((frame) => new URLSearchParams(frame.slice(frame.indexOf(':') + 1)))
-  const root = returns.findLast((frame) => !frame.has('drill'))
-  if (!root) return { mode: 'aggregate', grouping }
-  return {
-    mode: root.get('mode') ?? 'aggregate',
-    grouping: root.get('group') ?? 'merchant',
-    ...(root.has('cur') ? {} : { granularity: root.get('time') ?? 'year' }),
-  }
-}
-
 const timeUnits: Record<string, string> = { year: 'Years', month: 'Months', day: 'Days' }
 
-function rootLabel(projection: ViewProjection, drilled: boolean): string {
-  const root = rootView(projection, drilled)
-  if (root.mode === 'detail') return 'All transactions'
-  if (root.grouping === 'time') return timeUnits[root.granularity ?? ''] ?? 'Time'
-  return dimension(root.grouping)?.plural ?? root.grouping
+/** The root crumb names the view `view.back-to` depth 0 returns to, as the server reports it. */
+function rootLabel(projection: ViewProjection): string {
+  const { mode, grouping, time_granularity } = projection.view.root
+  if (mode === 'detail') return 'All transactions'
+  if (grouping === 'time') return timeUnits[time_granularity] ?? 'Time'
+  return dimension(grouping)?.plural ?? grouping
 }
 
 /**
@@ -68,7 +42,7 @@ function rootLabel(projection: ViewProjection, drilled: boolean): string {
  */
 export function breadcrumbTrail(projection: ViewProjection): Crumb[] {
   const frames = drillFrames(projection)
-  const labels = [rootLabel(projection, frames.length > 0), ...frames.map((frame) => frame.label)]
+  const labels = [rootLabel(projection), ...frames.map((frame) => frame.label)]
   const subGrouping = projection.view.sub_grouping
   if (subGrouping) labels.push(`by ${dimension(subGrouping)?.singular ?? subGrouping}`)
   const last = labels.length - 1
