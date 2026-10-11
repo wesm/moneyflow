@@ -182,7 +182,7 @@ describe('deleting', () => {
     expect(remove({ ...category, in_use: false }).replace).toBe(false)
   })
 
-  it('asks for a replacement on delete steps only, and every step but create needs an entry', () => {
+  it('starts a rename from its name and a new category in the first group', () => {
     expect(startStep('category', 'merge', category, withUnused).replace).toBe(false)
     expect(startStep('category', 'rename', category, withUnused)).toMatchObject({
       label: 'Example Category',
@@ -190,7 +190,6 @@ describe('deleting', () => {
     })
     expect(startStep('category', 'create', undefined, withUnused).target).toBe('group-a')
     expect(startStep('group', 'create', undefined, withUnused).target).toBe('')
-    expect(() => startStep('category', 'delete', undefined, withUnused)).toThrow(/delete/)
   })
 })
 

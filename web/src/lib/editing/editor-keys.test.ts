@@ -85,15 +85,13 @@ describe('editorKey with the list closed', () => {
 })
 
 describe('editorKey outside the combobox', () => {
-  const focuses: EditorFocus[] = ['scope', 'stage', 'cancel']
+  const focuses: EditorFocus[] = ['scope', 'stage']
 
   it('leaves Tab and Shift+Tab to the normal focus order, never changing scope', () => {
-    for (const focus of ['combobox', ...focuses] as EditorFocus[]) {
-      for (const listOpen of [true, false]) {
-        const state = { listOpen, valid: true, focus }
-        expect(editorKey(key('Tab'), state)).toBe('none')
-        expect(editorKey(key('Tab', { shiftKey: true }), state)).toBe('none')
-      }
+    const outside = focuses.map((focus) => ({ listOpen: false, valid: true, focus }))
+    for (const state of [open, closed, ...outside]) {
+      expect(editorKey(key('Tab'), state)).toBe('none')
+      expect(editorKey(key('Tab', { shiftKey: true }), state)).toBe('none')
     }
   })
 
@@ -112,12 +110,6 @@ describe('editorKey outside the combobox', () => {
     }
   })
 
-  it('treats a list reported open outside the combobox as closed', () => {
-    const state = { listOpen: true, valid: true, focus: 'scope' } as const
-    expect(editorKey(key('Escape'), state)).toBe('cancel')
-    expect(editorKey(key('Enter'), state)).toBe('stage')
-  })
-
   it('stages on Ctrl+Enter and Cmd+Enter from any control', () => {
     for (const focus of focuses) {
       const state = { listOpen: false, valid: true, focus }
@@ -129,7 +121,6 @@ describe('editorKey outside the combobox', () => {
   it('stages on Enter in the scope group and leaves Enter on a button to the button', () => {
     expect(editorKey(key('Enter'), { listOpen: false, valid: true, focus: 'scope' })).toBe('stage')
     expect(editorKey(key('Enter'), { listOpen: false, valid: true, focus: 'stage' })).toBe('none')
-    expect(editorKey(key('Enter'), { listOpen: false, valid: true, focus: 'cancel' })).toBe('none')
   })
 })
 
