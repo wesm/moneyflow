@@ -621,7 +621,9 @@ describe('AppShell', () => {
       () =>
         new Promise<boolean>((resolve) => {
           showDetail = () => {
-            controller.projection = testProjection({ canonical_query: 'v=1&mode=detail' })
+            Object.assign(controller, {
+              projection: testProjection({ canonical_query: 'v=1&mode=detail' }),
+            })
             resolve(true)
           }
         }),

@@ -279,7 +279,7 @@ describe('pressedRow', () => {
   it('keeps the row the key was pressed on after the cursor moves in the same view', () => {
     const { context } = setup(0)
     const row = pressedRow(context.controller)
-    context.controller.cursorIndex = 1
+    Object.assign(context.controller, { cursorIndex: 1 })
     expect(row()).toEqual({ identity: 'agg-0', kind: 'aggregate' })
   })
 })
