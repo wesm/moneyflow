@@ -116,6 +116,10 @@ type ProviderStatus struct {
 	Total             int
 	ConfirmationToken string
 	Summary           store.RefreshSummary
+	// LastFullRefresh is the advisory time of the last complete-history refresh, or zero.
+	LastFullRefresh time.Time
+	// RefreshDue is the refresh a scheduler should start now.
+	RefreshDue ProviderRefreshScope
 }
 
 // ProviderConnectionState exposes only the binding facts needed by the CLI lifecycle.
@@ -267,7 +271,9 @@ func (service *Service) RefreshProvider(
 	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	status := providerStatusFromState(providerState, runtime.provider)
-	if !request.Manual && (runtime.provider == "monarch" || runtime.provider == "simplefin" || !runtime.hasForceReload()) && !ProviderRefreshDue(status, now) {
+	status.LastFullRefresh = service.profile.LastFullProviderRefresh()
+	fetch, due := providerFetchRequest(runtime, request, status, now)
+	if !due {
 		return service.providerProjectionResult(
 			request, selectionBefore, SelectionPreserved, status, nil,
 		)
@@ -312,10 +318,9 @@ func (service *Service) RefreshProvider(
 	service.interactions.Unlock()
 	interactionLocked = false
 
+	fetch.LastSuccess = providerState.Refresh.LastSuccess
 	candidate, remoteIdentity, fingerprint, fetchErr := service.fetchProviderCandidateWithHeartbeat(
-		ctx,
-		runtime,
-		provider.FetchRequest{LastSuccess: providerState.Refresh.LastSuccess, Now: now},
+		ctx, runtime, fetch,
 	)
 	if fetchErr != nil {
 		if errors.Is(fetchErr, context.Canceled) || errors.Is(fetchErr, context.DeadlineExceeded) {
@@ -498,6 +503,35 @@ func normalizeProviderRefreshRequest(request ProviderRefreshRequest) ProviderRef
 		request.Selection = EmptySelection()
 	}
 	return request
+}
+
+// providerFetchRequest decides whether a refresh runs and which data it reads. Manual
+// refresh always reads complete history. A scheduled refresh runs only when one is due.
+func providerFetchRequest(
+	runtime *providerRuntimeState,
+	request ProviderRefreshRequest,
+	status ProviderStatus,
+	now time.Time,
+) (provider.FetchRequest, bool) {
+	fetch := provider.FetchRequest{Now: now}
+	if request.Manual {
+		return fetch, true
+	}
+	scope := ProviderRefreshDue(status, now)
+	if scope == ProviderRefreshNone {
+		// A replaced YNAB session refreshes at once; Monarch and SimpleFIN wait for their cadence.
+		forced := runtime.provider != "monarch" && runtime.provider != "simplefin" &&
+			runtime.hasForceReload()
+		return fetch, forced
+	}
+	if scope == ProviderRefreshRecent {
+		window, err := monarchRecentWindow(runtime.now())
+		// Only a clock at the edge of the supported calendar fails; read complete history then.
+		if err == nil {
+			fetch.TransactionWindow = window
+		}
+	}
+	return fetch, true
 }
 
 func (service *Service) fetchProviderCandidate(
@@ -795,6 +829,9 @@ func (service *Service) foldProviderCandidate(
 	}
 	status := providerStatusFromState(state, runtime.provider)
 	status.Summary = commit.Summary
+	status.LastFullRefresh = service.recordFullProviderRefresh(
+		runtime, candidate, status.LastSuccess,
+	)
 	return service.providerProjectionResult(
 		request,
 		selectionBefore,
@@ -802,6 +839,23 @@ func (service *Service) foldProviderCandidate(
 		status,
 		details,
 	)
+}
+
+// recordFullProviderRefresh notes a folded complete-history Monarch candidate and returns the
+// recorded time. The record is advisory: if it cannot be written, the next scheduled refresh
+// reads complete history again, and the committed refresh stands.
+func (service *Service) recordFullProviderRefresh(
+	runtime *providerRuntimeState,
+	candidate domain.ImportSnapshot,
+	at time.Time,
+) time.Time {
+	if runtime.provider != "monarch" || candidate.TransactionWindow != nil {
+		return service.profile.LastFullProviderRefresh()
+	}
+	if err := service.profile.RecordFullProviderRefresh(at); err != nil {
+		return time.Time{}
+	}
+	return at
 }
 
 func (service *Service) releaseProviderLease(ctx context.Context, ownerID string) error {

@@ -43,13 +43,9 @@ interface ProviderProjectionHost {
 interface ProviderControllerOptions {
   transport: ProviderTransport
   host: ProviderProjectionHost
-  now?: () => number
 }
 
-const refreshIntervalMillis = 6 * 60 * 60 * 1000
-
 export function createProviderController(options: ProviderControllerOptions): ProviderController {
-  const now = options.now ?? Date.now
   let state: ProviderState = { phase: 'idle', announcement: '', capability: undefined }
   let inFlight = false
   let notify = (): void => undefined
@@ -229,7 +225,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
         status.code !== undefined ||
         phase !== 'idle' ||
         !status.capability.available ||
-        !isRefreshDue(status, now())
+        status.refresh_due === 'none'
       )
         return
       await refresh(false)
@@ -258,24 +254,6 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     confirm,
     dismissConfirmation,
   }
-}
-
-function isRefreshDue(status: ProviderStatus, now: number): boolean {
-  if (status.provider_kind === 'monarch') return false
-  if (status.next_eligible && Date.parse(status.next_eligible) > now) return false
-  if (
-    status.provider_kind === 'simplefin' &&
-    status.last_attempt &&
-    (!status.last_success || Date.parse(status.last_attempt) > Date.parse(status.last_success))
-  )
-    return false
-  if (!status.last_success) return true
-  const lastSuccess = Date.parse(status.last_success)
-  return (
-    Number.isFinite(lastSuccess) &&
-    now - lastSuccess >=
-      (status.provider_kind === 'simplefin' ? 24 * 60 * 60 * 1000 : refreshIntervalMillis)
-  )
 }
 
 function statusPhase(status: ProviderStatus, inFlight: boolean): ProviderPhase {

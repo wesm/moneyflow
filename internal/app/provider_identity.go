@@ -311,15 +311,19 @@ func (planner *identityPlanner) planDimensions() error {
 	return nil
 }
 
-func (planner *identityPlanner) planTransactions() error {
-	// The import replaces every provider row in its scope. Rows outside a window are kept.
+// removeProviderRowsInScope drops the provider rows the import replaces. Rows outside a
+// windowed import are kept unchanged.
+func (planner *identityPlanner) removeProviderRowsInScope() {
 	for id := range planner.providerEntityIDs[domain.EntityKindTransaction] {
-		if existing, exists := planner.transactions[id]; exists &&
-			!planner.input.Import.InTransactionWindow(existing.Date) {
-			continue
+		existing, exists := planner.transactions[id]
+		if !exists || planner.input.Import.InTransactionWindow(existing.Date) {
+			delete(planner.transactions, id)
 		}
-		delete(planner.transactions, id)
 	}
+}
+
+func (planner *identityPlanner) planTransactions() error {
+	planner.removeProviderRowsInScope()
 	transactions := append([]domain.ImportTransaction(nil), planner.input.Import.Transactions...)
 	slices.SortFunc(transactions, func(left, right domain.ImportTransaction) int {
 		return strings.Compare(left.ExternalID, right.ExternalID)

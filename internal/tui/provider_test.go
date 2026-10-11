@@ -149,37 +149,49 @@ func TestRefreshResultClearsExactSelectionAndRestoresCursor(t *testing.T) {
 	assert.Contains(t, model.status, "Selection cleared")
 }
 
-func TestMonarchStandingTickKeepsStaleCacheUntilManualRefresh(t *testing.T) {
+func TestMonarchOpenStartsTheDueRefreshKind(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		age    time.Duration
+		start  bool
+		status string
+	}{
+		{name: "fresh data", age: 6*time.Hour - time.Second},
+		{name: "recent data is stale", age: 6 * time.Hour, start: true,
+			status: "Refreshing recent provider data (last 90 days)… Esc=Cancel"},
+		{name: "full history is stale", age: 30 * 24 * time.Hour, start: true,
+			status: "Refreshing complete provider history… Esc=Cancel"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newProviderModel(t, 3)
+			model := fixture.model
+			opened := model.providerStatusCommand(fixture.now.Add(test.age))().(providerStatusMsg)
+			updated, command := model.Update(opened)
+			model = updated.(Model)
+			assert.NotNil(t, command)
+			assert.Equal(t, test.start, model.provider.refreshing)
+			if test.start {
+				assert.Equal(t, test.status, model.status)
+			}
+		})
+	}
+}
+
+func TestManualMonarchRefreshNamesCompleteHistory(t *testing.T) {
 	t.Parallel()
 
 	fixture := newProviderModel(t, 3)
-	model := fixture.model
-
-	updated, command := model.Update(providerScheduleTickMsg{
-		at:              fixture.now.Add(6*time.Hour - time.Second),
-		timerGeneration: model.provider.timerGeneration,
-	})
-	model = updated.(Model)
+	updated, command := fixture.model.Update(keyRune('r'))
+	model := updated.(Model)
 	require.NotNil(t, command)
-	updated, refreshCommand := model.Update(command())
-	model = updated.(Model)
-	assert.False(t, model.provider.refreshing)
-	assert.NotNil(t, refreshCommand)
-
-	updated, command = model.Update(providerScheduleTickMsg{
-		at: fixture.now.Add(6 * time.Hour), timerGeneration: model.provider.timerGeneration,
-	})
-	model = updated.(Model)
-	require.NotNil(t, command)
-	updated, refreshCommand = model.Update(command())
-	model = updated.(Model)
-	assert.False(t, model.provider.refreshing)
-	assert.NotNil(t, refreshCommand)
-
-	updated, command = model.Update(keyRune('r'))
-	model = updated.(Model)
 	assert.True(t, model.provider.refreshing)
-	require.NotNil(t, command)
+	assert.Equal(t, "Refreshing complete provider history… Esc=Cancel", model.status)
+	model.provider.status = app.ProviderStatus{Fetched: 2, Total: 3}
+	assert.Equal(t, "Refreshing complete provider history: 2 of 3 fetched.",
+		model.providerProgressMessage(model.provider.status))
 }
 
 func TestProviderLateProgressStatusCannotStartSecondRefresh(t *testing.T) {

@@ -126,6 +126,37 @@ func TestProviderTypesNeverExposeRemoteRowsOrIdentifiers(t *testing.T) {
 	assert.NotContains(t, text, "remote_profile")
 }
 
+func TestProviderStatusReportsDueRefreshAndLastFailure(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	var status ProviderStatusResponse
+	response := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+	assert.Equal(t, "none", status.RefreshDue, "a profile refreshed now has nothing due")
+	assert.Empty(t, status.CodeDetail)
+
+	fixture.source.mu.Lock()
+	fixture.source.identity.RemoteID = "subscription-other"
+	fixture.source.mu.Unlock()
+	body := ProviderRefreshBody{
+		Version: ProviderSchemaVersion, Manual: true, Query: "v=1",
+		Selection: string(app.EmptySelection()), Window: Window{Limit: 200},
+	}
+	failed := requestProtectedJSON(t, fixture.server, "/api/v1/provider/refresh", body)
+	require.Equal(t, http.StatusConflict, failed.Code, failed.Body.String())
+	var problem Problem
+	require.NoError(t, json.Unmarshal(failed.Body.Bytes(), &problem))
+	require.NotNil(t, problem.Provider)
+	assert.Equal(t, "The provider profile does not match this local profile.",
+		problem.Provider.CodeDetail)
+
+	response = requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+	assert.Equal(t, provider.CodeIdentityMismatch, status.Code)
+	assert.Equal(t, "The provider profile does not match this local profile.", status.CodeDetail)
+}
+
 func TestProviderStatusReturnsUnboundCapabilityWithoutDispatch(t *testing.T) {
 	t.Parallel()
 
@@ -136,6 +167,7 @@ func TestProviderStatusReturnsUnboundCapabilityWithoutDispatch(t *testing.T) {
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
 	assert.False(t, status.Capability.Available)
 	assert.Equal(t, "Connect a provider before refreshing.", status.Capability.Reason)
+	assert.Equal(t, "none", status.RefreshDue)
 }
 
 func TestProviderStatusRemainsResponsiveDuringProviderFetch(t *testing.T) {

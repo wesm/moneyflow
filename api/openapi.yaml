@@ -2032,6 +2032,9 @@ components:
           $ref: "#/components/schemas/Capability"
         code:
           type: string
+        code_detail:
+          description: Explains code
+          type: string
         confirmation_token:
           maxLength: 4096
           type: string
@@ -2056,6 +2059,12 @@ components:
           $ref: "#/components/schemas/ProviderProgress"
         provider_kind:
           type: string
+        refresh_due:
+          enum:
+            - none
+            - recent
+            - full
+          type: string
         revision:
           pattern: ^[0-9]+$
           type: string
@@ -2067,6 +2076,7 @@ components:
         - version
         - revision
         - generation
+        - refresh_due
         - progress
         - summary
         - capability

@@ -5,42 +5,42 @@ import { createProviderController } from './provider'
 import { testProjection } from '../../test/projection'
 
 describe('provider controller', () => {
-  it('waits 24 hours for SimpleFIN and parks a failed attempt', async () => {
-    const now = Date.parse('2026-09-19T12:00:00Z')
+  it.each(['recent', 'full'] as const)(
+    'starts the %s refresh the server reports as due',
+    async (refresh_due) => {
+      const current = testProjection({ capabilities: [capability(true)] })
+      const transport = transportStub({
+        status: providerStatus({ provider_kind: 'monarch', refresh_due }),
+        mutationResponse: Response.json(refreshResponse(current, 'preserved')),
+      })
+      const controller = createProviderController({ transport, host: hostStub(current) })
+      controller.sync(current)
+
+      await controller.poll()
+
+      expect(transport.mutations.request).toHaveBeenCalledOnce()
+      expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(
+        false,
+      )
+    },
+  )
+
+  it('waits when no refresh is due and refreshes on request', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const transport = transportStub({
-      status: providerStatus({
-        provider_kind: 'simplefin',
-        last_success: '2026-09-18T12:00:00.001Z',
-      }),
+      status: providerStatus({ provider_kind: 'monarch', last_success: '2026-08-01T12:00:00Z' }),
       mutationResponse: Response.json(refreshResponse(current, 'preserved')),
     })
-    const controller = createProviderController({
-      transport,
-      host: hostStub(current),
-      now: () => now,
-    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+
     await controller.poll()
     expect(transport.mutations.request).not.toHaveBeenCalled()
-    vi.mocked(transport.status).mockResolvedValue(
-      providerStatus({
-        provider_kind: 'simplefin',
-        last_success: '2026-09-18T12:00:00Z',
-        last_attempt: '2026-09-19T10:00:00Z',
-      }),
-    )
-    await controller.poll()
-    expect(transport.mutations.request).not.toHaveBeenCalled()
-    vi.mocked(transport.status).mockResolvedValue(
-      providerStatus({
-        provider_kind: 'simplefin',
-        last_success: '2026-09-18T12:00:00Z',
-        last_attempt: '2026-09-18T12:00:00Z',
-      }),
-    )
-    await controller.poll()
+    await controller.refresh()
     expect(transport.mutations.request).toHaveBeenCalledOnce()
+    expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(true)
   })
+
   it('does not dispatch an unavailable refresh and announces the server reason', async () => {
     const transport = transportStub()
     const controller = createProviderController({ transport, host: hostStub() })
@@ -147,51 +147,6 @@ describe('provider controller', () => {
     expect(controller.state.phase).toBe('failed')
   })
 
-  it('starts an automatic YNAB refresh when a visible poll reports six-hour staleness', async () => {
-    const current = testProjection({ capabilities: [capability(true)] })
-    const now = Date.parse('2026-08-15T18:00:00Z')
-    const transport = transportStub({
-      status: providerStatus({ provider_kind: 'ynab', last_success: '2026-08-15T12:00:00Z' }),
-      mutationResponse: Response.json(refreshResponse(current, 'preserved')),
-    })
-    const controller = createProviderController({
-      transport,
-      host: hostStub(current),
-      now: () => now,
-    })
-    controller.sync(current)
-
-    await controller.poll()
-
-    expect(transport.status).toHaveBeenCalledTimes(1)
-    expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(false)
-  })
-
-  it.each([undefined, '2026-08-01T12:00:00Z'])(
-    'keeps Monarch cached until an explicit refresh (last success: %s)',
-    async (last_success) => {
-      const current = testProjection({ capabilities: [capability(true)] })
-      const transport = transportStub({
-        status: providerStatus({
-          provider_kind: 'monarch',
-          ...(last_success === undefined ? {} : { last_success }),
-        }),
-        mutationResponse: Response.json(refreshResponse(current, 'preserved')),
-      })
-      const controller = createProviderController({
-        transport,
-        host: hostStub(current),
-        now: () => Date.parse('2026-08-15T18:00:00Z'),
-      })
-      controller.sync(current)
-      await controller.poll()
-      expect(transport.mutations.request).not.toHaveBeenCalled()
-      await controller.refresh()
-      expect(transport.mutations.request).toHaveBeenCalledOnce()
-      expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(true)
-    },
-  )
-
   it('reports another process progress without starting a competing refresh', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const transport = transportStub({
@@ -248,6 +203,7 @@ function providerStatus(overrides: Partial<ProviderStatus> = {}): ProviderStatus
     version: '1',
     revision: '1',
     generation: '1',
+    refresh_due: 'none',
     progress: { fetched: 0, total: 0 },
     summary: emptySummary(),
     capability: capability(true),

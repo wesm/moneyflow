@@ -1506,6 +1506,8 @@ export interface components {
     ProviderStatusResponse: {
       capability: components['schemas']['Capability']
       code?: string
+      /** @description Explains code */
+      code_detail?: string
       confirmation_token?: string
       generation: string
       /** Format: date-time */
@@ -1518,6 +1520,8 @@ export interface components {
       owner_renderer?: string
       progress: components['schemas']['ProviderProgress']
       provider_kind?: string
+      /** @enum {string} */
+      refresh_due: 'none' | 'recent' | 'full'
       revision: string
       summary: components['schemas']['ProviderRefreshSummary']
       version: string

@@ -613,6 +613,18 @@ func TestProviderRefreshDeletionGuardUsesMatchingRevisionAndGeneration(t *testin
 
 func newProviderRefreshService(t *testing.T) (*app.Service, store.Profile) {
 	t.Helper()
+	service, profileHandle, _ := openProviderRefreshProfile(t)
+	return service, profileHandle
+}
+
+func newProviderRefreshServiceAt(t *testing.T) (*app.Service, home.Paths) {
+	t.Helper()
+	service, _, paths := openProviderRefreshProfile(t)
+	return service, paths
+}
+
+func openProviderRefreshProfile(t *testing.T) (*app.Service, store.Profile, home.Paths) {
+	t.Helper()
 	paths, err := home.ResolveRoot(t.TempDir(), nil, "")
 	require.NoError(t, err)
 	profileHandle, err := sqlite.Open(context.Background(), paths, sqlite.DefaultOptions)
@@ -620,7 +632,7 @@ func newProviderRefreshService(t *testing.T) (*app.Service, store.Profile) {
 	t.Cleanup(func() { require.NoError(t, profileHandle.Close()) })
 	service, err := app.NewProfileService(context.Background(), profileHandle)
 	require.NoError(t, err)
-	return service, profileHandle
+	return service, profileHandle, paths
 }
 
 func configureProviderRefreshService(
@@ -713,6 +725,7 @@ type fakeProviderSource struct {
 	fetches          int
 	reloads          int
 	reloadHook       func()
+	requests         []provider.FetchRequest
 }
 
 type providerStateRaceProfile struct {
@@ -811,6 +824,12 @@ func (source *fakeProviderSource) fetchCalls() int {
 	return source.fetches
 }
 
+func (source *fakeProviderSource) fetchRequests() []provider.FetchRequest {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	return append([]provider.FetchRequest(nil), source.requests...)
+}
+
 func (source *fakeProviderSource) reloadCalls() int {
 	source.mu.Lock()
 	defer source.mu.Unlock()
@@ -819,13 +838,15 @@ func (source *fakeProviderSource) reloadCalls() int {
 
 type fakeProviderReader fakeProviderSource
 
+// FetchSnapshot behaves like Monarch: a requested window filters rows and is reported back.
 func (reader *fakeProviderReader) FetchSnapshot(
 	ctx context.Context,
-	_ provider.FetchRequest,
+	request provider.FetchRequest,
 	progress provider.ProgressFunc,
 ) (provider.SnapshotResult, error) {
 	source := (*fakeProviderSource)(reader)
 	source.mu.Lock()
+	source.requests = append(source.requests, request)
 	source.probes++
 	identity := source.identity
 	probeErr := source.probeErr
@@ -837,7 +858,7 @@ func (reader *fakeProviderReader) FetchSnapshot(
 	source.fetchHook = nil
 	contextHook := source.fetchContextHook
 	source.fetchContextHook = nil
-	snapshot := source.snapshot.Clone()
+	snapshot := windowedProviderSnapshot(source.snapshot.Clone(), request.TransactionWindow)
 	err := source.fetchErr
 	source.fetches++
 	source.mu.Unlock()
@@ -855,6 +876,24 @@ func (reader *fakeProviderReader) FetchSnapshot(
 		progress(provider.Progress{Partition: "all", Fetched: len(snapshot.Transactions), Total: len(snapshot.Transactions), Attempt: 1})
 	}
 	return provider.SnapshotResult{Identity: identity, Snapshot: snapshot}, err
+}
+
+func windowedProviderSnapshot(
+	snapshot domain.ImportSnapshot,
+	window *domain.DateRange,
+) domain.ImportSnapshot {
+	if window == nil {
+		return snapshot
+	}
+	snapshot.TransactionWindow = window
+	rows := snapshot.Transactions[:0]
+	for _, transaction := range snapshot.Transactions {
+		if snapshot.InTransactionWindow(transaction.Date) {
+			rows = append(rows, transaction)
+		}
+	}
+	snapshot.Transactions = rows
+	return snapshot
 }
 
 type incrementingReader struct {

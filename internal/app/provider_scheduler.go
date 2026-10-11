@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/store"
 )
@@ -52,23 +53,86 @@ func StoreErrorRetryClass(code store.ErrorCode) ProviderRetryClass {
 	}
 }
 
+// ProviderRefreshScope names the refresh a scheduler should start.
+type ProviderRefreshScope string
+
+const (
+	// ProviderRefreshNone means no refresh is due.
+	ProviderRefreshNone ProviderRefreshScope = "none"
+	// ProviderRefreshRecent refetches only the recent Monarch window.
+	ProviderRefreshRecent ProviderRefreshScope = "recent"
+	// ProviderRefreshFull reads the provider's complete data. It is the only kind for YNAB and
+	// SimpleFIN.
+	ProviderRefreshFull ProviderRefreshScope = "full"
+)
+
+// The Monarch policy restores Python v0.11.1: refetch the last 90 days once they are six
+// hours old, and download complete history every 30 days.
+const (
+	monarchRecentWindowDays = 90
+	monarchRecentMaxAge     = 6 * time.Hour
+	monarchFullMaxAge       = 30 * 24 * time.Hour
+)
+
 // ProviderRefreshDue applies the provider's cadence and durable retry floor.
-func ProviderRefreshDue(status ProviderStatus, now time.Time) bool {
-	// Monarch reads complete history. Only an explicit refresh may incur that cost.
+func ProviderRefreshDue(status ProviderStatus, now time.Time) ProviderRefreshScope {
 	if status.ProviderKind == "monarch" {
-		return false
+		return monarchRefreshDue(status, now)
 	}
 	if status.ProviderKind == "simplefin" {
-		return status.Code == "" && !status.LastAttempt.After(status.LastSuccess) &&
-			!status.NextEligible.After(now) && (status.LastSuccess.IsZero() || !status.LastSuccess.Add(24*time.Hour).After(now))
+		return dueScope(simpleFINRefreshDue(status, now))
 	}
+	return dueScope(providerRetryAllowed(status, now) &&
+		(status.LastSuccess.IsZero() || !status.LastSuccess.Add(6*time.Hour).After(now)))
+}
+
+// simpleFINRefreshDue waits 24 hours and parks after any unresolved attempt.
+func simpleFINRefreshDue(status ProviderStatus, now time.Time) bool {
+	return status.Code == "" && !status.LastAttempt.After(status.LastSuccess) &&
+		!status.NextEligible.After(now) &&
+		(status.LastSuccess.IsZero() || !status.LastSuccess.Add(24*time.Hour).After(now))
+}
+
+// monarchRefreshDue never starts the first import: onboarding owns it.
+func monarchRefreshDue(status ProviderStatus, now time.Time) ProviderRefreshScope {
+	if status.LastSuccess.IsZero() || !providerRetryAllowed(status, now) {
+		return ProviderRefreshNone
+	}
+	lastFull := status.LastFullRefresh
+	if lastFull.IsZero() || !lastFull.Add(monarchFullMaxAge).After(now) {
+		return ProviderRefreshFull
+	}
+	if !status.LastSuccess.Add(monarchRecentMaxAge).After(now) {
+		return ProviderRefreshRecent
+	}
+	return ProviderRefreshNone
+}
+
+func providerRetryAllowed(status ProviderStatus, now time.Time) bool {
 	if status.Code != "" && ProviderErrorRetryClass(status.Code) == ProviderManualActionRequired {
 		return false
 	}
-	if !status.NextEligible.IsZero() && status.NextEligible.After(now) {
-		return false
+	return status.NextEligible.IsZero() || !status.NextEligible.After(now)
+}
+
+func dueScope(due bool) ProviderRefreshScope {
+	if due {
+		return ProviderRefreshFull
 	}
-	return status.LastSuccess.IsZero() || !status.LastSuccess.Add(6*time.Hour).After(now)
+	return ProviderRefreshNone
+}
+
+// monarchRecentWindow is the inclusive 90-day range ending on the clock's local date.
+func monarchRecentWindow(now time.Time) (*domain.DateRange, error) {
+	end, err := domain.NewDate(now.Year(), now.Month(), now.Day())
+	if err != nil {
+		return nil, err
+	}
+	start, err := end.AddDays(-monarchRecentWindowDays)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.DateRange{Start: start, End: end}, nil
 }
 
 // ProviderStatus returns current counts-only status and observes session replacement while parked.
@@ -117,5 +181,7 @@ func (service *Service) ProviderStatus(ctx context.Context) (ProviderStatus, err
 	if status.Code == provider.CodeReconnectRequired && runtime.hasForceReload() {
 		status.Code = ""
 	}
+	status.LastFullRefresh = service.profile.LastFullProviderRefresh()
+	status.RefreshDue = ProviderRefreshDue(status, runtime.now())
 	return status, nil
 }

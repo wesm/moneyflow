@@ -2,6 +2,8 @@ package app_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -194,48 +196,107 @@ func TestProviderWriteClearsOnlyObsoleteReconnectFailure(t *testing.T) {
 	}
 }
 
-func TestMonarchRefreshRequiresExplicitRequestEvenWithStaleCache(t *testing.T) {
+func TestMonarchRefreshDueChoosesRecentOrFullByAge(t *testing.T) {
 	t.Parallel()
+
+	now := time.Date(2026, time.August, 15, 21, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+	tests := []struct {
+		name        string
+		lastSuccess time.Duration
+		lastFull    time.Duration
+		unknownFull bool
+		code        provider.ErrorCode
+		eligibleIn  time.Duration
+		want        app.ProviderRefreshScope
+	}{
+		{name: "fresh", lastSuccess: time.Hour, lastFull: time.Hour, want: app.ProviderRefreshNone},
+		{name: "just under six hours", lastSuccess: 6*time.Hour - time.Millisecond,
+			lastFull: 2 * day, want: app.ProviderRefreshNone},
+		{name: "six hours", lastSuccess: 6 * time.Hour, lastFull: 2 * day,
+			want: app.ProviderRefreshRecent},
+		{name: "full just under thirty days", lastSuccess: 7 * time.Hour,
+			lastFull: 30*day - time.Millisecond, want: app.ProviderRefreshRecent},
+		{name: "full thirty days", lastSuccess: 7 * time.Hour, lastFull: 30 * day,
+			want: app.ProviderRefreshFull},
+		{name: "full due while recent is fresh", lastSuccess: time.Hour, lastFull: 31 * day,
+			want: app.ProviderRefreshFull},
+		{name: "no full record", lastSuccess: time.Hour, unknownFull: true,
+			want: app.ProviderRefreshFull},
+		{name: "never imported", unknownFull: true, want: app.ProviderRefreshNone},
+		{name: "manual action", lastSuccess: 7 * time.Hour, lastFull: 31 * day,
+			code: provider.CodeDeletionConfirmationRequired, want: app.ProviderRefreshNone},
+		{name: "retry floor", lastSuccess: 7 * time.Hour, lastFull: 31 * day,
+			code: provider.CodeUnavailable, eligibleIn: time.Minute, want: app.ProviderRefreshNone},
+		{name: "retry floor passed", lastSuccess: 7 * time.Hour, lastFull: 2 * day,
+			code: provider.CodeUnavailable, eligibleIn: -time.Minute,
+			want: app.ProviderRefreshRecent},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			status := app.ProviderStatus{ProviderKind: "monarch", Code: test.code}
+			if test.lastSuccess != 0 {
+				status.LastSuccess = now.Add(-test.lastSuccess)
+			}
+			if !test.unknownFull {
+				status.LastFullRefresh = now.Add(-test.lastFull)
+			}
+			if test.eligibleIn != 0 {
+				status.NextEligible = now.Add(test.eligibleIn)
+			}
+			assert.Equal(t, test.want, app.ProviderRefreshDue(status, now))
+		})
+	}
+}
+
+func TestMonarchMissingOrCorruptRefreshRecordMakesFullRefreshDue(t *testing.T) {
+	t.Parallel()
+
 	ctx := t.Context()
-	service, _ := newProviderRefreshService(t)
+	service, paths := newProviderRefreshServiceAt(t)
 	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
 	source := &fakeProviderSource{
 		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
 		snapshot: providerSnapshot(t, now, 2), fingerprint: "session-a",
 	}
 	configureProviderRefreshService(t, service, source, now, "instance-a")
-	request := app.ProviderRefreshRequest{State: app.DefaultViewState(), Selection: app.EmptySelection()}
-	_, err := service.RefreshProvider(ctx, request)
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
 	require.NoError(t, err)
-	assert.Zero(t, source.fetchCalls(), "opening an unrefreshed profile must not fetch history")
-	assert.Zero(t, source.probeCalls())
+	status, err := service.ProviderStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, now, status.LastFullRefresh)
+	assert.Equal(t, app.ProviderRefreshNone, status.RefreshDue)
 
-	request.Manual = true
-	_, err = service.RefreshProvider(ctx, request)
+	record := filepath.Join(paths.Root, "provider-refresh.json")
+	require.NoError(t, os.WriteFile(record, []byte("{not json"), 0o600))
+	status, err = service.ProviderStatus(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 1, source.fetchCalls())
-	configureProviderRefreshService(t, service, source, now.Add(48*time.Hour), "instance-a")
-	request.Manual = false
-	result, err := service.RefreshProvider(ctx, request)
+	assert.True(t, status.LastFullRefresh.IsZero())
+	assert.Equal(t, app.ProviderRefreshFull, status.RefreshDue)
+
+	require.NoError(t, os.Remove(record))
+	status, err = service.ProviderStatus(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, now, result.Status.LastSuccess)
-	assert.Equal(t, 1, source.fetchCalls(), "stale cached history must remain local until requested")
-	assert.Equal(t, 1, source.probeCalls())
+	assert.Equal(t, app.ProviderRefreshFull, status.RefreshDue)
 }
 
 func TestProviderSchedulerSixHourStalenessAndNextEligible(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, time.August, 15, 21, 0, 0, 0, time.UTC)
-	assert.True(t, app.ProviderRefreshDue(app.ProviderStatus{}, now))
-	assert.False(t, app.ProviderRefreshDue(app.ProviderStatus{LastSuccess: now}, now))
-	assert.False(t, app.ProviderRefreshDue(app.ProviderStatus{
+	none, full := app.ProviderRefreshNone, app.ProviderRefreshFull
+	assert.Equal(t, full, app.ProviderRefreshDue(app.ProviderStatus{}, now))
+	assert.Equal(t, none, app.ProviderRefreshDue(app.ProviderStatus{LastSuccess: now}, now))
+	assert.Equal(t, none, app.ProviderRefreshDue(app.ProviderStatus{
 		LastSuccess: now.Add(-7 * time.Hour), NextEligible: now.Add(time.Minute),
 	}, now))
-	assert.False(t, app.ProviderRefreshDue(app.ProviderStatus{
+	assert.Equal(t, none, app.ProviderRefreshDue(app.ProviderStatus{
 		LastSuccess: now.Add(-6*time.Hour + time.Millisecond),
 	}, now))
-	assert.True(t, app.ProviderRefreshDue(app.ProviderStatus{
+	assert.Equal(t, full, app.ProviderRefreshDue(app.ProviderStatus{
 		LastSuccess: now.Add(-6 * time.Hour),
 	}, now))
 	for _, code := range []provider.ErrorCode{
@@ -247,6 +308,6 @@ func TestProviderSchedulerSixHourStalenessAndNextEligible(t *testing.T) {
 		provider.CodeDataInvalid,
 		provider.CodeRefreshStale,
 	} {
-		assert.False(t, app.ProviderRefreshDue(app.ProviderStatus{Code: code}, now), code)
+		assert.Equal(t, none, app.ProviderRefreshDue(app.ProviderStatus{Code: code}, now), code)
 	}
 }
