@@ -41,7 +41,7 @@
   let grid = $state<HTMLElement | undefined>()
   let commandBar = $state<ShellCommandBar>()
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
-  let transitionTail: Promise<void> = Promise.resolve()
+  let transitionTail: Promise<unknown> = Promise.resolve()
   const projection = $derived(controller.projection)
   const compact = new MediaQuery(MEDIA.compact)
   const fullSidebar = new MediaQuery(SIDEBAR_FULL_QUERY)
@@ -54,7 +54,6 @@
       return controller
     },
     overlays,
-    afterTransitions: () => transitionTail,
     queue: (work) => (transitionTail = transitionTail.then(work, work)),
     focusGrid,
     importAmazon: () => onamazonimport?.(),

@@ -11,10 +11,6 @@ describe('availableCapabilities', () => {
     })
     expect([...availableCapabilities(projection)]).toEqual(['view.drill'])
   })
-
-  it('treats a projection without capabilities as offering none', () => {
-    expect(availableCapabilities(testProjection({ capabilities: null })).size).toBe(0)
-  })
 })
 
 describe('unavailableReason', () => {

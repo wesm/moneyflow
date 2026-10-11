@@ -476,6 +476,28 @@ test('the phone search icon reveals the field, which stays while a search applie
   await expect(page.getByRole('dialog', { name: 'Moneyflow visualizations' })).toBeVisible()
 })
 
+test('the phone search field stays while its applied search is cleared', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize(phone)
+  await openMoneyflow(page, server)
+  const searchbox = page.getByRole('searchbox', { name: 'Search transactions' })
+  await page.getByRole('button', { name: 'Search', exact: true }).click()
+  await searchbox.fill('noodle')
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
+
+  await searchbox.click()
+  await searchbox.fill('')
+  await expect(page).not.toHaveURL(/[?&]q=/)
+  await expect(searchbox).toBeVisible()
+  await expect(searchbox).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
+  await expect(searchbox).toHaveValue('noodle')
+})
+
 test('narrowing past the phone width keeps typing in the search field', async ({
   page,
   server,

@@ -524,6 +524,36 @@ describe('AppShell', () => {
     )
   })
 
+  it('clears the selection without going back once a queued toggle empties it', async () => {
+    const controller = stubController(testProjection({ selection_count: 1 }))
+    let deselect!: () => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          deselect = () => {
+            controller.projection!.selection_count = 0
+            resolve(true)
+          }
+        }),
+    )
+    render(AppShell, { controller })
+    const box = document.querySelector<HTMLElement>('[role="gridcell"][data-column="select"]')!
+    await fireEvent.click(box)
+    await fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    await vi.waitFor(() =>
+      expect(controller.apply).toHaveBeenCalledWith({
+        action: 'selection.toggle',
+        target: { identity: 'row-0', kind: 'transaction' },
+      }),
+    )
+
+    deselect()
+    // The queued Clear runs in the microtasks after the toggle settles.
+    await new Promise((resolve) => setTimeout(resolve))
+    expect(controller.apply).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' }))
+  })
+
   it('does not trap shortcuts when an editor has no focused row', async () => {
     const controller = stubController(testProjection({ total_rows: 0, detail_rows: [] }))
     render(AppShell, { controller })
@@ -682,6 +712,7 @@ function stubController(projection = testProjection()): ViewController {
       ],
     }),
     loading: false,
+    opening: false,
     announcement: '',
     cursorIdentity: 'row-0',
     cursorIndex: 0,

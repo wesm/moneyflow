@@ -22,7 +22,7 @@
   import {
     localActions,
     moveCursor,
-    openEditor,
+    openEditorWhenSettled,
     openTransactionInformation,
     runRowAction,
     type LocalActionContext,
@@ -54,7 +54,7 @@
   /** The bar covers the scroller's bottom, so the table counts only the rows above it. */
   const covered = $derived(selecting ? barHeight : 0)
   const local = $derived(localActions(actions))
-  /** A Clear is queued; another click must not also go back a level. */
+  /** A Clear is queued; another click must not queue a second one. */
   let clearing = false
   const compact = new MediaQuery(MEDIA.compact)
   /** The measured height of the charts above the table. */
@@ -93,11 +93,11 @@
 
   function onrow(identity: string): void {
     // The row is found in the projection the queued transitions leave.
-    void moveCursor(() =>
-      actions.queue(async () => {
+    void moveCursor(async () => {
+      await actions.queue(async () => {
         if (controller.projection) await moveToRow(controller, controller.projection, identity)
-      }),
-    )
+      })
+    })
   }
 
   function ondrill(identity: string): void {
@@ -106,16 +106,22 @@
 
   /** Runs a selection bar button as its key does, then leaves focus on the table. */
   function select(action: SelectionButton['action']): void {
+    status.clear()
     if (action === 'clear') {
       if (clearing) return
       clearing = true
-      onapply({ action: 'view.back' })
       const settle = () => (clearing = false)
-      return void actions.afterTransitions().then(settle, settle)
+      return void actions.queue(clearSelection).then(settle, settle)
     }
     actions.focusGrid()
-    status.clear()
     local[action]()
+  }
+
+  // Back clears a selection. A toggle queued before the Clear can leave none, and Back would
+  // then leave the search, sub-grouping, or drill level instead.
+  async function clearSelection(): Promise<void> {
+    if (controller.projection?.selection_count) await controller.apply({ action: 'view.back' })
+    actions.focusGrid()
   }
 </script>
 
@@ -164,7 +170,8 @@
       ontoggleall={() => onapply({ action: 'selection.toggle-all' })}
       onactivate={(identity, kind) => onapply({ action: 'view.drill', target: { identity, kind } })}
       oninformation={(identity) => void openTransactionInformation(actions, identity)}
-      onedit={(identity, field) => openEditor(actions, field, { identity, kind: 'transaction' })}
+      onedit={(identity, field) =>
+        openEditorWhenSettled(actions, field, { identity, kind: 'transaction' })}
       onsort={(field) => onapply({ action: 'sort.set', sort_field: field })}
       onactions={(row, opener) => {
         sheetRow = row

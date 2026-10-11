@@ -64,6 +64,8 @@ export interface SearchSnapshot {
 export interface ViewController {
   readonly projection: ViewProjection | undefined
   readonly loading: boolean
+  /** The first load is still setting the view's currency; a search waits for it. */
+  readonly opening: boolean
   readonly announcement: string
   readonly cursorIdentity: string | undefined
   readonly cursorIndex: number
@@ -142,6 +144,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   let projection = $state.raw<ViewProjection | undefined>()
   let loading = $state(false)
+  let opening = $state(false)
   let announcement = $state('')
   let cursorIdentity = $state<string | undefined>()
   let cursorIndex = $state(0)
@@ -215,8 +218,13 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       hydrate,
     )
     const busiest = loaded && projection ? busiestCurrency(projection) : undefined
-    if (busiest)
+    if (!busiest) return
+    opening = true
+    try {
       await hold(transitionNow({ action: 'view.set-currency', currency: busiest }, 'replace'))
+    } finally {
+      opening = false
+    }
   }
 
   function hold<T>(work: Promise<T>): Promise<T> {
@@ -332,7 +340,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         if (returning?.projection !== next) return
         lateReturn = returning
         returning = undefined
-        accept(next, 'none')
+        if (!newerThan(next)) accept(next, 'none')
         resolve()
       }, returnTimeoutMillis)
       returning = {
@@ -356,14 +364,15 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     generation += 1
     activeRequest?.abort()
     loading = false
-    // Later transitions wait for this return, so they must run even if installing it fails.
+    // Later transitions wait for this return and its cursor window, so a row key targets the
+    // restored cursor row. They must run even if installing it fails.
     try {
       accept(returned.projection, 'replace', owned)
+      if (alignedOffset(owned.cursorIndex) !== returned.projection.window.offset) {
+        await moveToIndex(owned.cursorIndex)
+      }
     } finally {
       returned.settle()
-    }
-    if (alignedOffset(owned.cursorIndex) !== returned.projection.window.offset) {
-      await moveToIndex(owned.cursorIndex)
     }
   }
 
@@ -375,7 +384,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const returned = returning ?? late
     returning = undefined
     lateReturn = undefined
-    if (returned && owned && returned.sequence === owned.sequence) {
+    if (
+      returned &&
+      owned &&
+      returned.sequence === owned.sequence &&
+      !newerThan(returned.projection)
+    ) {
       await installReturn(returned, owned)
       return
     }
@@ -516,8 +530,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function moveHome(): Promise<void> {
-    if (!projection || projection.total_rows === 0 || cursorIndex === 0) return
-    await moveToIndex(0)
+    if (!projection || projection.total_rows === 0) return
+    if (cursorIndex !== 0) return moveToIndex(0)
+    // The cursor stays on the first row, so a window that scrolling asked for must not move it.
+    showing?.abort.abort()
+    showing = undefined
   }
 
   async function moveCursorTo(index: number): Promise<void> {
@@ -692,8 +709,13 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     schedulePrefetch(next)
   }
 
+  /** Whether the view shown has a newer profile revision than `cached`, such as after an edit. */
+  function newerThan(cached: ViewProjection): boolean {
+    return projection !== undefined && BigInt(cached.revision) < BigInt(projection.revision)
+  }
+
   function acceptProfileProjection(next: ViewProjection, replaceHistory = false): boolean {
-    if (projection && BigInt(next.revision) < BigInt(projection.revision)) return false
+    if (newerThan(next)) return false
     generation += 1
     activeRequest?.abort()
     activeRequest = undefined
@@ -822,6 +844,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     },
     get loading() {
       return loading
+    },
+    get opening() {
+      return opening
     },
     get announcement() {
       return announcement

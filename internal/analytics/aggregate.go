@@ -422,6 +422,9 @@ func ratioHalfUp(numerator, denominator, multiplier uint64) (int, error) {
 	quotient, remainder := bits.Div64(high, low, denominator)
 	halfUpThreshold := denominator/2 + denominator%2
 	if remainder >= halfUpThreshold {
+		if quotient == math.MaxUint64 {
+			return 0, errors.New("ratio result overflows uint64")
+		}
 		quotient++
 	}
 	if quotient > uint64(math.MaxInt) {

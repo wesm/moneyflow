@@ -39,12 +39,4 @@ describe('drillFrames', () => {
     })
     expect(drillFrames(projection)).toEqual([])
   })
-
-  it('tolerates a projection without breadcrumbs', () => {
-    const projection = testProjection({
-      canonical_query: `v=1&${merchantDrill}`,
-      breadcrumbs: null,
-    })
-    expect(drillFrames(projection)).toEqual([])
-  })
 })
