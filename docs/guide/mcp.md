@@ -101,7 +101,7 @@ conflict, read the current state and review again instead of automatically resen
 | `batch_update_category` | `transaction_ids`, with a category ID or name. |
 | `reassign_transactions_merchant` | `transaction_ids`, with exactly one of existing `merchant_id` or `new_merchant_label`. |
 | `rename_merchant` | Whole `merchant_id` and `new_label`; a collision requires the explicit `merge_destination_id`. |
-| `toggle_transactions_hidden` | `transaction_ids`; toggle hidden state or cancel their pending hide toggles, matching the TUI. |
+| `toggle_transactions_hidden` | `transaction_ids`; flip hidden state, matching the TUI. **Unreleased:** Pending hide toggles are cancelled only when they changed every target. |
 | `delete_transactions` | `transaction_ids`; stage undoable deletion, without sending a provider request. |
 | `manage_category` | Create, rename, move, merge, or delete a category on a local, Amazon, or SimpleFIN profile. |
 | `manage_category_group` | Create, rename, merge, or delete a category group on a local, Amazon, or SimpleFIN profile. |

@@ -93,6 +93,31 @@ func TestMutateHideOnMixedSelectionHidesOnlyVisibleRows(t *testing.T) {
 	assert.Equal(t, 1, result.Affected)
 }
 
+func TestMutateShowAfterEvenPendingTogglesReportsTheShow(t *testing.T) {
+	service := summaryService(t)
+	toggle := func(selection app.SelectionValue, target *app.RowTarget) app.MutationResult {
+		t.Helper()
+		result, err := service.Mutate(t.Context(), app.MutationRequest{
+			Action: app.ActionToggleHidden, ExpectedRevision: service.Revision(),
+			State: detailViewState(), Selection: selection, Target: target,
+		})
+		require.NoError(t, err)
+		return result
+	}
+	// transaction_b is committed hidden: show it, then hide a and b together.
+	toggle(app.EmptySelection(), rowTarget("transaction_b"))
+	both, err := app.NewExplicitTransactionSelection(
+		[]domain.EntityID{"transaction_a", "transaction_b"}, service.Revision(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, app.OperationHide, toggle(both, nil).OperationKind)
+
+	shown := toggle(app.EmptySelection(), rowTarget("transaction_b"))
+	assert.Equal(t, app.OperationShow, shown.OperationKind)
+	assert.Equal(t, 1, shown.Affected)
+	assert.True(t, shown.Undoable, "showing b appends an operation")
+}
+
 func TestMutateOmitProjectionStillReportsTheOperation(t *testing.T) {
 	service := summaryService(t)
 	result, err := service.Mutate(t.Context(), app.MutationRequest{

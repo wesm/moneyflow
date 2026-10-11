@@ -78,7 +78,7 @@ func TestMCPWholeMerchantPreviewIsBoundedButEditIsComplete(t *testing.T) {
 	}
 }
 
-func TestMCPHideCancellationRemovesEveryPendingToggleEffect(t *testing.T) {
+func TestMCPHideToggleAlwaysFlipsVisibilityAndCancelsOnlyAChange(t *testing.T) {
 	service, closeProfile := writeTestService(t, 3)
 	defer closeProfile()
 	client, cleanup := connectWriteTestServer(t, service, true)
@@ -91,19 +91,34 @@ func TestMCPHideCancellationRemovesEveryPendingToggleEffect(t *testing.T) {
 		result := callWriteTool(t, client, "toggle_transactions_hidden", map[string]any{"expected_revision": strconv.FormatUint(service.Revision(), 10), "transaction_ids": ids})
 		require.False(t, result.IsError)
 	}
-	// transaction_000 was unhidden, then hidden by the mixed selection; cancelling both leaves it hidden.
-	revision := strconv.FormatUint(service.Revision(), 10)
-	for _, dry := range []bool{true, false} {
-		result := callWriteTool(t, client, "toggle_transactions_hidden", map[string]any{"expected_revision": revision, "transaction_ids": []string{"transaction_000"}, "dry_run": dry})
-		require.False(t, result.IsError)
-		change := result.StructuredContent.(map[string]any)["changes"].([]any)[0].(map[string]any)
-		assert.Equal(t, true, change["before"].(map[string]any)["hidden"])
-		assert.Equal(t, true, change["after"].(map[string]any)["hidden"])
+	// transaction_000 was unhidden, then hidden again by the mixed selection: its two pending
+	// toggles leave it at its committed hidden state, so another toggle shows it.
+	// transaction_001 has one pending toggle that hid it, so toggling it cancels that toggle.
+	for _, step := range []struct {
+		id          string
+		activeAfter float64
+	}{
+		{id: "transaction_000", activeAfter: 4},
+		{id: "transaction_001", activeAfter: 3},
+	} {
+		revision := strconv.FormatUint(service.Revision(), 10)
+		for _, dry := range []bool{true, false} {
+			result := callWriteTool(t, client, "toggle_transactions_hidden", map[string]any{"expected_revision": revision, "transaction_ids": []string{step.id}, "dry_run": dry})
+			require.False(t, result.IsError)
+			document := result.StructuredContent.(map[string]any)
+			change := document["changes"].([]any)[0].(map[string]any)
+			assert.Equal(t, true, change["before"].(map[string]any)["hidden"], step.id)
+			assert.Equal(t, false, change["after"].(map[string]any)["hidden"], step.id)
+			if !dry {
+				pending := document["pending"].(map[string]any)
+				assert.Equal(t, step.activeAfter, pending["active_operations"], step.id)
+			}
+		}
 	}
 	rows, err := service.TransactionWindow(t.Context(), app.TransactionWindowRequest{Filter: app.TransactionFilter{IncludeHidden: true}, Limit: 3})
 	require.NoError(t, err)
 	for _, row := range rows.Rows {
-		assert.Equal(t, row.ID != "transaction_002", row.Hidden)
+		assert.False(t, row.Hidden, row.ID)
 	}
 }
 
