@@ -72,7 +72,8 @@ A recent refresh replaces only the transactions dated inside its 90-day window:
   categories they use stay as they are.
 - Removal review counts only transactions inside the window.
 - A transaction whose date Monarch moves from inside the window to an earlier date looks
-  deleted until the next full refresh restores it.
+  deleted until the next full refresh restores it. The recent refresh discards pending edits
+  on that transaction, and the full refresh restores the transaction but not those edits.
 
 Moneyflow records the time of the last full refresh in `provider-refresh.json`, beside
 `moneyflow.db` in the profile folder. The file is advisory scheduling state: it is not part of
