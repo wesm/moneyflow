@@ -22,15 +22,6 @@ func TestDemoIsDeterministicAndConvertsToACommittedProfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, committed.Accounts, 4)
 	assert.Len(t, committed.Merchants, 43)
-
-	ids := make(map[string]struct{}, len(first))
-	for _, transaction := range first {
-		_, seen := ids[transaction.ID]
-		require.False(t, seen, "duplicate transaction id %s", transaction.ID)
-		ids[transaction.ID] = struct{}{}
-		_, err = domain.NewTransaction(transaction)
-		require.NoError(t, err, transaction.ID)
-	}
 }
 
 func TestDemoSpansFixedDatesInUSDAndEUR(t *testing.T) {

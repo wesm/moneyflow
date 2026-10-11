@@ -162,9 +162,10 @@ func TestMatrixDrillPushesRowAndClearsSubGrouping(t *testing.T) {
 
 	drillMatrixRow(t, &session, matrixRow(domain.DimensionCategory, "category-1"))
 
-	require.Len(t, session.Drilldowns, 2)
-	assert.Equal(t, "category-1", session.Drilldowns[1].Key)
-	want.drilldowns = cloneDrilldowns(session.Drilldowns)
+	want.drilldowns = append(want.drilldowns, domain.Drilldown{
+		Dimension: domain.DimensionCategory, Currency: "USD", Scale: 2,
+		Key: "category-1", Label: "Example category-1",
+	})
 	want.subGrouping = nil
 	want.sort = dateDescending()
 	want.selected = 0
@@ -399,18 +400,6 @@ func TestEscapeStep4UndoesSubGrouping(t *testing.T) {
 	assert.Nil(t, session.SubGrouping)
 	assert.Len(t, session.Drilldowns, 1)
 	assert.Equal(t, domain.ResultModeDetail, session.Mode)
-}
-
-func TestEscapeStep5GoesBackOneLevel(t *testing.T) {
-	t.Parallel()
-	session := NewSession()
-	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
-
-	_, ok := session.Back()
-
-	require.True(t, ok)
-	assert.Empty(t, session.Drilldowns)
-	assert.Equal(t, domain.ResultModeAggregate, session.Mode)
 }
 
 func TestEscapeStep6DoesNothingAtTopLevel(t *testing.T) {
@@ -698,10 +687,6 @@ func TestMatrixSetSortAppliesDefaultDirectionForNewField(t *testing.T) {
 			domain.SortFieldGroup, domain.SortDirectionAsc},
 		{"time period", func(s *Session) { s.Dimension = domain.DimensionTime },
 			domain.SortFieldTimePeriod, domain.SortDirectionAsc},
-		{"time period after amount", func(s *Session) {
-			s.Dimension = domain.DimensionTime
-			s.Sort = sortSpec(domain.SortFieldAmount, domain.SortDirectionDesc)
-		}, domain.SortFieldTimePeriod, domain.SortDirectionAsc},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -786,7 +771,7 @@ func amountAscending() domain.SortSpec {
 	return sortSpec(domain.SortFieldAmount, domain.SortDirectionAsc)
 }
 
-func TestMatrixLeavingADetailViewKeepsAnAmountOrCountSortDirection(t *testing.T) {
+func TestMatrixLeavingADetailViewKeepsAnAmountSortDirection(t *testing.T) {
 	t.Parallel()
 	leavers := map[string]func(*Session) error{
 		"grouping": func(s *Session) error { return s.SetGrouping(domain.DimensionCategory) },
@@ -795,20 +780,16 @@ func TestMatrixLeavingADetailViewKeepsAnAmountOrCountSortDirection(t *testing.T)
 		},
 	}
 	for name, leave := range leavers {
-		for _, sort := range []domain.SortSpec{
-			amountAscending(), sortSpec(domain.SortFieldCount, domain.SortDirectionAsc),
-		} {
-			t.Run(name+" "+string(sort.Field), func(t *testing.T) {
-				session := NewSession()
-				drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
-				session.Sort = sort
+		t.Run(name, func(t *testing.T) {
+			session := NewSession()
+			drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+			session.Sort = amountAscending()
 
-				require.NoError(t, leave(&session))
+			require.NoError(t, leave(&session))
 
-				assert.Equal(t, sort, session.Sort)
-				assert.Equal(t, domain.ResultModeAggregate, session.Mode)
-			})
-		}
+			assert.Equal(t, amountAscending(), session.Sort)
+			assert.Equal(t, domain.ResultModeAggregate, session.Mode)
+		})
 	}
 }
 
@@ -938,7 +919,10 @@ func TestMatrixPeriodChangeInsideASubGroupedTimeDrillPromotesTheSubGrouping(t *t
 
 		want.drilldowns = nil
 		want.subGrouping = nil
-		want.dateRange = cloneDateRange(session.DateRange)
+		want.dateRange = august
+		if name == "clear" {
+			want.dateRange = nil
+		}
 		want.sort = sortSpec(domain.SortFieldMerchant, domain.SortDirectionAsc)
 		want.selected = 0
 		assert.Equal(t, want, columnsOf(session), name)

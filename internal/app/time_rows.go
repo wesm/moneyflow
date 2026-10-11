@@ -3,7 +3,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/wesm/moneyflow/internal/analytics"
 	"github.com/wesm/moneyflow/internal/domain"
@@ -146,7 +145,9 @@ func (service *Service) selectionCurrencies(
 }
 
 // mergeTimeRows lists every period of a Time grouping, including periods without
-// transactions, in the view's sort. Data rows outside the periods stay.
+// transactions, in the view's sort. Data rows outside the periods stay, but the empty rows
+// the aggregate fills between them do not, so a future transaction lists no empty days
+// after today.
 func mergeTimeRows(
 	state AnalyticalState, rows []domain.AggregateRow, periods []analytics.PeriodRange,
 ) []domain.AggregateRow {
@@ -154,19 +155,24 @@ func mergeTimeRows(
 	if len(periods) == 0 || query.Mode != domain.ResultModeAggregate {
 		return rows
 	}
-	listed := make(map[string]struct{}, len(rows))
-	for _, row := range rows {
-		listed[row.Key] = struct{}{}
+	empty := make([]domain.AggregateRow, len(periods))
+	inPeriods := make(map[string]struct{}, len(periods))
+	for index, period := range periods {
+		empty[index] = analytics.EmptyTimeRow(period.Period, *query.Currency)
+		inPeriods[empty[index].Key] = struct{}{}
 	}
-	merged := slices.Clip(rows)
-	for _, period := range periods {
-		row := analytics.EmptyTimeRow(period.Period, *query.Currency)
-		if _, exists := listed[row.Key]; !exists {
+	listed := make(map[string]struct{}, len(rows))
+	merged := make([]domain.AggregateRow, 0, len(rows)+len(periods))
+	for _, row := range rows {
+		if _, ok := inPeriods[row.Key]; ok || row.Count > 0 {
 			merged = append(merged, row)
+			listed[row.Key] = struct{}{}
 		}
 	}
-	if len(merged) == len(rows) {
-		return rows
+	for _, row := range empty {
+		if _, ok := listed[row.Key]; !ok {
+			merged = append(merged, row)
+		}
 	}
 	return analytics.SortAggregateRows(merged, query.Sort)
 }

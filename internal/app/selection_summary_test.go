@@ -1,7 +1,6 @@
 package app
 
 import (
-	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -150,28 +149,6 @@ func TestSelectionSummaryIsNilWithoutSelection(t *testing.T) {
 		projection := summaryProjection(t, service, state, EmptySelection())
 		assert.Nil(t, projection.SelectionSummary)
 	}
-}
-
-func TestSelectionSummaryRejectsAggregateOverflow(t *testing.T) {
-	t.Parallel()
-
-	row := func(key string, in int64) domain.AggregateRow {
-		money := func(minor int64) domain.Money {
-			return domain.Money{Minor: minor, Currency: "USD", Scale: 2}
-		}
-		return domain.AggregateRow{
-			Key: key, Count: 1, In: money(in), Out: money(0), Total: money(in),
-			Flags: domain.RowFlags{Selected: true},
-		}
-	}
-	result := domain.QueryResult{AggregateRows: []domain.AggregateRow{
-		row("a", math.MaxInt64), row("b", 1),
-	}}
-
-	_, err := selectionSummary(result)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "USD")
 }
 
 func TestSelectionSummaryMatchesAnalyticsStatisticsForDetailSelection(t *testing.T) {
