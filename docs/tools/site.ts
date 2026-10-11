@@ -191,6 +191,8 @@ async function build() {
       "tui-review.svg",
       "tui-export.svg",
       "web-browse.png",
+      "web-edit.png",
+      "web-phone.png",
       "web-review.png",
     ],
   );

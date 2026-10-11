@@ -45,7 +45,9 @@ server helper. Both renderers use generated synthetic transactions and temporary
 profiles; no live profile or provider is involved.
 
 The sequence shows merchant totals, a drill into transactions, selecting two rows, changing their
-category, reviewing the pending change, and opening export. It never commits or writes an export.
+category, reviewing the pending change, and opening export. The browser run also captures a
+390 by 844 phone layout in the dark scheme and the anchored editor with "Books" typed in
+the Category box, before the change is staged. It never commits or writes an export.
 The website lightbox supports keyboard activation, Escape, a Close button and focus restoration;
 image links still open directly without JavaScript. The original SVG or PNG remains available for
 full-resolution inspection.

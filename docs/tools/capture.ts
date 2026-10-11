@@ -163,6 +163,17 @@ try {
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({ path: join(output, "web-browse.png") });
     console.log("Captured web-browse.png");
+    const phone = await browser.newPage({
+      viewport: { width: 390, height: 844 },
+      deviceScaleFactor: 3,
+      colorScheme: "dark",
+    });
+    await phone.goto(server.url);
+    await phone.getByRole("grid", { name: "Financial results" }).waitFor();
+    await phone.evaluate(() => document.fonts.ready);
+    await phone.screenshot({ path: join(output, "web-phone.png") });
+    console.log("Captured web-phone.png");
+    await phone.close();
     const grid = page.getByRole("grid", { name: "Financial results" });
     await grid.focus();
     await page.keyboard.press("d");
@@ -177,7 +188,12 @@ try {
     const category = page.getByRole("combobox", { name: "Category", exact: true });
     await category.fill("Books");
     await category.press("Enter");
-    await page.getByRole("button", { name: /^Stage change to / }).click();
+    const stage = page.getByRole("button", { name: /^Stage change to / });
+    await stage.waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({ path: join(output, "web-edit.png") });
+    console.log("Captured web-edit.png");
+    await stage.click();
     await page
       .getByRole("dialog", { name: "Change category" })
       .waitFor({ state: "hidden", timeout: 5_000 })
