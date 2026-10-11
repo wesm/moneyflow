@@ -1000,12 +1000,13 @@ describe('FinanceGrid', () => {
     it('does not follow the scroll the grid makes to show the cursor row', async () => {
       vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
       const events = callbacks()
+      const scroller = scrollerAt(0)
       // The grid first scrolls the cursor on the last row into view.
       const view = render(FinanceGrid, {
         projection: loaded(400),
         cursorIndex: 449,
         compact: false,
-        scroller: scrollerAt(0),
+        scroller,
         scrollTop: 0,
         viewport: 630,
         ...events,
@@ -1021,9 +1022,14 @@ describe('FinanceGrid', () => {
       offsetTop = 0
       await fireEvent.keyDown(grid, { key: 'B', shiftKey: true })
       vi.advanceTimersToNextFrame()
-
       expect(events.oncursor).not.toHaveBeenCalled()
-      expect(grid.getAttribute('aria-activedescendant')).toBe('moneyflow-row-row-449')
+
+      // Once the grid hears of the shrink, it renders the cursor row it kept and names it.
+      await view.rerender({ above: 0, scrollTop: scroller.scrollTop })
+      vi.advanceTimersToNextFrame()
+      expect(events.oncursor).not.toHaveBeenCalled()
+      const shown = screen.getByRole('grid', { name: 'Financial results' })
+      expect(shown.getAttribute('aria-activedescendant')).toBe('moneyflow-row-row-449')
     })
 
     it('keeps the cursor when the browser rounds the scroll that shows its row', async () => {
