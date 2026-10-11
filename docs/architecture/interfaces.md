@@ -45,12 +45,12 @@ onboarding flow, not a hidden import during recovery.
 application transitions as the TUI. One SPA serves the configured base path; profile application
 URLs and API routes use `/p/<profile-id>/`. Shared assets remain at the base path.
 
-Each view response is a projection with the rows, `currencies`, a `selection_summary` of the
-selected transactions per currency, and `staged` values on rows with pending edits. Aggregate rows
-carry `savings_rate_tenths` and `net_ratio` on Time rows, and `group` on category rows. `net_ratio`
-is the row's net over the largest absolute net of the whole result, in basis points (−10000 to
-10000). It does not change when the row window moves. `view.sort_fields` lists the fields the
-current view can sort by, in the order the sort key cycles.
+**Unreleased:** Besides its rows and `currencies`, each view response carries a `selection_summary`
+of the selected transactions per currency, and `staged` values on rows with pending edits. Aggregate
+rows carry `savings_rate_tenths` and `net_ratio` on Time rows, and `group` on category rows.
+`net_ratio` is the row's net over the largest absolute net of the whole result, in basis points
+(−10000 to 10000). It does not change when the row window moves. `view.sort_fields` lists the fields
+the current view can sort by, in the order the sort key cycles.
 
 **Unreleased:** `view.drill_depth` counts the drill frames in the current view. `view.root` names
 the view that `view.back-to` with depth 0 reaches, as its `mode`, `grouping`, and
@@ -64,22 +64,22 @@ share one merchant. The editor compares it with the matched merchant's ID to dec
 [merges into another merchant](../guide/editing.md#open-the-editor). A whole-merchant preview also
 reports how many affected transactions the view hides, with `outside_view` and `outside_currencies`.
 
-A mutate, undo, or redo response carries `operation`, from which the browser words its toasts:
-the `kind` (`rename`, `recategorize`, `hide`, `show`, `delete`, `manage_category`, or
+**Unreleased:** A mutate, undo, or redo response carries `operation`, from which the browser words
+its toasts: the `kind` (`rename`, `recategorize`, `hide`, `show`, `delete`, `manage_category`, or
 `manage_group`), the review `label`, the `affected` transaction count, and `undoable`. A commit
 response has no `operation`. Each editor-catalog choice carries `transaction_count`, its committed
 non-deleted transactions, and `in_use`, which applies pending edits and makes a manager delete ask
 for a replacement. Review targets carry each transaction's exact `amount`.
 
-**Unreleased:** A refused request returns a `Problem`. An `invalid_operation` problem can carry
-`reason`, which the server sets only from the store's allowlisted reasons; the schema lists them as
-an enum. For example, `taxonomy_label_collision` marks a category or group name that another entry
+**Unreleased:** An `invalid_operation` problem, the `Problem` a refused operation returns, can carry
+`reason`. The server sets it only from the store's allowlisted reasons; the schema lists them as an
+enum. For example, `taxonomy_label_collision` marks a category or group name that another entry
 already uses. The browser words a refusal from `reason`, never from `detail` text.
 
-A view request may carry an `anchor`, an aggregate row identity. The server then returns the window
-that holds that row and reports its global index as `anchor_index`. An identity that matches no row
-of the result leaves the window as requested, omits `anchor_index`, and adds the warning
-`anchor_missing`.
+**Unreleased:** A view request may carry an `anchor`, an aggregate row identity. The server then
+returns the window that holds that row and reports its global index as `anchor_index`. An identity
+that matches no row of the result leaves the window as requested, omits `anchor_index`, and adds the
+warning `anchor_missing`.
 
 **Unreleased:** Charts read from a separate operation,
 `POST /api/v1/profiles/{profile_id}/view/insights`. It takes the view's query and optional row

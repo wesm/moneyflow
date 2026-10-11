@@ -181,8 +181,10 @@ already uses, ignoring case and surrounding spaces. The step then shows
 `That label already exists; use merge instead.` and stages nothing. If the server refuses a
 step, the step stays open and shows the server's collision reason when there is one. A name
 collision that only the server finds, such as with an entry created after the drawer loaded its
-list, shows the same `That label already exists; use merge instead.` Other refusals show a
-general message, such as `That action is not available for the current target.` If you leave a
+list, shows the same `That label already exists; use merge instead.` The editor's
+`Create "…"` does the same: if another tab or an MCP client created that category after the
+editor loaded its suggestions, the editor stays open and shows that message. Other refusals show
+a general message, such as `That action is not available for the current target.` If you leave a
 step with Esc before the server answers, the drawer does not show that answer.
 
 ## Review possible duplicates

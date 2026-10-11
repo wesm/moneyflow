@@ -79,7 +79,7 @@ floating-point money.
 | `search_transactions` | Search effective transactions with literal text matching. |
 | `get_transactions` | Return a filtered effective transaction window. |
 | `get_spending_summary` | Summarize effective expenses by category or merchant. |
-| `get_insights` | Return chart data for one view; see [chart insights](#chart-insights). |
+| `get_insights` | **Unreleased:** Return chart data for one view; see [chart insights](#chart-insights). |
 | `get_categories` | List active category groups and categories. |
 | `get_merchants` | List active merchants and exact totals. |
 | `get_account_info` | Return credential-blind local profile information. |

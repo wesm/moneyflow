@@ -116,7 +116,7 @@ The panel beside the cash-flow chart depends on the view:
 
 The **Charts** switch shows or hides the chart row. The KPI strip stays, and the browser
 remembers the choice. On a phone, the KPI strip and charts are not shown above the table; the
-switch opens them in a **Visualizations** drawer instead, and Esc closes it.
+switch opens them in a **Visualizations** drawer instead.
 
 The charts show these states:
 
