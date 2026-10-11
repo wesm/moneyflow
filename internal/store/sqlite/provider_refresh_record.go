@@ -49,7 +49,7 @@ func (profile *profile) RecordFullProviderRefresh(at time.Time) error {
 		return fmt.Errorf("record full provider refresh: encode: %w", err)
 	}
 	if err = home.WritePrivateFile(profile.recordPath, append(contents, '\n')); err != nil {
-		return fmt.Errorf("record full provider refresh: %w", err)
+		return fmt.Errorf("record full provider refresh in %s: %w", profile.recordPath, err)
 	}
 	return nil
 }

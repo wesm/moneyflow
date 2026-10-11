@@ -183,5 +183,6 @@ func (service *Service) ProviderStatus(ctx context.Context) (ProviderStatus, err
 	}
 	status.LastFullRefresh = service.profile.LastFullProviderRefresh()
 	status.RefreshDue = ProviderRefreshDue(status, runtime.now())
+	status.Warning = service.providerRefreshWarning()
 	return status, nil
 }

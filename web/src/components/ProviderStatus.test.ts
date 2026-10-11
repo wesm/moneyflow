@@ -53,6 +53,13 @@ describe('ProviderStatus', () => {
     expect(screen.getByText('Updated 8d ago')).not.toBeNull()
   })
 
+  it('shows a warning the last refresh reported next to the button', () => {
+    const warning = 'Refresh saved, but the full refresh was not recorded.'
+    const controller = stubProvider(true, { status: testProviderStatus({ warning }) })
+    render(ProviderStatus, { controller })
+    expectVisible(warning)
+  })
+
   it('names the refresh kind while it runs', () => {
     const controller = stubProvider(true, {
       phase: 'refreshing',

@@ -25,14 +25,15 @@
         ? 'full history'
         : 'provider data',
   )
-  // Why refresh is unavailable, who else is refreshing, or why the last refresh failed.
+  // Why refresh is unavailable, who else is refreshing, why the last refresh failed, or what
+  // the last refresh could not do.
   const notice = $derived.by(() => {
     const { announcement, capability, phase, status } = controller.state
     if (!available && capability?.reason) return capability.reason
     if (phase === 'refreshing' && status?.code === 'provider_refresh_in_progress') {
       return status.code_detail
     }
-    return phase === 'failed' && announcement ? announcement : undefined
+    return phase === 'failed' && announcement ? announcement : status?.warning
   })
   let now = $state(Date.now())
   const updated = $derived.by(() => {

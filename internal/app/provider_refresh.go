@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"slices"
@@ -120,6 +121,8 @@ type ProviderStatus struct {
 	LastFullRefresh time.Time
 	// RefreshDue is the refresh a scheduler should start now.
 	RefreshDue ProviderRefreshScope
+	// Warning reports a problem that did not stop the refresh, or is empty.
+	Warning string
 }
 
 // ProviderConnectionState exposes only the binding facts needed by the CLI lifecycle.
@@ -832,6 +835,7 @@ func (service *Service) foldProviderCandidate(
 	status.LastFullRefresh = service.recordFullProviderRefresh(
 		runtime, candidate, status.LastSuccess,
 	)
+	status.Warning = service.providerRefreshWarning()
 	return service.providerProjectionResult(
 		request,
 		selectionBefore,
@@ -842,8 +846,8 @@ func (service *Service) foldProviderCandidate(
 }
 
 // recordFullProviderRefresh notes a folded complete-history Monarch candidate and returns the
-// recorded time. The record is advisory: if it cannot be written, the next scheduled refresh
-// reads complete history again, and the committed refresh stands.
+// recorded time. The record is advisory: if it cannot be written, the committed refresh stands,
+// the next scheduled refresh reads complete history again, and provider status warns.
 func (service *Service) recordFullProviderRefresh(
 	runtime *providerRuntimeState,
 	candidate domain.ImportSnapshot,
@@ -852,10 +856,27 @@ func (service *Service) recordFullProviderRefresh(
 	if runtime.provider != "monarch" || candidate.TransactionWindow != nil {
 		return service.profile.LastFullProviderRefresh()
 	}
-	if err := service.profile.RecordFullProviderRefresh(at); err != nil {
+	err := service.profile.RecordFullProviderRefresh(at)
+	warning := ""
+	if err != nil {
+		warning = fmt.Sprintf(
+			"Refresh saved, but Moneyflow could not record it as a full refresh (%v). "+
+				"The next check will download complete history again.", err,
+		)
+	}
+	service.mu.Lock()
+	service.refreshRecordWarning = warning
+	service.mu.Unlock()
+	if err != nil {
 		return time.Time{}
 	}
 	return at
+}
+
+func (service *Service) providerRefreshWarning() string {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.refreshRecordWarning
 }
 
 func (service *Service) releaseProviderLease(ctx context.Context, ownerID string) error {

@@ -173,14 +173,15 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       selection: response.selection.value,
     } as ViewProjection
     options.host.accept(projection)
+    const complete =
+      response.selection.kind === 'cleared'
+        ? 'Provider refresh complete. Selection cleared because selected rows changed.'
+        : 'Provider refresh complete.'
     setState({
       phase: 'idle',
       capability: state.capability,
       status: response.status,
-      announcement:
-        response.selection.kind === 'cleared'
-          ? 'Provider refresh complete. Selection cleared because selected rows changed.'
-          : 'Provider refresh complete.',
+      announcement: [complete, response.status.warning].filter(Boolean).join(' '),
     })
     return true
   }

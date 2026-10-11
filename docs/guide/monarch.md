@@ -77,7 +77,9 @@ A recent refresh replaces only the transactions dated inside its 90-day window:
 Moneyflow records the time of the last full refresh in `provider-refresh.json`, beside
 `moneyflow.db` in the profile folder. The file is advisory scheduling state: it is not part of
 the database or the JSONL export. If it is missing or unreadable, the next scheduled refresh is
-a full refresh.
+a full refresh. If Moneyflow cannot write it after a full refresh, the refresh still saves, and a
+warning names the file and the error. The warning appears in the TUI status line, beside
+**Refresh** in the web app, and in the `warning` field of the MCP `get_refresh_status` result.
 
 Cached browsing and pending edits remain available if authentication fails. Large or
 destructive provider changes may require explicit review before installation.

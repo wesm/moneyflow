@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -157,6 +159,30 @@ func TestProviderStatusReportsDueRefreshAndLastFailure(t *testing.T) {
 	assert.Equal(t, "The provider profile does not match this local profile.", status.CodeDetail)
 }
 
+func TestProviderStatusWarnsWhenTheFullRefreshRecordFails(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	record := filepath.Join(fixture.root, "provider-refresh.json")
+	require.NoError(t, os.Remove(record))
+	require.NoError(t, os.Mkdir(record, 0o700))
+	body := ProviderRefreshBody{
+		Version: ProviderSchemaVersion, Manual: true, Query: "v=1",
+		Selection: string(app.EmptySelection()), Window: Window{Limit: 200},
+	}
+	refreshed := requestProtectedJSON(t, fixture.server, "/api/v1/provider/refresh", body)
+	require.Equal(t, http.StatusOK, refreshed.Code, refreshed.Body.String())
+	var result ProviderRefreshResponse
+	require.NoError(t, json.Unmarshal(refreshed.Body.Bytes(), &result))
+	assert.Contains(t, result.Status.Warning, record)
+
+	var status ProviderStatusResponse
+	response := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+	assert.Contains(t, status.Warning, "The next check will download complete history again.")
+	assert.Equal(t, "full", status.RefreshDue)
+}
+
 func TestProviderStatusReturnsUnboundCapabilityWithoutDispatch(t *testing.T) {
 	t.Parallel()
 
@@ -213,6 +239,7 @@ type providerAPIFixture struct {
 	service *app.Service
 	source  *apiProviderSource
 	now     time.Time
+	root    string
 }
 
 func newProviderAPIFixture(t testing.TB, basePath string, count int) providerAPIFixture {
@@ -249,7 +276,9 @@ func newProviderAPIFixture(t testing.TB, basePath string, count int) providerAPI
 		BasePath: basePath, Version: "test", Origin: origin, Security: security,
 	})
 	require.NoError(t, err)
-	return providerAPIFixture{server: server, service: service, source: source, now: now}
+	return providerAPIFixture{
+		server: server, service: service, source: source, now: now, root: paths.Root,
+	}
 }
 
 func apiProviderSnapshot(t testing.TB, observedAt time.Time, count int) domain.ImportSnapshot {

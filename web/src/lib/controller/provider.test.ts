@@ -41,6 +41,22 @@ describe('provider controller', () => {
     expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(true)
   })
 
+  it('announces a warning the refresh reports', async () => {
+    const warning = 'Refresh saved, but the full refresh was not recorded.'
+    const current = testProjection({ capabilities: [capability(true)] })
+    const response = refreshResponse(current, 'preserved')
+    response.status = { ...response.status, warning }
+    const transport = transportStub({
+      status: providerStatus({ provider_kind: 'monarch', warning }),
+      mutationResponse: Response.json(response),
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+
+    await controller.refresh()
+    expect(controller.state.announcement).toBe(`Provider refresh complete. ${warning}`)
+  })
+
   it('does not dispatch an unavailable refresh and announces the server reason', async () => {
     const transport = transportStub()
     const controller = createProviderController({ transport, host: hostStub() })

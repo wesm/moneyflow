@@ -1525,6 +1525,8 @@ export interface components {
       revision: string
       summary: components['schemas']['ProviderRefreshSummary']
       version: string
+      /** @description A problem that did not stop the refresh */
+      warning?: string
     }
     ProviderWriteConfirmationBody: {
       confirmation_token: string

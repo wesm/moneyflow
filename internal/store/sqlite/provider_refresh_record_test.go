@@ -32,3 +32,18 @@ func TestFullProviderRefreshRecordIsAnAdvisoryPrivateFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(record, []byte(`{"last_full_refresh":"yesterday"}`), 0o600))
 	assert.True(t, profileStore.LastFullProviderRefresh().IsZero(), "a corrupt record is unknown")
 }
+
+func TestFullProviderRefreshRecordFailureNamesThePath(t *testing.T) {
+	t.Parallel()
+
+	paths := temporaryPaths(t)
+	profileStore, err := Open(t.Context(), paths, DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profileStore.Close()) })
+	record := filepath.Join(paths.Root, "provider-refresh.json")
+	require.NoError(t, os.Mkdir(record, 0o700))
+
+	err = profileStore.RecordFullProviderRefresh(time.Now())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), record)
+}

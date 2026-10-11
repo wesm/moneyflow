@@ -221,6 +221,7 @@ type ProviderStatusDocument struct {
 	NextEligible string `json:"next_eligible,omitempty"`
 	Fetched      int    `json:"fetched"`
 	Total        int    `json:"total"`
+	Warning      string `json:"warning,omitempty"`
 }
 
 type RefreshSummaryDocument struct {
@@ -389,7 +390,7 @@ func providerStatusDocument(status app.ProviderStatus) ProviderStatusDocument {
 	return ProviderStatusDocument{
 		Code: string(status.Code), Generation: strconv.FormatUint(status.Generation, 10),
 		LastSuccess: formatOptionalTime(status.LastSuccess), NextEligible: formatOptionalTime(status.NextEligible),
-		Fetched: status.Fetched, Total: status.Total,
+		Fetched: status.Fetched, Total: status.Total, Warning: status.Warning,
 	}
 }
 

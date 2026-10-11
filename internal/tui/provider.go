@@ -373,11 +373,12 @@ func (model Model) providerRefreshSubject() string {
 }
 
 func providerSuccessMessage(status app.ProviderStatus) string {
-	return fmt.Sprintf(
+	complete := fmt.Sprintf(
 		"Provider refresh complete: %d imported, %d removed.",
 		status.Summary.ImportedTransactions,
 		status.Summary.RemovedTransactions,
 	)
+	return strings.TrimSpace(complete + " " + status.Warning)
 }
 
 func providerStatusMessage(status app.ProviderStatus, profileKind string) string {

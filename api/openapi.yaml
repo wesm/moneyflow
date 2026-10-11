@@ -2072,6 +2072,9 @@ components:
           $ref: "#/components/schemas/ProviderRefreshSummary"
         version:
           type: string
+        warning:
+          description: A problem that did not stop the refresh
+          type: string
       required:
         - version
         - revision
