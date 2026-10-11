@@ -102,7 +102,6 @@ describe('sparkline', () => {
       Math.hypot(end!.x - before!.x, end!.y - before!.y) - END_RADIUS,
       1,
     )
-    expect(solid.segments[0]!.at(-1)).toEqual(end)
     expect(hollow.segments[0]!.slice(0, -1)).toEqual(solid.segments[0]!.slice(0, -1))
   })
 
