@@ -145,16 +145,14 @@ type ChartProjection struct {
 
 // WebProjection is the complete renderer-neutral output for one browser row window.
 type WebProjection struct {
-	Revision       uint64
-	ProfileKind    string
-	AmazonSettings *AmazonProjectionSettings
-	Pending        PendingSummary
-	Capabilities   []Capability
-	State          ViewState
-	Selection      SelectionValue
-	SelectionCount int
-	// AllRowsSelected reports that the result has rows and the selection holds every one of
-	// them. Selected rows outside the result do not count.
+	Revision          uint64
+	ProfileKind       string
+	AmazonSettings    *AmazonProjectionSettings
+	Pending           PendingSummary
+	Capabilities      []Capability
+	State             ViewState
+	Selection         SelectionValue
+	SelectionCount    int
 	AllRowsSelected   bool
 	SelectionSummary  []domain.CurrencyStats
 	Breadcrumbs       []BreadcrumbSegment
@@ -943,6 +941,7 @@ func (service *Service) knownEmptyDrillLabel(target domain.Drilldown) (string, b
 }
 
 // allRowsSelected reports whether a decorated result has rows and every row is selected.
+// Selected rows outside the result, which a selection can hold, do not count.
 func allRowsSelected(result domain.QueryResult) bool {
 	if resultRowCount(result) == 0 {
 		return false
