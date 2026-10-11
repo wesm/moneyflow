@@ -203,6 +203,21 @@ describe('row actions', () => {
     })
     expect(overlays.current).toBeUndefined()
   })
+
+  it('leaves an editor opened after the confirmation was dismissed mid-delete', async () => {
+    const { context, overlays } = setup(1)
+    let settle: (accepted: boolean) => void = () => undefined
+    vi.mocked(context.controller.editing.submit).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => (settle = resolve)),
+    )
+    confirmDelete(context, row)
+    const deleting = confirmDirectDelete(context)
+    overlays.close()
+    openEditor(context, 'merchant', row)
+    settle(true)
+    expect(await deleting).toBe(true)
+    expect(overlays.current).toBe('merchant')
+  })
 })
 
 describe('w', () => {

@@ -169,7 +169,10 @@ export async function confirmDirectDelete(context: LocalActionContext): Promise<
     input: {},
     target,
   })
-  if (accepted) overlays.close()
+  // The confirmation may have been dismissed, and another overlay opened, while this staged.
+  if (accepted && overlays.current === 'delete' && overlays.deleteTarget === target) {
+    overlays.close()
+  }
   return accepted
 }
 
