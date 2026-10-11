@@ -34,6 +34,7 @@ type ProviderWriteStatus struct {
 	Failed           int
 	Remaining        int
 	Overrides        int
+	CompletedAt      time.Time // Set only while the last completed write is the current revision.
 	NextEligible     time.Time
 	OwnerRenderer    string
 	OwnerInstanceID  string
@@ -147,6 +148,11 @@ func (service *Service) ProviderWriteStatus(ctx context.Context) (ProviderWriteS
 
 func providerWriteStatusFromState(state store.ProviderState) ProviderWriteStatus {
 	if state.Write == nil {
+		// The completion record outlives the batch; any later revision supersedes it.
+		if !state.LastWrite.CompletedAt.IsZero() &&
+			state.LastWrite.CommittedRevision == state.Revision {
+			return completedProviderWriteStatus(state.LastWrite, state.Refresh.Generation)
+		}
 		return ProviderWriteStatus{Generation: state.Refresh.Generation}
 	}
 	status := ProviderWriteStatus{
@@ -164,6 +170,15 @@ func providerWriteStatusFromState(state store.ProviderState) ProviderWriteStatus
 		status.OwnerInstanceID = state.Lease.OwnerID
 	}
 	return status
+}
+
+func completedProviderWriteStatus(
+	summary store.LastWriteSummary, generation uint64,
+) ProviderWriteStatus {
+	return ProviderWriteStatus{
+		Generation: generation, CompletedAt: summary.CompletedAt, Total: summary.ItemCount,
+		Completed: summary.ItemCount, Overrides: summary.OverrideCount,
+	}
 }
 
 func clearExpiredProviderWriteOwner(
@@ -1201,9 +1216,9 @@ func (service *Service) finalizeProviderWrite(
 	if err = service.reloadAfterAuditedCommit(ctx, commit.Revision, err); err != nil {
 		return service.writeStatus(ctx, mapAppError(err, service.Revision()))
 	}
-	return ProviderWriteStatus{
-		Generation: batch.RefreshGeneration, AuditWarning: service.completionAuditWarning(),
-	}, nil
+	status := completedProviderWriteStatus(commit.Summary, batch.RefreshGeneration)
+	status.AuditWarning = service.completionAuditWarning()
+	return status, nil
 }
 
 // PauseProviderWrite prevents future claims while preserving all durable item facts.

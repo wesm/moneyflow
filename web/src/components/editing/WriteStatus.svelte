@@ -16,39 +16,52 @@
       'cannot be cancelled.',
   )
   const done = $derived(status && status.total > 0 ? (100 * status.completed) / status.total : 0)
+  /** A running write, or the saved result of a finished one; discarded edits have no counts. */
+  const counted = $derived(Boolean(status?.phase || status?.completed_at))
   /** When a rate-limited write may resume, in the reader's locale. */
-  const eligible = $derived.by(() => {
-    if (status?.phase !== 'rate_limited' || !status.next_eligible) return undefined
-    const time = new Date(status.next_eligible)
-    return Number.isNaN(time.getTime()) ? status.next_eligible : time.toLocaleString()
-  })
+  const eligible = $derived(
+    status?.phase === 'rate_limited' ? localTime(status.next_eligible) : undefined,
+  )
+  const finished = $derived(localTime(status?.completed_at))
+
+  function localTime(value: string | undefined): string | undefined {
+    if (!value) return undefined
+    const time = new Date(value)
+    return Number.isNaN(time.getTime()) ? value : time.toLocaleString()
+  }
 </script>
 
 <p class="mf-write__announcement" role="status">{controller.state.announcement}</p>
 {#if status}
-  <div class="mf-write__bar" aria-hidden="true"><span style:width={`${done}%`}></span></div>
-  <dl class="mf-write__stats">
-    <div>
-      <dt>Progress</dt>
-      <dd>{status.completed} of {status.total} complete</dd>
-    </div>
-    <div>
-      <dt>Remaining</dt>
-      <dd>{status.remaining}</dd>
-    </div>
-    {#if status.failed}<div>
-        <dt>Failed</dt>
-        <dd>{status.failed}</dd>
-      </div>{/if}
-    {#if status.overrides}<div>
-        <dt>Provider overrides</dt>
-        <dd>{status.overrides}</dd>
-      </div>{/if}
-    {#if eligible}<div>
-        <dt>Next eligible attempt</dt>
-        <dd><time datetime={status.next_eligible}>{eligible}</time></dd>
-      </div>{/if}
-  </dl>
+  {#if counted}
+    <div class="mf-write__bar" aria-hidden="true"><span style:width={`${done}%`}></span></div>
+    <dl class="mf-write__stats">
+      <div>
+        <dt>Progress</dt>
+        <dd>{status.completed} of {status.total} complete</dd>
+      </div>
+      {#if status.phase}<div>
+          <dt>Remaining</dt>
+          <dd>{status.remaining}</dd>
+        </div>{/if}
+      {#if status.failed}<div>
+          <dt>Failed</dt>
+          <dd>{status.failed}</dd>
+        </div>{/if}
+      {#if status.overrides}<div>
+          <dt>Provider overrides</dt>
+          <dd>{status.overrides}</dd>
+        </div>{/if}
+      {#if eligible}<div>
+          <dt>Next eligible attempt</dt>
+          <dd><time datetime={status.next_eligible}>{eligible}</time></dd>
+        </div>{/if}
+      {#if finished}<div>
+          <dt>Finished</dt>
+          <dd><time datetime={status.completed_at}>{finished}</time></dd>
+        </div>{/if}
+    </dl>
+  {/if}
   {#if controller.can('pause')}
     <p class="mf-quiet">{pauseNote}</p>
   {/if}

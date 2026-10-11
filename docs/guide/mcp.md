@@ -219,6 +219,12 @@ status and explicitly resume eligible work; startup alone does not resume it. Us
 batch version for controls. `stop_and_reconcile` abandons the failed and unsent frozen intent
 and reloads provider truth; it does not undo remote writes that already succeeded.
 
+**Unreleased:** When a write finishes, the `write` object has no `phase`, and `completed_at`
+records when it finished. `total` and `completed` keep the finished batch's counts until the
+profile changes again, for example with the next edit. A `write` object without `phase` or
+`completed_at` means no write finished at the current revision. After `stop_and_reconcile`,
+that means the batch's remaining edits were discarded.
+
 For an uncertain Monarch update, `resume_commit` first checks the affected transaction before
 continuing. It can confirm an already-applied edit or retry one that still matches its previous
 value, without fetching the full history. See [write recovery](editing.md#recover-an-interrupted-provider-write).

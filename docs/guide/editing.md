@@ -241,6 +241,11 @@ status. Write status shows progress and offers the actions the batch allows: **P
 **Resume** or **Check and resume**, **Stop and reconcile**, **Confirm reconciliation**, or
 **Reconnect Monarch** / **Reconnect YNAB**.
 
+**Unreleased:** When a write finishes, browser write status keeps its counts, such as
+`4 of 4 complete`, and shows when it finished. The result stays after polling or reopening the
+profile, until the profile changes again. After **Stop and reconcile**, write status reads
+`Provider write stopped. Remaining edits discarded.` instead of reporting success.
+
 **Unreleased:** In the TUI, write status shows the first change's From/To values and
 transaction count, alongside overall progress. It also reports when the batch contains
 additional changes.

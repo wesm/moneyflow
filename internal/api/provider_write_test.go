@@ -104,6 +104,38 @@ func TestProviderCommitReturnsPreparedBatchAndStartsWebWorker(t *testing.T) {
 		return current.Phase == "" && current.BatchVersion == ""
 	}, 3*time.Second, 10*time.Millisecond)
 	assert.Equal(t, 1, fixture.source.writeCount())
+	for range 2 {
+		status := providerWriteStatusResponse(t, fixture.server)
+		assert.Equal(t, 1, status.Total)
+		assert.Equal(t, 1, status.Completed)
+		assert.Zero(t, status.Remaining)
+		assert.Empty(t, status.Actions)
+		completedAt, parseErr := time.Parse(time.RFC3339Nano, status.CompletedAt)
+		require.NoError(t, parseErr, "completed_at is a timestamp")
+		assert.False(t, completedAt.IsZero())
+	}
+
+	// A later edit must not inherit the previous batch's completion record.
+	view = projectPersistentViewForQuery(t, fixture.server, query)
+	mutatedResponse = requestProtectedJSON(t, fixture.server, "/api/v1/mutations", MutationBody{
+		Version: MutationSchemaVersion, ExpectedRevision: view.Revision,
+		Query: query, Selection: view.Selection, Action: app.ActionToggleHidden,
+		Target: &TransitionTarget{Kind: app.IdentityTransaction, Identity: view.DetailRows[0].Identity},
+		Input:  MutationInput{}, Window: Window{Limit: 200},
+	})
+	require.Equal(t, http.StatusOK, mutatedResponse.Code, mutatedResponse.Body.String())
+	next := providerWriteStatusResponse(t, fixture.server)
+	assert.Empty(t, next.CompletedAt)
+	assert.Zero(t, next.Completed)
+}
+
+func providerWriteStatusResponse(t *testing.T, server *Server) ProviderWriteStatusResponse {
+	t.Helper()
+	response := requestServer(t, server, http.MethodGet, "/api/v1/provider/write-status", nil)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var status ProviderWriteStatusResponse
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+	return status
 }
 
 func TestProviderWriteStatusActionsArePhaseSpecific(t *testing.T) {

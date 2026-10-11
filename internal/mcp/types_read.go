@@ -257,6 +257,7 @@ type WriteStatusDocument struct {
 	AttentionReason string `json:"attention_reason,omitempty"`
 	ResumeTarget    string `json:"resume_target,omitempty"`
 	NextEligible    string `json:"next_eligible,omitempty"`
+	CompletedAt     string `json:"completed_at,omitempty"`
 	BatchID         string `json:"batch_id,omitempty"`
 	Phase           string `json:"phase,omitempty"`
 	Version         string `json:"version"`
@@ -410,6 +411,7 @@ func writeStatusDocument(status app.ProviderWriteStatus) WriteStatusDocument {
 		AttentionClass: string(status.AttentionClass), AttentionReason: string(status.AttentionReason),
 		ResumeTarget: string(status.ResumeTarget),
 		NextEligible: formatOptionalTime(status.NextEligible),
+		CompletedAt:  formatOptionalTime(status.CompletedAt),
 		BatchID:      status.BatchID,
 		Phase:        string(status.Phase), Version: strconv.FormatUint(status.Version, 10), Generation: strconv.FormatUint(status.Generation, 10),
 		Total: status.Total, Completed: status.Completed, Failed: status.Failed, Remaining: status.Remaining, Overrides: status.Overrides,
