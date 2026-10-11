@@ -246,16 +246,14 @@ func TestMerchantPreviewErrorReportsThePreviewedRevision(t *testing.T) {
 	profile := newMemoryProfile(t, 5)
 	service, err := app.NewProfileService(ctx, profile)
 	require.NoError(t, err)
-	session := app.NewSession()
-	rows, err := service.Query(session)
+	selection, err := app.NewExplicitTransactionSelection([]domain.EntityID{"transaction_a"}, 5)
 	require.NoError(t, err)
+	session := app.NewSession()
+	session.ShowAllDetail()
 	session.SetSearch("(")
 	request := app.MutationRequest{
 		Action: app.ActionEditMerchant, ExpectedRevision: 5, State: session.ViewState(),
-		Target: &app.RowTarget{
-			Kind: app.IdentityAggregate, Identity: app.AggregateIdentity(rows.AggregateRows[0]),
-		},
-		Input: app.EditInput{Scope: app.EditScopeEntity},
+		Selection: selection, Input: app.EditInput{Scope: app.EditScopeEntity},
 	}
 
 	_, err = service.PreviewMerchantEdit(ctx, request)

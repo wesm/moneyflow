@@ -86,9 +86,13 @@ func TestDeleteCapabilityReasonForSubGroupedView(t *testing.T) {
 	service, err := app.NewProfileService(context.Background(), newMemoryProfile(t, 5))
 	require.NoError(t, err)
 	session := app.NewSession()
-	session.Dimension = domain.DimensionMerchant
-	subGrouping := domain.DimensionCategory
-	session.SubGrouping = &subGrouping
+	require.NoError(t, session.Drill(domain.AggregateRow{
+		Dimension: domain.DimensionMerchant, Key: "merchant", Label: "Example Merchant",
+		Total: domain.Money{Currency: "USD", Scale: 2},
+	}, app.ViewPosition{}))
+	drilled := capabilitiesByAction(service.CapabilitiesForState(session.ViewState()))
+	require.True(t, drilled[app.ActionDeleteTransaction].Available)
+	require.NoError(t, session.SetSubGrouping(domain.DimensionCategory))
 
 	capabilities := capabilitiesByAction(service.CapabilitiesForState(session.ViewState()))
 

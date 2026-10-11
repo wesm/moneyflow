@@ -99,7 +99,6 @@
   const windows = $derived([projection, ...neighbors])
   const kind: RowKind = $derived(projection.detail_rows ? 'transaction' : 'aggregate')
   const dividers = $derived(projection.view.sort_field === 'amount' && kind === 'aggregate')
-  const activeID = $derived(loadedRow(windows, cursorIndex)?.identity)
   const scroll = new GridScroll({
     get grid() {
       return grid
@@ -197,7 +196,7 @@
     aria-label="Financial results"
     aria-rowcount={projection.total_rows + 1}
     aria-colcount={layout && compactColumnCount(layout)}
-    aria-activedescendant={activeID ? `moneyflow-row-${activeID}` : undefined}
+    aria-activedescendant={scroll.activeID ? `moneyflow-row-${scroll.activeID}` : undefined}
     tabindex="0"
     bind:this={grid}
     onkeydown={keydown}

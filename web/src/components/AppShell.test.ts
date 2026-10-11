@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import AppShell from './AppShell.svelte'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
 import type { ViewProjection } from '../lib/api/client'
-import { testProjection } from '../test/projection'
+import { testAggregateRow, testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
 import { testProviderWriteController } from '../test/provider-write'
 import { SIDEBAR_FULL_QUERY } from '../lib/shell/layout'
@@ -63,6 +63,70 @@ describe('AppShell', () => {
     expect(await screen.findByText(/Couldn't load charts/)).not.toBeNull()
     await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), { key: 'j' })
     expect(controller.moveCursorTo).toHaveBeenCalledWith(1)
+  })
+
+  it('loads an off-window bar’s row only after a pending Space toggle', async () => {
+    const { controller, release } = heldToggle()
+    vi.mocked(controller.insights).mockImplementation(async (body) => {
+      const response = testInsights({ query: body.query, revision: '0' })
+      response.summary!.composition = {
+        spending: [
+          { key: 'a', identity: 'merchant:a', label: 'Merchant A', net: '-300', share_tenths: 600 },
+          { key: 'c', identity: 'merchant:c', label: 'Merchant C', net: '-200', share_tenths: 400 },
+        ],
+        income: [],
+      }
+      return response
+    })
+    render(AppShell, { controller })
+    const list = await screen.findByRole('list', { name: 'Where it went' })
+
+    await fireEvent.keyDown(window, { key: ' ' })
+    expect(controller.apply).toHaveBeenCalledWith({
+      action: 'selection.toggle',
+      target: { identity: 'merchant:a', kind: 'aggregate' },
+    })
+    await fireEvent.click(within(list).getByRole('button', { name: /^Merchant C,/ }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(controller.showAnchor).not.toHaveBeenCalled()
+
+    release()
+    await vi.waitFor(() => expect(controller.showAnchor).toHaveBeenCalledWith('merchant:c'))
+  })
+
+  it('rechecks the view for newer insights only after a pending Space toggle', async () => {
+    const { controller, release } = heldToggle()
+    let answer!: () => void
+    vi.mocked(controller.insights).mockImplementation(
+      (body) =>
+        new Promise((resolve) => {
+          answer = () => resolve(testInsights({ query: body.query, revision: '1' }))
+        }),
+    )
+    render(AppShell, { controller })
+    await vi.waitFor(() => expect(controller.insights).toHaveBeenCalled())
+
+    await fireEvent.keyDown(window, { key: ' ' })
+    expect(controller.apply).toHaveBeenCalledTimes(1)
+    answer()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(controller.recheckNewer).not.toHaveBeenCalled()
+
+    release()
+    await vi.waitFor(() => expect(controller.recheckNewer).toHaveBeenCalledWith('1'))
+  })
+
+  it('still opens an editor queued after a newer-insights recheck fails', async () => {
+    const controller = stubController(charted())
+    vi.mocked(controller.insights).mockImplementation(async (body) =>
+      testInsights({ query: body.query, revision: '1' }),
+    )
+    vi.mocked(controller.recheckNewer).mockRejectedValue(new Error('recheck failed'))
+    render(AppShell, { controller })
+    await vi.waitFor(() => expect(controller.recheckNewer).toHaveBeenCalledWith('1'))
+
+    await fireEvent.keyDown(window, { key: 'm' })
+    expect(await screen.findByRole('dialog', { name: 'Edit merchant' })).not.toBeNull()
   })
 
   it('keeps the table full width and opens the charts in a labelled compact drawer', async () => {
@@ -483,6 +547,36 @@ describe('AppShell', () => {
     expect(screen.getByText('Clear the selection to rename the whole merchant')).not.toBeNull()
   })
 
+  it('clears the selection without going back once a queued toggle empties it', async () => {
+    const controller = stubController(testProjection({ selection_count: 1 }))
+    let deselect!: () => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          deselect = () => {
+            controller.projection!.selection_count = 0
+            resolve(true)
+          }
+        }),
+    )
+    render(AppShell, { controller })
+    const box = document.querySelector<HTMLElement>('[role="gridcell"][data-column="select"]')!
+    await fireEvent.click(box)
+    await fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    await vi.waitFor(() =>
+      expect(controller.apply).toHaveBeenCalledWith({
+        action: 'selection.toggle',
+        target: { identity: 'row-0', kind: 'transaction' },
+      }),
+    )
+
+    deselect()
+    // The queued Clear runs in the microtasks after the toggle settles.
+    await new Promise((resolve) => setTimeout(resolve))
+    expect(controller.apply).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' }))
+  })
+
   it('does not trap shortcuts when an editor has no focused row', async () => {
     const controller = stubController(testProjection({ total_rows: 0, detail_rows: [] }))
     render(AppShell, { controller })
@@ -555,6 +649,29 @@ function captureFrames(): { flush: () => Promise<void> } {
       for (const callback of callbacks.splice(0)) callback(0)
     },
   }
+}
+
+/** A charted merchant view whose Space toggle waits until `release`. */
+function heldToggle() {
+  const base = charted()
+  const controller = stubController({
+    ...base,
+    view: { ...base.view, mode: 'aggregate' },
+    detail_rows: null,
+    aggregate_rows: [testAggregateRow({ identity: 'merchant:a', label: 'Merchant A' })],
+  })
+  controller.projection!.capabilities!.push({
+    id: 'selection.toggle',
+    key_display: 'space',
+    description: 'Toggle selection',
+    category: 'Selection',
+    available: true,
+  })
+  let release!: () => void
+  vi.mocked(controller.apply).mockReturnValue(
+    new Promise<boolean>((resolve) => (release = () => resolve(true))),
+  )
+  return { controller, release }
 }
 
 /** A projection in one currency, so the charts load insights for it. */
@@ -631,6 +748,7 @@ function stubController(projection = testProjection()): ViewController {
       ],
     }),
     loading: false,
+    opening: false,
     announcement: '',
     cursorIdentity: 'row-0',
     cursorIndex: 0,

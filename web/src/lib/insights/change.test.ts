@@ -35,8 +35,8 @@ describe('priorChange', () => {
       spoken: '0.0% vs Aug',
       tone: 'neutral',
     })
-    // Spending that shrank 0.04% and income that grew 0.04%: favorable before rounding.
-    expect(shown(percent(0, false, true))?.tone).toBe('neutral')
+    // Income that grew 0.04%: favorable before rounding. Spending that shrank 0.04% arrives
+    // exactly like the unchanged row above.
     expect(shown(percent(0, true, true))?.tone).toBe('neutral')
   })
 

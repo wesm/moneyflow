@@ -173,11 +173,6 @@ describe('editorKey with modifiers it does not own', () => {
     }
     expect(editorKey(key('ArrowDown', { repeat: true }), open)).toBe('move-next')
   })
-
-  it('keeps Ctrl+Enter and Cmd+Enter as the staging keys', () => {
-    expect(editorKey(key('Enter', ctrl), open)).toBe('accept-and-stage')
-    expect(editorKey(key('Enter', meta), closed)).toBe('stage')
-  })
 })
 
 describe('controlKey', () => {

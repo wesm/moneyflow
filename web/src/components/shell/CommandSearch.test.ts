@@ -12,6 +12,7 @@ function host(search = '', valid = true) {
   const held = vi.fn()
   return {
     held,
+    opening: false,
     projection: testProjection({ view: { ...testProjection().view, search } }),
     beginSearch: vi.fn(() => snapshot),
     previewSearch: vi.fn<(search: string) => Promise<SearchPreview>>(async () =>
@@ -182,6 +183,26 @@ describe('CommandSearch', () => {
     expect(controller.restoreSearch).not.toHaveBeenCalled()
   })
 
+  it('drops a search still applying after focus left when browser history changes the view', async () => {
+    const controller = host()
+    let release!: (outcome: SearchPreview) => void
+    controller.previewSearch.mockImplementationOnce(
+      () => new Promise<SearchPreview>((resolve) => (release = resolve)),
+    )
+    render(CommandSearch, { controller, ondone: vi.fn() })
+    field().focus()
+    await fireEvent.input(field(), { target: { value: 'noodle' } })
+    await waitFor(() => expect(controller.previewSearch).toHaveBeenCalledWith('noodle'))
+    await fireEvent.focusOut(field(), { relatedTarget: document.body })
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    release('superseded')
+    await new Promise((resolve) => setTimeout(resolve, 200))
+
+    expect(controller.previewSearch).toHaveBeenCalledOnce()
+    expect(controller.commitSearch).not.toHaveBeenCalled()
+    expect(controller.restoreSearch).not.toHaveBeenCalled()
+  })
+
   it('drops an invalid search when focus leaves the field', async () => {
     const controller = host('', false)
     render(CommandSearch, { controller, ondone: vi.fn() })
@@ -211,6 +232,50 @@ describe('CommandSearch', () => {
     expect(field().value).toBe('noodle')
   })
 
+  it('gives focus to the replacing field when the search being typed had it', async () => {
+    const controller = host()
+    const carry = new SearchCarry()
+    const { rerender } = render(CommandSearchSwap, { controller, carry, wide: true })
+    field().focus()
+    await fireEvent.input(field(), { target: { value: 'pizz' } })
+
+    await rerender({ wide: false })
+
+    await waitFor(() => expect(document.activeElement).toBe(field()))
+    expect(field().value).toBe('pizz')
+    expect(field().selectionStart).toBe(4)
+    expect(field().selectionEnd).toBe(4)
+    await fireEvent.keyDown(field(), { key: 'Enter' })
+    await waitFor(() => expect(controller.commitSearch).toHaveBeenCalledOnce())
+  })
+
+  it('gives focus to the replacing field when nothing was typed yet', async () => {
+    const controller = host('noodle')
+    const carry = new SearchCarry()
+    const { rerender } = render(CommandSearchSwap, { controller, carry, wide: true })
+    field().focus()
+
+    await rerender({ wide: false })
+
+    await waitFor(() => expect(document.activeElement).toBe(field()))
+    expect(field().value).toBe('noodle')
+    expect(controller.beginSearch).not.toHaveBeenCalled()
+    expect(carry.take()).toBeUndefined()
+  })
+
+  it('leaves focus alone when the replaced field did not have it', async () => {
+    const controller = host()
+    const carry = new SearchCarry()
+    const { rerender } = render(CommandSearchSwap, { controller, carry, wide: true })
+    await fireEvent.input(field(), { target: { value: 'pizz' } })
+
+    await rerender({ wide: false })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(field().value).toBe('pizz')
+    expect(document.activeElement).not.toBe(field())
+  })
+
   it('ends a search left in the carry when its owner is destroyed', async () => {
     const controller = host()
     const carry = new SearchCarry()
@@ -221,6 +286,16 @@ describe('CommandSearch', () => {
     expect(carry.take()).toBeUndefined()
     await new Promise((resolve) => setTimeout(resolve, 200))
     expect(controller.previewSearch).not.toHaveBeenCalled()
+  })
+
+  it('takes no typing while the first load sets the currency', async () => {
+    const { rerender } = render(CommandSearch, {
+      controller: { ...host(), opening: true },
+      ondone: vi.fn(),
+    })
+    expect(field().disabled).toBe(true)
+    await rerender({ controller: host() })
+    expect(field().disabled).toBe(false)
   })
 
   it('focuses and selects the field for the / key', async () => {

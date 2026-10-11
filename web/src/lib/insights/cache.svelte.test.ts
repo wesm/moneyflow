@@ -223,6 +223,17 @@ describe('InsightsCache', () => {
     expect(calls).toHaveLength(3)
   })
 
+  it('rechecks the same newer revision again on retry after a failed recheck', async () => {
+    const { cache, calls, onNewer } = harness(vi.fn(() => Promise.reject(new Error('offline'))))
+    cache.sync(view('v=1', '1'), [])
+    await answer(calls[0], '2')
+    expect(cache.status).toBe('failed')
+
+    cache.retry()
+    await answer(calls[1], '2')
+    expect(onNewer).toHaveBeenCalledTimes(2)
+  })
+
   it('fails without retrying on its own and retry requests again', async () => {
     const { cache, calls } = harness()
     cache.sync(view('v=1'), ['a'])

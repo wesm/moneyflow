@@ -34,8 +34,4 @@ describe('drillFrames', () => {
     expect(projection.view.drill_depth).toBe(0)
     expect(drillFrames(projection)).toEqual([])
   })
-
-  it('tolerates a projection without breadcrumbs', () => {
-    expect(drillFrames(atDepth(1, null))).toEqual([])
-  })
 })

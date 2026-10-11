@@ -250,6 +250,49 @@ describe('ManagerDrawer', () => {
     expect(screen.getByRole('button', { name: 'New' })).not.toBeNull()
   })
 
+  it('keeps a step opened while the list reloads after a staged change', async () => {
+    let release: () => void = () => undefined
+    const reload = new Promise<void>((resolve) => (release = resolve))
+    const catalog = vi
+      .fn<EditingController['catalog']>()
+      .mockResolvedValueOnce(testCatalog)
+      .mockImplementationOnce(async () => {
+        await reload
+        return testCatalog
+      })
+    const controller = testEditingController({ catalog })
+    setup({ controller })
+    const options = await list()
+    await fireEvent.keyDown(options, { key: 'n' })
+    const name = screen.getByRole('textbox', { name: 'Name' })
+    await fireEvent.input(name, { target: { value: 'New Category' } })
+    await fireEvent.keyDown(name, { key: 'Enter' })
+    await waitFor(() => expect(catalog).toHaveBeenCalledTimes(2))
+    await fireEvent.keyDown(name, { key: 'Escape' })
+    await fireEvent.keyDown(options, { key: 'n' })
+    expect(screen.getByRole('textbox', { name: 'Name' })).not.toBeNull()
+    release()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await tick()
+    expect(screen.getByRole('textbox', { name: 'Name' })).not.toBeNull()
+  })
+
+  it('says when the list could not reload after a staged change', async () => {
+    const catalog = vi
+      .fn<EditingController['catalog']>()
+      .mockResolvedValueOnce(testCatalog)
+      .mockRejectedValueOnce(new Error('offline'))
+    setup({ controller: testEditingController({ catalog }) })
+    const options = await list()
+    await fireEvent.keyDown(options, { key: 'n' })
+    const name = screen.getByRole('textbox', { name: 'Name' })
+    await fireEvent.input(name, { target: { value: 'New Category' } })
+    await fireEvent.keyDown(name, { key: 'Enter' })
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull())
+    expect(screen.getByRole('alert').textContent).toBe('Category choices could not be loaded.')
+    expect(screen.getByRole('listbox', { name: 'Categories' })).not.toBeNull()
+  })
+
   it('needs a chosen destination before a merge can stage', async () => {
     const { controller } = setup()
     const options = await list()

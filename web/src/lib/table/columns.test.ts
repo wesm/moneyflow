@@ -94,6 +94,14 @@ describe('columnsFor', () => {
     expect(labels(september).at(-1)).toBe('vs prior')
   })
 
+  it('adds vs prior for a Time drill from All once the insights name its comparison', () => {
+    const drilled = grouped({ mode: 'detail', grouping: 'time', sub_grouping: 'category' })
+    const columns = columnsFor(drilled, 'vs 2024')
+    expect(columns.slice(-2).map((column) => column.key)).toEqual(['trend', 'vs_prior'])
+    expect(columns.at(-1)!.label).toBe('vs 2024')
+    expect(keys(drilled)).not.toContain('vs_prior')
+  })
+
   it('widens vs prior to fit a long comparison label, and counts it in the minimum', () => {
     const september = grouped({}, dated)
     const width = (label: string) => columnsFor(september, label).at(-1)!

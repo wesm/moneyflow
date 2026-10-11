@@ -78,6 +78,10 @@ export class GridScroll {
       return { index, row: loadedRow(this.#source.windows, index) }
     })
   })
+  /** The cursor row's identity while it is rendered, for `aria-activedescendant`. */
+  readonly activeID = $derived.by(
+    () => this.slots.find((slot) => slot.index === this.#cursor)?.row?.identity,
+  )
   /** The spacer heights above and below the rendered rows. */
   readonly pads = $derived.by(() => {
     const { topPad, totalHeight } = this.#slice
@@ -95,6 +99,7 @@ export class GridScroll {
     $effect(() => this.#keepCursorAcrossRowHeights())
     $effect(() => this.#followScroll())
     $effect(() => this.#watchPresses())
+    $effect(() => this.#loadCursorWindow())
     // Paging keys pressed outside the grid move by the page it shows.
     $effect(() => setPageRows(this.#page))
   }
@@ -109,8 +114,10 @@ export class GridScroll {
    * when the cursor already sits on it but scrolling carried it off screen.
    */
   key(move: CursorMove): void {
-    this.#shown = undefined
     const index = cursorTarget(move, this.#cursor, this.#total, this.#page)
+    // The cursor stays, so a window that scrolling asked for must not move it when it arrives.
+    if (index === this.#cursor && this.#shown !== undefined) this.#source.onshow?.(index)
+    this.#shown = undefined
     if (index === this.#cursor) this.#reveal(index)
     else this.#source.oncursor(index)
   }
@@ -123,8 +130,8 @@ export class GridScroll {
   }
 
   // The grid keeps focus while the cursor moves, so the browser never scrolls the active row
-  // into view. Reveal it here, or aria-activedescendant would name a row that is not rendered.
-  // A new view, such as a sort, can keep the cursor's index; its row is revealed too.
+  // into view. Reveal it here, as a keyboard user expects. A new view, such as a sort, can keep
+  // the cursor's index; its row is revealed too.
   #followCursor(): void {
     const index = this.#cursor
     const query = this.#query
@@ -189,6 +196,15 @@ export class GridScroll {
       grid.removeEventListener('mousedown', press)
       window.removeEventListener('mouseup', release)
     }
+  }
+
+  // A late response, such as a selection toggle's, can bring back an older window that no longer
+  // holds the cursor row on screen. Ask for the cursor's own window so its row has data again.
+  #loadCursorWindow(): void {
+    const cursor = this.#cursor
+    const { first, last } = this.range
+    if (cursor < first || cursor > last || loadedRow(this.#source.windows, cursor)) return
+    untrack(() => this.#source.onshow?.(cursor))
   }
 
   /**

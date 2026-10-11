@@ -64,6 +64,8 @@ func TestNetChangeRejectsOverflow(t *testing.T) {
 	require.Error(t, err)
 	_, err = NetChange(math.MinInt64, 1)
 	require.Error(t, err)
+	_, err = NetChange(6142765776545281021, 333)
+	require.Error(t, err, "rounding the largest quotient up must not wrap to zero")
 }
 
 func TestIncomeAndSpendingChanges(t *testing.T) {

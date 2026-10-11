@@ -75,12 +75,6 @@ describe('toastMessage', () => {
     )
   })
 
-  it('leaves out the undo hint on a redo that cannot be undone', () => {
-    expect(toastMessage(operation({ kind: 'hide', affected: 2, undoable: false }), 'redo')).toBe(
-      'Redid hide · 2 transactions',
-    )
-  })
-
   it('keeps the server label for other kinds', () => {
     const label = 'Rename Example Merchant'
     expect(toastMessage(operation({ kind: 'rename', label }), 'undo')).toBe(

@@ -163,6 +163,7 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
   return {
     projection: undefined,
     loading: true,
+    opening: false,
     announcement: '',
     cursorIdentity: undefined,
     cursorIndex: 0,

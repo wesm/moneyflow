@@ -349,6 +349,12 @@ describe('stepEnter', () => {
     expect(stepEnter(key('Enter', {}, field), element, true)).toBe('swallow')
   })
 
+  it('passes an Enter that accepts an input method candidate', () => {
+    const { element, field } = panel()
+    expect(stepEnter(key('Enter', { isComposing: true }, field), element, false)).toBe('pass')
+    expect(stepEnter(key('Enter', { keyCode: 229 }, field), element, false)).toBe('pass')
+  })
+
   it('passes other keys, claimed keys, and keys outside the panel', () => {
     const { element, field } = panel()
     expect(stepEnter(key('a', {}, field), element, false)).toBe('pass')

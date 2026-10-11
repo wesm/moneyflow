@@ -63,6 +63,29 @@ func TestHideSecondPressCancelsPendingEffectInEitherDirection(t *testing.T) {
 	}
 }
 
+func TestHidePressOnEvenPendingTogglesAppendsToggle(t *testing.T) {
+	t.Parallel()
+	// b is committed hidden. Toggling b, then the uniform group a+b, leaves b hidden again with
+	// two pending toggles, so cancelling them would not change what b shows.
+	effective := effectiveWithJournal(
+		t, 7, 2,
+		hideOperation(1, "transaction_b"),
+		hideOperation(2, "transaction_a", "transaction_b"),
+	)
+	require.True(t, transactionByID(t, effective.Effective, "transaction_b").Hidden)
+	plan, err := app.BuildHideMutation(effective, hideRequest(
+		7,
+		&app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_b"},
+		app.EmptySelection(),
+	), operationMetadata("show_even"))
+	require.NoError(t, err)
+	assert.Equal(t, app.MutationAppend, plan.Mode)
+	assert.Equal(t, []domain.EntityID{"transaction_b"}, plan.Operation.Targets)
+	after, err := app.ApplyOperation(effective.Effective, storedDraft(plan.Operation, 3))
+	require.NoError(t, err)
+	assert.False(t, transactionByID(t, after, "transaction_b").Hidden)
+}
+
 func TestHideMixedPendingTargetsAppendOrdinaryToggle(t *testing.T) {
 	t.Parallel()
 

@@ -72,7 +72,8 @@ export class InsightsCache {
    * @param load Sends one insights request.
    * @param onNewer Called once per revision when insights report a newer revision than the
    *   displayed projection; the view must be rechecked before those insights can show. When it
-   *   returns a promise, the summary counts as failed if it settles with the view unchanged.
+   *   returns a promise, the summary counts as failed if it settles with the view unchanged. A
+   *   rejected recheck lets the same revision call it again, such as after `retry`.
    */
   constructor(load: InsightsLoad, onNewer: (revision: string) => unknown) {
     this.#load = load
@@ -235,11 +236,15 @@ export class InsightsCache {
   }
 
   #notifyNewer(key: string, response: InsightsResponse): void {
-    this.#notified = BigInt(response.revision)
+    const revision = BigInt(response.revision)
+    this.#notified = revision
     this.#awaitingView = key
     void Promise.resolve()
       .then(() => (this.#disposed ? undefined : this.#onNewer(response.revision)))
-      .catch(() => undefined)
+      .catch(() => {
+        // The view is still behind, so `retry` may report this revision again.
+        if (this.#notified === revision) this.#notified = -1n
+      })
       .then(() => {
         if (this.#awaitingView === key) this.#awaitingView = undefined
         this.#checkWaiting()

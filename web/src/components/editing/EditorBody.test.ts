@@ -368,13 +368,9 @@ describe('EditorBody', () => {
     expect(onstage).not.toHaveBeenCalled()
   })
 
-  it('re-enables Stage and explains when staging fails outright', async () => {
-    const editing = testEditingController({
-      submit: vi.fn(async () => {
-        throw new Error('network down')
-      }),
-    })
-    editing.state.announcement = 'Change saved as pending.'
+  it('re-enables Stage and explains a refusal that has no announcement', async () => {
+    const editing = testEditingController({ submit: vi.fn(async () => false) })
+    editing.state.announcement = ''
     const { input, onstage } = setup({ controller: editing })
     await type(input, 'Renamed')
     const stage = await stageButton('5 transactions')

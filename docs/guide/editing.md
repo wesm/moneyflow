@@ -64,6 +64,11 @@ When a group or selection contains both hidden and visible transactions, `h` sta
 only the visible transactions. Transactions already hidden stay hidden. Use `u` to undo it.
 When all targeted transactions are hidden, `h` stages unhiding them.
 
+**Unreleased:** `h` always flips what the targeted transactions show. When every target has a
+pending hide or unhide that changed it, `h` cancels those pending toggles instead of adding
+another. A transaction whose pending toggles cancel each other out already shows its committed
+state, so `h` stages a new toggle for it.
+
 Deleting is undoable until commit. Editing capabilities depend on the provider; the interface
 explains unavailable actions. See [Monarch](monarch.md), [YNAB](ynab.md),
 [Amazon](amazon-mode.md), [bank CSV](bank-csv.md), or [SimpleFIN](simplefin.md) for exact limits.

@@ -370,6 +370,53 @@ describe('browser view controller', () => {
     })
   })
 
+  describe('an edit that lands between Esc and its history traversal', () => {
+    async function editDuringReturn() {
+      const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+      const client = clientWith({
+        transition: vi.fn(async (body) =>
+          projection(body.action === 'view.back' ? 'v=1' : 'v=1&drill=x', 0, 3),
+        ),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.drill' })
+      const before = go.mock.calls.length
+      const back = controller.apply({ action: 'view.back' })
+      await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+      vi.mocked(client.view).mockImplementation(async (body) =>
+        projection(body.query, body.window.offset, 3, '1'),
+      )
+      await controller.recheck()
+      expect(controller.projection?.revision).toBe('1')
+      vi.mocked(client.view).mockClear()
+      return { client, controller, parent, back }
+    }
+
+    it('fetches the parent at the edited revision when the popstate arrives', async () => {
+      const { client, controller, parent, back } = await editDuringReturn()
+
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+      await back
+
+      expect(client.view).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'v=1' }),
+        expect.any(AbortSignal),
+      )
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect(controller.projection?.revision).toBe('1')
+    })
+
+    it('keeps the edited view when the traversal times out', async () => {
+      const { controller, back } = await editDuringReturn()
+
+      await back
+
+      expect(controller.projection?.revision).toBe('1')
+    })
+  })
+
   it('runs later transitions after installing a returned view fails', async () => {
     const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
     const client = clientWith({
@@ -426,7 +473,7 @@ describe('browser view controller', () => {
     const done = controller.apply({ action: 'view.back' })
     await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
     const restoring = controller.restore(new PopStateEvent('popstate', { state: parent }))
-    await done
+    await vi.waitFor(() => expect(client.view).toHaveBeenCalledTimes(1), { interval: 1 })
 
     expect(controller.projection?.canonical_query).toBe('v=1')
     expect(controller.projection?.window.offset).toBe(0)
@@ -440,10 +487,48 @@ describe('browser view controller', () => {
     )
 
     release(projection('v=1', 200, 450, '0', cleared))
-    await restoring
+    await Promise.all([restoring, done])
     expect(controller.projection?.window.offset).toBe(200)
     expect(controller.cursorIndex).toBe(250)
     expect(controller.loading).toBe(false)
+  })
+
+  it('runs a row key pressed during an Esc return after the parent cursor window loads', async () => {
+    vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    let release!: (value: ViewProjection) => void
+    const client = clientWith({
+      view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+      transition: vi.fn(async (body) =>
+        body.action === 'view.back'
+          ? projection('v=1', body.window.offset, 450)
+          : projection('v=1&drill=x', 0, 450),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.moveCursorTo(250)
+    const parent = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill' })
+    await controller.moveHome()
+    vi.mocked(client.view).mockImplementationOnce(
+      () => new Promise<ViewProjection>((resolve) => (release = resolve)),
+    )
+    const go = vi.mocked(history.go)
+    const before = go.mock.calls.length
+    const back = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+    const restoring = controller.restore(new PopStateEvent('popstate', { state: parent }))
+    let cursorAtKey: string | undefined = 'not run'
+    const key = back.then(() => {
+      cursorAtKey = controller.cursorIdentity
+    })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(cursorAtKey).toBe('not run')
+    expect(vi.mocked(client.view).mock.calls.at(-1)?.[1]?.aborted).toBe(false)
+    release(projection('v=1', 200, 450))
+    await Promise.all([restoring, key])
+    expect(cursorAtKey).toBe('row-250')
   })
 
   it('holds keys behind the first-load currency transition instead of aborting it', async () => {
@@ -465,6 +550,7 @@ describe('browser view controller', () => {
 
     const hydrating = controller.hydrate()
     await vi.waitFor(() => expect(client.transition).toHaveBeenCalledTimes(1), { interval: 1 })
+    expect(controller.opening).toBe(true)
     const key = controller.apply({ action: 'view.cycle-grouping' })
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(client.transition).toHaveBeenCalledTimes(1)
@@ -472,6 +558,7 @@ describe('browser view controller', () => {
 
     release(projection('cur=EUR%3A2&v=1', 0, 3))
     await Promise.all([hydrating, key])
+    expect(controller.opening).toBe(false)
 
     expect(client.transition).toHaveBeenCalledTimes(2)
     expect(client.transition).toHaveBeenLastCalledWith(
@@ -504,6 +591,7 @@ describe('browser view controller', () => {
     const key = controller.apply({ action: 'view.cycle-grouping' })
     await hydrating
 
+    expect(controller.opening).toBe(false)
     await expect(key).resolves.toBe(true)
     expect(controller.projection?.canonical_query).toBe('v=1&group=category')
   })
@@ -1018,6 +1106,26 @@ describe('browser view controller', () => {
       await shown
 
       expect(controller.projection?.canonical_query).toBe('v=1&sort=amount')
+      expect(controller.projection?.window.offset).toBe(0)
+      expect(controller.cursorIndex).toBe(0)
+    })
+
+    it('drops a scrolled-to window when Home is pressed on the first row', async () => {
+      let release!: (value: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          if (body.window.offset === 0) return projection('v=1', 0, 450)
+          return await new Promise<ViewProjection>((resolve) => (release = resolve))
+        }),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const shown = controller.showIndex(250)
+      await controller.moveHome()
+      release(projection('v=1', 200, 450))
+      await shown
+
       expect(controller.projection?.window.offset).toBe(0)
       expect(controller.cursorIndex).toBe(0)
     })

@@ -366,10 +366,10 @@ describe('ReviewDrawer in review mode', () => {
     )
   })
 
-  it('reports a commit request that throws and lets Enter try again', async () => {
+  it('reports a refused commit and lets Enter try again', async () => {
     const commit = vi
       .fn<EditingController['commit']>()
-      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true)
     const { onclose } = setup({ editing: testEditingController({ commit }) })
     const button = await loaded()

@@ -106,6 +106,36 @@ describe('bounded review controller', () => {
     expect(controller.state.announcement).toBe('')
   })
 
+  it('keeps each operation’s targets when an older request answers last', async () => {
+    const answers: Array<(response: Response) => void> = []
+    const transport: MutationFetch = {
+      request: vi.fn(async (path: string) =>
+        path.endsWith('/targets')
+          ? await new Promise<Response>((resolve) => answers.push(resolve))
+          : jsonResponse(reviewResponse('7')),
+      ),
+    }
+    const controller = createReviewController({ transport, revision: () => 7n })
+    await controller.load()
+
+    const first = controller.loadTargets('A', 1)
+    const second = controller.loadTargets('B', 1)
+    await vi.waitFor(() => expect(answers).toHaveLength(2))
+    const merchant = (name: string) => {
+      const response = reviewResponse('7')
+      response.targets[0]!.merchant = name
+      return jsonResponse(response)
+    }
+    answers[1]!(merchant('Merchant B'))
+    await expect(second).resolves.toBe(true)
+    answers[0]!(merchant('Merchant A'))
+    await expect(first).resolves.toBe(true)
+
+    expect(controller.targets('B').map((target) => target.merchant)).toEqual(['Merchant B'])
+    expect(controller.targets('A').map((target) => target.merchant)).toEqual(['Merchant A'])
+    expect(controller.state.phase).toBe('idle')
+  })
+
   it('does not replace the captured reviewed revision when the live revision advances', async () => {
     let liveRevision = 4n
     const transport = responseTransport(reviewResponse('4'))

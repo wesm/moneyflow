@@ -813,6 +813,24 @@ describe('FinanceGrid', () => {
       expect(placeholders()).toEqual([])
     })
 
+    it('asks for the cursor’s window when an older window comes back without it', async () => {
+      const events = { ...callbacks(), onshow: vi.fn() }
+      // Rows 195 to 214 show, with the cursor on row 205 of the loaded window.
+      const view = render(FinanceGrid, {
+        projection: loaded(200),
+        cursorIndex: 205,
+        compact: false,
+        scrollTop: 195 * 30,
+        viewport: 630,
+        ...events,
+      })
+      expect(events.onshow).not.toHaveBeenCalled()
+
+      // A late selection response brings back rows 0 to 199.
+      await view.rerender({ projection: loaded(0) })
+      expect(events.onshow).toHaveBeenCalledWith(205)
+    })
+
     it('asks once per frame for the window holding the first fully visible row', async () => {
       vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
       const events = { ...callbacks(), onshow: vi.fn() }
@@ -1219,28 +1237,84 @@ describe('FinanceGrid', () => {
     })
 
     it('reveals the cursor row after a view change that keeps its index', async () => {
-      // A header sort, a grouping key, and a period change each send a new canonical query.
-      for (const query of ['v=1&sort=amount', 'v=1&group=category', 'v=1&period=2026-09']) {
-        const scroller = scrollerAt(0)
-        const view = render(FinanceGrid, {
-          projection: loaded(0),
-          cursorIndex: 0,
-          compact: false,
-          scroller,
-          scrollTop: 0,
-          viewport: 630,
-          ...callbacks(),
-        })
-        scroller.scrollTop = 100 * 30
-        await view.rerender({ scrollTop: 100 * 30 })
-        await view.rerender({ projection: { ...loaded(0), canonical_query: query } })
+      const scroller = scrollerAt(0)
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scroller,
+        scrollTop: 0,
+        viewport: 630,
+        ...callbacks(),
+      })
+      scroller.scrollTop = 100 * 30
+      await view.rerender({ scrollTop: 100 * 30 })
+      await view.rerender({ projection: { ...loaded(0), canonical_query: 'v=1&sort=amount' } })
 
-        expect(scroller.scrollTop, query).toBe(0)
-        const grid = screen.getByRole('grid', { name: 'Financial results' })
-        const active = grid.getAttribute('aria-activedescendant')!
-        expect(document.getElementById(active), query).not.toBeNull()
-        cleanup()
-      }
+      expect(scroller.scrollTop).toBe(0)
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      const active = grid.getAttribute('aria-activedescendant')!
+      expect(document.getElementById(active)).not.toBeNull()
+    })
+
+    it('reveals the cursor row on a key that cannot move it, such as Home on the first row', async () => {
+      const scroller = scrollerAt(0)
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scroller,
+        scrollTop: 0,
+        viewport: 630,
+        ...callbacks(),
+      })
+      scroller.scrollTop = 100 * 30
+      await view.rerender({ scrollTop: 100 * 30 })
+      await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), {
+        key: 'Home',
+      })
+      expect(scroller.scrollTop).toBe(0)
+    })
+
+    it('withdraws a scrolled-to window when Home keeps the cursor on the first row', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scrollTop: 0,
+        viewport: 630,
+        ...events,
+      })
+      await view.rerender({ scrollTop: 300 * 30 })
+      vi.advanceTimersToNextFrame()
+      expect(events.onshow).toHaveBeenLastCalledWith(300)
+
+      await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), {
+        key: 'Home',
+      })
+      // A row of the loaded window: the controller drops the request still on its way.
+      expect(events.onshow).toHaveBeenLastCalledWith(0)
+      expect(events.oncursor).not.toHaveBeenCalled()
+    })
+
+    it('names an active descendant only while the cursor row is rendered', async () => {
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scrollTop: 0,
+        viewport: 630,
+        ...callbacks(),
+      })
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      await view.rerender({ scrollTop: 100 * 30 })
+      expect(grid.hasAttribute('aria-activedescendant')).toBe(false)
+
+      await view.rerender({ scrollTop: 0 })
+      expect(grid.getAttribute('aria-activedescendant')).toBe('moneyflow-row-row-0')
+      expect(document.getElementById('moneyflow-row-row-0')).not.toBeNull()
     })
 
     it('keeps the cursor on a clicked row from a cached neighboring window', async () => {

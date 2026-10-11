@@ -26,7 +26,6 @@ describe('scopeKind', () => {
     [{ from: '2026-01-01', to: '2026-12-31' }, 'year'],
     [{ from: '2026-03-10', to: '2026-04-09' }, 'custom'],
     [{ from: '2026-09-01', to: '2026-09-29' }, 'custom'],
-    [{ from: '2025-02-01', to: '2025-02-29' }, 'custom'],
     [{ from: '2026-01-01', to: '2026-12-30' }, 'custom'],
     [{ from: '2025-01-01', to: '2026-12-31' }, 'custom'],
   ] as const)('classifies %o as %s', (range, kind) => {

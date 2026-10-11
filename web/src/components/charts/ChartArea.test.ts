@@ -255,8 +255,14 @@ describe('ChartArea', () => {
         measure,
         ...interaction,
       })
-      observed[0]?.()
-      expect(measure).toHaveBeenLastCalledWith(expect.any(Number))
+      let height = 180
+      const area = document.querySelector<HTMLElement>('.mf-chart-area')!
+      Object.defineProperty(area, 'offsetHeight', { configurable: true, get: () => height })
+      observed[0]!()
+      expect(measure).toHaveBeenLastCalledWith(180)
+      height = 240
+      observed[0]!()
+      expect(measure).toHaveBeenLastCalledWith(240)
       unmount()
       expect(measure).toHaveBeenLastCalledWith(0)
     } finally {

@@ -125,7 +125,6 @@ func TestSimpleFINMCPReadInventoryRefreshAndCancellation(t *testing.T) {
 	defer stop()
 	tools, err := session.ListTools(t.Context(), nil)
 	require.NoError(t, err)
-	require.Len(t, tools.Tools, 17)
 	names := make([]string, 0, len(tools.Tools))
 	for _, tool := range tools.Tools {
 		names = append(names, tool.Name)

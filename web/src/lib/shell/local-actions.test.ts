@@ -8,6 +8,7 @@ import {
   localActions,
   moveCursor,
   openEditor,
+  openEditorWhenSettled,
   runRowAction,
   type LocalActionContext,
 } from './local-actions'
@@ -15,7 +16,16 @@ import { OverlayState } from './overlay-state.svelte'
 import { status } from './status.svelte'
 import { setPageRows } from '../table/cursor-keys'
 import type { ViewController } from '../controller/view-controller.svelte'
+import { testCapabilities } from '../../test/capabilities'
 import { testAggregateRow, testProjection } from '../../test/projection'
+
+/** Queues a view transition that stays in flight until the returned function is called. */
+function holdTransitions(context: LocalActionContext): () => void {
+  let settle!: () => void
+  const held = new Promise<void>((resolve) => (settle = resolve))
+  void context.queue(() => held)
+  return settle
+}
 
 function setup(cursorIndex: number): { context: LocalActionContext; overlays: OverlayState } {
   const grid = document.createElement('div')
@@ -37,6 +47,13 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
       root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
     },
     detail_rows: null,
+    selection_count: 0,
+    capabilities: testCapabilities([
+      'transaction.edit-merchant',
+      'transaction.edit-category',
+      'transaction.toggle-hidden',
+      'transaction.delete',
+    ]),
     total_rows: 2,
     window: { offset: 0, limit: 200, count: 2 },
     aggregate_rows: [testAggregateRow(), testAggregateRow({ index: 1, identity: 'agg-1' })],
@@ -49,10 +66,11 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
     editing: { submit },
     transactionInformation,
   } as unknown as ViewController
+  let tail: Promise<unknown> = Promise.resolve()
   const context: LocalActionContext = {
     controller,
     overlays,
-    afterTransitions: () => Promise.resolve(),
+    queue: (work) => (tail = tail.then(work, work)),
     focusGrid: vi.fn(),
     importAmazon: vi.fn(),
     focusSearch: vi.fn(),
@@ -78,9 +96,7 @@ describe('editor actions', () => {
 
   it('waits for queued transitions before an edit reads the cursor row', async () => {
     const { context, overlays } = setup(0)
-    let settle = () => {}
-    const transitions = new Promise<void>((resolve) => (settle = resolve))
-    context.afterTransitions = () => transitions
+    const settle = holdTransitions(context)
     const actions = localActions(context)
     actions['edit.hide']()
     actions['edit.merchant']()
@@ -98,6 +114,13 @@ describe('editor actions', () => {
       input: {},
       target,
     })
+  })
+
+  it('still opens the editor after a queued newer-insights recheck fails', async () => {
+    const { context, overlays } = setup(1)
+    context.queue(() => Promise.reject(new Error('offline'))).catch(() => undefined)
+    localActions(context)['edit.merchant']()
+    await vi.waitFor(() => expect(overlays.current).toBe('merchant'))
   })
 
   it('opens the editor for a pointed row instead of the cursor row', () => {
@@ -131,6 +154,18 @@ describe('editor actions', () => {
     context.controller.projection!.selection_count = 2
     openEditor(context, 'category', { identity: 'row-7', kind: 'transaction' })
     expect(overlays.anchor).toEqual({ element: row, above: false })
+  })
+
+  it('opens a pointed row’s editor after queued transitions, as m and c do', async () => {
+    const { context, overlays } = setup(1)
+    const settle = holdTransitions(context)
+    openEditorWhenSettled(context, 'merchant', { identity: 'row-7', kind: 'transaction' })
+    await tick()
+    expect(overlays.current).toBeUndefined()
+
+    settle()
+    await vi.waitFor(() => expect(overlays.current).toBe('merchant'))
+    expect(overlays.editTarget).toEqual({ identity: 'row-7', kind: 'transaction' })
   })
 
   it('opens no editor without a cursor row', async () => {
@@ -206,6 +241,39 @@ describe('row actions', () => {
     })
     expect(overlays.current).toBeUndefined()
   })
+
+  it('leaves an editor opened after the confirmation was dismissed mid-delete', async () => {
+    const { context, overlays } = setup(1)
+    let settle: (accepted: boolean) => void = () => undefined
+    vi.mocked(context.controller.editing.submit).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => (settle = resolve)),
+    )
+    confirmDelete(context, row)
+    const deleting = confirmDirectDelete(context)
+    overlays.close()
+    openEditor(context, 'merchant', row)
+    settle(true)
+    expect(await deleting).toBe(true)
+    expect(overlays.current).toBe('merchant')
+  })
+
+  it('h holds later view transitions until the hide is staged', async () => {
+    const { context } = setup(1)
+    let staged!: (accepted: boolean) => void
+    vi.mocked(context.controller.editing.submit).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (staged = resolve)),
+    )
+    localActions(context)['edit.hide']()
+    const marker = vi.fn()
+    const after = context.queue(marker)
+    await vi.waitFor(() => expect(context.controller.editing.submit).toHaveBeenCalledTimes(1))
+    await tick()
+    expect(marker).not.toHaveBeenCalled()
+
+    staged(true)
+    await after
+    expect(marker).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('w', () => {
@@ -251,14 +319,28 @@ describe('runRowAction', () => {
 
   it('waits for queued transitions before an edit reads the projection', async () => {
     const { context } = fromSheet()
-    let settle = () => {}
-    const transitions = new Promise<void>((resolve) => (settle = resolve))
-    context.afterTransitions = () => transitions
+    const settle = holdTransitions(context)
     runRowAction(context, 'edit.hide', row)
     await tick()
     expect(context.controller.editing.submit).not.toHaveBeenCalled()
     settle()
     await vi.waitFor(() => expect(context.controller.editing.submit).toHaveBeenCalledTimes(1))
+  })
+
+  it('leaves the edit to the selection bar when a queued toggle selects rows', async () => {
+    for (const action of ['edit.merchant', 'edit.hide'] as const) {
+      const { context, overlays } = fromSheet()
+      const settle = holdTransitions(context)
+      runRowAction(context, action, row)
+      ;(context.controller.projection as { selection_count: number }).selection_count = 1
+      settle()
+      await vi.waitFor(() =>
+        expect(status.notice).toBe('Clear the selection to edit one transaction'),
+      )
+      expect(overlays.current).not.toBe('merchant')
+      expect(context.controller.editing.submit).not.toHaveBeenCalled()
+      status.clear()
+    }
   })
 
   it('stages hiding the sheet row and closes the sheet', async () => {
