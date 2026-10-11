@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { tick } from 'svelte'
 import AppShell from './AppShell.svelte'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testProjection } from '../test/projection'
@@ -47,6 +48,30 @@ describe('AppShell', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Filters' }))
     expect(await screen.findByRole('button', { name: 'Show hidden transactions' })).not.toBeNull()
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('leaves focus in search when a grouping finishes, until Enter returns it', async () => {
+    const controller = stubController()
+    let finish!: (applied: boolean) => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (finish = resolve)),
+    )
+    render(AppShell, { controller })
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+
+    await fireEvent.keyDown(window, { key: '2' })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalled())
+    await fireEvent.keyDown(window, { key: '/' })
+    expect(document.activeElement).toBe(search)
+    finish(true)
+    await tick()
+    await tick()
+    expect(document.activeElement).toBe(search)
+
+    await fireEvent.keyDown(search, { key: 'Enter' })
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' })),
+    )
   })
 
   it('starts charts off at rail widths so the table keeps the full width', async () => {
