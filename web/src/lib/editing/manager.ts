@@ -271,13 +271,16 @@ const OWN_ENTER = 'button, a[href], select, textarea, [role=button], [role=link]
  *
  * Enter confirms from the step's name field or the panel itself, not from a control with its own
  * Enter, such as a button or the destination combobox. A held Enter's repeats, a modified Enter,
- * and an Enter while the step is staging confirm nothing.
+ * and an Enter while the step is staging confirm nothing. An Enter that accepts an input method
+ * candidate is left to the input method.
  */
 export function stepEnter(
   event: KeyboardEvent,
   panel: Element | undefined,
   staging: boolean,
 ): 'confirm' | 'swallow' | 'pass' {
+  // Safari reports an input method's Enter as keyCode 229 without isComposing.
+  if (event.isComposing || event.keyCode === 229) return 'pass'
   if (event.key !== 'Enter' || event.defaultPrevented || !panel) return 'pass'
   const target = event.target
   if (!(target instanceof Element) || !panel.contains(target)) return 'pass'
