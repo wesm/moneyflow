@@ -71,9 +71,6 @@ func TestOpenAPITransitionEnumsMatchTheDomain(t *testing.T) {
 		assert.True(t, domain.Dimension(value).Valid(), value)
 	}
 	assert.ElementsMatch(t, wantDimensions, properties["dimension"].Enum)
-	for _, value := range properties["dimension"].Enum {
-		assert.True(t, domain.Dimension(value).Valid(), value)
-	}
 
 	wantFields := []string{
 		"count", "amount", "date", "merchant", "category", "group", "account", "time_period",
@@ -82,7 +79,4 @@ func TestOpenAPITransitionEnumsMatchTheDomain(t *testing.T) {
 		assert.True(t, domain.SortField(value).Valid(), value)
 	}
 	assert.ElementsMatch(t, wantFields, properties["sort_field"].Enum)
-	for _, value := range properties["sort_field"].Enum {
-		assert.True(t, domain.SortField(value).Valid(), value)
-	}
 }
