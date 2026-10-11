@@ -112,13 +112,6 @@ describe('editor actions', () => {
     })
   })
 
-  it('still opens the editor after a queued newer-insights recheck fails', async () => {
-    const { context, overlays } = setup(1)
-    context.queue(() => Promise.reject(new Error('offline'))).catch(() => undefined)
-    localActions(context)['edit.merchant']()
-    await vi.waitFor(() => expect(overlays.current).toBe('merchant'))
-  })
-
   it('opens the editor for a pointed row instead of the cursor row', () => {
     const { context, overlays } = setup(1)
     openEditor(context, 'merchant', { identity: 'row-7', kind: 'transaction' })

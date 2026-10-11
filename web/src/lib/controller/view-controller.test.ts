@@ -9,6 +9,7 @@ import {
 import { createViewController } from './view-controller.svelte'
 import type { SelectionValue } from '../api/client'
 import type { MoneyflowHistoryState } from './history'
+import { testAggregateRow } from '../../test/projection'
 
 describe('browser view controller', () => {
   beforeEach(() => history.replaceState(null, '', '/moneyflow/?hidden=1&v=1'))
@@ -741,10 +742,25 @@ describe('browser view controller', () => {
   })
 
   describe('showing an anchored row', () => {
-    const anchored = (body: ViewBody) => {
-      if (body.anchor !== 'merchant:example') return projection('v=1', body.window.offset, 450)
-      return { ...projection('v=1', 400, 450), anchor_index: 420 }
+    /** A window of a 450-merchant view whose row 420 is `merchant:example`. */
+    const merchants = (offset: number): ViewProjection => {
+      const window = projection('v=1', offset, 450)
+      return {
+        ...window,
+        view: { ...window.view, mode: 'aggregate', sort_field: 'amount' },
+        detail_rows: null,
+        aggregate_rows: (window.detail_rows ?? []).map(({ index }) =>
+          testAggregateRow({
+            index,
+            identity: index === 420 ? 'merchant:example' : `merchant:${index}`,
+          }),
+        ),
+      }
     }
+    const anchored = (body: ViewBody) =>
+      body.anchor === 'merchant:example'
+        ? { ...merchants(400), anchor_index: 420 }
+        : merchants(body.window.offset)
 
     it('loads the window holding the row and moves the cursor there without a history entry', async () => {
       const client = clientWith({ view: vi.fn(async (body) => anchored(body)) })
@@ -763,7 +779,7 @@ describe('browser view controller', () => {
       })
       expect(controller.projection?.window.offset).toBe(400)
       expect(controller.cursorIndex).toBe(420)
-      expect(controller.cursorIdentity).toBe('row-420')
+      expect(controller.cursorIdentity).toBe('merchant:example')
       expect((history.state as MoneyflowHistoryState).cursorIndex).toBe(420)
       expect(pushes).not.toHaveBeenCalled()
     })
@@ -810,6 +826,7 @@ describe('browser view controller', () => {
       release()
       await showing
       expect(controller.cursorIndex).toBe(420)
+      expect(controller.cursorIdentity).toBe('merchant:example')
     })
 
     it('keeps a cursor move made while the row loads', async () => {
@@ -817,7 +834,7 @@ describe('browser view controller', () => {
       const client = clientWith({
         view: vi.fn((body: ViewBody) =>
           body.anchor === undefined
-            ? Promise.resolve(projection('v=1', body.window.offset, 450))
+            ? Promise.resolve(merchants(body.window.offset))
             : new Promise<ViewProjection>((resolve) => (answer = resolve)),
         ),
       })
@@ -828,10 +845,11 @@ describe('browser view controller', () => {
       const showing = controller.showAnchor('merchant:example')
       await new Promise((resolve) => setTimeout(resolve, 0))
       await controller.moveCursor(1)
-      answer({ ...projection('v=1', 400, 450), anchor_index: 420 })
+      answer({ ...merchants(400), anchor_index: 420 })
       await showing
 
       expect(controller.cursorIndex).toBe(1)
+      expect(controller.cursorIdentity).toBe('merchant:1')
       expect(controller.projection).toBe(loaded)
     })
   })
