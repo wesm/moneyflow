@@ -52,7 +52,9 @@ export function keyHints(projection: ViewProjection, overlayOpen: boolean): KeyH
   else if (emptyScope(projection)) {
     // The empty-period state has no rows to open or edit.
     candidates = candidates.filter(({ capability }) => capability !== 'view.drill')
-  } else if (projection.view.mode === 'detail') candidates = detailHints
+  } else if (projection.view.mode === 'detail' && !projection.view.sub_grouping) {
+    candidates = detailHints
+  }
   return candidates
     .filter(({ capability }) => available.has(capability))
     .map(({ key, label }) => ({ key, label }))
