@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import CashflowChart from './CashflowChart.svelte'
@@ -38,6 +39,47 @@ function chart(partial = false): InsightsEntry {
   return { query: response.query, revision: response.revision, response, series: new Map() }
 }
 
+type ContextPeriod = Context[number]['period']
+
+/** A chart of `periods`, named by their labels, with no amounts, over All time at `revision`. */
+function plain(periods: [string, ContextPeriod][], revision: string): InsightsEntry {
+  const response = testInsights({ revision })
+  const zeros = periods.map(() => '0')
+  response.ranges = {
+    ...response.ranges,
+    kind: 'all',
+    context_granularity: periods[0]?.[1].granularity === 'year' ? 'year' : 'month',
+    context: periods.map(([, period]) => ({
+      ...bounds(period),
+      partial: false,
+      absent: false,
+      period,
+    })),
+  }
+  delete response.ranges.scope
+  response.summary!.cashflow = {
+    labels: periods.map(([label]) => label),
+    in: zeros,
+    out: zeros,
+    net: zeros,
+    count: periods.map(() => 0),
+  }
+  return { query: response.query, revision, response, series: new Map() }
+}
+
+function bounds(period: ContextPeriod): { start: string; end: string } {
+  const month = period.month ?? 1
+  const last = new Date(Date.UTC(period.year, period.granularity === 'year' ? 12 : month, 0))
+  const start = new Date(Date.UTC(period.year, month - 1, 1))
+  return { start: start.toISOString().slice(0, 10), end: last.toISOString().slice(0, 10) }
+}
+
+const monthsOf = (values: number[]): [string, ContextPeriod][] =>
+  values.map((month) => [
+    `${['Jun', 'Jul', 'Aug', 'Sep'][month - 6]} 2026`,
+    { granularity: 'month', year: 2026, month },
+  ])
+
 const cursor = {
   identity: 'merchant-online-megastore',
   label: 'Online Megastore',
@@ -62,6 +104,56 @@ function setup({ partial = false, ...props }: Partial<Options> = {}) {
 
 describe('CashflowChart', () => {
   afterEach(() => cleanup())
+
+  it('keeps the Tab stop on its period when a new revision adds an earlier one', async () => {
+    const { rerender } = render(CashflowChart, {
+      entry: plain(monthsOf([7, 8, 9]), '0'),
+      onperiod: vi.fn(),
+    })
+    const stops = () => screen.getAllByRole('button').filter((button) => button.tabIndex === 0)
+    const august = screen.getByRole('button', { name: /^Aug 2026, / })
+    august.focus()
+    await tick()
+    expect(stops()).toEqual([august])
+
+    await rerender({ entry: plain(monthsOf([6, 7, 8, 9]), '1') })
+    expect(stops()).toEqual([screen.getByRole('button', { name: /^Aug 2026, / })])
+  })
+
+  it('keeps one Tab stop when a new revision draws fewer, longer periods', async () => {
+    const { rerender } = render(CashflowChart, {
+      entry: plain(monthsOf([7, 8, 9]), '0'),
+      onperiod: vi.fn(),
+    })
+    screen.getByRole('button', { name: /^Sep 2026, / }).focus()
+    await tick()
+
+    const years = plain(
+      [
+        ['2025', { granularity: 'year', year: 2025 }],
+        ['2026', { granularity: 'year', year: 2026 }],
+      ],
+      '1',
+    )
+    await rerender({ entry: years })
+    const buttons = screen.getAllByRole('button')
+    expect(buttons).toHaveLength(2)
+    expect(buttons.filter((button) => button.tabIndex === 0)).toEqual([buttons[1]])
+  })
+
+  it('extends a shift-click over All time from the column focused before it', async () => {
+    const onperiod = vi.fn()
+    render(CashflowChart, { entry: plain(monthsOf([7, 8, 9]), '0'), onperiod })
+    const column = (label: string) =>
+      screen.getByRole('button', { name: new RegExp(`^${label}, `) })
+    column('Jul 2026').focus()
+
+    // A press focuses the column before its click arrives.
+    await fireEvent.pointerDown(column('Sep 2026'), { button: 0, shiftKey: true, pointerId: 1 })
+    column('Sep 2026').focus()
+    await fireEvent.click(column('Sep 2026'), { shiftKey: true })
+    expect(onperiod).toHaveBeenCalledExactlyOnceWith({ start: '2026-07-01', end: '2026-09-30' })
+  })
 
   it('names each column with its period, In, Out, and Net', () => {
     const { group } = setup()

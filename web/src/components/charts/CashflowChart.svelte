@@ -38,27 +38,52 @@
     tickEvery(columns.length, width, entry.response.ranges.context_granularity),
   )
   const context = $derived(entry.response.ranges.context)
-  /** The column that holds the Tab stop, while the same view is drawn. */
-  let chosen = $state<{ query: string; index: number }>()
+  /** The period that holds the Tab stop, while the same view is drawn. */
+  let chosen = $state<{ query: string; period: string }>()
   const scoped = $derived(columns.findLastIndex((column) => column.inScope))
-  const active = $derived(
-    chosen?.query === entry.query ? chosen.index : scoped < 0 ? columns.length - 1 : scoped,
+  // A new revision of the same view can redraw other periods, such as years instead of months.
+  const kept = $derived(
+    chosen?.query === entry.query
+      ? context.findIndex((period) => periodKey(period) === chosen?.period)
+      : -1,
   )
+  const active = $derived(kept >= 0 ? kept : scoped < 0 ? columns.length - 1 : scoped)
   let drag = $state<{ from: number; to: number }>()
+  /** The Tab stop when the pointer went down, before that press focused the column. */
+  let pressedFrom: number | undefined
+
+  function periodKey(period: { start: string; end: string }): string {
+    return `${period.start}/${period.end}`
+  }
+
+  function hold(index: number): void {
+    const period = context[index]
+    if (period) chosen = { query: entry.query, period: periodKey(period) }
+  }
 
   function dragged(index: number): boolean {
     if (drag === undefined) return false
     return index >= Math.min(drag.from, drag.to) && index <= Math.max(drag.from, drag.to)
   }
 
-  /** Scopes to one column, or with `extend` from the scope's far edge through it. */
-  function choose(index: number, extend: boolean): void {
-    const anchor = extend ? rangeAnchor(columns, index, active) : index
-    chosen = { query: entry.query, index }
+  /**
+   * Scopes to one column, or with `from` set, from the scope's far edge through it. Without a
+   * scope in the chart, the range runs from the `from` column instead.
+   */
+  function choose(index: number, from: number | undefined): void {
+    const anchor = from === undefined ? index : rangeAnchor(columns, index, from)
+    hold(index)
     onperiod(scopeFromColumns(context, anchor, index))
   }
 
+  function click(event: MouseEvent, index: number): void {
+    const from = pressedFrom ?? active
+    pressedFrom = undefined
+    choose(index, event.shiftKey ? from : undefined)
+  }
+
   function keydown(event: KeyboardEvent, index: number): void {
+    pressedFrom = undefined
     if (event.key === 'Escape' && onleave) {
       event.preventDefault()
       onleave()
@@ -67,7 +92,7 @@
     // Enter alone activates the button; Shift+Enter extends the range, as a shift-click does.
     if (event.key === 'Enter' && event.shiftKey) {
       event.preventDefault()
-      choose(index, true)
+      choose(index, active)
       return
     }
     if (!moves.has(event.key)) return
@@ -75,12 +100,14 @@
     const last = columns.length - 1
     const step = { ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: last }
     const next = Math.min(Math.max(step[event.key as keyof typeof step], 0), last)
-    chosen = { query: entry.query, index: next }
+    hold(next)
     plot?.querySelectorAll<HTMLElement>('.mf-cashflow__column')[next]?.focus()
   }
 
   function press(event: PointerEvent, index: number): void {
-    if (event.button !== 0 || event.shiftKey) return
+    if (event.button !== 0) return
+    pressedFrom = active
+    if (event.shiftKey) return
     // A touch captures the pointer; releasing it lets the drag reach the other columns.
     const target = event.currentTarget
     if (target instanceof Element && target.hasPointerCapture?.(event.pointerId)) {
@@ -119,11 +146,11 @@
         ticked={column.tickOrder % every === 0}
         active={index === active}
         dragged={dragged(index)}
-        onclick={(event) => choose(index, event.shiftKey)}
+        onclick={(event) => click(event, index)}
         onkeydown={(event) => keydown(event, index)}
         onpointerdown={(event) => press(event, index)}
         onpointerenter={() => drag && (drag = { ...drag, to: index })}
-        onfocus={() => (chosen = { query: entry.query, index })}
+        onfocus={() => hold(index)}
       />
     {/each}
     {#if width > 0}
