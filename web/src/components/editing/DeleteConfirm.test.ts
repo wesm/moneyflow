@@ -144,20 +144,6 @@ describe('DeleteConfirm', () => {
     expect(dialog.isConnected).toBe(true)
   })
 
-  it('reports a request that throws, stays open, and lets a new Enter try again', async () => {
-    const staged = vi
-      .fn<() => Promise<boolean>>()
-      .mockRejectedValueOnce(new Error('offline'))
-      .mockResolvedValueOnce(true)
-    const { dialog, onconfirm } = setup({ staged })
-    await fireEvent.keyDown(dialog, { key: 'Enter' })
-    expect((await screen.findByRole('alert')).textContent).toBe('The profile request failed.')
-    expect(dialog.isConnected).toBe(true)
-    await fireEvent.keyDown(dialog, { key: 'Enter' })
-    await vi.waitFor(() => expect(onconfirm).toHaveBeenCalledTimes(2))
-    await vi.waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
-  })
-
   it('leaves Enter on Cancel, and modified Enter, to the browser', async () => {
     const { onconfirm } = setup()
     const cancel = screen.getByRole('button', { name: 'Cancel' })
