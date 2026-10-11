@@ -136,6 +136,14 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+test('the collapsed sidebar rail passes axe at full-sidebar width', async ({ page, server }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.addInitScript(() => localStorage.setItem('moneyflow-sidebar', 'collapsed'))
+  await openMoneyflow(page, server)
+  await expect(page.getByRole('button', { name: 'Expand sidebar' })).toBeVisible()
+  await expectNoAxeViolations(page)
+})
+
 test('help overlay traps focus, passes axe, and restores the grid', async ({ page, server }) => {
   await page.addInitScript(() => localStorage.setItem('kit-ui-theme', 'dark'))
   await openMoneyflow(page, server)

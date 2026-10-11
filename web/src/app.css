@@ -426,6 +426,7 @@ input {
   flex-direction: column;
 }
 .mf-sidebar__brand {
+  position: relative;
   box-sizing: border-box;
   height: var(--header-height);
   flex: none;
@@ -435,6 +436,15 @@ input {
   gap: var(--space-1);
   padding: 0 var(--space-6);
   border-bottom: 1px solid var(--border-default);
+}
+.mf-collapse-control {
+  display: flex;
+}
+.mf-sidebar__brand > .mf-collapse-control {
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  translate: 0 -50%;
 }
 .mf-sidebar__provider {
   color: var(--text-muted);

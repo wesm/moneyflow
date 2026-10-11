@@ -52,6 +52,11 @@ The bottom of the sidebar holds:
   refresh button (`r`), refresh progress, and **Reconnect** when the provider needs it.
 - The theme toggle; see [Themes](#themes).
 
+**Unreleased:** At 1280 px and wider, the **Collapse sidebar** button beside the Moneyflow name
+switches the sidebar to the icon rail that narrower windows use. The **Expand sidebar** button at
+the top of the rail brings the sidebar back. The browser remembers the choice. Narrower windows
+show the rail or the phone drawer whatever you chose; see [Narrow screens](#narrow-screens).
+
 The command bar shows where you are and what the view includes. It holds the
 [breadcrumb and Break down by](navigation.md#use-the-breadcrumb-and-break-down-by-in-the-browser),
 the [period control](navigation.md#choose-a-period-in-the-browser), the currency chip when the
@@ -208,7 +213,7 @@ previous currency. It also clears the selection. Esc does not undo a currency ch
 
 **Unreleased:** The workspace adapts to the window width:
 
-- **1280 px and wider:** the full sidebar.
+- **1280 px and wider:** the full sidebar, unless you collapse it to the icon rail.
 - **641 to 1279 px:** an icon rail with tooltips replaces the sidebar. The status line shows the
   pending-edits text.
 - **Below 900 px:** the panel moves under the cash-flow chart.

@@ -271,6 +271,44 @@ test('the sidebar groups by its entries and the rail names them in tooltips', as
   await expect(page.getByRole('tooltip')).toHaveText('Merchants · 1')
 })
 
+test('the sidebar collapses to the rail, stays collapsed after a reload, and expands', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openMoneyflow(page, server)
+  const collapse = page.getByRole('button', { name: 'Collapse sidebar' })
+  const expand = page.getByRole('button', { name: 'Expand sidebar' })
+  const resize = page.getByRole('separator', { name: 'Resize sidebar' })
+  const rail = page.locator('.mf-rail')
+  await expect(collapse).toHaveAttribute('aria-expanded', 'true')
+  await expect(expand).toHaveCount(0)
+
+  await collapse.click()
+  await expect(expand).toBeFocused()
+  await expect(expand).toHaveAttribute('aria-expanded', 'false')
+  await expect(collapse).toHaveCount(0)
+  await expect(resize).toHaveCount(0)
+  await expect(rail).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+  await expect(expand).toBeVisible()
+  await expect(collapse).toHaveCount(0)
+
+  // Narrower windows show the rail whatever the choice, so it offers nothing to expand.
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await expect(expand).toHaveCount(0)
+  await page.setViewportSize({ width: 1280, height: 800 })
+
+  await expand.focus()
+  await page.keyboard.press('Enter')
+  await expect(collapse).toBeFocused()
+  await expect(expand).toHaveCount(0)
+  await expect(rail).toHaveCount(0)
+  await expect(resize).toBeVisible()
+})
+
 const phone = { width: 390, height: 844 }
 
 /**

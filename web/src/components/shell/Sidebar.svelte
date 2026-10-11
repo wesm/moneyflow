@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { KbdBadge, ThemeToggle } from '@kenn-io/kit-ui'
+  import { KbdBadge, SidebarToggle, ThemeToggle } from '@kenn-io/kit-ui'
 
   import PendingCard from './PendingCard.svelte'
   import ProviderStatus from '../ProviderStatus.svelte'
@@ -15,6 +15,7 @@
     type NavItem,
     type NavRun,
   } from '../../lib/shell/nav-items'
+  import { sidebarState, toggleExpanded } from '../../lib/shell/sidebar-state.svelte'
 
   interface Props {
     projection: ViewProjection
@@ -40,6 +41,7 @@
   }
   const sections = $derived(navItems(projection))
   const reviewAvailable = $derived(availableCapabilities(projection).has('changes.review'))
+  const layout = sidebarState()
 
   // kit CollapsibleSidebar renders the <aside> without a name; name it apart from Visualizations.
   function nameLandmark(node: HTMLElement): void {
@@ -79,6 +81,11 @@
   <div class="mf-sidebar__brand">
     <span class="moneyflow-brand">Moneyflow</span>
     <span class="mf-sidebar__provider">{providerNames[projection.profile_kind]}</span>
+    {#if layout?.wide}
+      <span class="mf-collapse-control" {@attach toggleExpanded(true)}>
+        <SidebarToggle onclick={() => void layout.setCollapsed(true)} />
+      </span>
+    {/if}
   </div>
   <nav class="mf-sidebar__nav" aria-label="Workspace">
     {@render section('Explore', sections.explore)}
