@@ -739,6 +739,7 @@ function stubController(projection = testProjection()): ViewController {
     restoreSearch: vi.fn(),
     hold: <T>(work: Promise<T>) => work,
     restore: vi.fn(),
+    flushHistory: vi.fn(),
     retry: vi.fn(),
     reset: vi.fn(),
   }

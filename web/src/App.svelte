@@ -248,8 +248,11 @@
     }
     const visible = () => {
       if (document.visibilityState === 'visible') recheck()
+      else controller.flushHistory()
     }
+    const leave = () => controller.flushHistory()
     window.addEventListener('popstate', restore)
+    window.addEventListener('pagehide', leave)
     window.addEventListener('focus', recheck)
     document.addEventListener('visibilitychange', visible)
     const statusInterval = window.setInterval(pollProvider, 60_000)
@@ -269,8 +272,10 @@
       window.clearInterval(statusInterval)
       window.clearInterval(writeStatusInterval)
       window.removeEventListener('popstate', restore)
+      window.removeEventListener('pagehide', leave)
       window.removeEventListener('focus', recheck)
       document.removeEventListener('visibilitychange', visible)
+      controller.flushHistory()
     }
   })
 </script>

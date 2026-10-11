@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   MoneyflowProblem,
@@ -654,6 +654,118 @@ describe('browser view controller', () => {
     await controller.moveHome()
     expect(controller.cursorIndex).toBe(0)
     expect(controller.projection).toBe(loaded)
+  })
+
+  describe('history writes for cursor moves', () => {
+    afterEach(() => vi.useRealTimers())
+
+    const rows = () =>
+      clientWith({ view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)) })
+
+    it('writes the last cursor once after a burst of moves', async () => {
+      vi.useFakeTimers()
+      const controller = debouncedControllerFor(rows())
+      await controller.hydrate()
+      const replacements = vi.spyOn(history, 'replaceState')
+      replacements.mockClear()
+
+      for (let step = 0; step < 100; step += 1) {
+        await controller.moveCursor(1)
+        await vi.advanceTimersByTimeAsync(10)
+      }
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(replacements.mock.calls.length).toBeGreaterThan(0)
+      expect(replacements.mock.calls.length).toBeLessThanOrEqual(3)
+      expect((history.state as MoneyflowHistoryState).cursorIndex).toBe(100)
+    })
+
+    it('writes the pending cursor before the entry a transition pushes', async () => {
+      vi.useFakeTimers()
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+        transition: vi.fn(async () => projection('v=1&drill=x', 0, 3)),
+      })
+      const controller = debouncedControllerFor(client)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      const writes: Array<[string, MoneyflowHistoryState]> = []
+      vi.spyOn(history, 'replaceState').mockImplementation(function (this: History, state, _, url) {
+        writes.push(['replace', state as MoneyflowHistoryState])
+        History.prototype.replaceState.call(this, state, '', url)
+      })
+      vi.spyOn(history, 'pushState').mockImplementation(function (this: History, state, _, url) {
+        writes.push(['push', state as MoneyflowHistoryState])
+        History.prototype.pushState.call(this, state, '', url)
+      })
+
+      await controller.moveCursorTo(5)
+      await controller.moveCursorTo(7)
+      await controller.apply({ action: 'view.drill' })
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(writes.map(([kind, state]) => [kind, state.query, state.cursorIndex])).toEqual([
+        ['replace', 'v=1', 7],
+        ['push', 'v=1&drill=x', 0],
+      ])
+      expect(writes[0]?.[1].sequence).toBe(parent.sequence)
+    })
+
+    it('writes the pending cursor before going back through history', async () => {
+      vi.useFakeTimers()
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+        transition: vi.fn(async (body) =>
+          projection(body.action === 'view.back' ? 'v=1' : 'v=1&drill=x', 0, 450),
+        ),
+      })
+      const controller = debouncedControllerFor(client)
+      await controller.hydrate()
+      await controller.apply({ action: 'view.drill' })
+      await controller.moveCursorTo(4)
+      let cursorWhenLeaving: number | undefined
+      vi.spyOn(history, 'go').mockImplementation(() => {
+        cursorWhenLeaving = (history.state as MoneyflowHistoryState).cursorIndex
+      })
+
+      void controller.apply({ action: 'view.back' })
+      await vi.waitFor(() => expect(cursorWhenLeaving).toBe(4))
+    })
+
+    it('writes the pending cursor at once when asked to flush', async () => {
+      vi.useFakeTimers()
+      const controller = debouncedControllerFor(rows())
+      await controller.hydrate()
+      const replacements = vi.spyOn(history, 'replaceState')
+      replacements.mockClear()
+
+      await controller.moveCursorTo(9)
+      controller.flushHistory()
+      expect((history.state as MoneyflowHistoryState).cursorIndex).toBe(9)
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(replacements).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not write a pending cursor onto the entry the browser returns to', async () => {
+      vi.useFakeTimers()
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+        transition: vi.fn(async () => projection('v=1&drill=x', 0, 3)),
+      })
+      const controller = debouncedControllerFor(client)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.drill' })
+      await controller.moveCursorTo(2)
+      vi.mocked(client.view).mockImplementation(() => new Promise<ViewProjection>(() => undefined))
+
+      history.replaceState(parent, '', '/moneyflow/?v=1')
+      void controller.restore(new PopStateEvent('popstate', { state: parent }))
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(history.state).toEqual(parent)
+    })
   })
 
   describe('showing an anchored row', () => {
@@ -1462,6 +1574,21 @@ function controllerFor(client: MoneyflowClient, prefetch = true) {
     location: window.location,
     instance: 'test-instance',
     prefetch,
+    recheckDebounceMillis: 0,
+    historyDebounceMillis: 0,
+    returnTimeoutMillis: 200,
+  })
+}
+
+/** A controller that defers cursor history writes, as the browser does. */
+function debouncedControllerFor(client: MoneyflowClient) {
+  return createViewController({
+    basePath: '/moneyflow/',
+    client,
+    history,
+    location: window.location,
+    instance: 'test-instance',
+    prefetch: false,
     recheckDebounceMillis: 0,
     returnTimeoutMillis: 200,
   })

@@ -22,6 +22,8 @@ import { createReviewController, type ReviewController } from './review'
 import { preserveCursor, startsAtFirstRow, WindowCache } from './windows'
 
 const windowSize = 200
+// Browsers limit history writes (Safari: 100 in 10 seconds), so cursor moves wait for a pause.
+const defaultHistoryDebounceMillis = 300
 
 export interface TransitionAction {
   action: TransitionBody['action']
@@ -112,6 +114,8 @@ export interface ViewController {
   /** Returns to the view before the search; does nothing once history dropped `snapshot`. */
   restoreSearch(snapshot: SearchSnapshot): void
   restore(event: PopStateEvent): Promise<void>
+  /** Writes a cursor position still waiting for a pause to history now, as the page is left. */
+  flushHistory(): void
   retry(): Promise<void>
   reset(): Promise<void>
   transactionInformation?(identity: string): Promise<TransactionInformationResponse | undefined>
@@ -125,6 +129,8 @@ export interface ViewControllerOptions {
   instance?: string
   prefetch?: boolean
   recheckDebounceMillis?: number
+  /** How long cursor moves pause before history records them; 0 records each move at once. */
+  historyDebounceMillis?: number
   returnTimeoutMillis?: number
 }
 
@@ -137,6 +143,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   const cache = new WindowCache(windowSize)
   const prefetchEnabled = options.prefetch ?? true
   const recheckDebounceMillis = options.recheckDebounceMillis ?? 500
+  const historyDebounceMillis = options.historyDebounceMillis ?? defaultHistoryDebounceMillis
   const returnTimeoutMillis = options.returnTimeoutMillis ?? 1000
   const existing = ledger.record(browserHistory.state)
 
@@ -157,6 +164,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let lateReturn: ReturnInProgress | undefined
   let barrier: Promise<unknown> = Promise.resolve()
   let showing: ShowRequest | undefined
+  let pendingHistory: { state: MoneyflowHistoryState; url: string } | undefined
+  let pendingHistoryTimer: ReturnType<typeof setTimeout> | undefined
   // Prefetch fills the cache without changing the projection; this tells the table to redraw.
   let cacheChanges = $state(0)
   const prefetchRequests = new SvelteMap<string, AbortController>()
@@ -347,6 +356,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       }
     })
     barrier = Promise.all([barrier, traversal])
+    flushHistory()
     browserHistory.go(delta)
     return traversal
   }
@@ -370,6 +380,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function restore(event: PopStateEvent): Promise<void> {
+    // The browser already left the entry the pending cursor belongs to.
+    dropPendingHistory()
     searchSnapshot = undefined
     const owned = ledger.record(event.state)
     // A late traversal's view is current only until anything else replaces it, such as an edit.
@@ -402,6 +414,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function reset(): Promise<void> {
+    dropPendingHistory()
     browserHistory.replaceState(null, '', basePath)
     await hydrate()
   }
@@ -476,6 +489,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   function commitSearch(snapshot: SearchSnapshot): void {
     if (!projection || snapshot !== searchSnapshot) return
     const accepted = projection
+    flushHistory()
     browserHistory.replaceState(
       snapshot.history,
       '',
@@ -502,6 +516,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     cache.store(snapshot.projection)
     editing.sync(snapshot.projection)
     provider.sync(snapshot.projection)
+    flushHistory()
     browserHistory.replaceState(
       snapshot.history,
       '',
@@ -539,7 +554,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     )
     if (cached) {
       setProjectionWindow(cached, nextIndex)
-      replaceOwnedHistory()
+      deferOwnedHistory()
       return
     }
     const query = projection.canonical_query
@@ -548,7 +563,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       () => options.client.view(viewBody(query, selection, offset), activeRequest?.signal),
       (next) => {
         setProjectionWindow(next, nextIndex)
-        replaceOwnedHistory()
+        deferOwnedHistory()
         schedulePrefetch(next)
       },
       () => moveToIndex(nextIndex),
@@ -628,7 +643,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const { offset, count } = next.window
     const holdsCursor = cursorIndex >= offset && cursorIndex < offset + count
     setProjectionWindow(next, holdsCursor ? cursorIndex : index)
-    replaceOwnedHistory()
+    deferOwnedHistory()
     schedulePrefetch(next)
   }
 
@@ -686,6 +701,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       schedulePrefetch(next)
       return
     }
+    flushHistory()
     if (historyMode === 'push') sequence += 1
     const state = ownedState(next)
     const url = applicationURL(basePath, next.canonical_query)
@@ -737,9 +753,37 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   function replaceOwnedHistory(): void {
     if (!projection) return
+    dropPendingHistory()
     const state = ownedState(projection)
     browserHistory.replaceState(state, '', applicationURL(basePath, projection.canonical_query))
     ledger.record(state)
+  }
+
+  /** Records the cursor in the current entry once moves pause; see historyDebounceMillis. */
+  function deferOwnedHistory(): void {
+    if (!projection) return
+    dropPendingHistory()
+    pendingHistory = {
+      state: ownedState(projection),
+      url: applicationURL(basePath, projection.canonical_query),
+    }
+    if (historyDebounceMillis <= 0) flushHistory()
+    else pendingHistoryTimer = setTimeout(flushHistory, historyDebounceMillis)
+  }
+
+  function flushHistory(): void {
+    const pending = dropPendingHistory()
+    if (!pending) return
+    browserHistory.replaceState(pending.state, '', pending.url)
+    ledger.record(pending.state)
+  }
+
+  function dropPendingHistory(): typeof pendingHistory {
+    clearTimeout(pendingHistoryTimer)
+    pendingHistoryTimer = undefined
+    const pending = pendingHistory
+    pendingHistory = undefined
+    return pending
   }
 
   function ownedState(next: ViewProjection): MoneyflowHistoryState {
@@ -874,6 +918,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     commitSearch,
     restoreSearch,
     restore,
+    flushHistory,
     retry,
     reset,
     transactionInformation,
