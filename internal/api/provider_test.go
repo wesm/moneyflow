@@ -174,7 +174,9 @@ func TestProviderStatusWarnsWhenTheFullRefreshRecordFails(t *testing.T) {
 	require.Equal(t, http.StatusOK, refreshed.Code, refreshed.Body.String())
 	var result ProviderRefreshResponse
 	require.NoError(t, json.Unmarshal(refreshed.Body.Bytes(), &result))
-	assert.Contains(t, result.Status.Warning, record)
+	assert.Contains(t, result.Status.Warning, "could not record it as a full refresh in "+
+		"provider-refresh.json.")
+	assert.NotContains(t, result.Status.Warning, fixture.root, "the warning carries no profile path")
 
 	var status ProviderStatusResponse
 	response := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)

@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"reflect"
 	"slices"
@@ -851,6 +850,11 @@ func (service *Service) foldProviderCandidate(
 	)
 }
 
+// fullRefreshRecordWarning is fixed text, like the audit warning: it reaches API status, MCP, and
+// the TUI, so it names the file but carries no profile path or OS error.
+const fullRefreshRecordWarning = "Refresh saved, but Moneyflow could not record it as a full " +
+	"refresh in provider-refresh.json. The next check will download complete history again."
+
 // recordFullProviderRefresh notes a folded complete-history Monarch candidate and returns the
 // recorded time. The record is advisory: if it cannot be written, the committed refresh stands,
 // the next scheduled refresh reads complete history again, and provider status warns.
@@ -865,10 +869,7 @@ func (service *Service) recordFullProviderRefresh(
 	err := service.profile.RecordFullProviderRefresh(at)
 	warning := ""
 	if err != nil {
-		warning = fmt.Sprintf(
-			"Refresh saved, but Moneyflow could not record it as a full refresh (%v). "+
-				"The next check will download complete history again.", err,
-		)
+		warning = fullRefreshRecordWarning
 	}
 	service.mu.Lock()
 	service.refreshRecordWarning = warning

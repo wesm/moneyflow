@@ -51,10 +51,11 @@ func TestFullRefreshRecordFailureCommitsTheRefreshAndWarns(t *testing.T) {
 	require.NoError(t, err, "the committed refresh stands")
 	assert.Equal(t, now, result.Status.LastSuccess)
 	assert.Equal(t, 2, result.Status.Summary.ImportedTransactions)
-	for _, warning := range []string{result.Status.Warning, providerStatusWarning(t, service)} {
-		assert.Contains(t, warning, "example/provider-refresh.json: disk full")
-		assert.Contains(t, warning, "next check will download complete history")
-	}
+	// Fixed text: the warning reaches every interface, so it carries no path or OS error.
+	const warning = "Refresh saved, but Moneyflow could not record it as a full refresh in " +
+		"provider-refresh.json. The next check will download complete history again."
+	assert.Equal(t, warning, result.Status.Warning)
+	assert.Equal(t, warning, providerStatusWarning(t, service))
 	status, err := service.ProviderStatus(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, app.ProviderRefreshFull, status.RefreshDue)
