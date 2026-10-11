@@ -365,6 +365,53 @@ describe('browser view controller', () => {
     })
   })
 
+  describe('an edit that lands between Esc and its history traversal', () => {
+    async function editDuringReturn() {
+      const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+      const client = clientWith({
+        transition: vi.fn(async (body) =>
+          projection(body.action === 'view.back' ? 'v=1' : 'v=1&drill=x', 0, 3),
+        ),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.drill' })
+      const before = go.mock.calls.length
+      const back = controller.apply({ action: 'view.back' })
+      await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+      vi.mocked(client.view).mockImplementation(async (body) =>
+        projection(body.query, body.window.offset, 3, '1'),
+      )
+      await controller.recheck()
+      expect(controller.projection?.revision).toBe('1')
+      vi.mocked(client.view).mockClear()
+      return { client, controller, parent, back }
+    }
+
+    it('fetches the parent at the edited revision when the popstate arrives', async () => {
+      const { client, controller, parent, back } = await editDuringReturn()
+
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+      await back
+
+      expect(client.view).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'v=1' }),
+        expect.any(AbortSignal),
+      )
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect(controller.projection?.revision).toBe('1')
+    })
+
+    it('keeps the edited view when the traversal times out', async () => {
+      const { controller, back } = await editDuringReturn()
+
+      await back
+
+      expect(controller.projection?.revision).toBe('1')
+    })
+  })
+
   it('runs later transitions after installing a returned view fails', async () => {
     const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
     const client = clientWith({

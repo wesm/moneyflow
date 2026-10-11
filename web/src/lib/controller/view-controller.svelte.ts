@@ -295,7 +295,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         if (returning?.projection !== next) return
         lateReturn = returning
         returning = undefined
-        accept(next, 'none')
+        if (!newerThan(next)) accept(next, 'none')
         resolve()
       }, returnTimeoutMillis)
       returning = {
@@ -338,7 +338,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const returned = returning ?? late
     returning = undefined
     lateReturn = undefined
-    if (returned && owned && returned.sequence === owned.sequence) {
+    if (
+      returned &&
+      owned &&
+      returned.sequence === owned.sequence &&
+      !newerThan(returned.projection)
+    ) {
       await installReturn(returned, owned)
       return
     }
@@ -581,8 +586,13 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     schedulePrefetch(next)
   }
 
+  /** Whether the view shown has a newer profile revision than `cached`, such as after an edit. */
+  function newerThan(cached: ViewProjection): boolean {
+    return projection !== undefined && BigInt(cached.revision) < BigInt(projection.revision)
+  }
+
   function acceptProfileProjection(next: ViewProjection, replaceHistory = false): boolean {
-    if (projection && BigInt(next.revision) < BigInt(projection.revision)) return false
+    if (newerThan(next)) return false
     generation += 1
     activeRequest?.abort()
     activeRequest = undefined
