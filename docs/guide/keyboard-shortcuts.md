@@ -8,8 +8,8 @@ capabilities can disable actions. Terminal shortcuts do not override your termin
 | Key | Action |
 | --- | --- |
 | Arrows or `j` / `k` | Move through rows |
-| Page Up / Page Down | Move a page in the TUI |
-| `T` / `B` | First / last row in the TUI |
+| Page Up / Page Down | Move a page. **Unreleased:** also in the browser, where a page is the rows fully on screen |
+| Home or `T` / End or `B` | First / last row. **Unreleased:** `T`, End, and `B` also work in the browser |
 | `g` | Cycle grouping |
 | `1`–`5` | Group by Merchant, Category, Group, Account, or Time |
 | `d` | Show transaction detail view |

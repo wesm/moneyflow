@@ -17,10 +17,17 @@ income. The Time grouping shows a Net bar and the savings rate instead of Share.
 
 ## Move through results
 
-Use arrows or `j`/`k` to move. In the TUI, Page Up/Page Down move by a visible page;
-`T` and `B` jump to the top and bottom. Reversing sort with `v` returns the cursor to
-the top. `s` changes the sort field. In the browser, click a sortable column header to sort by
-it, and click it again to reverse the order.
+Use arrows or `j`/`k` to move. Page Up/Page Down move by a visible page. Home or `T` jumps to
+the first row, and End or `B` to the last. **Unreleased:** The browser takes all of these keys;
+before, it took only Home. A browser page is the rows fully on screen.
+
+A new period, grouping, drill-down, search, or filter puts the cursor on the first row. After
+a drill-down, Esc returns to the row you left. **Unreleased:** The browser now starts on the
+first row too; before, it kept the cursor's row or position.
+
+`s` changes the sort field and `v` reverses it. A sort returns the TUI cursor to the first row,
+but the browser cursor stays on its row. In the browser, click a sortable column header to sort
+by it, and click it again to reverse the order.
 
 In the browser, a click on a row moves the cursor and a click on its box selects or clears it; a
 double-click opens a group, edits a transaction's Merchant or Category, or opens the
