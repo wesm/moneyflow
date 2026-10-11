@@ -52,6 +52,36 @@ func TestImportSnapshotValidatesPostedAndPendingRows(t *testing.T) {
 	assert.True(t, snapshot.Transactions[1].Pending)
 }
 
+func TestImportSnapshotTransactionWindowBoundsRows(t *testing.T) {
+	t.Parallel()
+
+	start, err := ParseDate("2026-05-17")
+	require.NoError(t, err)
+	end, err := ParseDate("2026-08-15")
+	require.NoError(t, err)
+	snapshot := validImportSnapshot(t)
+	snapshot.TransactionWindow = &DateRange{Start: start, End: end}
+	require.NoError(t, snapshot.Validate(), "a row on the last day is inside the window")
+
+	snapshot.Transactions[0].Date = start
+	require.NoError(t, snapshot.Validate(), "a row on the first day is inside the window")
+
+	before, err := start.AddDays(-1)
+	require.NoError(t, err)
+	snapshot.Transactions[0].Date = before
+	require.Error(t, snapshot.Validate(), "a windowed snapshot cannot carry an older row")
+
+	snapshot.Transactions[0].Date = end
+	snapshot.TransactionWindow = &DateRange{Start: end, End: start}
+	require.Error(t, snapshot.Validate(), "a reversed window is invalid")
+
+	clone := validImportSnapshot(t)
+	clone.TransactionWindow = &DateRange{Start: start, End: end}
+	copied := clone.Clone()
+	copied.TransactionWindow.Start = end
+	assert.Equal(t, start, clone.TransactionWindow.Start, "clones own their window")
+}
+
 func TestImportSnapshotAllowsProtectedUncategorizedReferences(t *testing.T) {
 	t.Parallel()
 

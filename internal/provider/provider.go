@@ -54,9 +54,12 @@ type Connector interface {
 }
 
 // FetchRequest supplies a fixed clock and durable freshness for a bounded observation.
+// TransactionWindow, when set, limits transactions to that inclusive date range. Only Monarch
+// accepts a window; its snapshot reports the same window.
 type FetchRequest struct {
-	LastSuccess time.Time
-	Now         time.Time
+	LastSuccess       time.Time
+	Now               time.Time
+	TransactionWindow *domain.DateRange
 }
 
 // SnapshotResult binds one complete read-only snapshot to the remote identity observed with it.

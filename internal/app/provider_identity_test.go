@@ -118,6 +118,114 @@ func TestProviderIdentityRetiresMissingEntitiesAndRestoresReappearances(t *testi
 	assert.Equal(t, transactionID, reappeared.Committed.Transactions[0].ID)
 }
 
+func TestProviderIdentityWindowedImportKeepsOlderRowsAndTheirEntities(t *testing.T) {
+	t.Parallel()
+
+	input := providerIdentityInput(t)
+	addOlderProviderHistory(t, &input)
+	first, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	older := transactionByProviderID(t, first.Committed, "transaction_old")
+
+	input.Committed, input.Effective, input.Allocations = first.Committed, first.Committed, first.Allocations
+	input.ProposedIDs, input.ProposedSuffixes = nil, nil
+	input.Import.TransactionWindow = &domain.DateRange{
+		Start: mustProviderDate(t, "2026-05-17"), End: mustProviderDate(t, "2026-08-15"),
+	}
+	// Monarch no longer lists the older row's entities, and the unused merchant is gone.
+	input.Import.Accounts = input.Import.Accounts[:1]
+	input.Import.Merchants = input.Import.Merchants[:1]
+	input.Import.Groups = input.Import.Groups[:1]
+	input.Import.Categories = input.Import.Categories[:1]
+	input.Import.Transactions = []domain.ImportTransaction{providerImportTransaction(t)}
+	input.Import.Transactions[0].Notes = "refreshed"
+
+	windowed, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	require.NoError(t, windowed.Committed.Validate())
+	assert.Equal(t, older, transactionByProviderID(t, windowed.Committed, "transaction_old"))
+	assert.Equal(t, "refreshed", transactionByProviderID(t, windowed.Committed, "transaction_a").Notes)
+	assert.Len(t, windowed.Committed.Transactions, 2, "the in-window row missing remotely is removed")
+	assert.False(t, merchantByProviderID(t, windowed.Committed, "merchant_old").Retired)
+	assert.False(t, categoryByProviderID(t, windowed.Committed, "category_old").Retired)
+	for _, account := range windowed.Committed.Accounts {
+		assert.False(t, account.Retired, account.Label)
+	}
+	for _, group := range windowed.Committed.Groups {
+		assert.False(t, group.Retired, group.Label)
+	}
+	assert.True(t, merchantByProviderID(t, windowed.Committed, "merchant_unused").Retired)
+}
+
+// addOlderProviderHistory adds a row older than the recent window with its own account,
+// merchant, category, and group, an in-window row that Monarch later deletes, and a merchant
+// that no row uses.
+func addOlderProviderHistory(t *testing.T, input *app.IdentityPlanningInput) {
+	t.Helper()
+	input.Import.Accounts = append(input.Import.Accounts, domain.ImportEntity{
+		Kind: domain.EntityKindAccount, ExternalID: "account_old", Label: "Older Account",
+	})
+	input.Import.Merchants = append(input.Import.Merchants,
+		domain.ImportEntity{
+			Kind: domain.EntityKindMerchant, ExternalID: "merchant_old", Label: "Older Merchant",
+		},
+		domain.ImportEntity{
+			Kind: domain.EntityKindMerchant, ExternalID: "merchant_unused", Label: "Unused Merchant",
+		},
+	)
+	input.Import.Groups = append(input.Import.Groups, domain.ImportEntity{
+		Kind: domain.EntityKindGroup, ExternalID: "group_old", Label: "Older Group",
+	})
+	input.Import.Categories = append(input.Import.Categories, domain.ImportEntity{
+		Kind: domain.EntityKindCategory, ExternalID: "category_old", Label: "Older Category",
+		ParentExternalID: "group_old",
+	})
+	older := providerImportTransaction(t)
+	older.ExternalID, older.Date = "transaction_old", mustProviderDate(t, "2026-01-10")
+	older.AccountExternalID, older.MerchantExternalID = "account_old", "merchant_old"
+	older.CategoryExternalID = "category_old"
+	deleted := providerImportTransaction(t)
+	deleted.ExternalID, deleted.Date = "transaction_deleted", mustProviderDate(t, "2026-08-10")
+	input.Import.Transactions = append(input.Import.Transactions, older, deleted)
+	for kind, externalIDs := range map[domain.EntityKind][]string{
+		domain.EntityKindAccount:     {"account_old"},
+		domain.EntityKindMerchant:    {"merchant_old", "merchant_unused"},
+		domain.EntityKindGroup:       {"group_old"},
+		domain.EntityKindCategory:    {"category_old"},
+		domain.EntityKindTransaction: {"transaction_old", "transaction_deleted"},
+	} {
+		for _, externalID := range externalIDs {
+			key := app.ProviderIdentityKey("monarch", kind, externalID)
+			input.ProposedIDs[key] = domain.EntityID(externalID + "_local")
+			if kind != domain.EntityKindTransaction {
+				input.ProposedSuffixes[key] = "f60718a9"
+			}
+		}
+	}
+}
+
+func transactionByProviderID(
+	t *testing.T,
+	profile domain.CommittedProfile,
+	externalID string,
+) domain.TransactionRecord {
+	t.Helper()
+	for _, transaction := range profile.Transactions {
+		if transaction.ProviderID == externalID {
+			return transaction
+		}
+	}
+	require.FailNow(t, "transaction provider identity was not found", externalID)
+	return domain.TransactionRecord{}
+}
+
+func mustProviderDate(t *testing.T, value string) domain.Date {
+	t.Helper()
+	date, err := domain.ParseDate(value)
+	require.NoError(t, err)
+	return date
+}
+
 func TestProviderIdentityReturnsCanonicalDeterministicCollections(t *testing.T) {
 	t.Parallel()
 

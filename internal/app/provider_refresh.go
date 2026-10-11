@@ -516,7 +516,7 @@ func (service *Service) fetchProviderCandidate(
 	}
 	candidate := result.Snapshot
 	identity := result.Identity
-	if err = normalizeProviderSnapshot(&candidate, runtime.currency, runtime.scale); err != nil {
+	if err = normalizeProviderSnapshot(&candidate, runtime, request); err != nil {
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, fingerprint, err
 	}
 	runtime.setFingerprint(fingerprint, false)
@@ -621,7 +621,7 @@ func (service *Service) retryProviderAfterSessionReload(
 	}
 	candidate := result.Snapshot
 	identity := result.Identity
-	if err = normalizeProviderSnapshot(&candidate, runtime.currency, runtime.scale); err != nil {
+	if err = normalizeProviderSnapshot(&candidate, runtime, request); err != nil {
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, replacement, err
 	}
 	runtime.setFingerprint(replacement, false)
@@ -630,14 +630,20 @@ func (service *Service) retryProviderAfterSessionReload(
 
 func normalizeProviderSnapshot(
 	candidate *domain.ImportSnapshot,
-	currency domain.Currency,
-	scale uint8,
+	runtime *providerRuntimeState,
+	request provider.FetchRequest,
 ) error {
 	// Provider observation times cross the SQLite persistence boundary. Canonicalize them here
 	// so every adapter and session-reload path follows the store's millisecond contract.
 	candidate.ObservedAt = candidate.ObservedAt.UTC().Truncate(time.Millisecond)
+	// A requested window must come back unchanged, or the removal scope would be wrong.
+	if request.TransactionWindow != nil && (candidate.TransactionWindow == nil ||
+		*candidate.TransactionWindow != *request.TransactionWindow) {
+		return provider.NewError(provider.CodeDataInvalid)
+	}
 	for _, transaction := range candidate.Transactions {
-		if transaction.Amount.Currency != currency || transaction.Amount.Scale != scale {
+		if transaction.Amount.Currency != runtime.currency ||
+			transaction.Amount.Scale != runtime.scale {
 			return provider.NewError(provider.CodeMoneyMismatch)
 		}
 	}
@@ -1016,7 +1022,8 @@ func providerRemovalCounts(
 	existing := 0
 	removed := 0
 	for _, transaction := range committed.Transactions {
-		if transaction.Provider != providerName {
+		// A windowed candidate says nothing about older rows, so they are not removal candidates.
+		if transaction.Provider != providerName || !candidate.InTransactionWindow(transaction.Date) {
 			continue
 		}
 		existing++

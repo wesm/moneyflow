@@ -312,7 +312,12 @@ func (planner *identityPlanner) planDimensions() error {
 }
 
 func (planner *identityPlanner) planTransactions() error {
+	// The import replaces every provider row in its scope. Rows outside a window are kept.
 	for id := range planner.providerEntityIDs[domain.EntityKindTransaction] {
+		if existing, exists := planner.transactions[id]; exists &&
+			!planner.input.Import.InTransactionWindow(existing.Date) {
+			continue
+		}
 		delete(planner.transactions, id)
 	}
 	transactions := append([]domain.ImportTransaction(nil), planner.input.Import.Transactions...)
@@ -408,39 +413,58 @@ func (planner *identityPlanner) resolveExistingIdentity(
 	return identity.EntityID, nil
 }
 
+// retireMissingEntities retires provider entities absent from the import. A windowed import
+// lists only the entities its rows need, so entities used by retained older rows stay active.
 func (planner *identityPlanner) retireMissingEntities() {
-	for id := range planner.providerEntityIDs[domain.EntityKindAccount] {
-		identity := planner.externalIdentityForID(domain.EntityKindAccount, id)
-		if _, present := planner.imported[domain.EntityKindAccount][identity.ExternalID]; !present {
-			value := planner.accounts[id]
-			value.Retired = true
-			planner.accounts[id] = value
+	retained := planner.retainedReferences()
+	retire := func(kind domain.EntityKind, apply func(domain.EntityID)) {
+		for id := range planner.providerEntityIDs[kind] {
+			identity := planner.externalIdentityForID(kind, id)
+			_, present := planner.imported[kind][identity.ExternalID]
+			_, referenced := retained[id]
+			if !present && !referenced {
+				apply(id)
+			}
 		}
 	}
-	for id := range planner.providerEntityIDs[domain.EntityKindMerchant] {
-		identity := planner.externalIdentityForID(domain.EntityKindMerchant, id)
-		if _, present := planner.imported[domain.EntityKindMerchant][identity.ExternalID]; !present {
-			value := planner.merchants[id]
-			value.Retired = true
-			planner.merchants[id] = value
+	retire(domain.EntityKindAccount, func(id domain.EntityID) {
+		value := planner.accounts[id]
+		value.Retired = true
+		planner.accounts[id] = value
+	})
+	retire(domain.EntityKindMerchant, func(id domain.EntityID) {
+		value := planner.merchants[id]
+		value.Retired = true
+		planner.merchants[id] = value
+	})
+	retire(domain.EntityKindGroup, func(id domain.EntityID) {
+		value := planner.groups[id]
+		value.Retired = true
+		planner.groups[id] = value
+	})
+	retire(domain.EntityKindCategory, func(id domain.EntityID) {
+		value := planner.categories[id]
+		value.Retired = true
+		planner.categories[id] = value
+	})
+}
+
+// retainedReferences returns the entities that planned rows use. It is empty for a complete
+// import, which keeps full-refresh retirement unchanged.
+func (planner *identityPlanner) retainedReferences() map[domain.EntityID]struct{} {
+	if planner.input.Import.TransactionWindow == nil {
+		return nil
+	}
+	references := make(map[domain.EntityID]struct{})
+	for _, transaction := range planner.transactions {
+		references[transaction.AccountID] = struct{}{}
+		references[transaction.MerchantID] = struct{}{}
+		references[transaction.CategoryID] = struct{}{}
+		if category, exists := planner.categories[transaction.CategoryID]; exists {
+			references[category.GroupID] = struct{}{}
 		}
 	}
-	for id := range planner.providerEntityIDs[domain.EntityKindGroup] {
-		identity := planner.externalIdentityForID(domain.EntityKindGroup, id)
-		if _, present := planner.imported[domain.EntityKindGroup][identity.ExternalID]; !present {
-			value := planner.groups[id]
-			value.Retired = true
-			planner.groups[id] = value
-		}
-	}
-	for id := range planner.providerEntityIDs[domain.EntityKindCategory] {
-		identity := planner.externalIdentityForID(domain.EntityKindCategory, id)
-		if _, present := planner.imported[domain.EntityKindCategory][identity.ExternalID]; !present {
-			value := planner.categories[id]
-			value.Retired = true
-			planner.categories[id] = value
-		}
-	}
+	return references
 }
 
 func (planner *identityPlanner) repairRetiredCategoryParents() {
