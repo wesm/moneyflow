@@ -60,6 +60,49 @@ func TestProjectViewDefaultsWindowAndDecoratesExactSelection(t *testing.T) {
 	assert.True(t, selectedFound)
 }
 
+func TestProjectViewAllRowsSelectedIgnoresSelectionOutsideTheResult(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 3)
+	all := selectionDetailState()
+	outside, err := service.ToggleSelection(all, EmptySelection(), IdentityTransaction, "txn-000")
+	require.NoError(t, err)
+	session := NewSession()
+	session.ShowAllDetail()
+	session.SetSearch("Merchant 001")
+	searched := session.ViewState().Current
+	view := func(selection SelectionValue) WebProjection {
+		t.Helper()
+		projection, err := service.ProjectView(
+			ViewState{Version: ViewStateSchemaVersion, Current: searched},
+			selection,
+			WindowRequest{},
+		)
+		require.NoError(t, err)
+		return projection
+	}
+
+	// The counts match, but the one selected transaction is outside the result.
+	unselected := view(outside)
+	require.Equal(t, 1, unselected.TotalRows)
+	require.Equal(t, 1, unselected.SelectionCount)
+	assert.False(t, unselected.AllRowsSelected)
+
+	both, err := service.ToggleSelection(searched, outside, IdentityTransaction, "txn-001")
+	require.NoError(t, err)
+	selected := view(both)
+	require.Equal(t, 2, selected.SelectionCount)
+	assert.True(t, selected.AllRowsSelected)
+
+	none, err := service.ProjectView(
+		ViewState{Version: ViewStateSchemaVersion, Current: all},
+		EmptySelection(),
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	assert.False(t, none.AllRowsSelected)
+}
+
 func TestProjectViewResolvesDurableDrillLabelsForBreadcrumb(t *testing.T) {
 	t.Parallel()
 

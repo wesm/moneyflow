@@ -79,6 +79,7 @@ function projection(
     },
     selection: selection as ViewProjection['selection'],
     selection_count: 0,
+    all_rows_selected: false,
     breadcrumbs: [],
     breadcrumb_text: 'All transactions',
     filters: { show_hidden: false, show_transfers: false },

@@ -9,6 +9,7 @@ export type ScopeKind = 'day' | 'month' | 'year' | 'custom' | 'all'
 export type PeriodKind = 'day' | 'month' | 'year'
 export type ChooserTab = PeriodKind | 'custom'
 type Currency = ViewProjection['currencies'][number]
+type CurrencyChoice = Pick<Currency, 'currency' | 'scale' | 'count'>
 
 export const MONTHS = [
   'Jan',
@@ -114,6 +115,16 @@ export function activeCurrency(projection: ViewProjection): Currency | undefined
   return projection.currencies.find(
     (entry) => entry.currency === scope.currency && entry.scale === scope.scale,
   )
+}
+
+/**
+ * The currencies the view can switch between: the profile's, plus the view's own with no
+ * transactions once its last one is gone, so the view can still leave it.
+ */
+export function currencyChoices(projection: ViewProjection): CurrencyChoice[] {
+  const scope = projection.view.currency
+  if (!scope || activeCurrency(projection)) return projection.currencies
+  return [...projection.currencies, { currency: scope.currency, scale: scope.scale, count: 0 }]
 }
 
 /** Whether ‹ and › can move the period: one calendar unit, or a time drill to move. */

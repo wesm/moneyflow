@@ -135,7 +135,7 @@ describe('FinanceGrid', () => {
     expect(events.oncursor).toHaveBeenCalledTimes(1)
   })
 
-  it('checks the header box only while every matching row is selected', async () => {
+  it('checks the header box only while the server reports every matching row selected', async () => {
     const view = render(FinanceGrid, {
       projection: grouped({ selection_count: 0 }),
       cursorIndex: 0,
@@ -145,17 +145,14 @@ describe('FinanceGrid', () => {
     const box = () =>
       screen.getByRole('button', { name: 'Select all matching' }).querySelector('.mf-check')!
     expect(box().classList.contains('mf-check--on')).toBe(false)
-    await view.rerender({ projection: grouped({ selection_count: 1 }) })
+    await view.rerender({ projection: grouped({ selection_count: 1, all_rows_selected: true }) })
     expect(box().classList.contains('mf-check--on')).toBe(true)
-    await view.rerender({
-      projection: grouped({
-        selection_count: 1,
-        total_rows: 2,
-        window: { offset: 0, limit: 200, count: 2 },
-        aggregate_rows: [testAggregateRow(), testAggregateRow({ index: 1, identity: 'agg-1' })],
-      }),
-    })
+    // The one selected row is outside the result, such as after a provider refresh.
+    await view.rerender({ projection: grouped({ selection_count: 1, all_rows_selected: false }) })
     expect(box().classList.contains('mf-check--on')).toBe(false)
+    // The result's row and one outside it are selected.
+    await view.rerender({ projection: grouped({ selection_count: 2, all_rows_selected: true }) })
+    expect(box().classList.contains('mf-check--on')).toBe(true)
   })
 
   it('keeps a double-click from selecting text but lets a single press through', async () => {

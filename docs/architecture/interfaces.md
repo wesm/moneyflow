@@ -50,12 +50,13 @@ selected transactions per currency, and `staged` values on rows with pending edi
 carry `savings_rate_tenths` and `net_ratio` on Time rows, and `group` on category rows. `net_ratio`
 is the row's net over the largest absolute net of the whole result, in basis points (−10000 to
 10000). It does not change when the row window moves. `view.sort_fields` lists the fields the
-current view can sort by, in the order the sort key cycles. A whole-merchant preview reports how
-many affected transactions the view hides, with `outside_view` and `outside_currencies`. A view
-request may carry an `anchor`, an aggregate row identity. The server then returns the window that
-holds that row and reports its global index as `anchor_index`. An identity that matches no row of
-the result leaves the window as requested, omits `anchor_index`, and adds the warning
-`anchor_missing`.
+current view can sort by, in the order the sort key cycles. `all_rows_selected` is true when the
+result has rows and the selection holds all of them; selected rows outside the result, such as
+after a provider refresh, do not count. A whole-merchant preview reports how many affected
+transactions the view hides, with `outside_view` and `outside_currencies`. A view request may carry
+an `anchor`, an aggregate row identity. The server then returns the window that holds that row and
+reports its global index as `anchor_index`. An identity that matches no row of the result leaves
+the window as requested, omits `anchor_index`, and adds the warning `anchor_missing`.
 
 Charts read from a separate operation, `POST /api/v1/profiles/{profile_id}/view/insights`. It
 takes the view's query and optional row identities and returns committed chart data from

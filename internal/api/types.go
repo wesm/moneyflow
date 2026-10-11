@@ -251,6 +251,7 @@ type Projection struct {
 	CanonicalQuery          string          `json:"canonical_query"`
 	Selection               string          `json:"selection"`
 	SelectionCount          int             `json:"selection_count"`
+	AllRowsSelected         bool            `json:"all_rows_selected"`
 	SelectionSummary        []Statistics    `json:"selection_summary,omitempty" nullable:"false"`
 	View                    ViewMetadata    `json:"view"`
 	Breadcrumbs             []Breadcrumb    `json:"breadcrumbs"`
@@ -286,7 +287,7 @@ func projectionToWire(
 		Revision: strconv.FormatUint(projection.Revision, 10), ProfileKind: projection.ProfileKind,
 		Pending:        pendingToWire(projection.Pending),
 		CanonicalQuery: canonical, Selection: string(projection.Selection),
-		SelectionCount: projection.SelectionCount,
+		SelectionCount: projection.SelectionCount, AllRowsSelected: projection.AllRowsSelected,
 		View:           viewMetadataToWire(projection.State.Current),
 		BreadcrumbText: projection.BreadcrumbText, Filters: filtersToWire(projection.Filters),
 		TotalRows: projection.TotalRows,

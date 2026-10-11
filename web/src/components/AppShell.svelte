@@ -22,12 +22,12 @@
   import { keyHints } from '../lib/shell/key-hints'
   import {
     confirmDirectDelete,
-    focusedRow,
     localActions,
     openTransactionInformation,
+    pressedRow,
     type LocalActionContext,
   } from '../lib/shell/local-actions'
-  import { SIDEBAR_FULL_QUERY } from '../lib/shell/layout'
+  import { SIDEBAR_FULL_QUERY, inSearch } from '../lib/shell/layout'
   import type { NavRun } from '../lib/shell/nav-items'
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
@@ -61,9 +61,8 @@
     openFilters: () => void commandBar?.openFilters(),
   }
   const local = (action: LocalAction) => localActions(actions)[action]()
-  const row = () => focusedRow(projection, controller.cursorIndex)
-  async function apply(action: string, dimension?: Dimension, toggled?: ReturnType<typeof row>) {
-    const focused = action === 'view.drill' ? row() : toggled
+  async function apply(action: string, dimension?: Dimension, row = pressedRow(controller)) {
+    const focused = action === 'view.drill' || action === 'selection.toggle' ? row() : undefined
     if (action === 'view.drill' && focused?.kind === 'transaction')
       return void openTransactionInformation(actions, focused.identity)
     if (focused) return send({ action, target: focused })
@@ -84,19 +83,19 @@
     status.clear()
     void actions.queue(work)
   }
-  /** Space toggles the row the cursor is on when pressed, not when its turn comes. */
+  /** Space toggles the row it was pressed on, unless a view change queued before it runs. */
   function queueApply(action: string, dimension?: Dimension): void {
-    const toggled = action === 'selection.toggle' ? row() : undefined
-    queue(() => apply(action, dimension, toggled))
+    const pressed = action === 'selection.toggle' ? pressedRow(controller) : undefined
+    queue(() => apply(action, dimension, pressed))
   }
   const queueSend = (request: TransitionAction) => queue(() => send(request))
   async function send(request: TransitionAction): Promise<void> {
     await controller.apply(request)
     focusGrid()
   }
-  function focusGrid(): void {
-    // A table request can finish after the user has opened a dialog.
-    if (overlays.current !== undefined || charts.dialogOpen) return
+  function focusGrid(fromSearch = false): void {
+    // A request can finish after the user has opened a dialog or moved into search.
+    if (overlays.current !== undefined || charts.dialogOpen || (!fromSearch && inSearch())) return
     grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
   }
   $effect(() => {
@@ -184,7 +183,7 @@
             {overlays}
             {charts}
             compact={compact.current}
-            onfocusgrid={focusGrid}
+            onfocusgrid={() => focusGrid(true)}
           />
           <main class="app-shell__main" aria-label="Moneyflow workspace">
             <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
