@@ -99,8 +99,10 @@ A merchant edit offers two scopes:
 
 The editor previews the affected transactions. For **Whole merchant**, it also says how many of
 them are outside the current view, such as other periods, filters, or currencies. A rename onto
-an existing merchant says which merchant it merges into. The stage button states the count, for
-example **Stage change to 3 transactions**.
+another existing merchant shows **Merges into** and that merchant's name. For **Whole merchant**,
+the editor compares merchant IDs, so the line is exact: renaming a merchant to its own name in
+another case does not show it. The stage button states the count, for example **Stage change to 3
+transactions**.
 
 ### Editor keys
 
@@ -177,9 +179,11 @@ the view or open the merchant editor behind it.
 Each confirmed step is a pending edit. A new or renamed entry cannot take a name another entry
 already uses, ignoring case and surrounding spaces. The step then shows
 `That label already exists; use merge instead.` and stages nothing. If the server refuses a
-step, the step stays open with a general message, such as
-`That action is not available for the current target.` If you leave a step with Esc before the
-server answers, the drawer does not show that answer.
+step, the step stays open. It shows the server's reason when there is one: a name collision
+that only the server finds, such as with an entry created after the drawer loaded its list,
+shows the same `That label already exists; use merge instead.` Other refusals show a general
+message, such as `That action is not available for the current target.` If you leave a step with
+Esc before the server answers, the drawer does not show that answer.
 
 ## Review possible duplicates
 
@@ -207,6 +211,9 @@ transaction's date, merchant, category, and amount in its currency. Enter commit
 unless focus is on a button or another control with its own Enter. Esc or **Cancel** closes the
 drawer without committing. For Monarch and YNAB, the same drawer becomes write status after the
 commit starts the provider write.
+
+**Unreleased:** The browser and TUI review name each hide operation by its direction:
+**Hide transactions** or **Show transactions**.
 
 Commit applies the reviewed revision. If another process changed the profile, refresh the
 review instead of assuming the old preview is still current.

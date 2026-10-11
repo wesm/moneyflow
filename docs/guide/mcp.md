@@ -68,9 +68,35 @@ onboarding wizard. Missing vaults, incorrect passwords, and mismatched plan bind
 
 ## Read and Write Policy
 
-The default server registers account, transaction, spending, insights, taxonomy, merchant,
-Amazon-match, review, provider-status, explicit-refresh, and export tools. Results use exact
-decimal strings plus signed integer minor units; they do not expose floating-point money.
+The default server registers the read tools below and the [export tools](#server-side-export).
+Results use exact decimal strings plus signed integer minor units; they do not expose
+floating-point money.
+
+### Read tools
+
+| Tool | Purpose |
+| --- | --- |
+| `search_transactions` | Search effective transactions with literal text matching. |
+| `get_transactions` | Return a filtered effective transaction window. |
+| `get_spending_summary` | Summarize effective expenses by category or merchant. |
+| `get_insights` | Return chart data for one view; see [chart insights](#chart-insights). |
+| `get_categories` | List active category groups and categories. |
+| `get_merchants` | List active merchants and exact totals. |
+| `get_account_info` | Return credential-blind local profile information. |
+| `get_uncategorized_transactions` | Return effective uncategorized transactions. |
+| `get_amazon_order_details` | Return bounded Amazon enrichment for one transaction. |
+| `get_transaction_details` | Return committed details for one transaction. |
+| `review_changes` | Return bounded active and redo journal summaries. |
+| `get_commit_status` | Return the durable provider-write status without provider I/O. |
+| `refresh_data` | Start one explicit provider refresh when available; see [refresh](#explicit-provider-refresh). |
+| `get_refresh_status` | Return process-local provider refresh status. |
+| `confirm_refresh_deletions` | Confirm one process-local provider deletion candidate. |
+
+Effective results apply your pending edits. Committed results ignore them until you commit:
+`get_transaction_details` and `get_amazon_order_details` show a transaction as last committed,
+even while an edit to it is pending.
+
+### Staged editing
 
 Enable staged editing explicitly:
 
@@ -86,7 +112,8 @@ Write-enabled tools follow this workflow:
 3. Use `review_changes`, `undo_changes`, or `redo_changes` as needed. With an `operation_id`,
    `review_changes` lists that operation's transactions with their date, merchant, category,
    hidden state, and exact `money`: an object with `amount`, `amount_minor`, `currency`, and
-   `scale`.
+   `scale`. A hide operation's `before` and `after` read `Visible` and `Hidden`, or `Hidden`
+   and `Visible` when it shows hidden transactions again.
 4. Call `commit_changes` with the exact reviewed revision.
 
 Use the current `expected_revision` for staging/undo/redo. Commit takes both `expected_revision`
@@ -101,7 +128,7 @@ conflict, read the current state and review again instead of automatically resen
 | `batch_update_category` | `transaction_ids`, with a category ID or name. |
 | `reassign_transactions_merchant` | `transaction_ids`, with exactly one of existing `merchant_id` or `new_merchant_label`. |
 | `rename_merchant` | Whole `merchant_id` and `new_label`; a collision requires the explicit `merge_destination_id`. |
-| `toggle_transactions_hidden` | `transaction_ids`; toggle hidden state or cancel their pending hide toggles, matching the TUI. |
+| `toggle_transactions_hidden` | `transaction_ids`; hide the visible members of a mixed selection; toggle a uniform selection or cancel its pending visibility edits. |
 | `delete_transactions` | `transaction_ids`; stage undoable deletion, without sending a provider request. |
 | `manage_category` | Create, rename, move, merge, or delete a category on a local, Amazon, or SimpleFIN profile. |
 | `manage_category_group` | Create, rename, merge, or delete a category group on a local, Amazon, or SimpleFIN profile. |
@@ -137,8 +164,9 @@ they never commit automatically. Revision `"0"` is valid for a pristine local pr
 Delete replacement IDs refer to the same entity kind as the source. Category merge/delete
 reassigns its transactions; group merge/delete moves its categories. Neither deletes transactions.
 An empty category/group can be deleted without a replacement. Protected system entities cannot
-be changed, and a colliding rename is rejected: use an explicit merge instead. Fields unrelated
-to the chosen action are rejected rather than ignored.
+be changed. A create or rename onto a label another entry already uses is rejected with
+`invalid_operation` and the detail `That label already exists; use merge instead.` Use an explicit
+merge instead. Fields unrelated to the chosen action are rejected rather than ignored.
 
 For example, preview a category move (replace the example IDs and revision with values from
 `get_categories`):
@@ -187,12 +215,24 @@ For an uncertain Monarch update, `resume_commit` first checks the affected trans
 continuing. It can confirm an already-applied edit or retry one that still matches its previous
 value, without fetching the full history. See [write recovery](editing.md#recover-an-interrupted-provider-write).
 
+### Audit warning
+
+When Moneyflow saves your changes but cannot record their completion in the profile's
+[audit log](../config/caching.md#where-can-i-inspect-past-edits), `commit_changes` returns
+`audit_warning` with the fixed text `Changes saved, but the audit log could not record completion.`
+`get_commit_status` and `get_account_info` report the same field in their `write` status object.
+Later reads in the same server process repeat it until the next saved commit or write result
+clears it.
+
+The changes are saved. Do not commit them again or resend them. Only the log's completion record
+is missing.
+
 ## Chart insights
 
 `get_insights` returns the chart data behind one web view: KPIs with the prior-period comparison,
 cash flow per chart period, spending and income composition, the calendar, and per-row trend
-series. It reads **committed** values only. `get_transactions` and `search_transactions` return
-effective values with pending edits applied, so the two can differ until you commit.
+series. It reads **committed** values only, so it can differ from the effective transaction reads
+until you commit.
 
 | Input | Meaning |
 | --- | --- |
