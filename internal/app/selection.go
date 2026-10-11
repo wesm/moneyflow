@@ -628,25 +628,6 @@ func BindSelectionRevision(value SelectionValue, revision uint64) (SelectionValu
 	return encodeSelection(document)
 }
 
-// ResolveSelectionAtRevision rejects nonempty selections bound to another profile revision.
-func ResolveSelectionAtRevision(
-	service *Service,
-	state AnalyticalState,
-	value SelectionValue,
-	revision uint64,
-) (SelectionSnapshot, error) {
-	document, err := decodeSelection(value)
-	if err != nil {
-		return SelectionSnapshot{}, err
-	}
-	if !document.isUniversalEmpty() &&
-		(document.Revision == nil || *document.Revision != revision) {
-		return SelectionSnapshot{}, invalidSelection(errors.New("selection revision is stale"))
-	}
-	currencies := service.currenciesFor(&state, document.State)
-	return service.resolveSelectionDocument(state, document, currencies)
-}
-
 func cloneUint64(value *uint64) *uint64 {
 	if value == nil {
 		return nil

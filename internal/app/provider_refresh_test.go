@@ -416,9 +416,10 @@ func TestProviderRefreshPreservesExactSelectionWhenEveryIdentitySurvives(t *test
 	})
 	require.NoError(t, err)
 	assert.Equal(t, app.SelectionPreserved, result.SelectionDisposition)
-	resolved, err := app.ResolveSelectionAtRevision(
-		service, state.Current, result.Selection, result.Revision,
-	)
+	bound, err := app.BindSelectionRevision(selection, result.Revision)
+	require.NoError(t, err)
+	assert.Equal(t, bound, result.Selection)
+	resolved, err := service.ResolveSelection(state.Current, result.Selection)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]struct{}{identity: {}}, resolved.IDs)
 }

@@ -134,18 +134,13 @@ func TestNewExplicitTransactionSelectionCanonicalizesAndRejectsInvalidIDs(t *tes
 		[]domain.EntityID{"transaction_b", "transaction_a"}, 7,
 	)
 	require.NoError(t, err)
-	service, err := app.NewService([]domain.Transaction{
-		toolTransaction(t, "transaction_a", "2026-08-01", "Merchant", "Category", "", -1, "USD", 2),
-		toolTransaction(t, "transaction_b", "2026-08-02", "Merchant", "Category", "", -2, "USD", 2),
+	effective := effectiveForMutation(t, 7)
+	targets, err := app.ResolveTargets(effective, app.MutationRequest{
+		ExpectedRevision: 7, State: detailViewState(), Selection: selection,
 	})
 	require.NoError(t, err)
-	state := app.DefaultViewState().Current
-	state.Mode = domain.ResultModeDetail
-	resolved, err := app.ResolveSelectionAtRevision(service, state, selection, 7)
-	require.NoError(t, err)
-	assert.Equal(t, map[string]struct{}{
-		"transaction_a": {}, "transaction_b": {},
-	}, resolved.IDs)
+	assert.True(t, targets.FromSelection)
+	assert.Equal(t, []domain.EntityID{"transaction_a", "transaction_b"}, targets.TransactionIDs)
 
 	_, err = app.NewExplicitTransactionSelection(
 		[]domain.EntityID{"transaction_a", "transaction_a"}, 7,
