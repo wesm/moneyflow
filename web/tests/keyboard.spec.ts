@@ -25,6 +25,33 @@ test('@smoke initial grid owns keyboard focus and moves without a pointer', asyn
   await expect(await activeRow(page)).toHaveAttribute('id', await first.getAttribute('id'))
 })
 
+const gridRing = (page: Page) =>
+  page
+    .getByRole('grid', { name: 'Financial results' })
+    .evaluate((grid) => getComputedStyle(grid).outlineStyle)
+
+test('@smoke the grid focus ring waits for the first key, then shows', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  expect(await gridRing(page)).toBe('none')
+  await cell(grid.locator('[role="row"][aria-rowindex="3"]'), 'net').click()
+  await expect(grid).toBeFocused()
+  expect(await gridRing(page)).toBe('none')
+
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => gridRing(page)).toBe('solid')
+})
+
+test('@smoke tabbing back to the grid shows its focus ring', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  await page.keyboard.press('Shift+Tab')
+  await expect(grid).not.toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(grid).toBeFocused()
+  await expect.poll(() => gridRing(page)).toBe('solid')
+})
+
 test('the active row stays fully visible while moving past the fold and back', async ({
   page,
   server,

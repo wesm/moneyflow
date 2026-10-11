@@ -886,7 +886,8 @@ input {
     0 0 0 1px var(--border-muted),
     var(--mf-lift);
 }
-.mf-table:focus-visible {
+/* The grid takes focus on load; its ring waits for a key, so a mouse user never sees it. */
+[data-keyboard] .mf-table:focus-visible {
   /* Neutral and outside the rows, so the blue left rule still marks only the cursor row. */
   outline: 2px solid var(--text-muted);
   outline-offset: 1px;
