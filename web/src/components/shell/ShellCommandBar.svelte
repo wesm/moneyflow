@@ -152,6 +152,7 @@
     bind:this={search}
     {controller}
     carry={searchCarry}
+    reveal={() => (searchShown = compact)}
     ondone={() => void searchDone()}
   />
 {/snippet}

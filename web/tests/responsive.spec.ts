@@ -317,6 +317,34 @@ test('the phone search field stays while its applied search is cleared', async (
   await expect(searchbox).toHaveValue('noodle')
 })
 
+test('narrowing past the phone width keeps typing in the search field', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await openMoneyflow(page, server)
+  const searchbox = page.getByRole('searchbox', { name: 'Search transactions' })
+  await page.keyboard.press('/')
+  await expect(searchbox).toBeFocused()
+  await page.setViewportSize(phone)
+  await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible()
+  await expect(searchbox).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(searchbox).toBeHidden()
+
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await page.keyboard.press('/')
+  await searchbox.pressSequentially('pizz')
+  await expect(page).toHaveURL(/[?&]q=pizz(?:&|$)/)
+  await page.setViewportSize(phone)
+  await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible()
+  await expect(searchbox).toBeFocused()
+  await expect(searchbox).toHaveValue('pizz')
+  await page.keyboard.type('a')
+  await expect(searchbox).toHaveValue('pizza')
+  await expect(page).toHaveURL(/[?&]q=pizza(?:&|$)/)
+})
+
 test('just above the phone breakpoint the rail frame keeps the controls inline', async ({
   page,
   server,

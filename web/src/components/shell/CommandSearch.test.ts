@@ -232,6 +232,50 @@ describe('CommandSearch', () => {
     expect(field().value).toBe('noodle')
   })
 
+  it('gives focus to the replacing field when the search being typed had it', async () => {
+    const controller = host()
+    const carry = new SearchCarry()
+    const { rerender } = render(CommandSearchSwap, { controller, carry, wide: true })
+    field().focus()
+    await fireEvent.input(field(), { target: { value: 'pizz' } })
+
+    await rerender({ wide: false })
+
+    await waitFor(() => expect(document.activeElement).toBe(field()))
+    expect(field().value).toBe('pizz')
+    expect(field().selectionStart).toBe(4)
+    expect(field().selectionEnd).toBe(4)
+    await fireEvent.keyDown(field(), { key: 'Enter' })
+    await waitFor(() => expect(controller.commitSearch).toHaveBeenCalledOnce())
+  })
+
+  it('gives focus to the replacing field when nothing was typed yet', async () => {
+    const controller = host('noodle')
+    const carry = new SearchCarry()
+    const { rerender } = render(CommandSearchSwap, { controller, carry, wide: true })
+    field().focus()
+
+    await rerender({ wide: false })
+
+    await waitFor(() => expect(document.activeElement).toBe(field()))
+    expect(field().value).toBe('noodle')
+    expect(controller.beginSearch).not.toHaveBeenCalled()
+    expect(carry.take()).toBeUndefined()
+  })
+
+  it('leaves focus alone when the replaced field did not have it', async () => {
+    const controller = host()
+    const carry = new SearchCarry()
+    const { rerender } = render(CommandSearchSwap, { controller, carry, wide: true })
+    await fireEvent.input(field(), { target: { value: 'pizz' } })
+
+    await rerender({ wide: false })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(field().value).toBe('pizz')
+    expect(document.activeElement).not.toBe(field())
+  })
+
   it('ends a search left in the carry when its owner is destroyed', async () => {
     const controller = host()
     const carry = new SearchCarry()
