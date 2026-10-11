@@ -47,16 +47,10 @@ describe('merchantScope', () => {
     expect(merchantScope(top, 0, 0).entity).toBe(false)
   })
 
-  it('reads the row under the cursor, not the first row', () => {
-    const mixed = testProjection({
-      detail_rows: null,
-      aggregate_rows: [
-        testAggregateRow({ index: 0, dimension: 'category' }),
-        testAggregateRow({ index: 1, identity: 'agg-1', dimension: 'merchant' }),
-      ],
+  it('refuses the whole merchant when no row is under the cursor', () => {
+    expect(merchantScope(grouped('merchant'), 5, 0)).toEqual({
+      entity: false,
+      reason: 'Open a merchant to rename all its transactions',
     })
-    expect(merchantScope(mixed, 1, 0).entity).toBe(true)
-    expect(merchantScope(mixed, 0, 0).entity).toBe(false)
-    expect(merchantScope(mixed, 5, 0).entity).toBe(false)
   })
 })

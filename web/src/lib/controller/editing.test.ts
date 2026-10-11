@@ -152,7 +152,7 @@ describe('browser editing controller', () => {
     })
 
     it('keeps the commit announcement and shows no toast', async () => {
-      const response = { ...mutationResponse('8', 'mfsel1.x' as SelectionValue), operation: hide }
+      const response = mutationResponse('8', 'mfsel1.x' as SelectionValue)
       const controller = createEditingController({
         transport: mutationTransport(response),
         host: editingHost(

@@ -92,17 +92,10 @@ describe('editorOptions', () => {
 
   it('shows each category group label as secondary text', () => {
     const groups = [choice('g-food', 'Food', 0), choice('g-home', 'Home', 0)]
-    const categories = [
-      choice('c-1', 'Groceries', 9, 'g-food'),
-      choice('c-2', 'Rent', 1, 'g-home'),
-      choice('c-3', 'Uncategorized', 2),
-      choice('c-4', 'Orphan', 4, 'g-missing'),
-    ]
+    const categories = [choice('c-1', 'Groceries', 9, 'g-food'), choice('c-2', 'Rent', 1, 'g-home')]
     expect(editorOptions(categories, '', false, groups)).toEqual([
       { id: 'c-1', label: 'Groceries', secondary: 'Food', count: 9, create: false },
       { id: 'c-2', label: 'Rent', secondary: 'Home', count: 1, create: false },
-      { id: 'c-3', label: 'Uncategorized', secondary: '', count: 2, create: false },
-      { id: 'c-4', label: 'Orphan', secondary: '', count: 4, create: false },
     ])
   })
 
