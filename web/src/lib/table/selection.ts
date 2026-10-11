@@ -33,7 +33,8 @@ function groupNoun(view: ViewProjection['view']): [string, string] {
 export function selectionText(projection: ViewProjection): string | null {
   const count = projection.selection_count
   if (count === 0) return null
-  const detail = projection.view.mode === 'detail'
+  // A drill broken down by a sub-grouping keeps the detail mode but shows groups.
+  const detail = projection.view.mode === 'detail' && !projection.view.sub_grouping
   const scope = projection.view.currency
   const summary = projection.selection_summary ?? []
   const active = summary.find(
