@@ -55,7 +55,7 @@ In the phone layout's **Visualizations** drawer, Esc closes the drawer instead.
 | --- | --- |
 | Space / `Ctrl+A` | Select a row / toggle result selection |
 | `m` / `c` | Edit merchant / category |
-| `h` | Toggle report visibility |
+| `h` | Toggle hide from reports |
 | `x` | Confirm and stage deletion in detail view; in grouped browser views, explains why it cannot delete |
 | `C` / `G` | Manage categories / groups |
 | `u` / `U` | Undo / redo |

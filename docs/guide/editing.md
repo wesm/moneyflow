@@ -54,7 +54,7 @@ editor has a scope control instead; see [Edit in the browser](#edit-in-the-brows
 | --- | --- |
 | `m` | Rename merchant |
 | `c` | Change category |
-| `h` | Toggle report visibility, when supported |
+| `h` | Toggle hide from reports, when supported |
 | `x` | Stage a confirmed deletion from detail view |
 | `u` / `U` | Undo / redo a pending operation |
 | `C` / `G` | Manage categories / groups, when supported |
