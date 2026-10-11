@@ -489,6 +489,7 @@ func TestServerProjectionListsCurrenciesAndSummarizesSelectionAcrossCurrencies(t
 		{Currency: "EUR", Scale: 2, Count: 1, First: "2025-06-07", Latest: "2025-06-07"},
 	}, projection.Currencies)
 	assert.Empty(t, projection.SelectionSummary, "nothing is selected")
+	assert.False(t, projection.AllRowsSelected)
 	assert.Nil(t, projection.View.Currency)
 
 	response := requestJSON(t, server, "/api/v1/view/transition", TransitionBody{
@@ -499,6 +500,7 @@ func TestServerProjectionListsCurrenciesAndSummarizesSelectionAcrossCurrencies(t
 	var selected Projection
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &selected))
 	assert.Equal(t, 3, selected.SelectionCount)
+	assert.True(t, selected.AllRowsSelected)
 	require.Len(t, selected.SelectionSummary, 2)
 	byCurrency := map[string]Statistics{}
 	for _, stats := range selected.SelectionSummary {

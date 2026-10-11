@@ -145,14 +145,17 @@ type ChartProjection struct {
 
 // WebProjection is the complete renderer-neutral output for one browser row window.
 type WebProjection struct {
-	Revision          uint64
-	ProfileKind       string
-	AmazonSettings    *AmazonProjectionSettings
-	Pending           PendingSummary
-	Capabilities      []Capability
-	State             ViewState
-	Selection         SelectionValue
-	SelectionCount    int
+	Revision       uint64
+	ProfileKind    string
+	AmazonSettings *AmazonProjectionSettings
+	Pending        PendingSummary
+	Capabilities   []Capability
+	State          ViewState
+	Selection      SelectionValue
+	SelectionCount int
+	// AllRowsSelected reports that the result has rows and the selection holds every one of
+	// them. Selected rows outside the result do not count.
+	AllRowsSelected   bool
 	SelectionSummary  []domain.CurrencyStats
 	Breadcrumbs       []BreadcrumbSegment
 	BreadcrumbText    string
@@ -241,6 +244,7 @@ func (service *Service) projectViewWith(
 	projection := WebProjection{
 		Revision: revision, ProfileKind: service.ProfileKind(), Pending: pending, Capabilities: capabilities,
 		State: state.Clone(), Selection: selection, SelectionCount: len(snapshot.IDs),
+		AllRowsSelected:  allRowsSelected(result),
 		SelectionSummary: summary,
 		Breadcrumbs:      breadcrumbs,
 		BreadcrumbText:   resolvedSession.Breadcrumb(result.DateRange),
@@ -936,6 +940,24 @@ func (service *Service) knownEmptyDrillLabel(target domain.Drilldown) (string, b
 		}
 	}
 	return "Unavailable", true
+}
+
+// allRowsSelected reports whether a decorated result has rows and every row is selected.
+func allRowsSelected(result domain.QueryResult) bool {
+	if resultRowCount(result) == 0 {
+		return false
+	}
+	for _, row := range result.DetailRows {
+		if !row.Flags.Selected {
+			return false
+		}
+	}
+	for _, row := range result.AggregateRows {
+		if !row.Flags.Selected {
+			return false
+		}
+	}
+	return true
 }
 
 func decorateWebSelection(result *domain.QueryResult, selection SelectionSnapshot) {

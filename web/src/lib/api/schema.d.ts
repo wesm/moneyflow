@@ -1402,6 +1402,7 @@ export interface components {
     }
     Projection: {
       aggregate_rows?: components['schemas']['AggregateRow'][] | null
+      all_rows_selected: boolean
       amazon_match_column: boolean
       amazon_settings?: components['schemas']['AmazonSettings']
       api_schema_version: string

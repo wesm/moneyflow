@@ -50,11 +50,12 @@ selected transactions per currency, and `staged` values on rows with pending edi
 carry `savings_rate_tenths` and `net_ratio` on Time rows, and `group` on category rows. `net_ratio`
 is the row's net over the largest absolute net of the whole result, in basis points (−10000 to
 10000). It does not change when the row window moves. `view.sort_fields` lists the fields the
-current view can sort by, in the order the sort key cycles. A whole-merchant preview reports how
-many affected transactions the view hides, with `outside_view` and `outside_currencies`. Charts
-read from a separate operation, `POST /api/v1/profiles/{profile_id}/view/insights`. It takes the
-view's query and optional row identities and returns committed chart data from
-`Service.Insights`.
+current view can sort by, in the order the sort key cycles. `all_rows_selected` is true when the
+result has rows and the selection holds all of them; selected rows outside the result, such as
+after a provider refresh, do not count. A whole-merchant preview reports how many affected
+transactions the view hides, with `outside_view` and `outside_currencies`. Charts read from a
+separate operation, `POST /api/v1/profiles/{profile_id}/view/insights`. It takes the view's query
+and optional row identities and returns committed chart data from `Service.Insights`.
 
 The analytical URL is durable state: versioned view parameters, search, filters, drills, and return
 frames. Cursor/scroll and transient selection are not financial profile data. The server owns
