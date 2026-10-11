@@ -114,6 +114,19 @@ describe('AppShell', () => {
     await vi.waitFor(() => expect(controller.recheckNewer).toHaveBeenCalledWith('1'))
   })
 
+  it('still opens an editor queued after a newer-insights recheck fails', async () => {
+    const controller = stubController(charted())
+    vi.mocked(controller.insights).mockImplementation(async (body) =>
+      testInsights({ query: body.query, revision: '1' }),
+    )
+    vi.mocked(controller.recheckNewer).mockRejectedValue(new Error('recheck failed'))
+    render(AppShell, { controller })
+    await vi.waitFor(() => expect(controller.recheckNewer).toHaveBeenCalledWith('1'))
+
+    await fireEvent.keyDown(window, { key: 'm' })
+    expect(await screen.findByRole('dialog', { name: 'Edit merchant' })).not.toBeNull()
+  })
+
   it('keeps the table full width and opens the charts in a labelled compact drawer', async () => {
     onTestFinished(stubMedia((query) => query.includes('640px')))
     const controller = stubController(charted())
