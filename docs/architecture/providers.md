@@ -29,10 +29,22 @@ Ordinary and confirmed folds recheck the candidate's captured credential fingerp
 entering the store. A changed or removed credential file refuses the fold, releases the lease,
 and requires reconnect; a consumed confirmation cannot be reused.
 
-Monarch refresh is explicit: its reader fetches complete history, so neither staleness nor
-a replaced session starts a background download. YNAB uses a six-hour cadence in long-lived
-TUI/web processes. SimpleFIN uses 24 hours and parks failed automatic attempts until explicit
-action. MCP refresh is explicit.
+**Unreleased:** `ProviderRefreshDue` returns `none`, `recent`, or `full`, and provider status
+reports it as `refresh_due`. The server recomputes it for a scheduled request, so the TUI and
+the web app do not copy the rule. For Monarch, a recent refresh is due 6 hours after the last
+success and a full refresh 30 days after the last full one, or when that time is unknown. A
+profile with no successful import is never due. A manual refresh is always full. The last full
+refresh time is advisory state in the profile's `provider-refresh.json`, outside the schema and
+the JSONL transfer; only a folded complete Monarch candidate writes it.
+
+A recent refresh fetches a candidate whose `TransactionWindow` is the 90 days ending on the
+clock's local date. The Monarch reader sends it as `startDate` and `endDate` on every page and
+reports it back; the service rejects a different window. Planning replaces only provider rows
+dated inside the window, keeps the entities that retained rows use, and counts deletion
+plausibility within the window. A month-to-date first import reports its range the same way.
+
+YNAB uses a six-hour cadence in long-lived TUI/web processes. SimpleFIN uses 24 hours and parks
+failed automatic attempts until explicit action. MCP refresh is explicit.
 Amazon and bank CSV have no network refresh scheduler.
 Read-only MCP refresh of Monarch or YNAB can still rebase pending intent and discard the redo tail.
 Read-only excludes user-edit tools, not reconciliation with remote truth.

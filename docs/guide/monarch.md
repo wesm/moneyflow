@@ -27,7 +27,9 @@ provider identity or stored money settings.
 
 For a smaller first import, add `--mtd` to `provider connect monarch`. It loads transactions
 from the first day of the current month and requires a pristine profile. Later refreshes
-load the complete profile; `--mtd` is not an ongoing date filter.
+load the complete profile; `--mtd` is not an ongoing date filter. **Unreleased:** a
+month-to-date import is not a full refresh, so the first
+[scheduled refresh](#refresh-data) after it downloads complete history.
 
 ## Where are credentials stored?
 
@@ -42,10 +44,40 @@ database is not application-encrypted. See [storage](../config/caching.md).
 
 ## Refresh data
 
-Press `r` for a complete provider refresh. Moneyflow does not download Monarch history
-automatically when opening a profile, browsing, reconnecting, or saving edits. Successful
-edits update the local cache directly. Refresh currently reads complete history, even when
-the view is filtered to a recent month; recent-only refresh is not yet available in Go.
+Press `r`, or **Refresh** in the web app, for a full refresh: Moneyflow downloads complete
+history. Successful edits update the local cache directly; saving edits does not start a
+refresh.
+
+**Unreleased:** The TUI and the web app also refresh Monarch in the background, as the Python
+app (v0.11.1) did:
+
+- **Recent refresh:** when the last refresh is 6 or more hours old, Moneyflow downloads only
+  the transactions dated in the last 90 days, ending today.
+- **Full refresh:** when the last full refresh was 30 or more days ago, or Moneyflow has no
+  record of one, it downloads complete history instead.
+
+Moneyflow checks when you open a profile and once a minute while the TUI or web app stays
+open. The status line in the TUI, and the provider status in the web sidebar, name the kind
+while it runs. Background refresh does not run in these cases:
+
+- The profile's first import has not finished.
+- A failed attempt is waiting for its retry time.
+- The failure needs action, such as reconnecting or reviewing removals. Press `r` after acting.
+
+MCP never refreshes on a schedule; its `refresh_data` tool runs a full refresh.
+
+A recent refresh replaces only the transactions dated inside its 90-day window:
+
+- Older transactions, the pending edits that target them, and the accounts, merchants, and
+  categories they use stay as they are.
+- Removal review counts only transactions inside the window.
+- A transaction whose date Monarch moves from inside the window to an earlier date looks
+  deleted until the next full refresh restores it.
+
+Moneyflow records the time of the last full refresh in `provider-refresh.json`, beside
+`moneyflow.db` in the profile folder. The file is advisory scheduling state: it is not part of
+the database or the JSONL export. If it is missing or unreadable, the next scheduled refresh is
+a full refresh.
 
 Cached browsing and pending edits remain available if authentication fails. Large or
 destructive provider changes may require explicit review before installation.

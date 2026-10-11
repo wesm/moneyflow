@@ -61,7 +61,7 @@ In the phone layout's **Visualizations** drawer, Esc closes the drawer instead.
 | `u` / `U` | Undo / redo |
 | `w` | Review pending changes |
 | `E` | Export committed transactions |
-| `r` | Refresh provider data or choose another Amazon import |
+| `r` | Refresh provider data (complete history for Monarch) or choose another Amazon import |
 
 Read [editing](editing.md) before bulk changes. Grouped edits may affect many transactions.
 The browser editor has its own [key table](editing.md#editor-keys).

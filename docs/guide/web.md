@@ -55,6 +55,11 @@ The bottom of the sidebar holds:
   progress. See [review and commit](editing.md#review-and-commit).
 - Provider status for Monarch, YNAB, and SimpleFIN profiles: when data was last refreshed, a
   refresh button (`r`), refresh progress, and **Reconnect** when the provider needs it.
+  **Unreleased:** Below the button, the sidebar shows why refresh is unavailable, such as a
+  provider write in progress or another process refreshing, and why the last refresh failed,
+  for example `Last refresh failed: The provider is temporarily unavailable.` While a refresh
+  runs, progress updates every second; for Monarch it names the kind, recent data (last 90
+  days) or full history. See [Monarch refresh](monarch.md#refresh-data).
 - The theme toggle; see [Themes](#themes).
 
 **Unreleased:** At 1280 px and wider, the **Collapse sidebar** button beside the Moneyflow name
