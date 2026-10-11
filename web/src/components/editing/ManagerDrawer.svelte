@@ -57,14 +57,17 @@
   const source = $derived(choices.find((choice) => choice.id === rows[activeIndex]?.id))
   const ready = $derived(!staging && step !== undefined && stepReady(step, kind, choices))
   const problem = $derived(step ? stepProblem(step, choices) : '')
+  const loadFailed = $derived(`${category ? 'Category' : 'Group'} choices could not be loaded.`)
 
   onMount(() => void load())
 
-  async function load(): Promise<void> {
+  async function load(): Promise<boolean> {
     try {
       catalog = await controller.catalog()
+      return true
     } catch {
-      error = `${category ? 'Category' : 'Group'} choices could not be loaded.`
+      error = loadFailed
+      return false
     }
   }
 
@@ -98,15 +101,16 @@
       staging = false
     }
     // Esc may have left this step while it staged; its answer then belongs to no open step.
-    const open = step === current
     if (!accepted) {
-      if (open) error = controller.state.announcement || REQUEST_FAILED
+      if (step === current) error = controller.state.announcement || REQUEST_FAILED
       return
     }
     if (action === 'create') activeID = newID
     else if (action === 'merge' || action === 'delete') activeID = target
-    await load()
-    if (open) back()
+    const loaded = await load()
+    // Esc and a new step's key still work during the reload; leave that new step open.
+    if (step === current) back()
+    if (!loaded) error = loadFailed
   }
 
   /** Esc steps out of an open step, then clears the filter, then closes the drawer. */
