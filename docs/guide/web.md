@@ -115,8 +115,8 @@ a line with dots traces Net. A band marks the periods in the current scope.
 - Click a column to choose its period.
 - Drag across columns to choose a custom range from the first to the last.
 - Shift-click a column, or press Shift+Enter on it, to stretch the current period to it.
-- A period still in progress, such as the current month, is drawn hollow. So is a period that a
-  custom range covers only in part.
+- A period still in progress, such as the current month or year, is drawn hollow. So is a
+  period that a custom range covers only in part.
 
 The panel beside the cash-flow chart depends on the view:
 
@@ -167,7 +167,8 @@ The **chart context** depends on the scope:
 
 - A day: the days of its month.
 - A month: thirteen months ending with it.
-- A year: its months, ending at the current month while the year is in progress.
+- A year: one column per year, from the year of your first transaction in the currency
+  through the chosen year, at most ten years.
 - A custom range: days up to 62 days, months up to 36 months, and years beyond.
 - All time: months from your first to your newest transaction in the currency, or years when
   that is more than 60 months.

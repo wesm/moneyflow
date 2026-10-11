@@ -284,12 +284,13 @@ merchant over August:
 ```
 
 The result has the standard header and revision, plus `currency`, `scale`, `today`, `latest`,
-`ranges`, `summary`, and `series`. The server derives every range from the dates and its clock:
-`ranges.context` lists the chart periods, and cash-flow and series values align with it. Each
-amount is a money object with `amount`, `amount_minor`, `currency`, and `scale`. Changes such as
-`net_change` and `vs_prior` are computed by the server; `percent_tenths` and `share_tenths` are
-tenths of a percent. `pending_count` counts transactions the bank still lists as pending. It does
-not count your pending edits, which insights never read.
+`ranges`, `summary`, and `series`. The server derives every range from the dates and its clock,
+following the web's [range rules](web.md#ranges-and-comparisons). For example, a year scope
+charts one period per year. `ranges.context` lists the chart periods, and cash-flow and series
+values align with it. Each amount is a money object with `amount`, `amount_minor`, `currency`,
+and `scale`. Changes such as `net_change` and `vs_prior` are computed by the server;
+`percent_tenths` and `share_tenths` are tenths of a percent. `pending_count` counts transactions
+the bank still lists as pending. It does not count your pending edits, which insights never read.
 
 An ID filter that matches nothing, such as a merchant, category, group, or account ID that does not
 exist, is not an error. It returns zeros.
