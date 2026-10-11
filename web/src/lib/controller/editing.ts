@@ -219,7 +219,6 @@ export function createEditingController(options: EditingControllerOptions): Edit
       if (response.canonical_query !== body.query) {
         throw new Error('The mutation changed analytical browser state.')
       }
-      const revision = parseRevision(response.revision)
       const selection = response.selection.value as SelectionValue
       const projection: ViewProjection = {
         ...response.projection,
@@ -237,9 +236,8 @@ export function createEditingController(options: EditingControllerOptions): Edit
       const toasted = toast && toastMessage(response.operation, toast)
       if (toasted) showFlash(toasted)
       setState({
-        revision,
+        ...newestRevision(response),
         phase: 'idle',
-        pending: response.pending,
         announcement: [
           toasted || mutationAnnouncement(successMessage, response.selection.kind),
           auditWarning,
@@ -271,6 +269,17 @@ export function createEditingController(options: EditingControllerOptions): Edit
     } catch {
       return 'The current view could not be refreshed.'
     }
+  }
+
+  // A reread of a moved-on view can install a revision newer than the response, such as after
+  // another session's change. Keep it, so the next edit expects the revision on screen.
+  function newestRevision(response: MutationResponse): Pick<EditingState, 'revision' | 'pending'> {
+    const revision = parseRevision(response.revision)
+    const shown = options.host.current()
+    if (shown && parseRevision(shown.revision) > revision) {
+      return { revision: parseRevision(shown.revision), pending: shown.pending }
+    }
+    return { revision, pending: response.pending }
   }
 
   function projectionRevisionIsCurrent(current: ViewProjection): boolean {

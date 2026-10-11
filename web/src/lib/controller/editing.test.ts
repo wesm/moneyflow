@@ -232,6 +232,36 @@ describe('browser editing controller', () => {
     expect(controller.state.revision).toBe(8n)
   })
 
+  it('keeps the newer revision a reread of a moved-on view installed', async () => {
+    const host = editingHost(
+      testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' }),
+    )
+    const newer = testProjection({
+      revision: '9',
+      canonical_query: 'v=1&period=2026-09',
+      pending: { active_operations: 2, inactive_operations: 0, affected_transactions: 3 },
+    })
+    // As the shell does, the reread installs the view and syncs the editing controller with it.
+    host.refresh = vi.fn(async () => {
+      host.install(newer)
+      controller.sync(newer)
+      return newer
+    })
+    const transport: MutationFetch = {
+      request: vi.fn(async () => {
+        host.install(testProjection({ revision: '7', canonical_query: 'v=1&period=2026-09' }))
+        return jsonResponse(mutationResponse('8', 'mfsel1.x' as SelectionValue))
+      }),
+    }
+    const controller = createEditingController({ transport, host })
+
+    await expect(
+      controller.submit({ action: 'transaction.toggle-hidden', input: {} }),
+    ).resolves.toBe(true)
+    expect(controller.state.revision).toBe(9n)
+    expect(controller.state.pending.active_operations).toBe(2)
+  })
+
   it('reports a staged change whose moved-on view could not be reread', async () => {
     const host = editingHost(
       testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' }),
