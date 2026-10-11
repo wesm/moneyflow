@@ -8,6 +8,7 @@ import { ChartState } from '../../lib/shell/chart-state.svelte'
 import type { LocalActionContext } from '../../lib/shell/local-actions'
 import { OverlayState } from '../../lib/shell/overlay-state.svelte'
 import { testEditingController } from '../../test/editing'
+import { testInsights } from '../../test/insights'
 import { testProjection } from '../../test/projection'
 
 function bodyActions(
@@ -67,6 +68,7 @@ function stubPhoneWidth(): () => void {
 describe('WorkspaceBody', () => {
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
   })
 
   it('aborts the insights request in flight when it unmounts', () => {
@@ -134,5 +136,22 @@ describe('WorkspaceBody', () => {
     } finally {
       restore()
     }
+  })
+
+  it('checks old insights again when the window comes back to the foreground', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    const insights = vi.fn<ViewController['insights']>(async (body) =>
+      testInsights({ query: body.query, revision: '0' }),
+    )
+    const projection = usdProjection()
+    const { actions, charts } = bodyActions(projection, undefined, insights)
+    render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
+    await vi.waitFor(() => expect(insights).toHaveBeenCalledTimes(1))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    now.mockReturnValue(1_000_000 + 10 * 60_000)
+    await fireEvent.focus(window)
+    expect(insights).toHaveBeenCalledTimes(2)
+    expect(insights.mock.lastCall?.[0]).toEqual({ query: 'v=1', summary: true })
   })
 })

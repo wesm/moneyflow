@@ -3,6 +3,7 @@
 
   import type { TransitionBody, ViewProjection } from '../../lib/api/client'
   import { containMenuKeys } from '../../lib/shell/menu-keys'
+  import { currencyChoices } from '../../lib/shell/period'
 
   type CurrencyScope = NonNullable<TransitionBody['currency']>
 
@@ -15,8 +16,9 @@
   let { projection, onchange }: Props = $props()
 
   const key = (scope: CurrencyScope) => `${scope.currency}:${scope.scale}`
+  const choices = $derived(currencyChoices(projection))
   const options = $derived(
-    projection.currencies.map((entry) => ({
+    choices.map((entry) => ({
       value: key(entry),
       label: `${entry.currency} · ${entry.count.toLocaleString('en-US')} ${
         entry.count === 1 ? 'transaction' : 'transactions'
@@ -27,7 +29,7 @@
   const value = $derived(projection.view.currency ? key(projection.view.currency) : '')
 
   function choose(next: string): void {
-    const scope = projection.currencies.find((entry) => key(entry) === next)
+    const scope = choices.find((entry) => key(entry) === next)
     if (scope) onchange({ currency: scope.currency, scale: scope.scale })
   }
 </script>

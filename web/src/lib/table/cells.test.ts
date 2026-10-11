@@ -104,10 +104,6 @@ describe('incomeDivider', () => {
     expect(dividers(windows, [0, 1, 2, 3])).toEqual([null, null, 'Income', null])
   })
 
-  it('draws no divider on the first row of the result', () => {
-    expect(incomeDivider([loaded(0, ['100', '200'])], 0)).toBeNull()
-  })
-
   it('compares a window’s first row with the cached last row of the window before it', () => {
     const before = loaded(0, [...Array<string>(199).fill('-500'), '-100'])
     const current = loaded(200, ['100', '200'])

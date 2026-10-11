@@ -1772,6 +1772,8 @@ components:
           type:
             - array
             - "null"
+        all_rows_selected:
+          type: boolean
         amazon_match_column:
           type: boolean
         amazon_settings:
@@ -1865,6 +1867,7 @@ components:
         - canonical_query
         - selection
         - selection_count
+        - all_rows_selected
         - view
         - breadcrumbs
         - breadcrumb_text

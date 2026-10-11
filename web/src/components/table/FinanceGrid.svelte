@@ -216,8 +216,7 @@
       {columns}
       compact={layout}
       view={projection.view}
-      allSelected={projection.selection_count > 0 &&
-        projection.selection_count === projection.total_rows}
+      allSelected={projection.all_rows_selected}
       {onsort}
       {ontoggleall}
     />

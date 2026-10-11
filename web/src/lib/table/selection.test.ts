@@ -54,8 +54,9 @@ describe('selectionText', () => {
   it('names the groups after the current dimension', () => {
     const categories = projection({ view: grouped({ grouping: 'category' }) })
     expect(selectionText(categories)).toMatch(/^3 categories · /)
-    const broken = projection({ view: grouped({ sub_grouping: 'account' }) })
-    expect(selectionText(broken)).toMatch(/^3 accounts · /)
+    // A drill keeps the detail mode while it breaks its transactions down by a sub-grouping.
+    const broken = projection({ view: grouped({ mode: 'detail', sub_grouping: 'account' }) })
+    expect(selectionText(broken)).toBe('3 accounts · 127 transactions · -4,212.40')
     const months = projection({ view: grouped({ grouping: 'time', time_granularity: 'month' }) })
     expect(selectionText(months)).toMatch(/^3 months · /)
     const year = projection({

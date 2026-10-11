@@ -5,6 +5,11 @@ import type { InsightsBody, InsightsResponse, InsightsSeries, ViewProjection } f
 import { insightsBodies, insightsQuery, missingRows } from './requests'
 
 const maxEntries = 8
+/**
+ * How long an answer vouches for the server's day. The day can change with no new revision, so
+ * after this long the displayed view asks for its summary again, even when it is cached.
+ */
+const freshMillis = 5 * 60_000
 
 /** Insights for one canonical query at one profile revision. */
 export interface InsightsEntry {
@@ -65,6 +70,8 @@ export class InsightsCache {
   #awaitingView: string | undefined
   #rows: readonly string[] = []
   #today: string | undefined
+  /** When the last answer the cache kept arrived, from `Date.now()`. */
+  #answeredAt = 0
   #notified = -1n
   #disposed = false
 
@@ -72,8 +79,8 @@ export class InsightsCache {
    * @param load Sends one insights request.
    * @param onNewer Called once per revision when insights report a newer revision than the
    *   displayed projection; the view must be rechecked before those insights can show. When it
-   *   returns a promise, the summary counts as failed if it settles with the view unchanged. A
-   *   rejected recheck lets the same revision call it again, such as after `retry`.
+   *   returns a promise that settles with the view unchanged, the missing summary or series
+   *   count as failed, and a later answer at that revision, such as after `retry`, calls it again.
    */
   constructor(load: InsightsLoad, onNewer: (revision: string) => unknown) {
     this.#load = load
@@ -182,7 +189,8 @@ export class InsightsCache {
       slot?.series,
       pending.map((flight) => flight.rows),
     )
-    const summary = slot?.response === undefined && !pending.some((flight) => flight.summary)
+    const due = slot?.response === undefined || Date.now() - this.#answeredAt >= freshMillis
+    const summary = due && !pending.some((flight) => flight.summary)
     for (const body of insightsBodies(view.query, missing, summary)) this.#send(view, body)
   }
 
@@ -226,6 +234,7 @@ export class InsightsCache {
     }
     const dayChanged = this.#today !== undefined && response.today !== this.#today
     this.#today = response.today
+    this.#answeredAt = Date.now()
     if (dayChanged) this.#clear()
     this.#store(flight.query, response)
     const newer = revision > requested
@@ -239,28 +248,31 @@ export class InsightsCache {
     const revision = BigInt(response.revision)
     this.#notified = revision
     this.#awaitingView = key
+    const settled = () => {
+      // A recheck that failed, or whose view another move replaced, left the view behind, so a
+      // later answer at this revision may report it again.
+      if (this.#view?.key === key && this.#notified === revision) this.#notified = -1n
+      if (this.#awaitingView === key) this.#awaitingView = undefined
+      this.#checkWaiting()
+    }
     void Promise.resolve()
       .then(() => (this.#disposed ? undefined : this.#onNewer(response.revision)))
-      .catch(() => {
-        // The view is still behind, so `retry` may report this revision again.
-        if (this.#notified === revision) this.#notified = -1n
-      })
-      .then(() => {
-        if (this.#awaitingView === key) this.#awaitingView = undefined
-        this.#checkWaiting()
-      })
+      .then(settled, settled)
   }
 
   /**
-   * Marks the summary failed when the displayed view lacks it and nothing will bring it, such as
-   * after a dropped response, so `retry` can ask again instead of `loading` lasting forever.
+   * Marks the summary or series failed when the displayed view lacks them and nothing will bring
+   * them, such as after a dropped response or a recheck that left the view behind, so `retry`
+   * can ask again instead of `loading` lasting forever.
    */
   #checkWaiting(): void {
     const view = this.#view
     if (this.#disposed || view === undefined || this.#failedFor(view.key)) return
-    if (this.#slots.get(view.key)?.response || this.#awaitingView === view.key) return
+    if (this.#awaitingView === view.key) return
     if (this.#flights.some((flight) => flight.key === view.key)) return
-    this.#summaryFailed = view.key
+    const slot = this.#slots.get(view.key)
+    if (slot?.response === undefined) this.#summaryFailed = view.key
+    else if (this.#rows.some((row) => !slot.series.has(row))) this.#seriesFailed = view.key
   }
 
   #store(query: string, response: InsightsResponse): void {

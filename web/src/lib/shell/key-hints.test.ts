@@ -51,9 +51,14 @@ describe('keyHints', () => {
     ])
   })
 
-  it('names g Break down inside a drill', () => {
-    const hints = keyHints(projection({ view: view('aggregate', 'category') }), false)
-    expect(hints.find(({ key }) => key === 'g')).toEqual({ key: 'g', label: 'Break down' })
+  it('offers open and break down over a drilled breakdown', () => {
+    expect(keyHints(projection({ view: view('detail', 'category') }), false)).toEqual([
+      { key: '↵', label: 'Open' },
+      { key: 'g', label: 'Break down' },
+      { key: '/', label: 'Search' },
+      { key: 't', label: 'Period' },
+      { key: '?', label: 'Help' },
+    ])
   })
 
   it('offers row edits, selection, and information in a transaction view', () => {
