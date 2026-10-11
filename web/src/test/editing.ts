@@ -104,7 +104,7 @@ export function testReviewController(overrides: Partial<ReviewController> = {}):
       announcement: '',
     },
     load: vi.fn(async () => true),
-    loadTargets: vi.fn(async () => true),
+    loadMore: vi.fn(async () => true),
     targets: vi.fn(() => [
       {
         date: '2024-01-01',

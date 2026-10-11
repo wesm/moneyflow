@@ -1618,6 +1618,7 @@ export interface components {
       before?: string
       label: string
       operation_id: string
+      targets?: components['schemas']['ReviewTarget'][] | null
       taxonomy_effect?: string
       type: string
     }

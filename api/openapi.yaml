@@ -2322,6 +2322,12 @@ components:
           type: string
         operation_id:
           type: string
+        targets:
+          items:
+            $ref: "#/components/schemas/ReviewTarget"
+          type:
+            - array
+            - "null"
         taxonomy_effect:
           type: string
         type:

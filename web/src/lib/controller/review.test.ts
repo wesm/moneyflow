@@ -21,15 +21,26 @@ describe('bounded review controller', () => {
     expect(JSON.parse(body)).toEqual({ version: '1', expected_revision: '12' })
   })
 
-  it('loads an operation’s first rows, then the rest in bounded requests', async () => {
+  it('starts each active operation with the rows the review carries, in one request', async () => {
     const transport = targetServer(901)
     const controller = createReviewController({ transport, revision: () => 7n })
     await controller.load()
-    expect(transport.request).toHaveBeenCalledTimes(1)
 
-    await expect(controller.loadTargets('active-1', 20)).resolves.toBe(true)
+    expect(transport.request).toHaveBeenCalledTimes(1)
     expect(controller.targets('active-1')).toHaveLength(20)
-    await expect(controller.loadTargets('active-1', 901)).resolves.toBe(true)
+    expect(controller.targets('active-1')[19]?.merchant).toBe('Example Merchant 20')
+    expect(controller.targets('redo-1')).toEqual([])
+  })
+
+  it('adds one page of rows per request after the rows the review carries', async () => {
+    const transport = targetServer(901)
+    const controller = createReviewController({ transport, revision: () => 7n })
+    await controller.load()
+
+    await expect(controller.loadMore('active-1')).resolves.toBe(true)
+    expect(controller.targets('active-1')).toHaveLength(420)
+    await controller.loadMore('active-1')
+    await controller.loadMore('active-1')
 
     const rows = controller.targets('active-1')
     expect(rows).toHaveLength(901)
@@ -40,13 +51,10 @@ describe('bounded review controller', () => {
       .mock.calls.slice(1)
       .map(([, body]) => (JSON.parse(body) as { window: unknown }).window)
     expect(windows).toEqual([
-      { offset: 0, limit: 20 },
       { offset: 20, limit: 400 },
       { offset: 420, limit: 400 },
-      { offset: 820, limit: 81 },
+      { offset: 820, limit: 400 },
     ])
-    await controller.loadTargets('active-1', 901)
-    expect(transport.request).toHaveBeenCalledTimes(5)
   })
 
   it('keeps each operation’s rows and reports which operation is loading', async () => {
@@ -55,20 +63,20 @@ describe('bounded review controller', () => {
     const controller = createReviewController({ transport, revision: () => 7n })
     await controller.load()
 
-    const first = controller.loadTargets('active-1', 20)
+    const first = controller.loadMore('active-1')
     expect(controller.targetsLoading('active-1')).toBe(true)
     expect(controller.targetsLoading('redo-1')).toBe(false)
     await vi.waitFor(() => expect(transport.request).toHaveBeenCalledTimes(2))
     release()
     await first
     expect(controller.targetsLoading('active-1')).toBe(false)
-    const second = controller.loadTargets('redo-1', 20)
+    const second = controller.loadMore('redo-1')
     await vi.waitFor(() => expect(transport.request).toHaveBeenCalledTimes(3))
     release()
     await second
 
-    expect(controller.targets('active-1')).toHaveLength(20)
-    expect(controller.targets('redo-1')).toHaveLength(20)
+    expect(controller.targets('active-1')).toHaveLength(30)
+    expect(controller.targets('redo-1')).toHaveLength(30)
   })
 
   it('drops rows that arrive after the review reloads', async () => {
@@ -76,14 +84,14 @@ describe('bounded review controller', () => {
     const transport = targetServer(30, () => new Promise<void>((resolve) => (release = resolve)))
     const controller = createReviewController({ transport, revision: () => 7n })
     await controller.load()
-    const stale = controller.loadTargets('active-1', 20)
+    const stale = controller.loadMore('active-1')
     await vi.waitFor(() => expect(transport.request).toHaveBeenCalledTimes(2))
     const reload = controller.load()
     release()
     await expect(stale).resolves.toBe(false)
     await reload
 
-    expect(controller.targets('active-1')).toEqual([])
+    expect(controller.targets('active-1')).toHaveLength(20)
     expect(controller.targetsLoading('active-1')).toBe(false)
   })
 
@@ -91,18 +99,17 @@ describe('bounded review controller', () => {
     const transport = targetServer(500)
     const controller = createReviewController({ transport, revision: () => 7n })
     await controller.load()
-    await controller.loadTargets('active-1', 20)
     vi.mocked(transport.request).mockRejectedValueOnce(new Error('offline'))
 
-    await expect(controller.loadTargets('active-1', 500)).resolves.toBe(false)
+    await expect(controller.loadMore('active-1')).resolves.toBe(false)
 
     expect(controller.targets('active-1')).toHaveLength(20)
     expect(controller.targetsLoading('active-1')).toBe(false)
     expect(controller.state.announcement).toBe('Pending changes could not be loaded.')
 
     // Trying again clears the failure.
-    await expect(controller.loadTargets('active-1', 500)).resolves.toBe(true)
-    expect(controller.targets('active-1')).toHaveLength(500)
+    await expect(controller.loadMore('active-1')).resolves.toBe(true)
+    expect(controller.targets('active-1')).toHaveLength(420)
     expect(controller.state.announcement).toBe('')
   })
 
@@ -118,8 +125,8 @@ describe('bounded review controller', () => {
     const controller = createReviewController({ transport, revision: () => 7n })
     await controller.load()
 
-    const first = controller.loadTargets('A', 1)
-    const second = controller.loadTargets('B', 1)
+    const first = controller.loadMore('A')
+    const second = controller.loadMore('B')
     await vi.waitFor(() => expect(answers).toHaveLength(2))
     const merchant = (name: string) => {
       const response = reviewResponse('7')
@@ -149,20 +156,35 @@ describe('bounded review controller', () => {
   })
 })
 
-/** A review server whose operations each affect `affected` rows, named by row number. */
+/**
+ * A review server whose operations each affect `affected` rows, named by row number. The
+ * review carries each active operation's first 20 rows, as the server does.
+ */
 function targetServer(affected: number, wait?: () => Promise<void>): MutationFetch {
+  const rows = (offset: number, limit: number) =>
+    Array.from({ length: Math.max(0, Math.min(limit, affected - offset)) }, (_, index) => ({
+      ...reviewResponse('7').targets[0]!,
+      merchant: `Example Merchant ${offset + index + 1}`,
+    }))
   return {
     request: vi.fn(async (path: string, body: string) => {
-      if (!path.endsWith('/targets')) return jsonResponse(reviewResponse('7'))
+      if (!path.endsWith('/targets')) {
+        const review = reviewResponse('7')
+        return jsonResponse({
+          ...review,
+          active_operations: review.active_operations.map((operation) => ({
+            ...operation,
+            affected_count: affected,
+            targets: rows(0, 20),
+          })),
+        })
+      }
       await wait?.()
       const { offset, limit } = (JSON.parse(body) as { window: { offset: number; limit: number } })
         .window
-      const count = Math.max(0, Math.min(limit, affected - offset))
-      const targets = Array.from({ length: count }, (_, index) => ({
-        ...reviewResponse('7').targets[0],
-        merchant: `Example Merchant ${offset + index + 1}`,
-      }))
-      return jsonResponse({ ...reviewResponse('7'), window: { offset, limit, count }, targets })
+      const targets = rows(offset, limit)
+      const window = { offset, limit, count: targets.length }
+      return jsonResponse({ ...reviewResponse('7'), window, targets })
     }),
   }
 }

@@ -66,9 +66,28 @@ function renameOperation(affected: number) {
   }
 }
 
+/** Transactions `offset + 1` onward, at most `limit` of `affected`, named by row number. */
+function affectedRows(affected: number, offset: number, limit: number) {
+  const count = Math.max(0, Math.min(limit, affected - offset))
+  return Array.from({ length: count }, (_, index) => ({
+    date: '2024-01-01',
+    merchant: `Example Merchant ${offset + index + 1}`,
+    category: 'Example Category',
+    amount: {
+      minor: `-${offset + index + 1}05`,
+      currency: 'USD',
+      scale: 2,
+      decimal: `-${offset + index + 1}.05`,
+      display: `-${offset + index + 1}.05`,
+    },
+    hidden: offset + index === 0,
+  }))
+}
+
 /**
- * A review server whose one operation affects `affected` transactions, named by row number.
- * Each target request waits for `wait`, when given.
+ * A review server whose one operation affects `affected` transactions. As the server does,
+ * the review carries the operation's first 20 rows. Each target request waits for `wait`,
+ * when given.
  */
 function reviewServer(
   affected: number,
@@ -79,28 +98,14 @@ function reviewServer(
     request: vi.fn(async (_path: string, body: string) => {
       const window = (JSON.parse(body) as { window?: { offset: number; limit: number } }).window
       if (window) await wait?.()
-      const offset = window?.offset ?? 0
-      const count = window ? Math.max(0, Math.min(window.limit, affected - offset)) : 0
-      const targets = Array.from({ length: count }, (_, index) => ({
-        date: '2024-01-01',
-        merchant: `Example Merchant ${offset + index + 1}`,
-        category: 'Example Category',
-        amount: {
-          minor: `-${offset + index + 1}05`,
-          currency: 'USD',
-          scale: 2,
-          decimal: `-${offset + index + 1}.05`,
-          display: `-${offset + index + 1}.05`,
-        },
-        hidden: offset + index === 0,
-      }))
+      const targets = window ? affectedRows(affected, window.offset, window.limit) : undefined
       const response = {
         version: '1',
         revision: '1',
         pending: { active_operations: 1, inactive_operations: 0, affected_transactions: affected },
-        active_operations: [operation],
+        active_operations: [{ ...operation, targets: affectedRows(affected, 0, 20) }],
         inactive_operations: [],
-        window: { offset, limit: window?.limit ?? 0, count },
+        window: { offset: window?.offset ?? 0, limit: window?.limit ?? 0, count: targets?.length },
         targets,
       }
       return new Response(JSON.stringify(response), {
@@ -173,8 +178,8 @@ describe('ReviewDrawer in review mode', () => {
     expect(screen.queryByText(/provider item/i)).toBeNull()
   })
 
-  it('lists each operation’s first 20 transactions without a click, then shows all', async () => {
-    const transport = reviewServer(45)
+  it('lists each operation’s first 20 transactions without a click, then 400 more per click', async () => {
+    const transport = reviewServer(445)
     const review = createReviewController({ transport, revision: () => 1n })
     setup({ review })
     await loaded()
@@ -184,17 +189,56 @@ describe('ReviewDrawer in review mode', () => {
     await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(21))
     expect(screen.getByText('Example Merchant 20')).toBeTruthy()
     expect(screen.queryByText('Example Merchant 21')).toBeNull()
+    expect(screen.getByText('425 transactions not shown')).toBeTruthy()
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Show all 45' }))
-    await screen.findByText('Example Merchant 45')
-    expect(screen.getAllByRole('row')).toHaveLength(46)
-    expect(screen.queryByRole('button', { name: /^Show all/ })).toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Show 400 more' }))
+    await screen.findByText('Example Merchant 420')
+    expect(screen.getAllByRole('row')).toHaveLength(421)
+    expect(screen.getByText('25 transactions not shown')).toBeTruthy()
+    await fireEvent.click(screen.getByRole('button', { name: 'Show 25 more' }))
+    await screen.findByText('Example Merchant 445')
+    expect(screen.getAllByRole('row')).toHaveLength(446)
+    expect(screen.queryByRole('button', { name: /^Show \d+ more/ })).toBeNull()
+    expect(screen.queryByText(/not shown/)).toBeNull()
     const bodies = vi.mocked(transport.request).mock.calls.map(([, body]) => JSON.parse(body))
     expect(bodies.map((body: { window?: unknown }) => body.window)).toEqual([
       undefined,
-      { offset: 0, limit: 20 },
-      { offset: 20, limit: 25 },
+      { offset: 20, limit: 400 },
+      { offset: 420, limit: 400 },
     ])
+  })
+
+  it('opens with one request however many operations are pending', async () => {
+    const operations = ['operation-a', 'operation-b', 'operation-c'].map((id, index) => ({
+      ...renameOperation(2),
+      operation_id: id,
+      before: `Old Merchant ${index + 1}`,
+      targets: affectedRows(2, 0, 20),
+    }))
+    const transport: MutationFetch = {
+      request: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              version: '1',
+              revision: '1',
+              pending: { active_operations: 3, inactive_operations: 0, affected_transactions: 6 },
+              active_operations: operations,
+              inactive_operations: [],
+              window: { offset: 0, limit: 0, count: 0 },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+      ),
+    }
+    setup({ review: createReviewController({ transport, revision: () => 1n }) })
+    await loaded()
+
+    expect(screen.getAllByRole('table', { name: 'Affected transactions' })).toHaveLength(3)
+    // A header row and two transactions for each operation.
+    expect(screen.getAllByRole('row')).toHaveLength(9)
+    await tick()
+    expect(vi.mocked(transport.request).mock.calls.map(([path]) => path)).toEqual(['api/v1/review'])
   })
 
   it('collapses and expands an operation without loading its rows again', async () => {
@@ -203,7 +247,7 @@ describe('ReviewDrawer in review mode', () => {
     setup({ review })
     await loaded()
     await screen.findByText('Example Merchant 2')
-    expect(screen.queryByRole('button', { name: /^Show all/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Show \d+ more/ })).toBeNull()
     const operation = screen.getByRole('button', { name: /^Rename merchant/ })
 
     await fireEvent.click(operation)
@@ -212,22 +256,24 @@ describe('ReviewDrawer in review mode', () => {
     await fireEvent.click(operation)
     expect(operation.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByText('Example Merchant 2')).toBeTruthy()
-    expect(transport.request).toHaveBeenCalledTimes(2)
+    expect(transport.request).toHaveBeenCalledTimes(1)
   })
 
-  it('shows a loading line while an operation’s rows load', async () => {
+  it('shows a loading line while more of an operation’s rows load', async () => {
     let release = (): void => undefined
     const transport = reviewServer(
-      2,
-      renameOperation(2),
+      22,
+      renameOperation(22),
       () => new Promise<void>((resolve) => (release = resolve)),
     )
     const review = createReviewController({ transport, revision: () => 1n })
     setup({ review })
     await loaded()
+    expect(screen.queryByText('Loading transactions…')).toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Show 2 more' }))
     expect(await screen.findByText('Loading transactions…')).toBeTruthy()
     release()
-    await screen.findByText('Example Merchant 2')
+    await screen.findByText('Example Merchant 22')
     expect(screen.queryByText('Loading transactions…')).toBeNull()
   })
 
@@ -305,8 +351,8 @@ describe('ReviewDrawer in review mode', () => {
     const { editing } = setup({ review })
     await loaded()
     const drawer = screen.getByRole('dialog', { name: 'Review pending changes' })
-    await screen.findByRole('button', { name: 'Show all 25' })
-    for (const name of [/^Rename merchant/, 'Close', 'Cancel', 'Show all 25']) {
+    await screen.findByRole('button', { name: 'Show 5 more' })
+    for (const name of [/^Rename merchant/, 'Close', 'Cancel', 'Show 5 more']) {
       const control = within(drawer).getByRole('button', { name })
       control.focus()
       const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })

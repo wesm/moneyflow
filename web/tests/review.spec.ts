@@ -26,23 +26,29 @@ test('review keeps redo separate, lists affected rows, and commits its captured 
     await page.keyboard.press('Shift+U')
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
     const commits: string[] = []
+    const targetRequests: string[] = []
     page.on('request', (request) => {
       if (request.url().endsWith('/commit')) commits.push(request.url())
+      if (request.url().endsWith('/review/targets')) targetRequests.push(request.url())
     })
     await page.keyboard.press('w')
     await expect(review).toBeVisible()
     const commit = review.getByRole('button', { name: 'Commit reviewed changes' })
     await expect(commit).toBeFocused()
 
-    // The operation starts expanded, with its first rows and Show all for the rest.
+    // The operation starts expanded, with its first rows from the review itself and Show more
+    // for the rest.
     const operation = review.getByRole('button', { name: /^Hide transactions/ })
     await expect(operation).toHaveAttribute('aria-expanded', 'true')
     await expect(review.getByRole('row')).toHaveCount(Math.min(affected, preview) + 1)
-    const showAll = review.getByRole('button', { name: `Show all ${affected}` })
-    if (affected <= preview) await expect(showAll).toHaveCount(0)
+    expect(targetRequests).toEqual([])
+    const showMore = review.getByRole('button', { name: /^Show \d+ more$/ })
+    if (affected <= preview) await expect(showMore).toHaveCount(0)
     else {
-      await showAll.click()
-      await expect(review.getByRole('row')).toHaveCount(affected + 1)
+      await expect(showMore).toHaveText(`Show ${Math.min(400, affected - preview)} more`)
+      await showMore.click()
+      await expect(review.getByRole('row')).toHaveCount(Math.min(affected, preview + 400) + 1)
+      expect(targetRequests).toHaveLength(1)
     }
 
     // Enter on a control with its own Enter does that action and does not commit.

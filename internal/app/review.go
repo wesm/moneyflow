@@ -44,11 +44,18 @@ func ReviewOperationLabel(operationType domain.OperationType, hides bool) string
 	return "Unknown change"
 }
 
-// ReviewWindow requests one bounded target window for a named operation.
+// ReviewWindow requests one bounded target window for a named operation. Preview, when
+// positive, also attaches each active operation's first Preview targets to its summary.
 type ReviewWindow struct {
 	OperationID string
 	Offset      int
 	Limit       int
+	Preview     int
+}
+
+func (window ReviewWindow) valid() bool {
+	return window.Offset >= 0 && window.Limit >= 0 && window.Limit <= MaxReviewTargetLimit &&
+		window.Preview >= 0 && window.Preview <= MaxReviewTargetLimit
 }
 
 // ReviewOperation summarizes one active or inactive journal unit.
@@ -63,6 +70,8 @@ type ReviewOperation struct {
 	After          string
 	TaxonomyEffect string
 	Annotation     string
+	// Targets holds an active operation's first ReviewWindow.Preview affected rows.
+	Targets []ReviewTarget
 }
 
 // ReviewTarget is one bounded transaction row affected by a reviewed operation.
@@ -106,18 +115,15 @@ func (service *Service) Review(
 			AppRevisionConflict, snapshot.Revision, errors.New("review revision is stale"),
 		)
 	}
-	if window.Offset < 0 || window.Limit < 0 || window.Limit > MaxReviewTargetLimit {
+	if !window.valid() {
 		return ReviewProjection{}, newAppError(
 			AppInvalidOperation, snapshot.Revision, errors.New("review window is invalid"),
 		)
 	}
-	limit := window.Limit
-	if limit == 0 {
-		limit = DefaultWindowLimit
+	if window.Limit == 0 {
+		window.Limit = DefaultWindowLimit
 	}
-	projection, targets, found, err := buildReviewProjection(
-		snapshot, window.OperationID, window.Offset, limit,
-	)
+	projection, targets, found, err := buildReviewProjection(snapshot, window)
 	if err != nil {
 		return ReviewProjection{}, newAppError(AppStoreCorrupt, snapshot.Revision, err)
 	}
@@ -136,34 +142,54 @@ func (service *Service) Review(
 			break
 		}
 	}
-	projection.Window = Window{Offset: start, Limit: limit, Count: len(targets)}
+	projection.Window = Window{Offset: start, Limit: window.Limit, Count: len(targets)}
 	projection.Targets = targets
 	return projection, nil
 }
 
+// targetSpan selects the affected targets numbered [offset, offset+limit) for one operation.
+type targetSpan struct {
+	offset int
+	limit  int
+}
+
+// reviewSpan picks the targets one operation lists: the requested window for the detail
+// operation, otherwise the preview for an active operation, otherwise none.
+func reviewSpan(operation domain.Operation, active bool, window ReviewWindow) targetSpan {
+	if operation.ID == window.OperationID {
+		return targetSpan{offset: window.Offset, limit: window.Limit}
+	}
+	if active {
+		return targetSpan{limit: window.Preview}
+	}
+	return targetSpan{}
+}
+
 func buildReviewProjection(
 	snapshot EffectiveSnapshot,
-	detailOperationID string,
-	detailOffset int,
-	detailLimit int,
+	window ReviewWindow,
 ) (ReviewProjection, []ReviewTarget, bool, error) {
 	projection := ReviewProjection{
 		Revision: snapshot.Revision, Pending: pendingSummary(snapshot),
 		Operations: make([]ReviewOperation, 0, len(snapshot.Journal)),
 	}
 	var detailTargets []ReviewTarget
-	detailFound := detailOperationID == ""
+	detailFound := window.OperationID == ""
 	state := snapshot.Committed.Clone()
 	for index, operation := range snapshot.Journal {
-		filterSurvivors := index < snapshot.Cursor &&
+		active := index < snapshot.Cursor
+		filterSurvivors := active &&
 			(operation.Type == domain.OperationMerchantLabel || operation.Type == domain.OperationMerchantMerge)
 		affectedCount, affectedWindow := affectedOperationSummary(
 			state, snapshot.Effective, operation, filterSurvivors,
-			operation.ID == detailOperationID, detailOffset, detailLimit,
+			reviewSpan(operation, active, window),
 		)
-		if operation.ID == detailOperationID {
+		var preview []ReviewTarget
+		if operation.ID == window.OperationID {
 			detailFound = true
 			detailTargets = affectedWindow
+		} else if active && window.Preview > 0 {
+			preview = affectedWindow
 		}
 		next, err := ApplyOperation(state, operation)
 		if err != nil {
@@ -174,8 +200,8 @@ func buildReviewProjection(
 		summary := ReviewOperation{
 			OperationID: operation.ID, Sequence: operation.Sequence, Type: operation.Type,
 			Label:  ReviewOperationLabel(operation.Type, hides),
-			Active: index < snapshot.Cursor, AffectedCount: affectedCount,
-			Before: before, After: after, TaxonomyEffect: effect,
+			Active: active, AffectedCount: affectedCount,
+			Before: before, After: after, TaxonomyEffect: effect, Targets: preview,
 		}
 		if filterSurvivors && affectedCount == 0 {
 			summary.Annotation = "affects 0 transactions"
@@ -196,9 +222,7 @@ func affectedOperationSummary(
 	effective domain.CommittedProfile,
 	operation domain.Operation,
 	filterSurvivors bool,
-	includeWindow bool,
-	offset int,
-	limit int,
+	span targetSpan,
 ) (int, []ReviewTarget) {
 	survivors := make(map[domain.EntityID]struct{}, len(effective.Transactions))
 	if filterSurvivors {
@@ -207,19 +231,22 @@ func affectedOperationSummary(
 		}
 	}
 	count := 0
-	ids := make([]domain.EntityID, 0, min(limit, len(before.Transactions)))
+	ids := make([]domain.EntityID, 0, min(span.limit, len(before.Transactions)))
 	visitAffectedByOperation(before, operation, func(id domain.EntityID) bool {
 		if filterSurvivors {
 			if _, exists := survivors[id]; !exists {
 				return true
 			}
 		}
-		if includeWindow && count >= offset && len(ids) < limit {
+		if count >= span.offset && len(ids) < span.limit {
 			ids = append(ids, id)
 		}
 		count++
 		return true
 	})
+	if len(ids) == 0 {
+		return count, nil
+	}
 	return count, reviewTargets(before, ids)
 }
 

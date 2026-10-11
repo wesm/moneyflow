@@ -1,11 +1,10 @@
 <script lang="ts">
   import { Button, Chip } from '@kenn-io/kit-ui'
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right'
-  import { untrack } from 'svelte'
 
   import StagedValue from '../table/StagedValue.svelte'
   import type { components } from '../../lib/api/schema'
-  import type { ReviewController } from '../../lib/controller/review'
+  import { reviewTargetPage, type ReviewController } from '../../lib/controller/review'
   import {
     reviewRowChange,
     type ReviewRowChange,
@@ -19,30 +18,23 @@
   }
 
   let { operation, review }: Props = $props()
-  /** Rows an operation shows before Show all. */
-  const PREVIEW = 20
   const id = $props.id()
   const total = $derived(operation.affected_count)
-  const revision = $derived(review.state.reviewedRevision)
   const targets = $derived(review.targets(operation.operation_id))
+  const remaining = $derived(Math.max(0, total - targets.length))
   const loading = $derived(review.targetsLoading(operation.operation_id))
   let expanded = $state(true)
   let toggle = $state<HTMLButtonElement>()
-
-  $effect(() => {
-    if (!expanded || revision === undefined) return
-    untrack(() => void review.loadTargets(operation.operation_id, Math.min(PREVIEW, total)))
-  })
 
   /** The new value of `field`, when `change` changes it. */
   function after(change: ReviewRowChange | undefined, field: ReviewRowField): string | undefined {
     return change?.field === field ? change.after : undefined
   }
 
-  /** Loads every row. Focus moves to the toggle, as the loading line replaces Show all. */
-  function showAll(): void {
+  /** Loads the next rows. Focus moves to the toggle, as the loading line replaces Show more. */
+  function showMore(): void {
     toggle?.focus()
-    void review.loadTargets(operation.operation_id, total)
+    void review.loadMore(operation.operation_id)
   }
 </script>
 
@@ -108,9 +100,12 @@
       {/if}
       {#if loading}
         <p class="mf-review-op__more mf-quiet">Loading transactions…</p>
-      {:else if targets.length < total}
+      {:else if remaining}
         <p class="mf-review-op__more">
-          <Button size="sm" onclick={showAll}>Show all {total}</Button>
+          <span class="mf-quiet">{transactionCount(remaining)} not shown</span>
+          <Button size="sm" onclick={showMore}
+            >Show {Math.min(reviewTargetPage, remaining)} more</Button
+          >
         </p>
       {/if}
     </div>
@@ -209,6 +204,7 @@
   .mf-review-op__more {
     display: flex;
     align-items: center;
+    gap: var(--space-4);
     min-height: 28px;
     margin: var(--space-4) 0 0;
     font-size: var(--font-size-sm);

@@ -216,8 +216,9 @@ pending changes** as a large drawer. It lists each staged operation as its old a
 the affected count. Each operation starts expanded and lists its first 20 transactions, with each
 transaction's date, merchant, category, and amount in its currency. When the operation changes
 a transaction's merchant, category, or visibility, the row shows that field's old and new value.
-**Show all N** loads the rest of a longer operation. Select an operation's heading to collapse
-or expand it. Enter commits unless focus is on a button or another control with its own Enter.
+A longer operation says how many transactions are not shown, and **Show 400 more** loads up to
+400 more. Select an operation's heading to collapse or expand it. Enter commits unless focus is
+on a button or another control with its own Enter.
 Esc or **Cancel** closes the drawer without committing. For Monarch and YNAB, the same drawer
 becomes write status after the commit starts the provider write.
 

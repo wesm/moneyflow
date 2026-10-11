@@ -28,8 +28,11 @@ export interface ReviewState {
 export interface ReviewController {
   readonly state: ReviewState
   load(): Promise<boolean>
-  /** Loads an operation's affected rows, in order, until `count` have loaded. */
-  loadTargets(operationID: string, count: number): Promise<boolean>
+  /**
+   * Loads an operation's next `reviewTargetPage` affected rows in one request. The review
+   * itself carries each active operation's first rows.
+   */
+  loadMore(operationID: string): Promise<boolean>
   /** The operation's affected rows loaded so far. */
   targets(operationID: string): ReviewTarget[]
   /** True while the operation's rows load. */
@@ -43,8 +46,8 @@ interface ReviewControllerOptions {
   revision(): bigint
 }
 
-/** The server's largest target window. */
-const targetRequestLimit = 400
+/** The server's largest target window: the rows one Show more request adds. */
+export const reviewTargetPage = 400
 const emptyPending: PendingSummary = {
   active_operations: 0,
   inactive_operations: 0,
@@ -96,6 +99,9 @@ export function createReviewController(options: ReviewControllerOptions): Review
       )
       const reviewedRevision = parseRevision(response.revision)
       resetTargets()
+      for (const operation of response.active_operations ?? []) {
+        if (operation.targets?.length) loadedTargets.set(operation.operation_id, operation.targets)
+      }
       setState({
         phase: 'idle',
         reviewedRevision,
@@ -111,35 +117,27 @@ export function createReviewController(options: ReviewControllerOptions): Review
     }
   }
 
-  async function loadTargets(operationID: string, count: number): Promise<boolean> {
+  async function loadMore(operationID: string): Promise<boolean> {
     const revision = state.reviewedRevision
-    if (revision === undefined || !Number.isSafeInteger(count)) return false
-    if (loadingTargets.has(operationID)) return false
+    if (revision === undefined || loadingTargets.has(operationID)) return false
     const started = generation
     loadingTargets.add(operationID)
     setState({ ...state, phase: 'idle', announcement: '' })
     try {
-      let rows = loadedTargets.get(operationID) ?? []
-      while (rows.length < count) {
-        const limit = Math.min(targetRequestLimit, count - rows.length)
-        const body: ReviewTargetsBody = {
-          version: '1',
-          expected_revision: revision.toString(10),
-          operation_id: operationID,
-          window: { offset: rows.length, limit },
-        }
-        const response = await requestProfileJSON<ReviewResponse>(
-          options.transport,
-          'api/v1/review/targets',
-          body,
-        )
-        if (generation !== started) return false
-        const received = response.targets ?? []
-        rows = [...rows, ...received]
-        loadedTargets.set(operationID, rows)
-        notify()
-        if (received.length < limit) break
+      const rows = loadedTargets.get(operationID) ?? []
+      const body: ReviewTargetsBody = {
+        version: '1',
+        expected_revision: revision.toString(10),
+        operation_id: operationID,
+        window: { offset: rows.length, limit: reviewTargetPage },
       }
+      const response = await requestProfileJSON<ReviewResponse>(
+        options.transport,
+        'api/v1/review/targets',
+        body,
+      )
+      if (generation !== started) return false
+      loadedTargets.set(operationID, [...rows, ...(response.targets ?? [])])
       return true
     } catch (error) {
       if (generation === started) fail(error)
@@ -181,7 +179,7 @@ export function createReviewController(options: ReviewControllerOptions): Review
       return state
     },
     load,
-    loadTargets,
+    loadMore,
     targets: (operationID) => {
       subscribe()
       return loadedTargets.get(operationID) ?? []

@@ -31,6 +31,44 @@ func TestReviewRejectsOversizedWindowsAndStaleRevisionWithoutChangingState(t *te
 	assert.Equal(t, before, after)
 }
 
+func TestReviewPreviewAttachesFirstTargetsToEachActiveOperation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	profile.advanceExternally(hideOperation(1, "transaction_a", "transaction_b"))
+	profile.advanceExternally(transactionDeleteOperation(2, "transaction_b"))
+	profile.advanceExternally(hideOperation(3, "transaction_a"))
+	profile.snapshot.Cursor = 2
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+
+	review, err := service.Review(ctx, 8, app.ReviewWindow{Preview: 1})
+	require.NoError(t, err)
+	require.Len(t, review.ActiveOperations, 2)
+	require.Len(t, review.InactiveOperations, 1)
+	targetIDs := func(operation app.ReviewOperation) []domain.EntityID {
+		ids := make([]domain.EntityID, 0, len(operation.Targets))
+		for _, target := range operation.Targets {
+			ids = append(ids, target.TransactionID)
+		}
+		return ids
+	}
+	assert.Equal(t, 2, review.ActiveOperations[0].AffectedCount)
+	assert.Equal(t, []domain.EntityID{"transaction_a"}, targetIDs(review.ActiveOperations[0]))
+	assert.Equal(t, []domain.EntityID{"transaction_b"}, targetIDs(review.ActiveOperations[1]))
+	assert.Empty(t, review.InactiveOperations[0].Targets)
+	assert.Empty(t, review.Targets)
+
+	summary, err := service.Review(ctx, 8, app.ReviewWindow{})
+	require.NoError(t, err)
+	assert.Empty(t, summary.ActiveOperations[0].Targets)
+	_, err = service.Review(ctx, 8, app.ReviewWindow{Preview: app.MaxReviewTargetLimit + 1})
+	assertAppCode(t, err, app.AppInvalidOperation)
+	_, err = service.Review(ctx, 8, app.ReviewWindow{Preview: -1})
+	assertAppCode(t, err, app.AppInvalidOperation)
+}
+
 func TestReviewCategoryManagerCreateHasNoAffectedTransactionTargets(t *testing.T) {
 	t.Parallel()
 
