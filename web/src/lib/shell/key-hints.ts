@@ -43,7 +43,7 @@ const selectionHints: CandidateHint[] = [
   { capability: 'view.back', key: 'Esc', label: 'Clear' },
 ]
 
-/** Chooses the status line's key hints for the current view, at most six. */
+/** Chooses the status line's key hints for the current view. */
 export function keyHints(projection: ViewProjection, overlayOpen: boolean): KeyHint[] {
   if (overlayOpen) return [{ key: 'Esc', label: 'Close' }]
   const available = availableCapabilities(projection)
@@ -55,6 +55,5 @@ export function keyHints(projection: ViewProjection, overlayOpen: boolean): KeyH
   } else if (projection.view.mode === 'detail') candidates = detailHints
   return candidates
     .filter(({ capability }) => available.has(capability))
-    .slice(0, 6)
     .map(({ key, label }) => ({ key, label }))
 }

@@ -112,13 +112,4 @@ describe('keyHints', () => {
       { key: 'Esc', label: 'Close' },
     ])
   })
-
-  it('never returns more than six hints', () => {
-    for (const mode of ['aggregate', 'detail'] as const) {
-      for (const selection_count of [0, 1]) {
-        const hints = keyHints(projection({ view: view(mode), selection_count }), false)
-        expect(hints.length).toBeLessThanOrEqual(6)
-      }
-    }
-  })
 })
