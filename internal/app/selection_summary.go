@@ -8,21 +8,16 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
-// projectionSelectionSummary summarizes what an edit of the selection will change. An explicit
-// set of transaction IDs survives search and filter changes, and an edit targets every one of
-// them, so the summary covers each selected committed transaction, in the view or not. Query
-// and grouped selections resolve against the current view, so the view's rows decide.
+// projectionSelectionSummary summarizes what an edit of the selection will change. A
+// transaction selection keeps the IDs it resolved to, whether listed explicitly or defined by
+// the query that selected all, and an edit targets every one of them. The summary therefore
+// covers each selected committed transaction, in the view or not. Grouped selections are
+// summarized from the view's rows.
 func (service *Service) projectionSelectionSummary(
 	result domain.QueryResult,
-	value SelectionValue,
 	selection SelectionSnapshot,
 ) ([]domain.CurrencyStats, error) {
-	document, err := decodeSelection(value)
-	if err != nil {
-		return nil, err
-	}
-	explicit := document.Base == selectionBaseExplicit
-	if !explicit || selection.Kind != IdentityTransaction {
+	if selection.Kind != IdentityTransaction {
 		return selectionSummary(result)
 	}
 	service.mu.RLock()
