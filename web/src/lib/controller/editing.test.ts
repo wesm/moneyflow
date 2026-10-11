@@ -209,6 +209,51 @@ describe('browser editing controller', () => {
     await expect(first).resolves.toBe(true)
   })
 
+  it('rereads a view that moved on during the request instead of reinstalling the old query', async () => {
+    let release!: (response: Response) => void
+    const response = new Promise<Response>((resolve) => (release = resolve))
+    const host = editingHost(
+      testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' }),
+    )
+    const accept = vi.spyOn(host, 'accept')
+    const controller = createEditingController({
+      transport: { request: vi.fn(async () => await response) },
+      host,
+    })
+
+    const staged = controller.submit({ action: 'transaction.toggle-hidden', input: {} })
+    host.install(testProjection({ revision: '7', canonical_query: 'v=1&period=2026-09' }))
+    release(jsonResponse(mutationResponse('8', 'mfsel1.x' as SelectionValue)))
+
+    await expect(staged).resolves.toBe(true)
+    expect(accept).not.toHaveBeenCalled()
+    expect(host.refresh).toHaveBeenCalledWith(undefined, true)
+    expect(host.current()?.canonical_query).toBe('v=1&period=2026-09')
+    expect(controller.state.revision).toBe(8n)
+  })
+
+  it('reports a staged change whose moved-on view could not be reread', async () => {
+    const host = editingHost(
+      testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' }),
+    )
+    host.refresh = vi.fn(async () => {
+      throw new Error('offline')
+    })
+    const transport: MutationFetch = {
+      request: vi.fn(async () => {
+        host.install(testProjection({ revision: '7', canonical_query: 'v=1&period=2026-09' }))
+        return jsonResponse(mutationResponse('8', 'mfsel1.x' as SelectionValue))
+      }),
+    }
+    const controller = createEditingController({ transport, host })
+
+    await expect(
+      controller.submit({ action: 'transaction.toggle-hidden', input: {} }),
+    ).resolves.toBe(true)
+    expect(controller.state.phase).toBe('idle')
+    expect(controller.state.announcement).toContain('The current view could not be refreshed.')
+  })
+
   it('rejects a mutation when the displayed projection and editing revision differ', async () => {
     const host = editingHost(testProjection({ revision: '3' }))
     const transport = mutationTransport(mutationResponse('4', 'mfsel1.example' as SelectionValue))

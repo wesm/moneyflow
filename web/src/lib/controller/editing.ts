@@ -228,7 +228,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
         canonical_query: body.query,
         selection,
       }
-      options.host.accept(projection)
+      const viewWarning = await show(projection)
       const auditWarning = projection.warnings?.find(
         (warning) => warning.code === 'audit_completion_failed',
       )?.detail
@@ -243,6 +243,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
         announcement: [
           toasted || mutationAnnouncement(successMessage, response.selection.kind),
           auditWarning,
+          viewWarning,
         ]
           .filter(Boolean)
           .join(' '),
@@ -253,6 +254,22 @@ export function createEditingController(options: EditingControllerOptions): Edit
     } catch (error) {
       await handleFailure(error)
       return false
+    }
+  }
+
+  // A view change that finished while the request ran keeps its own query: reread that view at
+  // the new revision rather than reinstall the query the mutation was sent with.
+  async function show(projection: ViewProjection): Promise<string | undefined> {
+    const shown = options.host.current()
+    if (!shown || shown.canonical_query === projection.canonical_query) {
+      options.host.accept(projection)
+      return undefined
+    }
+    try {
+      await options.host.refresh(undefined, true)
+      return undefined
+    } catch {
+      return 'The current view could not be refreshed.'
     }
   }
 
