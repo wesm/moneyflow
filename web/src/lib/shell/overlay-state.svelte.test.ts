@@ -33,13 +33,14 @@ describe('OverlayState', () => {
   })
 
   it('returns focus to a given opener inside the grid, also after a stacked overlay', async () => {
-    const { overlays, host } = setup()
+    const { overlays, host, elsewhere } = setup()
     const actions = document.createElement('button')
     host.grid().append(actions)
     actions.focus()
     overlays.open('actions', actions)
     overlays.open('merchant')
-    host.grid().focus()
+    elsewhere.focus()
+    expect(document.activeElement).toBe(elsewhere)
     overlays.close()
     await afterRestore()
     expect(document.activeElement).toBe(actions)
