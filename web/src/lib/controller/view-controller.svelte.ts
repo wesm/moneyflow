@@ -357,29 +357,30 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const returned = returning ?? late
     returning = undefined
     lateReturn = undefined
-    if (
-      returned &&
-      owned &&
-      returned.sequence === owned.sequence &&
-      !newerThan(returned.projection)
-    ) {
-      await installReturn(returned, owned)
+    const arrived = owned && returned?.sequence === owned.sequence ? returned : undefined
+    if (arrived && owned && !newerThan(arrived.projection)) {
+      await installReturn(arrived, owned)
       return
     }
-    returned?.settle()
+    // Fetch the view instead. When an edit made the returned view stale, use the selection Esc
+    // left, not the older one history saved. Keys wait until the view loads.
     const query = owned?.query ?? currentQuery(browserLocation)
-    const selection = owned?.selection ?? projection?.selection
-    await requestProjection(
-      async () =>
-        ensureVisibleWindow(
-          await options.client.view(
-            viewBody(query, selection, alignedOffset(owned?.cursorIndex ?? 0)),
-            activeRequest?.signal,
+    const selection = arrived?.projection.selection ?? owned?.selection ?? projection?.selection
+    try {
+      await requestProjection(
+        async () =>
+          ensureVisibleWindow(
+            await options.client.view(
+              viewBody(query, selection, alignedOffset(owned?.cursorIndex ?? 0)),
+              activeRequest?.signal,
+            ),
           ),
-        ),
-      (next) => accept(next, 'replace', owned),
-      () => restore(event),
-    )
+        (next) => accept(next, 'replace', owned),
+        () => restore(event),
+      )
+    } finally {
+      returned?.settle()
+    }
   }
 
   async function retry(): Promise<void> {
