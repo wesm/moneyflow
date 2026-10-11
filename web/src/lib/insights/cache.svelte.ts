@@ -5,6 +5,11 @@ import type { InsightsBody, InsightsResponse, InsightsSeries, ViewProjection } f
 import { insightsBodies, insightsQuery, missingRows } from './requests'
 
 const maxEntries = 8
+/**
+ * How long an answer vouches for the server's day. The day can change with no new revision, so
+ * after this long the displayed view asks for its summary again, even when it is cached.
+ */
+const freshMillis = 5 * 60_000
 
 /** Insights for one canonical query at one profile revision. */
 export interface InsightsEntry {
@@ -65,6 +70,8 @@ export class InsightsCache {
   #awaitingView: string | undefined
   #rows: readonly string[] = []
   #today: string | undefined
+  /** When the last answer the cache kept arrived, from `Date.now()`. */
+  #answeredAt = 0
   #notified = -1n
   #disposed = false
 
@@ -182,7 +189,8 @@ export class InsightsCache {
       slot?.series,
       pending.map((flight) => flight.rows),
     )
-    const summary = slot?.response === undefined && !pending.some((flight) => flight.summary)
+    const due = slot?.response === undefined || Date.now() - this.#answeredAt >= freshMillis
+    const summary = due && !pending.some((flight) => flight.summary)
     for (const body of insightsBodies(view.query, missing, summary)) this.#send(view, body)
   }
 
@@ -226,6 +234,7 @@ export class InsightsCache {
     }
     const dayChanged = this.#today !== undefined && response.today !== this.#today
     this.#today = response.today
+    this.#answeredAt = Date.now()
     if (dayChanged) this.#clear()
     this.#store(flight.query, response)
     const newer = revision > requested

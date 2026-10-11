@@ -77,8 +77,18 @@
   })
 
   $effect(() => {
-    if (charting) cache.sync(projection, seriesRows(projection, controller.neighbors))
+    syncInsights()
   })
+
+  /** Syncs the charts' insights; an old answer makes the cache check the server's day again. */
+  function syncInsights(): void {
+    if (charting) cache.sync(projection, seriesRows(projection, controller.neighbors))
+  }
+
+  /** A tab in the background overnight has no new revision, so coming back syncs on its own. */
+  function foreground(): void {
+    if (document.visibilityState === 'visible') syncInsights()
+  }
 
   function insightsCache(owner: ViewController): InsightsCache {
     return new InsightsCache(
@@ -124,6 +134,9 @@
     actions.focusGrid()
   }
 </script>
+
+<svelte:window onfocus={syncInsights} />
+<svelte:document onvisibilitychange={foreground} />
 
 <!-- The workspace's one scroll surface; the table header sticks to its top. -->
 <div
