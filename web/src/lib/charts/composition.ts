@@ -25,7 +25,7 @@ export interface CompositionBar {
   length: number
   /** Folds the rows below the top seven, so it stands for no single row. */
   others: boolean
-  /** The accessible name: `{label}, {share}%, {net}`. */
+  /** The accessible name: `{label}, {share}, {net}`, such as `Rent, 40.0%, -2,000.00`. */
   name: string
 }
 

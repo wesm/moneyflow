@@ -8,9 +8,11 @@
     entry: InsightsEntry
     /** The cursor row's period; its category-group shares show. */
     period?: InsightsResponse['ranges']['context'][number]['period'] | undefined
+    /** Esc leaves the panel for the table. */
+    onleave?: (() => void) | undefined
   }
 
-  let { entry, period }: Props = $props()
+  let { entry, period, onleave }: Props = $props()
   // Every period's shares arrived with the summary, so the cursor never waits for them.
   const share = $derived(periodShare(entry.response, period))
 </script>
@@ -20,5 +22,6 @@
     title={`${share.label} by group`}
     composition={share.composition}
     scale={entry.response.scale}
+    {onleave}
   />
 {/if}

@@ -116,7 +116,7 @@
       {#if summary?.calendar}
         <CalendarHeatmap {entry} {cursorDate} {onperiod} {onleave} />
       {:else if summary?.period_composition}
-        <PeriodComposition {entry} period={cursorRow?.period} />
+        <PeriodComposition {entry} period={cursorRow?.period} {onleave} />
       {:else if summary?.composition}
         <CompositionPanel
           title="Where it went"
