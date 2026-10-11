@@ -4,6 +4,7 @@
   import BottomSheet from './BottomSheet.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import { breakDownOptions } from '../../lib/shell/breadcrumbs'
+  import { currencyChoices } from '../../lib/shell/period'
 
   interface Props {
     open: boolean
@@ -17,7 +18,7 @@
   }
 
   let { open, onclose, projection, period, currency, filters, breakdown }: Props = $props()
-  const multiCurrency = $derived(projection.currencies.length > 1)
+  const multiCurrency = $derived(currencyChoices(projection).length > 1)
   const drilled = $derived(breakDownOptions(projection).length > 0)
 </script>
 

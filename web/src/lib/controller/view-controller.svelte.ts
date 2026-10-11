@@ -148,6 +148,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let showing: ShowRequest | undefined
   // Prefetch fills the cache without changing the projection; this tells the table to redraw.
   let cacheChanges = $state(0)
+  let applyTail: Promise<void> = Promise.resolve()
   const prefetchRequests = new SvelteMap<string, AbortController>()
 
   const providerWrite = createProviderWriteController({
@@ -262,9 +263,18 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return await recheckRequest
   }
 
+  // Each transition starts from the view the one before it returned, whichever control sent
+  // it, so rapid clicks step one at a time instead of aborting each other.
   async function apply(action: TransitionAction): Promise<boolean> {
-    await barrier
-    return await transitionNow(action)
+    const result = applyTail.then(async () => {
+      await barrier
+      return await transitionNow(action)
+    })
+    applyTail = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return await result
   }
 
   async function transitionNow(
@@ -364,29 +374,30 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const returned = returning ?? late
     returning = undefined
     lateReturn = undefined
-    if (
-      returned &&
-      owned &&
-      returned.sequence === owned.sequence &&
-      !newerThan(returned.projection)
-    ) {
-      await installReturn(returned, owned)
+    const arrived = owned && returned?.sequence === owned.sequence ? returned : undefined
+    if (arrived && owned && !newerThan(arrived.projection)) {
+      await installReturn(arrived, owned)
       return
     }
-    returned?.settle()
+    // Fetch the view instead. When an edit made the returned view stale, use the selection Esc
+    // left, not the older one history saved. Keys wait until the view loads.
     const query = owned?.query ?? currentQuery(browserLocation)
-    const selection = owned?.selection ?? projection?.selection
-    await requestProjection(
-      async () =>
-        ensureVisibleWindow(
-          await options.client.view(
-            viewBody(query, selection, alignedOffset(owned?.cursorIndex ?? 0)),
-            activeRequest?.signal,
+    const selection = arrived?.projection.selection ?? owned?.selection ?? projection?.selection
+    try {
+      await requestProjection(
+        async () =>
+          ensureVisibleWindow(
+            await options.client.view(
+              viewBody(query, selection, alignedOffset(owned?.cursorIndex ?? 0)),
+              activeRequest?.signal,
+            ),
           ),
-        ),
-      (next) => accept(next, 'replace', owned),
-      () => restore(event),
-    )
+        (next) => accept(next, 'replace', owned),
+        () => restore(event),
+      )
+    } finally {
+      returned?.settle()
+    }
   }
 
   async function retry(): Promise<void> {

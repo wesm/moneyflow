@@ -165,6 +165,37 @@ describe('browser view controller', () => {
     }
   })
 
+  it('runs each transition from the view the one before it returned', async () => {
+    const releases: Array<() => void> = []
+    const client = clientWith({
+      transition: vi.fn(
+        (body) =>
+          new Promise<ViewProjection>((resolve) =>
+            releases.push(() => resolve(projection(`${body.query}&p`, 0, 3))),
+          ),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    const first = controller.apply({ action: 'time.previous-period' })
+    const second = controller.apply({ action: 'time.previous-period' })
+    await vi.waitFor(() => expect(releases).toHaveLength(1), { interval: 1 })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(client.transition).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(client.transition).mock.calls[0]?.[1]?.aborted).toBe(false)
+    releases[0]?.()
+    await vi.waitFor(() => expect(releases).toHaveLength(2), { interval: 1 })
+    releases[1]?.()
+    await Promise.all([first, second])
+
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: 'v=1&p', action: 'time.previous-period' }),
+      expect.any(AbortSignal),
+    )
+    expect(controller.projection?.canonical_query).toBe('v=1&p&p')
+  })
+
   it('uses verified owned history for Esc and replaces with the server parent otherwise', async () => {
     const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
     const controller = controllerFor(
@@ -366,11 +397,15 @@ describe('browser view controller', () => {
   })
 
   describe('an edit that lands between Esc and its history traversal', () => {
+    const cleared = 'mfsel1.cleared' as SelectionValue
+
     async function editDuringReturn() {
       const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
       const client = clientWith({
         transition: vi.fn(async (body) =>
-          projection(body.action === 'view.back' ? 'v=1' : 'v=1&drill=x', 0, 3),
+          body.action === 'view.back'
+            ? projection('v=1', 0, 3, '0', cleared)
+            : projection('v=1&drill=x', 0, 3),
         ),
       })
       const controller = controllerFor(client, false)
@@ -401,6 +436,41 @@ describe('browser view controller', () => {
       )
       expect(controller.projection?.canonical_query).toBe('v=1')
       expect(controller.projection?.revision).toBe('1')
+    })
+
+    it('fetches the parent with the selection Esc left, not the one history saved', async () => {
+      const { client, controller, parent, back } = await editDuringReturn()
+      expect(parent.selection).not.toBe(cleared)
+
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+      await back
+
+      expect(client.view).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'v=1', selection: cleared }),
+        expect.any(AbortSignal),
+      )
+    })
+
+    it('holds a key pressed during the parent fetch until the parent loads', async () => {
+      const { client, controller, parent, back } = await editDuringReturn()
+      let release!: (value: ViewProjection) => void
+      vi.mocked(client.view).mockImplementationOnce(
+        () => new Promise<ViewProjection>((resolve) => (release = resolve)),
+      )
+      vi.mocked(client.transition).mockClear()
+
+      const restoring = controller.restore(new PopStateEvent('popstate', { state: parent }))
+      const key = controller.apply({ action: 'view.drill' })
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      expect(client.transition).not.toHaveBeenCalled()
+      expect(vi.mocked(client.view).mock.calls.at(-1)?.[1]?.aborted).toBe(false)
+      release(projection('v=1', 0, 3, '1'))
+      await Promise.all([restoring, back, key])
+      expect(client.transition).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'v=1', action: 'view.drill' }),
+        expect.any(AbortSignal),
+      )
     })
 
     it('keeps the edited view when the traversal times out', async () => {

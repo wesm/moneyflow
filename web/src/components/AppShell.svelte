@@ -30,7 +30,7 @@
     pressedRow,
     type LocalActionContext,
   } from '../lib/shell/local-actions'
-  import { SIDEBAR_FULL_QUERY } from '../lib/shell/layout'
+  import { SIDEBAR_FULL_QUERY, inSearch } from '../lib/shell/layout'
   import type { NavRun } from '../lib/shell/nav-items'
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
@@ -103,9 +103,9 @@
     await controller.apply(request)
     focusGrid()
   }
-  function focusGrid(): void {
-    // A table request can finish after the user has opened a dialog.
-    if (overlays.current !== undefined || charts.dialogOpen) return
+  function focusGrid(fromSearch = false): void {
+    // A request can finish after the user has opened a dialog or moved into search.
+    if (overlays.current !== undefined || charts.dialogOpen || (!fromSearch && inSearch())) return
     grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
   }
   $effect(() => {
@@ -206,7 +206,7 @@
             {overlays}
             {charts}
             compact={compact.current}
-            onfocusgrid={focusGrid}
+            onfocusgrid={() => focusGrid(true)}
           />
           <main
             class="app-shell__main"
