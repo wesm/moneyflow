@@ -46,6 +46,15 @@ type WebOptions struct {
 // another server already holds the stable profile port.
 const demoListen = "127.0.0.1:0"
 
+// webListenAddress keeps the requested address when it matters: an explicit --listen, or a
+// proxy configured through --external-url, which must target a fixed port.
+func webListenAddress(command *cobra.Command, options WebOptions, demo bool) string {
+	if demo && !command.Flags().Changed("listen") && options.ExternalURL == "" {
+		return demoListen
+	}
+	return options.Listen
+}
+
 func newWebCommand(streams IOStreams) *cobra.Command {
 	options := WebOptions{Listen: "127.0.0.1:8080", BasePath: "/", Open: true}
 	var demo bool
@@ -67,9 +76,7 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 			if _, err = api.ResolveOrigin(options.Listen, options.BasePath, options.ExternalURL); err != nil {
 				return fmt.Errorf("start web: %w", err)
 			}
-			if demo && !command.Flags().Changed("listen") {
-				options.Listen = demoListen
-			}
+			options.Listen = webListenAddress(command, options, demo)
 			builder := streams.BuildWeb
 			if builder == nil {
 				builder = buildWebDependencies
@@ -98,7 +105,7 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&options.Listen, "listen", options.Listen,
-		"explicit host and port; --demo picks a free 127.0.0.1 port")
+		"explicit host and port; --demo without --external-url picks a free 127.0.0.1 port")
 	command.Flags().StringVar(&options.BasePath, "base-path", options.BasePath, "URL mount path")
 	command.Flags().StringVar(&options.ExternalURL, "external-url", "", "canonical browser URL through a trusted proxy")
 	command.Flags().BoolVar(&options.Open, "open", options.Open, "open the application in a browser")

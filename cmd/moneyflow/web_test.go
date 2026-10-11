@@ -276,6 +276,11 @@ func TestWebCommandListenAddress(t *testing.T) {
 		{"profiles keep the stable default", nil, "127.0.0.1:8080"},
 		{"explicit listen wins for a demo", []string{"--demo", "--listen", "localhost:9191"}, "localhost:9191"},
 		{"explicit listen wins for profiles", []string{"--listen", "localhost:9191"}, "localhost:9191"},
+		{
+			"a proxied demo keeps the stable default",
+			[]string{"--demo", "--external-url", "https://moneyflow.example/"},
+			"127.0.0.1:8080",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
