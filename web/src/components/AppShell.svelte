@@ -44,7 +44,7 @@
   let grid = $state<HTMLElement | undefined>()
   let commandBar = $state<ShellCommandBar>()
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
-  let transitionTail: Promise<void> = Promise.resolve()
+  let transitionTail: Promise<unknown> = Promise.resolve()
   const projection = $derived(controller.projection)
   const compact = new MediaQuery(MEDIA.compact)
   const fullSidebar = new MediaQuery(SIDEBAR_FULL_QUERY)
@@ -61,7 +61,7 @@
       return controller
     },
     overlays,
-    afterTransitions: () => transitionTail,
+    queue,
     focusGrid,
     importAmazon: () => onamazonimport?.(),
     focusSearch: () => void commandBar?.focusSearch(),
@@ -90,9 +90,9 @@
    * Runs view transitions one at a time, so each starts from the result of the last. Queuing
    * one is the user's next action, so it clears the notice now, not when the transition runs.
    */
-  function queue(work: () => Promise<void>): void {
+  function queue(work: () => unknown): Promise<unknown> {
     status.clear()
-    transitionTail = transitionTail.then(work, work)
+    return (transitionTail = transitionTail.then(work, work))
   }
   /** Space toggles the row the cursor is on when pressed, not when its turn comes. */
   function queueApply(action: string, dimension?: Dimension): void {
