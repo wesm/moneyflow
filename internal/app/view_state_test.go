@@ -160,7 +160,7 @@ func TestRootViewMatchesBackToTheTopLevel(t *testing.T) {
 
 	for _, test := range rootViewCases(t, service) {
 		t.Run(test.name, func(t *testing.T) {
-			root, err := service.RootView(test.state)
+			root, err := service.rootView(test.state, service.Currencies())
 			require.NoError(t, err)
 			assert.Equal(t, test.want, root)
 
