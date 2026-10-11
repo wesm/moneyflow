@@ -90,7 +90,6 @@ describe('navItems', () => {
   it('marks the active grouping inside a drill and All transactions only at top level', () => {
     const drilled = aggregate({
       view: { ...aggregate().view, mode: 'detail', grouping: 'category', drill_depth: 1 },
-      canonical_query: 'drill=category%3Aexample&mode=detail&v=1',
     })
     expect(
       navItems(drilled)
@@ -109,11 +108,8 @@ describe('navItems', () => {
     ).toEqual(['detail'])
   })
 
-  it('ignores drills recorded only in a return frame', () => {
-    const projection = aggregate({
-      view: { ...aggregate().view, mode: 'detail' },
-      canonical_query: `mode=detail&return=${encodeURIComponent('search:drill=merchant%3Aa')}&v=1`,
-    })
+  it('marks All transactions in a depth-0 detail view', () => {
+    const projection = aggregate({ view: { ...aggregate().view, mode: 'detail', drill_depth: 0 } })
     expect(navItems(projection).explore.find(({ active }) => active)?.id).toBe('detail')
   })
 

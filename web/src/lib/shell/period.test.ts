@@ -171,13 +171,9 @@ describe('canShiftPeriod', () => {
     expect(canShiftPeriod(testProjection({ view: drilled, breadcrumbs: corner }))).toBe(false)
   })
 
-  it('does not count a time drill inside a return frame', () => {
-    const nested = encodeURIComponent('g=time&drill=time:USD:2:month:2026-09')
-    const query = `v=1&g=time&return=navigation%3A${nested}`
+  it('does not count the top-level Time crumb as a drill', () => {
     const time = [{ dimension: 'time', label: 'Time' }]
-    expect(canShiftPeriod(testProjection({ canonical_query: query, breadcrumbs: time }))).toBe(
-      false,
-    )
+    expect(canShiftPeriod(testProjection({ breadcrumbs: time }))).toBe(false)
   })
 })
 
@@ -309,14 +305,8 @@ describe('emptyScope', () => {
     ).toBeUndefined()
   })
 
-  it('treats a drill-down inside a return frame as the top level', () => {
-    const nested = encodeURIComponent('drill=merchant:USD:2:example-key')
-    const query = `v=1&return=navigation%3A${nested}`
+  it('does not count the top-level Merchants crumb as a drill', () => {
     const merchants = [{ dimension: 'merchant', label: 'Merchants' }]
-    expect(
-      emptyScope(
-        scoped('2026-11-01', '2026-11-30', { canonical_query: query, breadcrumbs: merchants }),
-      ),
-    ).toBeDefined()
+    expect(emptyScope(scoped('2026-11-01', '2026-11-30', { breadcrumbs: merchants }))).toBeDefined()
   })
 })

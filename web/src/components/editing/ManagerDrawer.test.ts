@@ -177,7 +177,7 @@ describe('ManagerDrawer', () => {
     expect(screen.getByRole('heading', { name: 'Merge Example Category into' })).not.toBeNull()
   })
 
-  it("keeps a step the server refuses as a name collision open with the server's reason", async () => {
+  it("keeps a step open with the server's reason on a name collision", async () => {
     // The client pre-check passes this name, so the refusal stands in for one only the server sees.
     const transport: MutationFetch = {
       request: vi.fn(async (path: string) =>

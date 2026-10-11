@@ -74,7 +74,7 @@ describe('AnchoredEditor', () => {
     expect(dialog.isConnected).toBe(true)
   })
 
-  it('leaves focus on the remounted field when the editor moves to the sheet and back', async () => {
+  it('keeps focus on the field when the editor moves to the sheet and back', async () => {
     const opener = document.createElement('button')
     document.body.append(opener)
     opener.focus()

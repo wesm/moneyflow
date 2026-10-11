@@ -26,6 +26,7 @@ test('SimpleFIN imports through TLS and persists local merchant edits', async ({
     await page.keyboard.press('m')
     const merchant = page.getByRole('combobox', { name: 'Merchant' })
     await merchant.fill('Local Merchant')
+    await expect(page.getByRole('option', { name: 'Create "Local Merchant"' })).toBeVisible()
     await merchant.press('Enter')
     await expect(page.getByRole('button', { name: /^Stage change to / })).toBeEnabled()
     await merchant.press('Enter')

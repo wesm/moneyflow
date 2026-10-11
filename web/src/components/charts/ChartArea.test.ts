@@ -362,7 +362,7 @@ describe('ChartArea', () => {
     expect(calls).toHaveLength(1)
   })
 
-  it('leaves the Time grouping’s panel for the table on Esc, as the other charts do', async () => {
+  it('returns from the Time grouping’s panel to the table on Esc', async () => {
     const { projection, cache } = await timeGrouping()
     const onleave = vi.fn()
     render(ChartArea, { projection, cache, chartsOn: true, ...interaction, onleave })
