@@ -194,6 +194,27 @@ func TestGetInsightsAppliesEveryIDFilterInOrder(t *testing.T) {
 	}
 }
 
+func TestGetInsightsReturnsZerosForUnknownIDs(t *testing.T) {
+	service := insightsTestService(t)
+	client, cleanup := connectReadTestServer(t, service)
+	defer cleanup()
+
+	for _, filter := range []string{"merchant_id", "category_id", "group_id", "account_id"} {
+		t.Run(filter, func(t *testing.T) {
+			result := callInsights(t, client, map[string]any{
+				"start_date": "2026-08-01", "end_date": "2026-08-31",
+				filter: "does_not_exist",
+			})
+
+			require.False(t, result.IsError, "%v", result.StructuredContent)
+			scope := insightsScope(t, result)
+			assert.Equal(t, usd("0.00", "0"), scope["in"])
+			assert.Equal(t, usd("0.00", "0"), scope["out"])
+			assert.Equal(t, float64(0), scope["count"])
+		})
+	}
+}
+
 func TestGetInsightsSearchesWithTheViewRegularExpression(t *testing.T) {
 	service := insightsTestService(t)
 	client, cleanup := connectReadTestServer(t, service)
