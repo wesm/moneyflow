@@ -428,6 +428,22 @@ test('a composition bar click moves the cursor, and a double-click drills', asyn
   )
 })
 
+test('the composition list moves with arrows and drills with Enter', async ({ page, server }) => {
+  await openMoneyflow(page, server, september)
+  const bars = whereItWent(page).getByRole('button')
+  // The list is one Tab stop, reached from the table going back; it starts on the cursor's bar.
+  await page.keyboard.press('Shift+Tab')
+  await expect(bars.first()).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(bars.nth(1)).toBeFocused()
+  await expect(bars.nth(1)).toHaveAccessibleName(/^Online Megastore, /)
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/[?&]drill=merchant/)
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(
+    'Online Megastore',
+  )
+})
+
 test('the Time grouping shows the cursor day’s groups as the cursor moves', async ({
   page,
   server,
