@@ -42,6 +42,7 @@ describe('WorkspaceBody', () => {
       controller,
       overlays: new OverlayState({ ...host, focusGrid: () => undefined, grid: () => undefined }),
       afterTransitions: async () => undefined,
+      queue: (work) => work(),
       focusGrid: () => undefined,
       importAmazon: () => undefined,
       focusSearch: () => undefined,

@@ -49,6 +49,7 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
     controller,
     overlays,
     afterTransitions: () => Promise.resolve(),
+    queue: (work) => work(),
     focusGrid: vi.fn(),
     importAmazon: vi.fn(),
     focusSearch: vi.fn(),
@@ -94,6 +95,13 @@ describe('editor actions', () => {
       input: {},
       target,
     })
+  })
+
+  it('still opens the editor after a queued newer-insights recheck fails', async () => {
+    const { context, overlays } = setup(1)
+    context.afterTransitions = () => Promise.reject(new Error('offline'))
+    localActions(context)['edit.merchant']()
+    await vi.waitFor(() => expect(overlays.current).toBe('merchant'))
   })
 
   it('opens the editor for a pointed row instead of the cursor row', () => {

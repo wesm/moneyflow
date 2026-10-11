@@ -21,6 +21,11 @@ export interface LocalActionContext {
    * leave: the selection a quick Space made and the row the cursor moved to.
    */
   afterTransitions(): Promise<void>
+  /**
+   * Runs `work` after the queued view transitions, so it starts from the result of the last and
+   * no later transition aborts it. Settles as `work` does.
+   */
+  queue(work: () => Promise<void>): Promise<void>
   /** Returns focus to the table unless a dialog is open. */
   focusGrid(): void
   /** Opens Amazon order import, which the app shell owns. */
@@ -53,10 +58,12 @@ export function moveCursor(move: () => Promise<void>): Promise<void> {
 
 /** Runs `work` after queued view transitions, once the shell has drawn their result. */
 function whenSettled(context: LocalActionContext, work: () => unknown): void {
-  void context.afterTransitions().then(async () => {
+  const run = async () => {
     await tick()
     await work()
-  })
+  }
+  // It runs after a queued recheck that failed, too.
+  void context.afterTransitions().then(run, run)
 }
 
 /** Opens the information drawer for a transaction once the server returns its details. */

@@ -55,6 +55,7 @@
     },
     overlays,
     afterTransitions: () => transitionTail,
+    queue: (work) => (transitionTail = transitionTail.then(work, work)),
     focusGrid,
     importAmazon: () => onamazonimport?.(),
     focusSearch: () => void commandBar?.focusSearch(),
@@ -79,13 +80,10 @@
     overlays.close('keep')
     void tick().then(work)
   }
-  /**
-   * Runs view transitions one at a time, so each starts from the result of the last. Queuing
-   * one is the user's next action, so it clears the notice now, not when the transition runs.
-   */
+  /** Queuing a transition is the user's next action, so it clears the notice now. */
   function queue(work: () => Promise<void>): void {
     status.clear()
-    transitionTail = transitionTail.then(work, work)
+    void actions.queue(work)
   }
   /** Space toggles the row the cursor is on when pressed, not when its turn comes. */
   function queueApply(action: string, dimension?: Dimension): void {

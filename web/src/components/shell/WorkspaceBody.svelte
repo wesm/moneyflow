@@ -83,7 +83,7 @@
   function insightsCache(owner: ViewController): InsightsCache {
     return new InsightsCache(
       (body, signal) => owner.insights(body, signal),
-      (revision) => owner.recheckNewer(revision),
+      (revision) => actions.queue(() => owner.recheckNewer(revision)),
     )
   }
 
@@ -92,7 +92,12 @@
   }
 
   function onrow(identity: string): void {
-    void moveCursor(() => moveToRow(controller, projection, identity))
+    // The row is found in the projection the queued transitions leave.
+    void moveCursor(() =>
+      actions.queue(async () => {
+        if (controller.projection) await moveToRow(controller, controller.projection, identity)
+      }),
+    )
   }
 
   function ondrill(identity: string): void {
