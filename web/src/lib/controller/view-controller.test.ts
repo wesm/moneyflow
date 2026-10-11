@@ -574,7 +574,7 @@ describe('browser view controller', () => {
     expect((history.state as MoneyflowHistoryState).sequence).toBe(state.sequence)
   })
 
-  it('refetches the last valid window after a narrowing transition empties the old offset', async () => {
+  it('refetches the last valid window when Back returns to an offset past the parent’s rows', async () => {
     history.replaceState(
       {
         owner: 'moneyflow-web-v1',
@@ -591,18 +591,22 @@ describe('browser view controller', () => {
       view: vi.fn(async (body) =>
         projection(body.query, body.window.offset, body.query === 'v=1' ? 450 : 1),
       ),
-      transition: vi.fn(async (body) => projection('q=narrow&v=1', body.window.offset, 1)),
+      transition: vi.fn(async (body) => projection('group=category&v=1', body.window.offset, 1)),
     })
     const controller = controllerFor(client, false)
     await controller.hydrate()
     expect(controller.cursorIndex).toBe(400)
 
-    await controller.apply({ action: 'search.apply', search: 'narrow' })
+    await controller.apply({ action: 'view.back' })
 
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ window: { offset: 400, limit: 200 } }),
+      expect.any(AbortSignal),
+    )
     expect(controller.projection?.window.offset).toBe(0)
     expect(controller.cursorIndex).toBe(0)
     expect(client.view).toHaveBeenLastCalledWith(
-      expect.objectContaining({ query: 'q=narrow&v=1', window: { offset: 0, limit: 200 } }),
+      expect.objectContaining({ query: 'group=category&v=1', window: { offset: 0, limit: 200 } }),
       expect.any(AbortSignal),
     )
   })
@@ -1264,6 +1268,85 @@ describe('browser view controller', () => {
 
     expect(controller.problem).toEqual({ kind: 'invalid-view', code: 'invalid_view_state' })
     expect(controller.announcement).not.toContain('raw URL')
+  })
+
+  describe('the cursor after a transition', () => {
+    /** The result laid out again, with each row two places above where it was. */
+    function relaid(query: string, offset: number): ViewProjection {
+      const next = projection(query, offset, 450)
+      next.detail_rows = next.detail_rows!.map((row) => ({
+        ...row,
+        identity: `row-${row.index + 2}`,
+      }))
+      return next
+    }
+
+    async function cursorOnRow230() {
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+        transition: vi.fn(async (body) => relaid(`v=1&after=${body.action}`, body.window.offset)),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      await controller.moveCursorTo(230)
+      expect(controller.cursorIdentity).toBe('row-230')
+      return { client, controller }
+    }
+
+    const rowsChange = [
+      { action: 'time.set-period', period: { start: '2026-09-01', end: '2026-09-30' } },
+      { action: 'time.previous-period' },
+      { action: 'time.next-period' },
+      { action: 'time.clear-period' },
+      { action: 'view.drill', target: { identity: 'row-230', kind: 'aggregate' } },
+      { action: 'view.set-grouping', dimension: 'category' },
+      { action: 'view.cycle-grouping' },
+      { action: 'view.set-subgrouping', dimension: 'account' },
+      { action: 'view.show-detail' },
+      { action: 'view.switch-accounts' },
+      { action: 'view.set-currency', currency: { currency: 'EUR', scale: 2 } },
+      { action: 'search.apply', search: 'coffee' },
+      { action: 'filters.apply', filters: { show_hidden: true, show_transfers: false } },
+    ] as const
+
+    it.each(rowsChange)(
+      'starts on the first row after $action, as the TUI does',
+      async (request) => {
+        const { client, controller } = await cursorOnRow230()
+
+        await controller.apply(request)
+
+        expect(controller.cursorIndex).toBe(0)
+        expect(controller.cursorIdentity).toBe('row-2')
+        expect(client.transition).toHaveBeenLastCalledWith(
+          expect.objectContaining({ window: { offset: 0, limit: 200 } }),
+          expect.any(AbortSignal),
+        )
+      },
+    )
+
+    it('starts a search preview on the first row', async () => {
+      const { controller } = await cursorOnRow230()
+      controller.beginSearch()
+
+      await expect(controller.previewSearch('coffee')).resolves.toBe('applied')
+
+      expect(controller.cursorIndex).toBe(0)
+    })
+
+    it.each([
+      { action: 'sort.set', sort_field: 'amount' },
+      { action: 'sort.cycle' },
+      { action: 'sort.reverse' },
+      { action: 'selection.toggle', target: { identity: 'row-230', kind: 'transaction' } },
+    ] as const)('keeps the cursor on its row after $action', async (request) => {
+      const { controller } = await cursorOnRow230()
+
+      await controller.apply(request)
+
+      expect(controller.cursorIdentity).toBe('row-230')
+      expect(controller.cursorIndex).toBe(228)
+    })
   })
 
   it('deduplicates passive revision checks and preserves stable cursor without history writes', async () => {

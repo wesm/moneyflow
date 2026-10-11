@@ -19,7 +19,7 @@ import type { SearchPreview } from './search'
 import { createProviderController, type ProviderController } from './provider'
 import { createProviderWriteController, type ProviderWriteController } from './provider-write'
 import { createReviewController, type ReviewController } from './review'
-import { preserveCursor, WindowCache } from './windows'
+import { preserveCursor, startsAtFirstRow, WindowCache } from './windows'
 
 const windowSize = 200
 
@@ -286,11 +286,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     if (!projection) return false
     lateReturn = undefined
     const prior = projection
+    const fromTop = startsAtFirstRow(action.action)
     const body: TransitionBody = {
       query: prior.canonical_query,
       selection: prior.selection,
       action: action.action,
-      window: { offset: alignedOffset(cursorIndex), limit: windowSize },
+      window: { offset: fromTop ? 0 : alignedOffset(cursorIndex), limit: windowSize },
       ...(action.target === undefined ? {} : { target: action.target }),
       ...(action.search === undefined ? {} : { search: action.search }),
       ...(action.filters === undefined ? {} : { filters: action.filters }),
@@ -310,6 +311,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
             return
           }
           const selectionOnly = action.action.startsWith('selection.')
+          if (fromTop) moveToFirstRow()
           accept(next, historyMode ?? (selectionOnly ? 'replace' : 'push'))
         },
         async () => {
@@ -452,12 +454,13 @@ export function createViewController(options: ViewControllerOptions): ViewContro
               selection,
               action: 'search.apply',
               search,
-              window: { offset: alignedOffset(cursorIndex), limit: windowSize },
+              window: { offset: 0, limit: windowSize },
             },
             activeRequest?.signal,
           ),
         ),
       (next) => {
+        moveToFirstRow()
         accept(next, 'replace')
         accepted = true
       },
@@ -712,6 +715,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     if (replaceHistory) replaceOwnedHistory()
     schedulePrefetch(next)
     return true
+  }
+
+  /** Forgets the cursor's row, so the projection accepted next puts the cursor on its first row. */
+  function moveToFirstRow(): void {
+    cursorIdentity = undefined
+    cursorIndex = 0
   }
 
   function setProjectionWindow(next: ViewProjection, requestedIndex: number): void {
