@@ -23,15 +23,6 @@ export function profileApplicationPath(basePath: string, profileID: string): str
   return `${normalizeBrowserBasePath(basePath)}p/${profileID}/`
 }
 
-export function profileAPIBase(basePath: string, profileID: string): string {
-  assertProfileID(profileID)
-  return `${normalizeBrowserBasePath(basePath)}api/v1/profiles/${profileID}/`
-}
-
-export function assetBase(basePath: string): string {
-  return normalizeBrowserBasePath(basePath)
-}
-
 function assertProfileID(profileID: string): void {
   if (!profileIDPattern.test(profileID)) invalidRoute()
 }
