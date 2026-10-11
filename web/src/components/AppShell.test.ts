@@ -406,6 +406,21 @@ describe('AppShell', () => {
     expect(document.activeElement).toBe(view)
   })
 
+  it('keeps the currency row in the View sheet when the view currency has no rows left', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const usd = { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' }
+    const controller = stubController(
+      testProjection({
+        currencies: [usd],
+        view: { ...testProjection().view, currency: { currency: 'EUR', scale: 2 } },
+      }),
+    )
+    render(AppShell, { controller })
+    await fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'View' }))
+    const sheet = screen.getByRole('dialog', { name: 'View' })
+    expect(within(sheet).getByRole('combobox', { name: 'Currency: EUR' })).not.toBeNull()
+  })
+
   it('opens the Filters menu inside the View sheet on f below 640 px', async () => {
     onTestFinished(stubMedia((query) => query.includes('640px')))
     render(AppShell, { controller: stubController() })
