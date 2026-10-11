@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import ProviderStatus from './ProviderStatus.svelte'
-import { stubProvider, testProviderStatus } from '../test/provider'
+import { providerCapability, stubProvider, testProviderStatus } from '../test/provider'
 
 describe('ProviderStatus', () => {
   afterEach(() => {
@@ -14,7 +14,56 @@ describe('ProviderStatus', () => {
     render(ProviderStatus, { controller: stubProvider(false) })
     const button = screen.getByRole('button', { name: 'Refresh provider data' })
     expect(button.hasAttribute('disabled')).toBe(true)
-    expect(screen.getByText('Connect a provider before refreshing.')).not.toBeNull()
+    expectVisible('Connect a provider before refreshing.')
+  })
+
+  it('shows why a write in progress disables refresh', () => {
+    const controller = stubProvider(true, {
+      capability: providerCapability(false, 'Finish the provider write before refreshing.'),
+    })
+    render(ProviderStatus, { controller })
+    expect(screen.getByRole('button', { name: 'Refresh provider data' })).toHaveProperty(
+      'disabled',
+      true,
+    )
+    expectVisible('Finish the provider write before refreshing.')
+  })
+
+  it('shows that another process is refreshing', () => {
+    const controller = stubProvider(true, {
+      phase: 'refreshing',
+      status: testProviderStatus({
+        code: 'provider_refresh_in_progress',
+        code_detail: 'Another process is refreshing this profile.',
+      }),
+    })
+    render(ProviderStatus, { controller })
+    expectVisible('Another process is refreshing this profile.')
+  })
+
+  it('shows a refresh failure next to the button', () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-11T12:00:00Z') })
+    const controller = stubProvider(true, {
+      phase: 'failed',
+      announcement: 'Last refresh failed: The provider is temporarily unavailable.',
+      status: testProviderStatus({ last_success: '2026-10-03T12:00:00Z' }),
+    })
+    render(ProviderStatus, { controller })
+    expectVisible('Last refresh failed: The provider is temporarily unavailable.')
+    expect(screen.getByText('Updated 8d ago')).not.toBeNull()
+  })
+
+  it('names the refresh kind while it runs', () => {
+    const controller = stubProvider(true, {
+      phase: 'refreshing',
+      kind: 'recent',
+      status: testProviderStatus({ progress: { fetched: 20, total: 40 } }),
+    })
+    render(ProviderStatus, { controller })
+    expect(screen.getByRole('status').textContent).toContain(
+      'Refreshing recent data (last 90 days): 20 of 40',
+    )
+    expect(screen.getByRole('button', { name: 'Refreshing…' })).not.toBeNull()
   })
 
   it('refreshes from its button and announces bounded progress', async () => {
@@ -73,3 +122,8 @@ describe('ProviderStatus', () => {
     expect(onreconnect).toHaveBeenCalledTimes(1)
   })
 })
+
+function expectVisible(text: string): void {
+  const element = screen.getByText(text)
+  expect(element.closest('.kit-sr-only')).toBeNull()
+}

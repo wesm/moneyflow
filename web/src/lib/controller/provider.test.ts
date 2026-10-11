@@ -147,6 +147,106 @@ describe('provider controller', () => {
     expect(controller.state.phase).toBe('failed')
   })
 
+  it('keeps the failure and the status returned with a refresh error', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const failed = providerStatus({
+      provider_kind: 'monarch',
+      code: 'provider_unavailable',
+      code_detail: 'The provider is temporarily unavailable.',
+      last_attempt: '2026-10-11T12:00:00Z',
+    })
+    const transport = transportStub({
+      mutationResponse: problemResponse(
+        'provider_unavailable',
+        'The provider is temporarily unavailable.',
+        failed,
+      ),
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+
+    await expect(controller.refresh()).resolves.toBe(false)
+
+    expect(controller.state.phase).toBe('failed')
+    expect(controller.state.announcement).toBe('The provider is temporarily unavailable.')
+    expect(controller.state.status).toEqual(failed)
+  })
+
+  it('reports a failed last attempt from a poll', async () => {
+    const transport = transportStub({
+      status: providerStatus({
+        provider_kind: 'monarch',
+        code: 'provider_unavailable',
+        code_detail: 'The provider is temporarily unavailable.',
+        last_success: '2026-10-03T12:00:00Z',
+      }),
+    })
+    const controller = createProviderController({ transport, host: hostStub() })
+
+    await controller.poll()
+
+    expect(controller.state.phase).toBe('failed')
+    expect(controller.state.announcement).toBe(
+      'Last refresh failed: The provider is temporarily unavailable.',
+    )
+    expect(transport.mutations.request).not.toHaveBeenCalled()
+  })
+
+  it('names the Monarch refresh kind it starts', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    let finish: (response: Response) => void = () => undefined
+    const transport = transportStub({
+      status: providerStatus({ provider_kind: 'monarch', refresh_due: 'recent' }),
+    })
+    vi.mocked(transport.mutations.request).mockImplementation(
+      () => new Promise<Response>((resolve) => (finish = resolve)),
+    )
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+
+    const scheduled = controller.poll()
+    await vi.waitFor(() => expect(controller.state.kind).toBe('recent'))
+    finish(
+      Response.json({
+        ...refreshResponse(current, 'preserved'),
+        status: providerStatus({ provider_kind: 'monarch' }),
+      }),
+    )
+    await scheduled
+    expect(controller.state.kind).toBeUndefined()
+
+    const manual = controller.refresh()
+    expect(controller.state.kind).toBe('full')
+    finish(Response.json(refreshResponse(current, 'preserved')))
+    await manual
+  })
+
+  it('polls status every second only while a refresh runs', async () => {
+    vi.useFakeTimers()
+    try {
+      const current = testProjection({ capabilities: [capability(true)] })
+      let finish: (response: Response) => void = () => undefined
+      const transport = transportStub()
+      vi.mocked(transport.mutations.request).mockImplementation(
+        () => new Promise<Response>((resolve) => (finish = resolve)),
+      )
+      const controller = createProviderController({ transport, host: hostStub(current) })
+      controller.sync(current)
+
+      const refreshing = controller.refresh()
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(transport.status).toHaveBeenCalledTimes(2)
+
+      finish(Response.json(refreshResponse(current, 'preserved')))
+      await refreshing
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(transport.status).toHaveBeenCalledTimes(2)
+      expect(controller.state.phase).toBe('idle')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('reports another process progress without starting a competing refresh', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const transport = transportStub({

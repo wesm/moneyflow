@@ -18,6 +18,7 @@ test('an unbound provider profile explains why refresh is unavailable', async ({
     const refresh = page.getByRole('button', { name: 'Refresh provider data' })
     await expect(refresh).toBeDisabled()
     await expect(refresh).toHaveAttribute('title', 'Connect a provider before refreshing.')
+    await expect(page.getByText('Connect a provider before refreshing.')).toBeVisible()
   } finally {
     await server.stop()
   }

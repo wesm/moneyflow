@@ -18,6 +18,22 @@
   const progress = $derived(controller.state.status?.progress)
   const reconnect = $derived(controller.state.phase === 'reconnect' && onreconnect !== undefined)
   const showProgress = $derived(progress !== undefined && (refreshing || progress.total > 0))
+  const subject = $derived(
+    controller.state.kind === 'recent'
+      ? 'recent data (last 90 days)'
+      : controller.state.kind === 'full'
+        ? 'full history'
+        : 'provider data',
+  )
+  // Why refresh is unavailable, who else is refreshing, or why the last refresh failed.
+  const notice = $derived.by(() => {
+    const { announcement, capability, phase, status } = controller.state
+    if (!available && capability?.reason) return capability.reason
+    if (phase === 'refreshing' && status?.code === 'provider_refresh_in_progress') {
+      return status.code_detail
+    }
+    return phase === 'failed' && announcement ? announcement : undefined
+  })
   let now = $state(Date.now())
   const updated = $derived.by(() => {
     const lastSuccess = controller.state.status?.last_success
@@ -26,7 +42,9 @@
     return formatRefreshAge(at, Math.max(now, at))
   })
   const refreshTip = $derived(
-    [refreshing ? 'Refreshing…' : 'Refresh provider data · r', updated].filter(Boolean).join(' · '),
+    [refreshing ? 'Refreshing…' : 'Refresh provider data · r', updated, notice]
+      .filter(Boolean)
+      .join(' · '),
   )
 
   $effect(() => {
@@ -43,7 +61,7 @@
       </IconButton>
     </Tooltip>
   {:else}
-    <Tooltip text={available ? refreshTip : (controller.state.capability?.reason ?? refreshTip)}>
+    <Tooltip text={refreshTip}>
       <IconButton
         ariaLabel="Refresh provider data"
         title=""
@@ -58,8 +76,10 @@
   <div class="provider-status">
     {#if showProgress && progress}
       <span class="provider-status__meta" role="status" aria-live="polite">
-        Refreshing provider data: {progress.fetched} of {progress.total}
+        Refreshing {subject}: {progress.fetched} of {progress.total}
       </span>
+    {:else if refreshing && controller.state.kind}
+      <span class="provider-status__meta">Refreshing {subject}…</span>
     {:else if updated}
       <span class="provider-status__meta">{updated}</span>
     {/if}
@@ -83,10 +103,11 @@
           : 'Refresh'}</Button
       >
     {/if}
-    {#if !available && controller.state.capability?.reason}
-      <span id="provider-refresh-reason" class="kit-sr-only">
-        {controller.state.capability.reason}
-      </span>
+    {#if notice}
+      <span
+        class="provider-status__meta"
+        class:provider-status__failure={controller.state.phase === 'failed'}>{notice}</span
+      >
     {/if}
   </div>
 {/if}
