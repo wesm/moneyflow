@@ -297,6 +297,29 @@ test('a cash-flow column click scopes the view to its month', async ({ page, ser
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
 })
 
+test('a Year scope charts one column per year, and a year column scopes to it', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page
+    .getByRole('radiogroup', { name: 'Period', exact: true })
+    .getByRole('radio', { name: 'Year' })
+    .click()
+  await expect(periodControl(page)).toHaveText('2026')
+  const ticks = cashflow(page).locator('.mf-cashflow__tick')
+  await expect(ticks).toHaveText(['2024', '2025', '2026'])
+  await expect(column(page, '2026')).toHaveClass(/mf-cashflow__column--scope/)
+  await expect(column(page, '2026')).toHaveClass(/mf-cashflow__column--partial/)
+  await expect(column(page, '2025')).not.toHaveClass(/mf-cashflow__column--scope/)
+
+  await column(page, '2025').click()
+  await expect(periodControl(page)).toHaveText('2025')
+  await expect(page).toHaveURL(/[?&]from=2025-01-01&to=2025-12-31/)
+  await expect(ticks).toHaveText(['2024', '2025'])
+  await expect(column(page, '2025')).toHaveClass(/mf-cashflow__column--scope/)
+})
+
 test('a drag across cash-flow columns sets a custom range', async ({ page, server }) => {
   await openMoneyflow(page, server)
   await column(page, 'Jul 2026').hover()

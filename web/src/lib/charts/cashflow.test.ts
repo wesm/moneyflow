@@ -31,6 +31,16 @@ function month(year: number, number: number, partial = false): Context[number] {
   }
 }
 
+function year(value: number, partial = false): Context[number] {
+  return {
+    start: `${value}-01-01`,
+    end: `${value}-12-31`,
+    partial,
+    absent: false,
+    period: { granularity: 'year', year: value },
+  }
+}
+
 function day(year: number, number: number, value: number): Context[number] {
   const date = `${year}-${String(number).padStart(2, '0')}-${String(value).padStart(2, '0')}`
   return {
@@ -183,6 +193,35 @@ describe('cashflowGeometry', () => {
       100,
     )
     expect(geometry.columns.map((column) => column.tick)).toEqual(['Dec', '2026'])
+  })
+
+  it('draws a Year scope as one column per year and marks the scope year', () => {
+    const context = [year(2024), year(2025), year(2026, true)]
+    const geometry = cashflowGeometry(
+      entry(
+        context,
+        {
+          labels: ['2024', '2025', '2026'],
+          in: ['0', '0', '12000'],
+          out: ['0', '0', '-48000'],
+          net: ['0', '0', '-36000'],
+        },
+        {
+          kind: 'year',
+          scope: { start: '2026-01-01', end: '2026-12-31' },
+          context_granularity: 'year',
+        },
+      ),
+      300,
+      100,
+    )
+    expect(geometry.columns.map((column) => column.tick)).toEqual(['2024', '2025', '2026'])
+    expect(geometry.columns.map((column) => column.inScope)).toEqual([false, false, true])
+    expect(geometry.columns[2]).toMatchObject({
+      partial: true,
+      name: '2026, in +120.00, out -480.00, net -360.00',
+    })
+    expect(scopeFromColumns(context, 1, 1)).toEqual({ start: '2025-01-01', end: '2025-12-31' })
   })
 
   it('refuses a summary whose cash flow does not line up with the chart context', () => {
