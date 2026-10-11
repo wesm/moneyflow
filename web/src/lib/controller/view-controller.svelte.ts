@@ -55,6 +55,8 @@ export interface SearchSnapshot {
 export interface ViewController {
   readonly projection: ViewProjection | undefined
   readonly loading: boolean
+  /** The first load is still setting the view's currency; a search waits for it. */
+  readonly opening: boolean
   readonly announcement: string
   readonly cursorIdentity: string | undefined
   readonly cursorIndex: number
@@ -113,6 +115,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   let projection = $state.raw<ViewProjection | undefined>()
   let loading = $state(false)
+  let opening = $state(false)
   let announcement = $state('')
   let cursorIdentity = $state<string | undefined>()
   let cursorIndex = $state(0)
@@ -184,8 +187,13 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       hydrate,
     )
     const busiest = loaded && projection ? busiestCurrency(projection) : undefined
-    if (busiest)
+    if (!busiest) return
+    opening = true
+    try {
       await hold(transitionNow({ action: 'view.set-currency', currency: busiest }, 'replace'))
+    } finally {
+      opening = false
+    }
   }
 
   function hold<T>(work: Promise<T>): Promise<T> {
@@ -721,6 +729,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     },
     get loading() {
       return loading
+    },
+    get opening() {
+      return opening
     },
     get announcement() {
       return announcement

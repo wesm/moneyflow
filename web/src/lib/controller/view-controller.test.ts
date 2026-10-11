@@ -545,6 +545,7 @@ describe('browser view controller', () => {
 
     const hydrating = controller.hydrate()
     await vi.waitFor(() => expect(client.transition).toHaveBeenCalledTimes(1), { interval: 1 })
+    expect(controller.opening).toBe(true)
     const key = controller.apply({ action: 'view.cycle-grouping' })
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(client.transition).toHaveBeenCalledTimes(1)
@@ -552,6 +553,7 @@ describe('browser view controller', () => {
 
     release(projection('cur=EUR%3A2&v=1', 0, 3))
     await Promise.all([hydrating, key])
+    expect(controller.opening).toBe(false)
 
     expect(client.transition).toHaveBeenCalledTimes(2)
     expect(client.transition).toHaveBeenLastCalledWith(
@@ -584,6 +586,7 @@ describe('browser view controller', () => {
     const key = controller.apply({ action: 'view.cycle-grouping' })
     await hydrating
 
+    expect(controller.opening).toBe(false)
     await expect(key).resolves.toBe(true)
     expect(controller.projection?.canonical_query).toBe('v=1&group=category')
   })

@@ -12,6 +12,7 @@ function host(search = '', valid = true) {
   const held = vi.fn()
   return {
     held,
+    opening: false,
     projection: testProjection({ view: { ...testProjection().view, search } }),
     beginSearch: vi.fn(() => snapshot),
     previewSearch: vi.fn<(search: string) => Promise<SearchPreview>>(async () =>
@@ -241,6 +242,16 @@ describe('CommandSearch', () => {
     expect(carry.take()).toBeUndefined()
     await new Promise((resolve) => setTimeout(resolve, 200))
     expect(controller.previewSearch).not.toHaveBeenCalled()
+  })
+
+  it('takes no typing while the first load sets the currency', async () => {
+    const { rerender } = render(CommandSearch, {
+      controller: { ...host(), opening: true },
+      ondone: vi.fn(),
+    })
+    expect(field().disabled).toBe(true)
+    await rerender({ controller: host() })
+    expect(field().disabled).toBe(false)
   })
 
   it('focuses and selects the field for the / key', async () => {

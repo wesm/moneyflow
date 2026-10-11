@@ -702,6 +702,7 @@ function stubController(projection = testProjection()): ViewController {
       ],
     }),
     loading: false,
+    opening: false,
     announcement: '',
     cursorIdentity: 'row-0',
     cursorIndex: 0,

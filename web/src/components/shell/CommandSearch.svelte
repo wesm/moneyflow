@@ -10,7 +10,8 @@
   import type { ViewController } from '../../lib/controller/view-controller.svelte'
   import type { SearchCarry } from '../../lib/shell/search-carry'
 
-  type SearchController = SearchHost<unknown> & Pick<ViewController, 'projection' | 'hold'>
+  type SearchController = SearchHost<unknown> &
+    Pick<ViewController, 'projection' | 'hold' | 'opening'>
 
   interface Props {
     controller: SearchController
@@ -165,6 +166,7 @@
     bind:inputEl={() => inputEl as HTMLInputElement, (element) => (inputEl = element)}
     value={draft ?? applied}
     size="sm"
+    disabled={controller.opening}
     keys={['/']}
     invalid={error !== ''}
     ariaLabel="Search transactions"
