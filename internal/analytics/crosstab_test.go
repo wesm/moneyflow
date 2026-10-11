@@ -44,7 +44,7 @@ func TestCrossTabAppliesEachFrameBoundsInOnePass(t *testing.T) {
 		Dimension: domain.DimensionMerchant,
 		Keys:      []string{},
 		Frames: []CrossTabFrameSpec{
-			{Periods: monthPeriods(t, "2026-08-01", "2026-09-30")},
+			{Periods: monthPeriods(t, "2026-08-01", "2026-09-30"), Series: true},
 			{Periods: []PeriodRange{singlePeriod(t, "2026-09-01", "2026-09-30")}},
 		},
 	})
