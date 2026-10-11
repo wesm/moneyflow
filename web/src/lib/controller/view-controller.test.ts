@@ -165,6 +165,37 @@ describe('browser view controller', () => {
     }
   })
 
+  it('runs each transition from the view the one before it returned', async () => {
+    const releases: Array<() => void> = []
+    const client = clientWith({
+      transition: vi.fn(
+        (body) =>
+          new Promise<ViewProjection>((resolve) =>
+            releases.push(() => resolve(projection(`${body.query}&p`, 0, 3))),
+          ),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    const first = controller.apply({ action: 'time.previous-period' })
+    const second = controller.apply({ action: 'time.previous-period' })
+    await vi.waitFor(() => expect(releases).toHaveLength(1), { interval: 1 })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(client.transition).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(client.transition).mock.calls[0]?.[1]?.aborted).toBe(false)
+    releases[0]?.()
+    await vi.waitFor(() => expect(releases).toHaveLength(2), { interval: 1 })
+    releases[1]?.()
+    await Promise.all([first, second])
+
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: 'v=1&p', action: 'time.previous-period' }),
+      expect.any(AbortSignal),
+    )
+    expect(controller.projection?.canonical_query).toBe('v=1&p&p')
+  })
+
   it('uses verified owned history for Esc and replaces with the server parent otherwise', async () => {
     const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
     const controller = controllerFor(

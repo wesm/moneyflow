@@ -131,6 +131,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let returning: ReturnInProgress | undefined
   let lateReturn: ReturnInProgress | undefined
   let barrier: Promise<unknown> = Promise.resolve()
+  let applyTail: Promise<void> = Promise.resolve()
   const prefetchRequests = new SvelteMap<string, AbortController>()
 
   const providerWrite = createProviderWriteController({
@@ -245,9 +246,18 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return await recheckRequest
   }
 
+  // Each transition starts from the view the one before it returned, whichever control sent
+  // it, so rapid clicks step one at a time instead of aborting each other.
   async function apply(action: TransitionAction): Promise<boolean> {
-    await barrier
-    return await transitionNow(action)
+    const result = applyTail.then(async () => {
+      await barrier
+      return await transitionNow(action)
+    })
+    applyTail = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return await result
   }
 
   async function transitionNow(
