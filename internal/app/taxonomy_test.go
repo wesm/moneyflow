@@ -251,10 +251,11 @@ func TestTaxonomyLabelsAreTrimmedBeforeNoOpComparisonAndPersistence(t *testing.T
 	assert.Equal(t, "Trimmed Group", plan.Operation.Create.Label)
 }
 
+const taxonomyCollisionDetail = "That label already exists; use merge instead."
+
 func TestTaxonomyCollisionCarriesItsReason(t *testing.T) {
 	t.Parallel()
 
-	const detail = "That label already exists; use merge instead."
 	tests := []struct {
 		name   string
 		action app.ActionID
@@ -298,16 +299,39 @@ func TestTaxonomyCollisionCarriesItsReason(t *testing.T) {
 				Selection: app.EmptySelection(), Input: test.input,
 			})
 
-			var failure *app.AppError
-			require.ErrorAs(t, err, &failure)
-			assert.Equal(t, app.AppInvalidOperation, failure.Code)
-			assert.True(t, strings.HasSuffix(failure.Detail, detail), failure.Detail)
-			assert.NotContains(t, failure.Detail, "explicit merge")
-			reason, ok := store.InvalidOperationReasonOf(err)
-			require.True(t, ok)
-			assert.Equal(t, store.InvalidOperationTaxonomyLabelCollision, reason)
+			assertTaxonomyCollision(t, err)
 		})
 	}
+}
+
+func TestCategoryEditorCreateCollisionCarriesItsReason(t *testing.T) {
+	t.Parallel()
+
+	service, err := app.NewProfileService(t.Context(), newMemoryProfile(t, 5))
+	require.NoError(t, err)
+
+	_, err = service.PreviewMutation(t.Context(), app.MutationRequest{
+		Action: app.ActionEditCategory, ExpectedRevision: 5, State: detailViewState(),
+		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_a"},
+		Input: app.EditInput{
+			Scope: app.EditScopeTransactions, DestinationID: "category_new",
+			Label: "  category b ", GroupID: "group_a",
+		},
+	})
+
+	assertTaxonomyCollision(t, err)
+}
+
+func assertTaxonomyCollision(t *testing.T, err error) {
+	t.Helper()
+	var failure *app.AppError
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, app.AppInvalidOperation, failure.Code)
+	assert.True(t, strings.HasSuffix(failure.Detail, taxonomyCollisionDetail), failure.Detail)
+	assert.NotContains(t, failure.Detail, "explicit merge")
+	reason, ok := store.InvalidOperationReasonOf(err)
+	require.True(t, ok)
+	assert.Equal(t, store.InvalidOperationTaxonomyLabelCollision, reason)
 }
 
 func TestTaxonomyRenameToOwnNameInAnotherCaseIsNotACollision(t *testing.T) {

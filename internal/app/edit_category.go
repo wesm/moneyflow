@@ -120,7 +120,9 @@ func buildCategoryCreation(
 	}
 	for _, category := range profile.Categories {
 		if !category.Retired && category.CollisionKey == key {
-			return nil, errors.New("new category label collides with an existing category")
+			return nil, taxonomyLabelCollision(
+				errors.New("new category label collides with an existing category"),
+			)
 		}
 	}
 	return &domain.CreatePayload{
