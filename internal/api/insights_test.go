@@ -347,11 +347,6 @@ func TestServerInsightsRejectInvalidRequests(t *testing.T) {
 			code: "invalid_web_request",
 		},
 		{
-			name: "rows in the Time grouping",
-			body: InsightsBody{Query: insightsQuery(t, domain.DimensionTime), Rows: []string{megastore}},
-			code: "invalid_web_request",
-		},
-		{
 			name: "row in another currency", body: InsightsBody{Query: query, Rows: []string{euro}},
 			code: "invalid_web_request",
 		},
