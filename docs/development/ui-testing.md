@@ -111,8 +111,11 @@ The browser probe provides a repeatable starting point for a usability pass. Ins
 both themes, narrow layouts, keyboard focus, filtering, editing, review, recovery,
 and empty results. One browser difference remains: the period chooser picks dates
 from calendars and lists, and does not accept the typed dates that the TUI time
-chooser does. This is a product gap, not a behavior the harness simulates. Data
-assertions use exact committed amounts and calls.
+chooser does. This is a product gap, not a behavior the harness simulates. After a
+provider write completes, the write-status drawer reads `0 of 0 complete` and
+Remaining `0`, because the server deletes the finished batch and its counts. This
+known limitation needs a follow-up usability change. Data assertions use exact
+committed amounts and calls.
 
 ## Chart contracts
 

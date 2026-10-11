@@ -15,8 +15,8 @@ the current view. To change transactions, see [Edit in the browser](editing.md#e
 **Unreleased:** The browser workspace has a sidebar, a command bar, charts above the table, and
 a status line.
 
-The sidebar starts with the profile's provider. Its **Explore** entries choose the view, as their
-keys do:
+The sidebar starts with the Moneyflow name and then the profile's provider. Its **Explore**
+entries choose the view, as their keys do:
 
 | Entry | Key |
 | --- | --- |
@@ -40,8 +40,8 @@ An entry that cannot run now is dimmed and shows its reason when you point at it
 The bottom of the sidebar holds:
 
 - The pending-edits card, such as `3 pending edits · 27 transactions`. Its **Review** button
-  (`w`) appears while edits are pending, and **Write** shows a running provider write's progress.
-  See [review and commit](editing.md#review-and-commit).
+  (`w`) appears while edits are pending, and **Write** shows an unfinished provider write's
+  progress. See [review and commit](editing.md#review-and-commit).
 - Provider status for Monarch, YNAB, and SimpleFIN profiles: when data was last refreshed, a
   refresh button (`r`), refresh progress, and **Reconnect** when the provider needs it.
 - The theme toggle; see [Themes](#themes).
@@ -58,7 +58,7 @@ The status line at the bottom shows:
   why a key did nothing, takes their place for four seconds or until your next action.
 - The connection: **Connected**, **Updating…** for requests slower than 300 ms, or **Offline**
   with **Retry**.
-- The profile revision.
+- The profile revision, except at phone width.
 - The pending-edits text, when the sidebar card is not shown.
 
 ## Charts
@@ -134,7 +134,7 @@ The charts show these states:
 
 | Range | What it covers | Used by |
 | --- | --- | --- |
-| Scope | The period you chose: a day, month, year, custom range, or all time | Table rows, KPI strip, Share, the panel |
+| Scope | The period you chose: a day, month, year, custom range, or all time | Table rows, KPI strip, Share, Where it went |
 | Chart context | The cash-flow columns; it can reach past the scope | Cash-flow chart |
 | Trend | Twelve months ending at the scope's last month | Trend column |
 | Comparison | The earlier range the changes compare against | vs prior column, KPI changes |
@@ -208,7 +208,7 @@ previous currency. It also clears the selection. Esc does not undo a currency ch
 - **Below 900 px:** the panel moves under the cash-flow chart.
 - **640 px and narrower:** the phone layout. The menu button opens the sidebar as a drawer, the
   command bar takes two rows, and the charts open from the **Charts** switch. The status line
-  shows the pending-edits text instead of keys.
+  shows the pending-edits text instead of keys, and leaves out the profile revision.
 
 The table never scrolls sideways. [Navigate and search](navigation.md#move-through-results)
 explains the phone rows and the order in which columns leave a narrow table.
