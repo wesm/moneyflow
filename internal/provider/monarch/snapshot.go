@@ -31,7 +31,7 @@ func (client *Client) ProbeIdentity(ctx context.Context) (provider.ProfileIdenti
 }
 
 // FetchSnapshot reads and validates one posted-transaction snapshot. A request window replaces
-// the client's onboarding range for this fetch only.
+// the client's configured range for this fetch only.
 func (client *Client) FetchSnapshot(
 	ctx context.Context,
 	request provider.FetchRequest,

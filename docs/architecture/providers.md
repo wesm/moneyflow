@@ -33,15 +33,18 @@ and requires reconnect; a consumed confirmation cannot be reused.
 reports it as `refresh_due`. The server recomputes it for a scheduled request, so the TUI and
 the web app do not copy the rule. For Monarch, a recent refresh is due 6 hours after the last
 success and a full refresh 30 days after the last full one, or when that time is unknown. A
-profile with no successful import is never due. A manual refresh is always full. The last full
-refresh time is advisory state in the profile's `provider-refresh.json`, outside the schema and
-the JSONL transfer; only a folded complete Monarch candidate writes it.
+profile with no successful import is never due. A manual refresh is full unless it is a
+month-to-date first import. The last full refresh time is advisory state in the profile's
+`provider-refresh.json`, outside the schema and the JSONL transfer; only a folded complete
+Monarch candidate writes it.
 
 A recent refresh fetches a candidate whose `TransactionWindow` is the 90 days ending on the
 clock's local date. The Monarch reader sends it as `startDate` and `endDate` on every page and
 reports it back; the service rejects a different window. Planning replaces only provider rows
 dated inside the window, keeps the entities that retained rows use, and counts deletion
-plausibility within the window. A month-to-date first import reports its range the same way.
+plausibility within the window. A month-to-date first import passes its range as the window of
+that one manual refresh, so the provider source keeps no range and later refreshes are not
+windowed.
 
 YNAB uses a six-hour cadence in long-lived TUI/web processes. SimpleFIN uses 24 hours and parks
 failed automatic attempts until explicit action. MCP refresh is explicit.

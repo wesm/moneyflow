@@ -84,12 +84,16 @@ type providerConfirmation struct {
 }
 
 // ProviderRefreshRequest preserves the caller's analytical and transient interaction state.
+// TransactionWindow limits one manual refresh to an inclusive date range; only Monarch accepts
+// it. Onboarding uses it for a month-to-date first import, so later refreshes read their own
+// scope.
 type ProviderRefreshRequest struct {
 	Manual            bool
 	ConfirmationToken string
 	State             ViewState
 	Selection         SelectionValue
 	Window            WindowRequest
+	TransactionWindow *domain.DateRange
 }
 
 // ProviderRefreshResult is one refreshed projection plus counts-only provider status.
@@ -509,7 +513,8 @@ func normalizeProviderRefreshRequest(request ProviderRefreshRequest) ProviderRef
 }
 
 // providerFetchRequest decides whether a refresh runs and which data it reads. Manual
-// refresh always reads complete history. A scheduled refresh runs only when one is due.
+// refresh reads complete history unless the request names a window. A scheduled refresh runs
+// only when one is due.
 func providerFetchRequest(
 	runtime *providerRuntimeState,
 	request ProviderRefreshRequest,
@@ -518,6 +523,7 @@ func providerFetchRequest(
 ) (provider.FetchRequest, bool) {
 	fetch := provider.FetchRequest{Now: now}
 	if request.Manual {
+		fetch.TransactionWindow = request.TransactionWindow
 		return fetch, true
 	}
 	scope := ProviderRefreshDue(status, now)
