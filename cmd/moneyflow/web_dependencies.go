@@ -4,6 +4,8 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"errors"
+	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -82,6 +84,7 @@ func buildWebDependencies(
 		preselectedID = entry.ID
 	}
 
+	sweepDemoRootsAtStart(catalog.Paths().Root, streams.Err)
 	demoProfileID, err := profilecatalog.NewProfileID(cryptorand.Reader)
 	if err != nil {
 		return WebDependencies{}, err
@@ -211,6 +214,15 @@ func (profiles webProfileOpener) open(
 	return webserver.RegistryProfile{
 		ID: opened.ID, Paths: opened.Paths, Service: opened.Service, Close: opened.Close,
 	}, nil
+}
+
+// sweepDemoRootsAtStart removes demo roots that crashed servers left in the catalog root. A
+// failed sweep leaves only disk litter, so the server still starts and reports it.
+func sweepDemoRootsAtStart(root string, report io.Writer) {
+	err := sweepStaleDemoRoots(root, time.Now())
+	if err != nil && report != nil {
+		_, _ = fmt.Fprintf(report, "Moneyflow could not remove an old demo folder: %v\n", err)
+	}
 }
 
 // openDemo seeds a temporary demo in the private catalog root. The registry keeps it open, so

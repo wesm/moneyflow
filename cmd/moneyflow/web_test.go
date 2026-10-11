@@ -161,6 +161,22 @@ func TestBuildWebDependenciesGivesDemoAProcessLocalCanonicalRoute(t *testing.T) 
 	assert.Equal(t, 1, closes)
 }
 
+func TestWebStartRemovesADemoRootLeftByACrashedServer(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := t.TempDir()
+	stale := filepath.Join(root, demoDirectoryPrefix+"crashed")
+	require.NoError(t, os.Mkdir(stale, 0o700))
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(stale, old, old))
+
+	dependencies, err := buildWebDependencies(ctx, ProfileOptions{ExplicitHome: root}, IOStreams{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, dependencies.Close(ctx)) })
+
+	assert.NoDirExists(t, stale)
+}
+
 func TestWebSelectorDemoIsLazyTemporaryAndSeparateFromSavedProfiles(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
