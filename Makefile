@@ -21,7 +21,7 @@ release-build: web-embed-check
 	bash scripts/release-build.sh "$(RELEASE_VERSION)" "$(RELEASE_DIR)"
 
 help:
-	@printf '%s\n' 'web-demo  Serve the synthetic web application at http://127.0.0.1:8080/'
+	@printf '%s\n' 'web-demo  Serve the synthetic web application on a free port and print its URL'
 
 .PHONY: test-ui-scenarios fuzz-ui ui-probe ui-probe-web
 test-ui-scenarios: web-embed

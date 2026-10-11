@@ -41,6 +41,11 @@ type WebOptions struct {
 	Open        bool
 }
 
+// demoListen asks the system for a free loopback port. A demo profile is disposable, so no
+// bookmark or per-origin browser setting depends on its address, and it must not fail because
+// another server already holds the stable profile port.
+const demoListen = "127.0.0.1:0"
+
 func newWebCommand(streams IOStreams) *cobra.Command {
 	options := WebOptions{Listen: "127.0.0.1:8080", BasePath: "/", Open: true}
 	var demo bool
@@ -61,6 +66,9 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 			}
 			if _, err = api.ResolveOrigin(options.Listen, options.BasePath, options.ExternalURL); err != nil {
 				return fmt.Errorf("start web: %w", err)
+			}
+			if demo && !command.Flags().Changed("listen") {
+				options.Listen = demoListen
 			}
 			builder := streams.BuildWeb
 			if builder == nil {
@@ -89,7 +97,8 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 			return nil
 		},
 	}
-	command.Flags().StringVar(&options.Listen, "listen", options.Listen, "explicit host and port")
+	command.Flags().StringVar(&options.Listen, "listen", options.Listen,
+		"explicit host and port; --demo picks a free 127.0.0.1 port")
 	command.Flags().StringVar(&options.BasePath, "base-path", options.BasePath, "URL mount path")
 	command.Flags().StringVar(&options.ExternalURL, "external-url", "", "canonical browser URL through a trusted proxy")
 	command.Flags().BoolVar(&options.Open, "open", options.Open, "open the application in a browser")

@@ -39,7 +39,8 @@ make build
 make tui-demo
 ```
 
-`make web-demo` runs the browser demo. Both use temporary synthetic profiles, not personal data.
+`make web-demo` runs the browser demo on a free port and prints its URL. Both use temporary
+synthetic profiles, not personal data.
 The binary is `bin/moneyflow` or `bin/moneyflow.exe` on Windows.
 
 ## Verify behavior

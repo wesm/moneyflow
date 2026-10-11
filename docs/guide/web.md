@@ -4,6 +4,12 @@ Run `./bin/moneyflow web` to open the profile selector. Use `--demo` for a dispo
 profile, or `--profile "Example Profile"` to select one explicitly. The browser and TUI share
 profile data and server-authoritative transitions.
 
+**Unreleased:** The command prints the address it serves, such as
+`Moneyflow web: http://127.0.0.1:8080/`. A profile is served on `127.0.0.1:8080`, so bookmarks
+and the browser's remembered settings keep working. `--demo` picks a free port on `127.0.0.1`
+instead, so a demo starts even while another server holds port 8080. `--listen` sets the host and
+port in either case.
+
 Keyboard-driven refinement remains central: grouping, drill/back, search, selection, edits and
 review use the [shared workflows](navigation.md). Text fields and overlays own their keys while
 focused. Browser navigation retains analytical view state, not transient selection. The

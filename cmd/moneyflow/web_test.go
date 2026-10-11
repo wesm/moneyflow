@@ -265,6 +265,41 @@ func TestWebCommandWarnsBeforeNonLoopbackRunner(t *testing.T) {
 	assert.True(t, warningSeen)
 }
 
+func TestWebCommandListenAddress(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name      string
+		arguments []string
+		requested string
+	}{
+		{"demo binds a free loopback port", []string{"--demo"}, "127.0.0.1:0"},
+		{"profiles keep the stable default", nil, "127.0.0.1:8080"},
+		{"explicit listen wins for a demo", []string{"--demo", "--listen", "localhost:9191"}, "localhost:9191"},
+		{"explicit listen wins for profiles", []string{"--listen", "localhost:9191"}, "localhost:9191"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			refused := errors.New("listener refused by test")
+			var requested string
+			streams := IOStreams{
+				In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+				BuildWeb: testWebDependencyBuilder(t),
+				Listen: func(_ context.Context, _ string, address string) (net.Listener, error) {
+					requested = address
+					return nil, refused
+				},
+				SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
+					return context.WithCancel(parent)
+				},
+			}
+			command := newRootCommand(streams)
+			command.SetArgs(append([]string{"web", "--open=false"}, test.arguments...))
+			require.ErrorIs(t, command.Execute(), refused)
+			assert.Equal(t, test.requested, requested)
+		})
+	}
+}
+
 func TestRunWebBrowserFailureIsWarning(t *testing.T) {
 	t.Parallel()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
