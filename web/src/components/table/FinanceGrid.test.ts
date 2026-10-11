@@ -925,6 +925,118 @@ describe('FinanceGrid', () => {
       expect(events.oncursor).not.toHaveBeenCalled()
     })
 
+    it('moves the cursor to the nearest row on screen once a scroll leaves it', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      // Rows 0 to 19 show, with the cursor on row 5.
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 5,
+        compact: false,
+        scrollTop: 0,
+        viewport: 630,
+        ...events,
+      })
+      // Down: rows 40 to 59 show, so the cursor moves to the first of them, once per frame.
+      await view.rerender({ scrollTop: 30 * 30 })
+      await view.rerender({ scrollTop: 40 * 30 })
+      expect(events.oncursor).not.toHaveBeenCalled()
+      vi.advanceTimersToNextFrame()
+      expect(events.oncursor).toHaveBeenCalledTimes(1)
+      expect(events.oncursor).toHaveBeenLastCalledWith(40)
+      await view.rerender({ cursorIndex: 40 })
+
+      // Up: rows 10 to 29 show, so the cursor moves to the last of them.
+      await view.rerender({ scrollTop: 10 * 30 })
+      vi.advanceTimersToNextFrame()
+      expect(events.oncursor).toHaveBeenLastCalledWith(29)
+      await view.rerender({ cursorIndex: 29 })
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      expect(grid.getAttribute('aria-activedescendant')).toBe('moneyflow-row-row-29')
+      expect(events.onshow).not.toHaveBeenCalled()
+    })
+
+    it('leaves the cursor while a press on the rows selects text, and follows after it', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 5,
+        compact: false,
+        scrollTop: 0,
+        viewport: 630,
+        ...events,
+      })
+      // Dragging past the bottom edge scrolls the rows under the held button.
+      await fireEvent.mouseDown(cell(rowAt(3)!, 'merchant')!, { button: 0 })
+      await view.rerender({ scrollTop: 40 * 30 })
+      vi.advanceTimersToNextFrame()
+      expect(events.oncursor).not.toHaveBeenCalled()
+
+      await fireEvent.mouseUp(window, { button: 0 })
+      await view.rerender({ scrollTop: 41 * 30 })
+      vi.advanceTimersToNextFrame()
+      expect(events.oncursor).toHaveBeenCalledExactlyOnceWith(41)
+    })
+
+    it('does not follow the scroll the grid makes to show the cursor row', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = callbacks()
+      // The grid first scrolls the cursor on the last row into view.
+      const view = render(FinanceGrid, {
+        projection: loaded(400),
+        cursorIndex: 449,
+        compact: false,
+        scroller: scrollerAt(0),
+        scrollTop: 0,
+        viewport: 630,
+        ...events,
+      })
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      let offsetTop = 300
+      Object.defineProperty(grid, 'offsetTop', { get: () => offsetTop })
+      await view.rerender({ above: 300 })
+      // Rows 90 to 109 have not loaded, so the cursor stays on row 449 meanwhile.
+      await view.rerender({ scrollTop: 100 * 30 })
+      vi.advanceTimersToNextFrame()
+      // The content above shrinks, and B arrives before the grid hears of it.
+      offsetTop = 0
+      await fireEvent.keyDown(grid, { key: 'B', shiftKey: true })
+      vi.advanceTimersToNextFrame()
+
+      expect(events.oncursor).not.toHaveBeenCalled()
+      expect(grid.getAttribute('aria-activedescendant')).toBe('moneyflow-row-row-449')
+    })
+
+    it('keeps the cursor when the browser rounds the scroll that shows its row', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = callbacks()
+      // A zoomed page keeps scroll positions on device pixels, here half a CSS pixel further.
+      let kept = 100 * 30
+      const scroller = document.createElement('div')
+      Object.defineProperty(scroller, 'scrollTop', {
+        get: () => kept,
+        set: (next: number) => (kept = next + 0.5),
+      })
+      // Rows 100 to 119 show, with the cursor on the first of them.
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 100,
+        compact: false,
+        scroller,
+        scrollTop: 100 * 30,
+        viewport: 630,
+        ...events,
+      })
+      await view.rerender({ cursorIndex: 99 })
+      // The scroll event reports the position the browser kept.
+      await view.rerender({ scrollTop: scroller.scrollTop })
+      vi.advanceTimersToNextFrame()
+
+      expect(kept).toBe(99 * 30 + 0.5)
+      expect(events.oncursor).not.toHaveBeenCalled()
+    })
+
     it('still follows a scroll when a key the grid ignores is pressed meanwhile', async () => {
       vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
       const events = { ...callbacks(), onshow: vi.fn() }
@@ -1033,6 +1145,7 @@ describe('FinanceGrid', () => {
     })
 
     it('scrolls back to the cursor row when T finds the cursor already on row 1', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
       const events = callbacks()
       const scroller = scrollerAt(0)
       const view = render(FinanceGrid, {
@@ -1044,10 +1157,12 @@ describe('FinanceGrid', () => {
         viewport: 630,
         ...events,
       })
+      // T arrives before the scroll's frame moves the cursor; that frame then has nothing to do.
       scroller.scrollTop = 100 * 30
       await view.rerender({ scrollTop: 100 * 30 })
       const grid = screen.getByRole('grid', { name: 'Financial results' })
       await fireEvent.keyDown(grid, { key: 'T', shiftKey: true })
+      vi.advanceTimersToNextFrame()
 
       expect(scroller.scrollTop).toBe(0)
       expect(events.oncursor).not.toHaveBeenCalled()

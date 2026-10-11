@@ -60,9 +60,15 @@ Below 760 px, every grouped table leaves out Trend and vs prior, along with Top 
 Group where the table has one.
 
 The browser table scrolls through every row of the result. It loads rows 200 at a time, and
-rows still loading show as blank bars. When scrolling reaches rows outside the loaded 200, the
-cursor moves to the first row fully on screen once that row loads. Scrolling back to the cursor
-before then leaves the cursor where it was.
+rows still loading show as blank bars.
+
+**Unreleased:** The browser cursor follows the scroll. When scrolling with the mouse wheel,
+scrollbar, or touch carries the cursor row off screen, the cursor moves to the nearest row fully
+on screen: the first after scrolling down, or the last after scrolling up. The next `j` or `k`
+moves on from there. A row that has not loaded yet gets the cursor once it loads, and scrolling
+back to the cursor before then leaves the cursor where it was. While you drag across rows to
+select text, the cursor stays put. Before, the cursor stayed behind until scrolling left the
+loaded 200 rows, so the next key jumped back to it.
 
 ## Go back with Esc
 

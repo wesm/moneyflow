@@ -17,19 +17,18 @@ export function loadedRow(windows: readonly ViewProjection[], index: number): Ta
 }
 
 /**
- * The row whose window the table asks for: the first fully visible row, while it lies outside
- * the loaded window and the cursor row is not fully visible. A cursor on screen keeps its window,
- * so a key or click that moves it into another window is not undone.
+ * The row the cursor follows a scroll to: the first fully visible row when the cursor is above
+ * the screen, as after scrolling down, or the last when it is below. None while it shows.
  */
-export function rowToShow(
+export function followRow(
   range: { first: number; last: number },
   cursor: number,
-  loaded: { offset: number; limit: number },
 ): number | undefined {
   const { first, last } = range
-  if (last < first || (cursor >= first && cursor <= last)) return undefined
-  if (first >= loaded.offset && first < loaded.offset + loaded.limit) return undefined
-  return first
+  if (last < first) return undefined
+  if (cursor < first) return first
+  if (cursor > last) return last
+  return undefined
 }
 
 /**
