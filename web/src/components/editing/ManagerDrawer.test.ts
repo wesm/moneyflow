@@ -177,6 +177,46 @@ describe('ManagerDrawer', () => {
     expect(screen.getByRole('heading', { name: 'Merge Example Category into' })).not.toBeNull()
   })
 
+  it("keeps a step the server refuses as a name collision open with the server's reason", async () => {
+    // The client pre-check passes this name, so the refusal stands in for one only the server sees.
+    const transport: MutationFetch = {
+      request: vi.fn(async (path: string) =>
+        path === 'api/v1/editor-catalog'
+          ? Response.json(testCatalog)
+          : Response.json(
+              {
+                type: 'about:blank',
+                title: 'Unprocessable Entity',
+                status: 422,
+                detail: 'The requested operation is invalid.',
+                code: 'invalid_operation',
+                reason: 'taxonomy_label_collision',
+                current_revision: '1',
+              },
+              { status: 422, headers: { 'Content-Type': 'application/problem+json' } },
+            ),
+      ),
+    }
+    const projection = testProjection({ revision: '1' })
+    const host = {
+      current: () => projection,
+      accept: vi.fn(),
+      refresh: vi.fn(async () => projection),
+    }
+    setup({ controller: createEditingController({ transport, host }) })
+    const options = await list()
+    await fireEvent.keyDown(options, { key: 'n' })
+    const name = screen.getByRole('textbox', { name: 'Name' })
+    await fireEvent.input(name, { target: { value: 'Pet Supplies' } })
+    await fireEvent.keyDown(name, { key: 'Enter' })
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(
+        'That label already exists; use merge instead.',
+      ),
+    )
+    expect(screen.getByRole('textbox', { name: 'Name' })).toBe(name)
+  })
+
   it('names a used name before staging and stages nothing', async () => {
     const { controller } = setup()
     const options = await list()

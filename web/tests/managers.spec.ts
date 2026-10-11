@@ -191,6 +191,50 @@ test('a category that only pending edits use still needs a replacement', async (
   }
 })
 
+test("a step the server refuses as a name collision shows the server's reason", async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    // The client pre-check blocks a real collision, so the server's refusal is routed in.
+    await page.route('**/mutations', async (route) => {
+      if (route.request().postDataJSON().action !== 'category.manage') return route.continue()
+      await route.fulfill({
+        status: 422,
+        contentType: 'application/problem+json',
+        json: {
+          type: 'about:blank',
+          title: 'Unprocessable Entity',
+          status: 422,
+          detail:
+            'The requested operation is invalid. That label already exists; use merge instead.',
+          code: 'invalid_operation',
+          reason: 'taxonomy_label_collision',
+        },
+      })
+    })
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Shift+C')
+    const manager = page.getByRole('dialog', { name: 'Manage categories' })
+    const list = manager.getByRole('listbox', { name: 'Categories' })
+    await expect(list.getByRole('option').first()).toBeVisible()
+    await page.keyboard.press('ArrowDown')
+    await expect(list).toBeFocused()
+    await page.keyboard.press('n')
+    const name = manager.getByRole('textbox', { name: 'Name' })
+    await expect(name).toBeFocused()
+    await page.keyboard.type('Pet Care')
+    await page.keyboard.press('Enter')
+    await expect(manager.getByRole('alert')).toHaveText(
+      'That label already exists; use merge instead.',
+    )
+    await expect(name).toHaveValue('Pet Care')
+    await expect(page.getByText(/0 pending edit/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
 test('the group manager stages every action and has no move', async ({ page }) => {
   const server = await startE2EServer()
   try {

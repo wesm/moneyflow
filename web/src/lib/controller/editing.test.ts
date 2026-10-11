@@ -282,6 +282,39 @@ describe('browser editing controller', () => {
     },
   )
 
+  it.each([
+    ['taxonomy_label_collision', 'That label already exists; use merge instead.'],
+    ['provider_write_batch', 'That action is not available for the current target.'],
+    [undefined, 'That action is not available for the current target.'],
+  ] as const)('announces an invalid operation with reason %s', async (reason, announcement) => {
+    const problem = {
+      type: 'about:blank',
+      title: 'Unprocessable Entity',
+      status: 422,
+      detail: 'private server detail',
+      code: 'invalid_operation',
+      current_revision: '2',
+      ...(reason === undefined ? {} : { reason }),
+    }
+    const transport: MutationFetch = {
+      request: vi.fn(async () =>
+        Response.json(problem, {
+          status: 422,
+          headers: { 'Content-Type': 'application/problem+json' },
+        }),
+      ),
+    }
+    const controller = createEditingController({
+      transport,
+      host: editingHost(testProjection({ revision: '2' })),
+    })
+
+    await expect(controller.undo()).resolves.toBe(false)
+
+    expect(controller.state.phase).toBe('failed')
+    expect(controller.state.announcement).toBe(announcement)
+  })
+
   it('keeps the reviewed revision distinct in commit requests', async () => {
     const transport = mutationTransport(mutationResponse('10', 'mfsel1.example' as SelectionValue))
     const controller = createEditingController({
