@@ -124,34 +124,36 @@ describe('impactLines', () => {
     )
   })
 
-  it('names the merchant a rename merges into, for either scope', () => {
-    expect(impactLines(preview(), 'transactions', 'Corner Grocery', 'USD')).toEqual([
+  const corner = { id: 'merchant-corner', label: 'Corner Grocery' }
+
+  it('names the other merchant a rename merges into, for either scope', () => {
+    const maple = preview({ source_merchant_id: 'merchant-maple' })
+    expect(impactLines(maple, 'transactions', corner, 'USD')).toEqual([
       'Merges into Corner Grocery',
     ])
-    expect(impactLines(preview(), 'entity', 'Corner Grocery', 'USD')).toContain(
+    expect(impactLines(maple, 'entity', corner, 'USD')).toEqual([
+      'Changes all 141 transactions of this merchant.',
       'Merges into Corner Grocery',
-    )
+    ])
   })
 
   it('does not merge a merchant into itself, as when a whole-merchant rename fixes case', () => {
-    const own = preview({ transactions: [row('corner grocery'), row('corner grocery')] })
-    expect(impactLines(own, 'entity', 'corner grocery', 'USD')).toEqual([
+    const own = preview({
+      source_merchant_id: 'merchant-corner',
+      transactions: [row('corner grocery'), row('corner grocery'), row('corner grocery')],
+    })
+    expect(impactLines(own, 'entity', corner, 'USD')).toEqual([
       'Changes all 141 transactions of this merchant.',
     ])
-    const listed = preview({ affected_transactions: 1, transactions: [row('Corner Grocery')] })
-    expect(impactLines(listed, 'transactions', 'Corner Grocery', 'USD')).toEqual([])
+    expect(impactLines(own, 'transactions', corner, 'USD')).toEqual([])
   })
 
-  it('names the merge when the preview cannot show every affected merchant is the match', () => {
-    const partial = preview({ affected_transactions: 5, transactions: [row('Corner Grocery')] })
-    expect(impactLines(partial, 'transactions', 'Corner Grocery', 'USD')).toEqual([
-      'Merges into Corner Grocery',
-    ])
+  it('names the merge when the chosen transactions have more than one merchant', () => {
     const mixed = preview({
       affected_transactions: 2,
       transactions: [row('Corner Grocery'), row('Maple Court')],
     })
-    expect(impactLines(mixed, 'transactions', 'Corner Grocery', 'USD')).toEqual([
+    expect(impactLines(mixed, 'transactions', corner, 'USD')).toEqual([
       'Merges into Corner Grocery',
     ])
   })

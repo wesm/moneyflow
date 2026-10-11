@@ -69,7 +69,7 @@
   const stageable = $derived(!submitting && named && (!creating || !!draft.groupId))
   const valid = $derived(stageable && !!catalog && !!preview)
   const queue = new StageQueue()
-  const impact = $derived(merchant ? impactLines(preview, draft.scope, match?.label, currency) : [])
+  const impact = $derived(merchant ? impactLines(preview, draft.scope, match, currency) : [])
 
   let mounted = true
   onMount(() => () => (mounted = false))

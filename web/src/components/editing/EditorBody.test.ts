@@ -248,7 +248,9 @@ describe('EditorBody', () => {
     const own = { ...testCatalog.merchants![0]!, id: 'merchant-current', label: 'Current Merchant' }
     const editing = testEditingController({
       catalog: vi.fn(async () => ({ ...testCatalog, merchants: [own] })),
-      previewMerchant: vi.fn(async () => preview({ affected_transactions: 1 })),
+      previewMerchant: vi.fn(async () =>
+        preview({ affected_transactions: 1, source_merchant_id: 'merchant-current' }),
+      ),
     })
     const { input } = setup({ controller: editing })
     await stageButton('1 transaction')

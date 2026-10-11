@@ -51,17 +51,18 @@ export function scopeOptions(
 
 /**
  * The impact notice. A whole-merchant rename states its full count and how many of those
- * transactions the current view hides; a rename onto another existing merchant names it. A
- * rename onto the merchant being edited, such as a case fix, is not a merge.
+ * transactions the current view hides. A rename onto another existing merchant names it. A
+ * rename onto the merchant every affected transaction already has, such as a case fix, is not a
+ * merge.
  *
  * @param preview The preview for `scope`, once loaded.
- * @param merge The existing merchant label the typed name matches.
+ * @param merge The existing merchant the typed name matches.
  * @param currency The view's currency, which the outside-view reasons leave unnamed.
  */
 export function impactLines(
   preview: MerchantPreview | undefined,
   scope: EditScope,
-  merge: string | undefined,
+  merge: { id: string; label: string } | undefined,
   currency: string | undefined,
 ): string[] {
   const lines: string[] = []
@@ -76,22 +77,8 @@ export function impactLines(
       lines.push(`${outside} of these ${verb} outside the current view (${reasons}).`)
     }
   }
-  if (merge && merge !== sourceMerchant(preview, scope)) lines.push(`Merges into ${merge}`)
+  if (merge && merge.id !== preview?.source_merchant_id) lines.push(`Merges into ${merge.label}`)
   return lines
-}
-
-/**
- * The one merchant every affected transaction has now, when the preview shows it: always for
- * the whole merchant, and for chosen transactions only when the preview lists them all.
- */
-function sourceMerchant(
-  preview: MerchantPreview | undefined,
-  scope: EditScope,
-): string | undefined {
-  const [first, ...rest] = preview?.transactions ?? []
-  if (!preview || !first) return undefined
-  if (scope === 'transactions' && rest.length + 1 < preview.affected_transactions) return undefined
-  return rest.every((row) => row.merchant === first.merchant) ? first.merchant : undefined
 }
 
 /** The Stage button's text, with the affected count once it is known. */
