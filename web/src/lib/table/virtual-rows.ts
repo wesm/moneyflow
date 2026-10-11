@@ -19,7 +19,8 @@ export function loadedRow(windows: readonly ViewProjection[], index: number): Ta
 /**
  * The row whose window the table asks for: the first fully visible row, while it lies outside
  * the loaded window and the cursor row is not fully visible. A cursor on screen keeps its window,
- * so a key or click that moves it into another window is not undone.
+ * so a key or click that moves it into another window is not undone. A cursor on screen outside
+ * the loaded window, as a late response to an earlier request can leave it, asks for its own.
  */
 export function rowToShow(
   range: { first: number; last: number },
@@ -27,9 +28,10 @@ export function rowToShow(
   loaded: { offset: number; limit: number },
 ): number | undefined {
   const { first, last } = range
-  if (last < first || (cursor >= first && cursor <= last)) return undefined
-  if (first >= loaded.offset && first < loaded.offset + loaded.limit) return undefined
-  return first
+  if (last < first) return undefined
+  const inLoaded = (index: number) => index >= loaded.offset && index < loaded.offset + loaded.limit
+  if (cursor >= first && cursor <= last) return inLoaded(cursor) ? undefined : cursor
+  return inLoaded(first) ? undefined : first
 }
 
 /**
