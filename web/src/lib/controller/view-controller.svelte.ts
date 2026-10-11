@@ -505,14 +505,18 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   async function moveCursor(delta: -1 | 1): Promise<void> {
     if (!projection || projection.total_rows === 0) return
     const nextIndex = Math.min(Math.max(cursorIndex + delta, 0), projection.total_rows - 1)
-    if (nextIndex === cursorIndex) return
+    if (nextIndex === cursorIndex) return keepCursor()
     await moveToIndex(nextIndex)
   }
 
   async function moveHome(): Promise<void> {
     if (!projection || projection.total_rows === 0) return
     if (cursorIndex !== 0) return moveToIndex(0)
-    // The cursor stays on the first row, so a window that scrolling asked for must not move it.
+    keepCursor()
+  }
+
+  /** A key left the cursor on its row, so a window that scrolling asked for must not move it. */
+  function keepCursor(): void {
     showing?.abort.abort()
     showing = undefined
   }

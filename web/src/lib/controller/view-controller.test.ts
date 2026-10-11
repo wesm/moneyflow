@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MoneyflowProblem, type MoneyflowClient, type ViewProjection } from '../api/client'
-import { createViewController } from './view-controller.svelte'
+import { createViewController, type ViewController } from './view-controller.svelte'
 import type { SelectionValue } from '../api/client'
 import type { MoneyflowHistoryState } from './history'
 
@@ -844,7 +844,10 @@ describe('browser view controller', () => {
       expect(controller.cursorIndex).toBe(0)
     })
 
-    it('drops a scrolled-to window when Home is pressed on the first row', async () => {
+    it.each([
+      ['Home', (controller: ViewController) => controller.moveHome()],
+      ['Up', (controller: ViewController) => controller.moveCursor(-1)],
+    ])('drops a scrolled-to window when %s keeps the cursor on the first row', async (_, key) => {
       let release!: (value: ViewProjection) => void
       const client = clientWith({
         view: vi.fn(async (body) => {
@@ -856,7 +859,7 @@ describe('browser view controller', () => {
       await controller.hydrate()
 
       const shown = controller.showIndex(250)
-      await controller.moveHome()
+      await key(controller)
       release(projection('v=1', 200, 450))
       await shown
 
