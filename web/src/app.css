@@ -160,6 +160,20 @@ input {
   min-width: 0;
   min-height: 0;
 }
+/* Controls stand up from their ground; pressed or open ones and fields sink into it. */
+.kit-button,
+.kit-filter-dropdown__btn,
+.kit-select-dropdown__trigger,
+.kit-segmented .kit-segmented__btn.active,
+.mf-sidebar {
+  box-shadow: var(--mf-lift);
+}
+.kit-segmented,
+.kit-text-input,
+:is(.kit-button, .kit-filter-dropdown__btn, .kit-select-dropdown__trigger):active,
+:is(.kit-select-dropdown__trigger, .mf-period__label)[aria-expanded='true'] {
+  box-shadow: inset var(--shadow-sm);
+}
 .mf-command-bar {
   box-sizing: border-box;
   min-height: var(--header-height);
@@ -863,6 +877,15 @@ input {
   align-content: start;
   font-size: var(--font-size-sm);
 }
+/* Panels sit a step above the page: a hairline edge plus the shared lift. */
+.mf-workspace .mf-chart-states,
+.mf-table {
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow:
+    0 0 0 1px var(--border-muted),
+    var(--mf-lift);
+}
 .mf-table:focus-visible {
   /* Neutral and outside the rows, so the blue left rule still marks only the cursor row. */
   outline: 2px solid var(--text-muted);
@@ -886,11 +909,21 @@ input {
   top: 0;
   /* Above the positioned rows, which scroll up beneath it. */
   z-index: 2;
-  background: var(--bg-surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: linear-gradient(
+    var(--bg-surface),
+    color-mix(in srgb, var(--bg-primary) 60%, var(--bg-surface))
+  );
+  box-shadow: inset 0 1px var(--mf-hi);
   border-bottom-color: var(--border-default);
   color: var(--text-secondary);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
+}
+/* Rows scrolled beneath the stuck header pass under its shadow. */
+.mf-table--scrolled > .mf-table__header {
+  border-radius: 0;
+  box-shadow: var(--mf-lift);
 }
 .mf-table__cell {
   min-width: 0;
@@ -925,7 +958,10 @@ input {
 }
 .mf-table__row--active {
   --mf-row-tint: var(--mf-cursor);
-  box-shadow: inset 3px 0 var(--mf-focus);
+  box-shadow:
+    inset 3px 0 var(--mf-focus),
+    inset 10px 0 8px -8px var(--mf-focus),
+    inset 0 1px var(--mf-hi);
 }
 .mf-table__row--selected {
   --mf-row-tint: var(--mf-selected);
@@ -1341,7 +1377,7 @@ input {
   position: relative;
   display: grid;
   gap: var(--space-4);
-  padding-bottom: var(--space-5);
+  padding: var(--space-2) 0;
 }
 /* A chart tooltip covers the table's sticky header, which otherwise paints above the area. */
 .mf-chart-area:has([role='tooltip']) {
@@ -1350,6 +1386,10 @@ input {
 .mf-chart-states {
   display: grid;
   gap: var(--space-5);
+}
+.mf-workspace .mf-chart-states {
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-3);
 }
 .mf-chart-states--stale {
   opacity: var(--opacity-disabled);

@@ -190,7 +190,7 @@
   />
 {:else}
   <div
-    class={['mf-table', compact && 'mf-table--compact']}
+    class={['mf-table', compact && 'mf-table--compact', scrollTop > above && 'mf-table--scrolled']}
     style:--mf-row-height={`${height}px`}
     style:--mf-columns={compact ? undefined : trackSizes}
     role="grid"
