@@ -71,6 +71,10 @@ export class GridScroll {
       return { index, row: loadedRow(this.#source.windows, index) }
     })
   })
+  /** The cursor row's identity while it is rendered, for `aria-activedescendant`. */
+  readonly activeID = $derived.by(
+    () => this.slots.find((slot) => slot.index === this.#cursor)?.row?.identity,
+  )
   /** The spacer heights above and below the rendered rows. */
   readonly pads = $derived.by(() => {
     const { topPad, totalHeight } = this.#slice
@@ -92,8 +96,8 @@ export class GridScroll {
   }
 
   // The grid keeps focus while the cursor moves, so the browser never scrolls the active row
-  // into view. Reveal it here, or aria-activedescendant would name a row that is not rendered.
-  // A new view, such as a sort, can keep the cursor's index; its row is revealed too.
+  // into view. Reveal it here, as a keyboard user expects. A new view, such as a sort, can keep
+  // the cursor's index; its row is revealed too.
   #followCursor(): void {
     const index = this.#cursor
     const query = this.#query

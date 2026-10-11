@@ -957,6 +957,24 @@ describe('FinanceGrid', () => {
       expect(document.getElementById(active)).not.toBeNull()
     })
 
+    it('names an active descendant only while the cursor row is rendered', async () => {
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scrollTop: 0,
+        viewport: 630,
+        ...callbacks(),
+      })
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      await view.rerender({ scrollTop: 100 * 30 })
+      expect(grid.hasAttribute('aria-activedescendant')).toBe(false)
+
+      await view.rerender({ scrollTop: 0 })
+      expect(grid.getAttribute('aria-activedescendant')).toBe('moneyflow-row-row-0')
+      expect(document.getElementById('moneyflow-row-row-0')).not.toBeNull()
+    })
+
     it('keeps the cursor on a clicked row from a cached neighboring window', async () => {
       vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
       const events = { ...callbacks(), onshow: vi.fn() }
