@@ -19,7 +19,7 @@ function row(top: number): HTMLElement {
   return element
 }
 
-function setup(anchor: HTMLElement | undefined, above = false) {
+function setup(anchor: HTMLElement | undefined, above = false, compact = false) {
   const overlays = new OverlayState({
     pushScope: () => undefined,
     focusGrid: vi.fn(),
@@ -27,9 +27,10 @@ function setup(anchor: HTMLElement | undefined, above = false) {
   })
   const oncancel = vi.fn()
   const ondismiss = vi.fn()
-  render(AnchoredEditorHarness, { props: { anchor, above, overlays, oncancel, ondismiss } })
+  const props = { anchor, above, compact, overlays, oncancel, ondismiss }
+  const { rerender } = render(AnchoredEditorHarness, { props })
   const dialog = screen.getByRole('dialog', { name: 'Edit merchant' })
-  return { dialog, oncancel, ondismiss }
+  return { dialog, oncancel, ondismiss, rerender }
 }
 
 describe('AnchoredEditor', () => {
@@ -71,5 +72,24 @@ describe('AnchoredEditor', () => {
     await fireEvent.mouseDown(document.body)
     expect(ondismiss).toHaveBeenCalledTimes(1)
     expect(dialog.isConnected).toBe(true)
+  })
+
+  it('leaves focus on the remounted field when the editor moves to the sheet and back', async () => {
+    const opener = document.createElement('button')
+    document.body.append(opener)
+    opener.focus()
+    const { rerender } = setup(row(100))
+    const field = () => screen.getByRole('textbox', { name: 'Merchant' })
+    expect(document.activeElement).toBe(field())
+
+    await rerender({ compact: true })
+    const sheet = screen.getByRole('dialog', { name: 'Edit merchant' })
+    expect(sheet.classList.contains('mf-sheet__panel')).toBe(true)
+    expect(document.activeElement).toBe(field())
+
+    await rerender({ compact: false })
+    const popover = screen.getByRole('dialog', { name: 'Edit merchant' })
+    expect(popover.classList.contains('mf-anchored-editor')).toBe(true)
+    expect(document.activeElement).toBe(field())
   })
 })

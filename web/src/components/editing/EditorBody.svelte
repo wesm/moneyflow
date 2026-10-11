@@ -6,6 +6,7 @@
   import EditorPreview from './EditorPreview.svelte'
   import type { EditorCatalog, ViewProjection } from '../../lib/api/client'
   import type { EditingController } from '../../lib/controller/editing'
+  import type { EditorDraft } from '../../lib/editing/draft.svelte'
   import {
     countLine,
     editorIntent,
@@ -31,29 +32,27 @@
     cursorIndex: number
     /** Prefix of the title and count IDs, which name and describe the host dialog. */
     id: string
+    /** The typed input, which outlives a remount when the window crosses 640 px. */
+    draft: EditorDraft
     onstage: () => void
     oncancel: () => void
   }
 
-  let { kind, target, controller, projection, cursorIndex, id, onstage, oncancel }: Props = $props()
+  let { controller, id, draft, onstage, oncancel, ...opening }: Props = $props()
 
-  // The editor edits what it opened over; a later projection does not retarget it.
-  const opened = untrack(() => ({ kind, target, view: projection, cursor: cursorIndex }))
-  const selecting = opened.view.selection_count > 0
-  const rule = merchantScope(opened.view, opened.cursor, opened.view.selection_count)
-  const count = countLine(opened.view, opened.target.identity)
-  const currency = opened.view.view.currency?.currency
+  // The editor edits what it opened over; neither a later projection nor a remount retargets it.
+  const opened = untrack(() => (draft.opened ??= { ...opening }))
+  const view = opened.projection
+  const selecting = view.selection_count > 0
+  const rule = merchantScope(view, opened.cursorIndex, view.selection_count)
+  const count = countLine(view, opened.target.identity)
+  const currency = view.view.currency?.currency
   let catalog = $state<EditorCatalog>()
-  let text = $state('')
-  let scope = $state<EditScope>('transactions')
   const previews = new ScopePreviews((scope, signal) =>
     controller.previewMerchant(opened.target, scope, signal),
   )
   let error = $state('')
   let submitting = $state(false)
-  /** The name a `Create "…"` accepted; the group step shows while the text still reads it. */
-  let created = $state<string>()
-  let groupId = $state('')
   let field = $state<HTMLElement>()
   let groupStep = $state<HTMLElement>()
 
@@ -61,16 +60,16 @@
   const choices = $derived((merchant ? catalog?.merchants : catalog?.categories) ?? [])
   const groups = $derived(catalog?.groups ?? [])
   // Until the choices load, a typed name could duplicate one that exists, so nothing is offered.
-  const options = $derived(editorOptions(choices, text, !!catalog, merchant ? [] : groups))
-  const match = $derived(matchChoice(choices, text))
-  const creating = $derived(!merchant && !match && created !== undefined && created === text.trim())
-  const preview = $derived(previews.byScope[scope])
-  const named = $derived(merchant ? text.trim() !== '' : match !== undefined || creating)
+  const options = $derived(editorOptions(choices, draft.text, !!catalog, merchant ? [] : groups))
+  const match = $derived(matchChoice(choices, draft.text))
+  const creating = $derived(!merchant && !match && draft.created === draft.text.trim())
+  const preview = $derived(previews.byScope[draft.scope])
+  const named = $derived(merchant ? draft.text.trim() !== '' : match !== undefined || creating)
   /** Whether Enter may ask to stage; a request made while loading waits for `valid`. */
-  const stageable = $derived(!submitting && named && (!creating || !!groupId))
+  const stageable = $derived(!submitting && named && (!creating || !!draft.groupId))
   const valid = $derived(stageable && !!catalog && !!preview)
   const queue = new StageQueue()
-  const impact = $derived(merchant ? impactLines(preview, scope, match?.label, currency) : [])
+  const impact = $derived(merchant ? impactLines(preview, draft.scope, match?.label, currency) : [])
 
   let mounted = true
   onMount(() => () => (mounted = false))
@@ -87,17 +86,17 @@
 
   // Every scope change re-requests its preview, aborting the earlier request.
   $effect(() => {
-    const current = scope
+    const current = draft.scope
     return untrack(() => previews.load(current))
   })
 
   $effect(() => {
-    if (queue.settle({ text, scope }, stageable, valid)) void stage()
+    if (queue.settle({ text: draft.text, scope: draft.scope }, stageable, valid)) void stage()
   })
 
   async function stage(): Promise<void> {
     if (!stageable) return
-    if (!catalog || !preview) return queue.request({ text, scope })
+    if (!catalog || !preview) return queue.request({ text: draft.text, scope: draft.scope })
     if (BigInt(preview.revision) !== controller.state.revision) {
       error = 'The profile changed. Reopen this editor to review affected transactions.'
       return
@@ -107,10 +106,10 @@
     const intent = editorIntent({
       kind: opened.kind,
       target: opened.target,
-      text,
-      scope: merchant ? scope : '',
+      text: draft.text,
+      scope: merchant ? draft.scope : '',
       match,
-      groupId,
+      groupId: draft.groupId,
     })
     const failed = 'The change could not be staged.'
     try {
@@ -127,8 +126,8 @@
   /** Accepting Create for a category opens the group step; a merchant name needs no group. */
   function onaccept(option: EditorOption): void {
     if (merchant || !option.create) return
-    created = option.label
-    if (!groupId) groupId = groups[0]?.id ?? ''
+    draft.created = option.label
+    draft.groupId ||= groups[0]?.id ?? ''
     void tick().then(() => groupStep?.querySelector('button')?.focus())
   }
 
@@ -147,7 +146,7 @@
 
   /** Esc on the group step returns to the field. */
   function back(): void {
-    created = undefined
+    draft.created = undefined
     void tick().then(() => field?.querySelector('input')?.focus())
   }
 
@@ -180,7 +179,7 @@
     <EditorCombobox
       label={merchant ? 'Merchant' : 'Category'}
       {options}
-      bind:value={text}
+      bind:value={draft.text}
       valid={stageable}
       {onaccept}
       {onkeyaction}
@@ -190,10 +189,10 @@
     <div class="mf-editor__group" bind:this={groupStep}>
       <span class="mf-editor__quiet">Group</span>
       <SelectDropdown
-        value={groupId}
+        value={draft.groupId}
         title="Category group"
         options={groups.map((group) => ({ value: group.id, label: group.label }))}
-        onchange={(value) => (groupId = value)}
+        onchange={(value) => (draft.groupId = value)}
       />
     </div>
   {/if}
@@ -202,8 +201,8 @@
       block
       ariaLabel="Scope"
       options={scopeOptions(rule, previews.counts, selecting)}
-      value={scope}
-      onchange={(value) => (scope = value as EditScope)}
+      value={draft.scope}
+      onchange={(value) => (draft.scope = value as EditScope)}
     />
     {#if rule.reason}<p class="mf-editor__quiet">{rule.reason}</p>{/if}
   {/if}

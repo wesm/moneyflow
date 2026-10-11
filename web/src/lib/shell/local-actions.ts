@@ -2,6 +2,7 @@ import { tick } from 'svelte'
 
 import type { ViewProjection } from '../api/client'
 import type { ViewController } from '../controller/view-controller.svelte'
+import { EditorDraft } from '../editing/draft.svelte'
 import type { LocalAction } from '../shortcuts'
 import type { RowActionButton } from '../table/actions'
 import type { EditorAnchor, OverlayState } from './overlay-state.svelte'
@@ -84,7 +85,10 @@ function anchorFor(context: LocalActionContext, target: FocusedRow): EditorAncho
   return row ? { element: row, above: false } : undefined
 }
 
-/** Opens the merchant or category editor for `target`, such as the cursor or a pointed row. */
+/**
+ * Opens the merchant or category editor for `target`, such as the cursor or a pointed row, with
+ * an empty draft.
+ */
 export function openEditor(
   context: LocalActionContext,
   field: 'merchant' | 'category',
@@ -93,6 +97,7 @@ export function openEditor(
   if (!target) return
   context.overlays.anchor = anchorFor(context, target)
   context.overlays.editTarget = target
+  context.overlays.editorDraft = new EditorDraft()
   context.overlays.open(field)
 }
 

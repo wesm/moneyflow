@@ -1,6 +1,7 @@
 import type { Locator, Page, Route } from '@playwright/test'
 
 import { activeRow, cell, expect, openMoneyflow, test } from './fixtures'
+import { startE2EServer } from '../scripts/e2e-server'
 
 test('desktop and medium layouts put the charts above a full-width table', async ({
   page,
@@ -542,6 +543,41 @@ test('growing past the phone width closes the drawer and focuses the grid', asyn
 
   await expect(drawer).toBeHidden()
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+})
+
+test('the editor keeps its draft when the window crosses the phone width', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await page.setViewportSize({ width: 1024, height: 768 })
+    // September 2026: Maple Court Apartments has one rent payment in view and 33 outside it.
+    await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-09-01&to=2026-09-30&v=1')
+    await page.keyboard.press('m')
+    const editor = page.getByRole('dialog', { name: 'Edit merchant' })
+    const name = editor.getByRole('combobox', { name: 'Merchant' })
+    const whole = editor.getByRole('radio', { name: 'Whole merchant · 34 transactions' })
+    await name.fill('Maple Court Homes')
+    await name.press('Enter')
+    await whole.click()
+    await expect(whole).toBeChecked()
+
+    await page.setViewportSize(phone)
+    const sheet = page.locator('.mf-sheet__panel')
+    await expect(sheet).toBeVisible()
+    await expect(sheet.getByRole('combobox', { name: 'Merchant' })).toHaveValue('Maple Court Homes')
+    await expect(sheet.getByRole('combobox', { name: 'Merchant' })).toBeFocused()
+    await expect(sheet.getByRole('radio', { name: /^Whole merchant/ })).toBeChecked()
+
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await expect(page.locator('.mf-anchored-editor')).toBeVisible()
+    await expect(name).toHaveValue('Maple Court Homes')
+    await expect(name).toBeFocused()
+    await expect(whole).toBeChecked()
+    await editor.getByRole('button', { name: 'Stage change to 34 transactions' }).click()
+    await expect(editor).toBeHidden()
+    await expect(page.getByText(/1 pending edit · 34 transactions/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
 })
 
 test.describe('phone rows by touch', () => {

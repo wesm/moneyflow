@@ -107,7 +107,7 @@ export function matchChoice(choices: EditorChoice[], text: string): EditorChoice
 }
 
 /** What the editor stages. */
-export interface EditorDraft {
+export interface StagedEdit {
   kind: EditorKind
   target: { kind: string; identity: string }
   text: string
@@ -124,7 +124,7 @@ export interface EditorDraft {
  * for selected transactions gets a fresh merchant ID, while a whole-merchant rename keeps its
  * merchant. A new category gets a fresh ID in the chosen group.
  */
-export function editorIntent(draft: EditorDraft): MutationIntent {
+export function editorIntent(draft: StagedEdit): MutationIntent {
   const label = draft.text.trim()
   if (draft.kind === 'merchant') {
     const scope = draft.scope || 'transactions'
