@@ -870,6 +870,7 @@ function stubController(projection = testProjection()): ViewController {
     commitSearch: vi.fn(),
     restoreSearch: vi.fn(),
     hold: <T>(work: Promise<T>) => work,
+    settled: async () => undefined,
     restore: vi.fn(),
     retry: vi.fn(),
     reset: vi.fn(),

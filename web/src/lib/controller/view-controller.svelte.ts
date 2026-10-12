@@ -79,6 +79,8 @@ export interface ViewController {
    * await `apply()` or another transition: that transition waits for `work`, so neither ends.
    */
   hold<T>(work: Promise<T>): Promise<T>
+  /** Settles once the transitions queued so far, and any Esc return or held work, finish. */
+  settled(): Promise<void>
   beginSearch(): SearchSnapshot
   previewSearch(search: string): Promise<SearchPreview>
   /** Keeps the preview as a history entry; does nothing once history dropped `snapshot`. */
@@ -210,6 +212,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     )
     barrier = Promise.all([barrier, released])
     return work
+  }
+
+  async function settled(): Promise<void> {
+    await Promise.all([applyTail, barrier])
   }
 
   async function recheck(selection?: SelectionValue): Promise<ViewProjection | undefined> {
@@ -777,6 +783,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     moveHome,
     apply,
     hold,
+    settled,
     beginSearch,
     previewSearch,
     commitSearch,

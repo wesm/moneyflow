@@ -11,7 +11,7 @@
   import type { SearchCarry } from '../../lib/shell/search-carry'
 
   type SearchController = SearchHost<unknown> &
-    Pick<ViewController, 'projection' | 'hold' | 'opening'>
+    Pick<ViewController, 'projection' | 'hold' | 'opening' | 'settled'>
 
   interface Props {
     controller: SearchController
@@ -38,6 +38,8 @@
   let leaving: Promise<void> | undefined
   /** The search `leaving` applies, so browser history can end it. */
   let leavingSearch: SearchCoordinator | undefined
+  /** View changes queued before the first keystroke; the search starts from their result. */
+  let waiting: Promise<void> | undefined
   /** Whether the field has focus. It stays set when the field is removed with focus. */
   let focused = false
 
@@ -97,11 +99,17 @@
 
   function type(next: string): void {
     draft = next
-    if (!leaving) begin().input(next)
+    if (leaving || waiting) return
+    if (session) return session.search.input(next)
+    waiting = controller.settled().then(() => {
+      waiting = undefined
+      if (draft !== undefined && wrapper?.isConnected) begin().input(draft)
+    })
   }
 
   async function commit(): Promise<void> {
     await leaving
+    if (waiting) await waiting
     const search = session?.search
     if (search && !(await search.commit())) return
     end()
@@ -160,6 +168,8 @@
 
   function left(): void {
     focused = false
+    // Text typed while earlier view changes load has no search yet; nothing would apply it.
+    if (waiting) draft = undefined
     if (!session) return
     leavingSearch = detach()
     if (leavingSearch) leaving = controller.hold(leave(leavingSearch, draft))

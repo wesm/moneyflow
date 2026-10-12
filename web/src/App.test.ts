@@ -174,6 +174,7 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
     commitSearch: vi.fn(),
     restoreSearch: vi.fn(),
     hold: <T>(work: Promise<T>) => work,
+    settled: async () => undefined,
     restore: vi.fn(async () => undefined),
     retry: vi.fn(async () => undefined),
     reset: vi.fn(async () => undefined),
