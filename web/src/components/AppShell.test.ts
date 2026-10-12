@@ -25,6 +25,10 @@ const escapeCapability = {
   available: true,
 }
 
+// Tests that wait for the chart library's first dynamic import allow 10 s for its cold compile;
+// the test itself needs room beyond that wait.
+const CHART_IMPORT_TEST_MILLIS = 15_000
+
 describe('AppShell', () => {
   afterEach(() => {
     cleanup()
@@ -256,19 +260,23 @@ describe('AppShell', () => {
     expect(screen.getByRole('complementary', { name: 'Visualizations' })).not.toBeNull()
   })
 
-  it('loads the chart rail into the Visualizations region', async () => {
-    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
-    render(AppShell, { controller: stubController() })
+  it(
+    'loads the chart rail into the Visualizations region',
+    async () => {
+      onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
+      render(AppShell, { controller: stubController() })
 
-    const region = screen.getByRole('complementary', { name: 'Visualizations' })
-    // The first dynamic import compiles the chart library, which is slow in a cold test run.
-    const heading = await within(region).findByRole(
-      'heading',
-      { name: 'Visualizations' },
-      { timeout: 10_000 },
-    )
-    expect(heading.tagName).toBe('H2')
-  })
+      const region = screen.getByRole('complementary', { name: 'Visualizations' })
+      // The first dynamic import compiles the chart library, which is slow in a cold test run.
+      const heading = await within(region).findByRole(
+        'heading',
+        { name: 'Visualizations' },
+        { timeout: 10_000 },
+      )
+      expect(heading.tagName).toBe('H2')
+    },
+    CHART_IMPORT_TEST_MILLIS,
+  )
 
   it('shows a loading line until the chart rail arrives', async () => {
     vi.mocked(loadRail).mockImplementationOnce(() => new Promise(() => undefined))
@@ -280,31 +288,35 @@ describe('AppShell', () => {
     expect(chartAnnouncement().textContent).toBe('Loading charts…')
   })
 
-  it('explains a failed chart load and retries when charts are shown again', async () => {
-    vi.mocked(loadRail).mockRejectedValueOnce(new Error('chunk 404'))
-    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
-    render(AppShell, { controller: stubController() })
+  it(
+    'explains a failed chart load and retries when charts are shown again',
+    async () => {
+      vi.mocked(loadRail).mockRejectedValueOnce(new Error('chunk 404'))
+      onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
+      render(AppShell, { controller: stubController() })
 
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const region = screen.getByRole('complementary', { name: 'Visualizations' })
-    expect(await within(region).findByText(failureText)).not.toBeNull()
-    expect(within(region).queryByText('Loading charts…')).toBeNull()
-    expect(chartAnnouncement().textContent).toBe(failureText)
-    expect(errors).toHaveBeenCalledWith('moneyflow: chart rail failed to load', expect.any(Error))
-    errors.mockRestore()
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const region = screen.getByRole('complementary', { name: 'Visualizations' })
+      expect(await within(region).findByText(failureText)).not.toBeNull()
+      expect(within(region).queryByText('Loading charts…')).toBeNull()
+      expect(chartAnnouncement().textContent).toBe(failureText)
+      expect(errors).toHaveBeenCalledWith('moneyflow: chart rail failed to load', expect.any(Error))
+      errors.mockRestore()
 
-    const toggle = screen.getByRole('switch', { name: 'Charts' })
-    await fireEvent.click(toggle)
-    await fireEvent.click(toggle)
-    const heading = await screen.findByRole(
-      'heading',
-      { name: 'Visualizations' },
-      { timeout: 10_000 },
-    )
-    expect(heading.tagName).toBe('H2')
-    expect(screen.queryByText(failureText)).toBeNull()
-    expect(loadRail).toHaveBeenCalledTimes(2)
-  })
+      const toggle = screen.getByRole('switch', { name: 'Charts' })
+      await fireEvent.click(toggle)
+      await fireEvent.click(toggle)
+      const heading = await screen.findByRole(
+        'heading',
+        { name: 'Visualizations' },
+        { timeout: 10_000 },
+      )
+      expect(heading.tagName).toBe('H2')
+      expect(screen.queryByText(failureText)).toBeNull()
+      expect(loadRail).toHaveBeenCalledTimes(2)
+    },
+    CHART_IMPORT_TEST_MILLIS,
+  )
 
   it('explains a failed chart load inside the compact dialog', async () => {
     const original = window.matchMedia
