@@ -89,6 +89,7 @@
     onshow,
   }: Props = $props()
   let grid = $state<HTMLDivElement>()
+  const NO_ROWS_HINT = 'Change the current refinements to see results.'
   const height = $derived(rowHeight(compact))
   const wide = $derived((innerWidth.current ?? 0) >= WIDE_COLUMNS_WIDTH)
   const comparison = $derived(insights?.response?.ranges.comparison_label)
@@ -188,10 +189,9 @@
 </script>
 
 {#if projection.total_rows === 0}
-  <EmptyState
-    title="No transactions"
-    description="Change the current refinements to see results."
-  />
+  <div class="mf-table-empty" tabindex="-1">
+    <EmptyState title="No transactions" description={NO_ROWS_HINT} />
+  </div>
 {:else}
   <div
     class={['mf-table', compact && 'mf-table--compact']}

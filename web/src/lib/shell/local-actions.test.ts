@@ -9,7 +9,6 @@ import {
   moveCursor,
   openEditor,
   openEditorWhenSettled,
-  pressedRow,
   runRowAction,
   type LocalActionContext,
 } from './local-actions'
@@ -354,25 +353,19 @@ describe('runRowAction', () => {
 })
 
 describe('moveCursor', () => {
-  it('clears the status notice before the cursor moves', () => {
-    status.notify('Open the group to delete its transactions.')
-    const move = vi.fn(() => {
-      expect(status.notice).toBe('')
-      return Promise.resolve()
-    })
-    moveCursor(move)
-    expect(move).toHaveBeenCalledTimes(1)
-    expect(status.notice).toBe('')
-  })
-})
-
-describe('pressedRow', () => {
   afterEach(() => document.body.replaceChildren())
 
-  it('keeps the row the key was pressed on after the cursor moves in the same view', () => {
+  it('clears the status notice at once and moves after pending view changes', async () => {
     const { context } = setup(0)
-    const row = pressedRow(context.controller)
-    Object.assign(context.controller, { cursorIndex: 1 })
-    expect(row()).toEqual({ identity: 'agg-0', kind: 'aggregate' })
+    const settle = holdTransitions(context)
+    status.notify('Open the group to delete its transactions.')
+    const move = vi.fn(() => Promise.resolve())
+    const moved = moveCursor(context, move)
+    expect(status.notice).toBe('')
+    await tick()
+    expect(move).not.toHaveBeenCalled()
+    settle()
+    await moved
+    expect(move).toHaveBeenCalledTimes(1)
   })
 })

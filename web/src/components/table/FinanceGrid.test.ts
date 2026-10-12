@@ -660,8 +660,17 @@ describe('FinanceGrid', () => {
 
   it('draws Trend and vs prior from the row series and names the comparison', async () => {
     const loaded = new Map<string, InsightsSeries>()
+    const base = testInsights()
+    const month = (number: number) => ({
+      start: `2026-0${number}-01`,
+      end: `2026-0${number}-28`,
+      period: { granularity: 'month' as const, year: 2026, month: number },
+      absent: false,
+      partial: false,
+    })
+    const response = { ...base, ranges: { ...base.ranges, trend: [7, 8, 9].map(month) } }
     const insights = (): RowInsights => ({
-      response: testInsights(),
+      response,
       failed: false,
       seriesFor: (identity) => loaded.get(identity),
     })
@@ -688,10 +697,14 @@ describe('FinanceGrid', () => {
 
     loaded.set('agg-0', {
       ...testSeries('agg-0', '-30000'),
+      trend: ['30000', '0', '-30000'],
       vs_prior: { kind: 'percent', percent_tenths: 200, grew: true, favorable: false },
     })
     await view.rerender({ insights: insights() })
-    expect(cell(row, 'trend')?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    const trend = cell(row, 'trend')?.querySelector('svg')
+    expect(trend?.getAttribute('aria-hidden')).toBe('true')
+    // July's income above the zero line, August on it, September's spending below.
+    expect(trend?.querySelector('polyline')?.getAttribute('points')).toBe('2.5,2.5 28,12 53.5,21.5')
     expect(cell(row, 'vs_prior')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
       '▲ 20.0% up 20.0% vs Aug',
     )

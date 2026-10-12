@@ -44,26 +44,16 @@ export function focusedRow(
 }
 
 /**
- * The row a key acts on when its queued turn comes: the cursor row when it was pressed, so later
- * cursor moves do not change it. A view change queued before it leaves that row behind, so the
- * key then acts on the cursor row of the new view.
+ * Moves the cursor from a pointer or a grid key, after pending view changes such as an Esc
+ * return. These never pass through the shortcut manager, so the move clears the status notice
+ * here, as every next action does.
  */
-export function pressedRow(controller: ViewController): () => FocusedRow | undefined {
-  const query = controller.projection?.canonical_query
-  const pressed = focusedRow(controller.projection, controller.cursorIndex)
-  return () =>
-    controller.projection?.canonical_query === query
-      ? pressed
-      : focusedRow(controller.projection, controller.cursorIndex)
-}
-
-/**
- * Moves the cursor from a pointer or a grid key. These never pass through the shortcut manager,
- * so the move clears the status notice here, as every next action does.
- */
-export function moveCursor(move: () => Promise<void>): Promise<void> {
+export async function moveCursor(
+  context: LocalActionContext,
+  move: () => Promise<void>,
+): Promise<void> {
   status.clear()
-  return move()
+  await context.queue(move)
 }
 
 /**
@@ -129,9 +119,9 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
   const row = () => focusedRow(controller.projection, controller.cursorIndex)
   const later = (work: () => unknown) => () => whenSettled(context, work)
   return {
-    'cursor.up': () => void controller.moveCursor(-1),
-    'cursor.down': () => void controller.moveCursor(1),
-    'cursor.home': () => void controller.moveHome(),
+    'cursor.up': () => void context.queue(() => controller.moveCursor(-1)),
+    'cursor.down': () => void context.queue(() => controller.moveCursor(1)),
+    'cursor.home': () => void context.queue(() => controller.moveHome()),
     'overlay.search': () => context.focusSearch(),
     'overlay.filters': () => context.openFilters(),
     'overlay.help': () => overlays.open('help'),
