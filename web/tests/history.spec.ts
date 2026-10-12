@@ -31,13 +31,13 @@ test('@smoke browser history, Esc, refresh, and selection retain server state', 
   await expect(page).not.toHaveURL(detailURL)
 
   await page.keyboard.press('/')
-  await page.getByRole('searchbox', { name: 'Search transactions' }).fill('091')
+  await page.getByRole('searchbox', { name: 'Search transactions' }).fill('noodle')
   await page.getByRole('searchbox', { name: 'Search transactions' }).press('Enter')
-  await expect(refinements(page)).toContainText('Search: 091')
+  await expect(refinements(page)).toContainText('Search: noodle')
   const searchURL = page.url()
   await page.reload()
   await expect(page).toHaveURL(searchURL)
-  await expect(refinements(page)).toContainText('Search: 091')
+  await expect(refinements(page)).toContainText('Search: noodle')
 })
 
 test('direct invalid bookmarks fail safely and can reset', async ({ page, server }) => {

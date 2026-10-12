@@ -1,5 +1,6 @@
 <script lang="ts">
   import { EmptyState, virtualSlice } from '@kenn-io/kit-ui'
+  import { untrack } from 'svelte'
   import type { ViewProjection } from '../lib/api/client'
 
   interface Props {
@@ -13,6 +14,8 @@
   }
   let { projection, cursorIndex, onmove, onhome, onactivate, onselect, oninformation }: Props =
     $props()
+  const rowHeight = 34
+  let grid = $state<HTMLDivElement>()
   let scrollTop = $state(0)
   let viewport = $state(520)
   const rows = $derived(projection.detail_rows ?? projection.aggregate_rows ?? [])
@@ -23,12 +26,28 @@
       viewport,
       count: rows.length,
       overscan: 5,
-      fixedHeight: 34,
-      heightOf: () => 34,
+      fixedHeight: rowHeight,
+      heightOf: () => rowHeight,
     }),
   )
   const visible = $derived(rows.slice(slice.start, slice.end))
-  const activeID = $derived(rows.find((row) => row.index === cursorIndex)?.identity)
+  const activePosition = $derived(rows.findIndex((row) => row.index === cursorIndex))
+  const activeID = $derived(rows[activePosition]?.identity)
+
+  // The grid keeps focus while the cursor moves, so the browser never scrolls the active row
+  // into view. Reveal it here, or aria-activedescendant would name a row that is not rendered.
+  $effect(() => {
+    const top = activePosition * rowHeight
+    if (activePosition < 0 || !grid) return
+    const current = untrack(() => scrollTop)
+    const rowsViewport = untrack(() => viewport) - rowHeight
+    let next = current
+    if (top < current) next = top
+    else if (top + rowHeight > current + rowsViewport) next = top + rowHeight - rowsViewport
+    if (next === current) return
+    scrollTop = next
+    grid.scrollTop = next
+  })
   function sortState(field: string): 'ascending' | 'descending' | undefined {
     return projection.view.sort_field === field
       ? projection.view.sort_direction === 'asc'
@@ -64,6 +83,7 @@
     aria-rowcount={projection.total_rows + 1}
     aria-activedescendant={activeID ? `moneyflow-row-${activeID}` : undefined}
     tabindex="0"
+    bind:this={grid}
     onkeydown={keydown}
     onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
     bind:clientHeight={viewport}
@@ -161,7 +181,7 @@
       </div>
     {/each}
     <div
-      style={`height:${Math.max(0, slice.totalHeight - slice.topPad - visible.length * 34)}px`}
+      style={`height:${Math.max(0, slice.totalHeight - slice.topPad - visible.length * rowHeight)}px`}
       aria-hidden="true"
     ></div>
   </div>

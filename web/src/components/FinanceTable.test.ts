@@ -193,4 +193,32 @@ describe('FinanceTable', () => {
     })
     expect(screen.getByText('pending')).not.toBeNull()
   })
+
+  it('keeps the active descendant inside the rendered rows as the cursor moves', async () => {
+    const template = testProjection().detail_rows![0]!
+    const detail_rows = Array.from({ length: 100 }, (_, index) => ({
+      ...template,
+      index,
+      identity: `row-${index}`,
+      flags: { ...template.flags, selected: false },
+    }))
+    const projection = testProjection({
+      total_rows: 100,
+      detail_rows,
+      window: { offset: 0, limit: 200, count: 100 },
+    })
+    const view = render(FinanceTable, { projection, cursorIndex: 60, ...callbacks() })
+    const grid = screen.getByRole('grid', { name: 'Financial results' })
+    const activeElement = () => document.getElementById(grid.getAttribute('aria-activedescendant')!)
+    expect(grid.getAttribute('aria-activedescendant')).toBe('moneyflow-row-row-60')
+    expect(activeElement()).not.toBeNull()
+
+    await view.rerender({ cursorIndex: 2 })
+    expect(grid.getAttribute('aria-activedescendant')).toBe('moneyflow-row-row-2')
+    expect(activeElement()).not.toBeNull()
+
+    await view.rerender({ cursorIndex: 99 })
+    expect(grid.getAttribute('aria-activedescendant')).toBe('moneyflow-row-row-99')
+    expect(activeElement()).not.toBeNull()
+  })
 })

@@ -292,7 +292,15 @@ func TestOpenProfileDemoSeedsUniquePrivateTemporaryProfileAndCleansIt(t *testing
 	assert.Equal(t, uint64(1), first.Service.Revision())
 	result, err := first.Service.Query(app.NewSession())
 	require.NoError(t, err)
-	assert.NotEmpty(t, result.AggregateRows)
+	labels := make([]string, 0, len(result.AggregateRows))
+	currencies := make(map[domain.Currency]struct{})
+	for _, row := range result.AggregateRows {
+		labels = append(labels, row.Label)
+		currencies[row.Total.Currency] = struct{}{}
+	}
+	assert.Contains(t, labels, "Maple Court Apartments")
+	assert.Contains(t, labels, "Bistro du Port")
+	assert.Len(t, currencies, 2)
 	root := filepath.Dir(first.Path)
 	info, err := os.Stat(root)
 	require.NoError(t, err)

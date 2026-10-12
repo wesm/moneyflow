@@ -20,6 +20,28 @@ test('@smoke initial grid owns keyboard focus and moves without a pointer', asyn
   await expect(await activeRow(page)).toHaveAttribute('id', await first.getAttribute('id'))
 })
 
+test('the active row stays fully visible while moving past the fold and back', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  const steps = 60
+  for (let step = 1; step <= steps; step++) {
+    await page.keyboard.press('j')
+    const row = await activeRow(page)
+    await expect(row).toHaveAttribute('aria-rowindex', String(step + 2))
+    await expect(row).toBeInViewport({ ratio: 1 })
+  }
+  for (let step = steps - 1; step >= 0; step--) {
+    await page.keyboard.press('k')
+    const row = await activeRow(page)
+    await expect(row).toHaveAttribute('aria-rowindex', String(step + 2))
+    await expect(row).toBeInViewport({ ratio: 1 })
+  }
+})
+
 test('cycles every grouping, account direct view, detail, drill, subgroup, and back', async ({
   page,
   server,
@@ -108,19 +130,19 @@ test('search previews, commits, cancels, and reports invalid regular expressions
   await page.keyboard.press('/')
   const search = page.getByRole('searchbox', { name: 'Search transactions' })
   await expect(search).toBeFocused()
-  await search.fill('091')
+  await search.fill('noodle')
   await expect(refinement(page)).toContainText('1 results')
   await search.press('Enter')
   await expect(page.getByRole('dialog', { name: 'Search transactions' })).toBeHidden()
-  await expect(refinement(page)).toContainText('Search: 091')
-  await expect(page).toHaveURL(/[?&]q=091(?:&|$)/)
-  await expect(await activeRow(page)).toContainText('Merchant 091')
+  await expect(refinement(page)).toContainText('Search: noodle')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
+  await expect(await activeRow(page)).toContainText('Noodle House')
 
   await page.keyboard.press('/')
   await search.fill('[')
   await expect(page.getByText('That search expression is invalid.')).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(refinement(page)).toContainText('Search: 091')
+  await expect(refinement(page)).toContainText('Search: noodle')
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
 })
 
