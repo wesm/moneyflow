@@ -118,6 +118,39 @@ describe('browser view controller', () => {
 
       expect(client.transition).not.toHaveBeenCalled()
     })
+
+    it('sets the currency once an empty profile receives its first transactions', async () => {
+      let populated = false
+      const client = clientWith({
+        view: vi.fn(async (body) => ({
+          ...projection('v=1', body.window.offset, populated ? 3 : 0, populated ? '1' : '0'),
+          currencies: populated ? currencies([['USD', 3]]) : [],
+        })),
+        transition: vi.fn(async (body) => ({
+          ...projection('cur=USD%3A2&v=1', body.window.offset, 3, '1'),
+          view: { ...projection('v=1', 0, 3).view, currency: { currency: 'USD', scale: 2 } },
+          currencies: currencies([['USD', 3]]),
+        })),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      expect(client.transition).not.toHaveBeenCalled()
+
+      populated = true
+      await controller.recheck()
+
+      await vi.waitFor(() =>
+        expect(controller.projection?.view.currency).toEqual({ currency: 'USD', scale: 2 }),
+      )
+      expect(client.transition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'view.set-currency',
+          currency: { currency: 'USD', scale: 2 },
+        }),
+        expect.any(AbortSignal),
+      )
+      expect(window.location.search).toBe('?cur=USD%3A2&v=1')
+    })
   })
 
   it('pushes analytical transitions and replaces selection-only transitions', async () => {

@@ -188,7 +188,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       (next) => accept(next, 'replace', owned),
       hydrate,
     )
-    const busiest = loaded && projection ? busiestCurrency(projection) : undefined
+    if (loaded) await openInBusiestCurrency()
+  }
+
+  /** Scopes a view without a currency, such as an empty profile's after its first import. */
+  async function openInBusiestCurrency(): Promise<void> {
+    const busiest = projection && !opening ? busiestCurrency(projection) : undefined
     if (!busiest) return
     opening = true
     try {
@@ -632,6 +637,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     problem = undefined
     if (replaceHistory) replaceOwnedHistory()
     schedulePrefetch(next)
+    void openInBusiestCurrency()
     return true
   }
 
