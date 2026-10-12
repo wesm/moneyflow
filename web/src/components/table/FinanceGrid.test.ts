@@ -692,9 +692,7 @@ describe('FinanceGrid', () => {
     const trend = cell(row, 'trend')?.querySelector('svg')
     expect(trend?.getAttribute('aria-hidden')).toBe('true')
     // July's income above the zero line, August on it, September's spending below.
-    expect(trend?.querySelector('polyline')?.getAttribute('points')).toBe(
-      '2.5,2.5 28,12 53.5,21.5',
-    )
+    expect(trend?.querySelector('polyline')?.getAttribute('points')).toBe('2.5,2.5 28,12 53.5,21.5')
     expect(cell(row, 'vs_prior')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
       '▲ 20.0% up 20.0% vs Aug',
     )
