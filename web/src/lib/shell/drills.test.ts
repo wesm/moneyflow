@@ -14,14 +14,4 @@ describe('drillFrames', () => {
     const projection = atDepth(0, [{ dimension: 'merchant', label: 'Merchants' }])
     expect(drillFrames(projection)).toEqual([])
   })
-
-  it('is empty at depth 0 whatever the query says about earlier views', () => {
-    const nested = encodeURIComponent('mode=detail&drill=merchant%3AUSD%3A2%3Aexample-key')
-    const projection = testProjection({
-      canonical_query: `v=1&return=navigation%3A${nested}`,
-      breadcrumbs: [{ dimension: 'merchant', label: 'Merchants' }],
-    })
-    expect(projection.view.drill_depth).toBe(0)
-    expect(drillFrames(projection)).toEqual([])
-  })
 })

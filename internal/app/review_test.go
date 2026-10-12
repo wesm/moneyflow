@@ -35,15 +35,27 @@ func TestReviewPreviewAttachesFirstTargetsToEachActiveOperation(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	profile := newMemoryProfile(t, 5)
-	profile.advanceExternally(hideOperation(1, "transaction_a", "transaction_b"))
-	profile.advanceExternally(transactionDeleteOperation(2, "transaction_b"))
-	profile.advanceExternally(hideOperation(3, "transaction_a"))
-	profile.snapshot.Cursor = 2
-	service, err := app.NewProfileService(ctx, profile)
+	service, err := app.NewProfileService(ctx, newMemoryProfile(t, 5))
+	require.NoError(t, err)
+	both, err := app.NewExplicitTransactionSelection(
+		[]domain.EntityID{"transaction_a", "transaction_b"}, service.Revision(),
+	)
+	require.NoError(t, err)
+	_, err = service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionEditCategory, ExpectedRevision: service.Revision(),
+		State: detailViewState(), Selection: both,
+		Input: app.EditInput{
+			Scope: app.EditScopeTransactions, DestinationID: domain.UncategorizedCategoryID,
+		},
+	})
+	require.NoError(t, err)
+	stagedMutate(t, service, app.ActionDeleteTransaction, "transaction_b", app.EditInput{})
+	stagedMutate(t, service, app.ActionEditCategory, "transaction_a",
+		app.EditInput{Scope: app.EditScopeTransactions, DestinationID: "category_b"})
+	undone, err := service.Undo(ctx, service.Revision())
 	require.NoError(t, err)
 
-	review, err := service.Review(ctx, 8, app.ReviewWindow{Preview: 1})
+	review, err := service.Review(ctx, undone.Revision, app.ReviewWindow{Preview: 1})
 	require.NoError(t, err)
 	require.Len(t, review.ActiveOperations, 2)
 	require.Len(t, review.InactiveOperations, 1)
@@ -60,12 +72,13 @@ func TestReviewPreviewAttachesFirstTargetsToEachActiveOperation(t *testing.T) {
 	assert.Empty(t, review.InactiveOperations[0].Targets)
 	assert.Empty(t, review.Targets)
 
-	summary, err := service.Review(ctx, 8, app.ReviewWindow{})
+	summary, err := service.Review(ctx, undone.Revision, app.ReviewWindow{})
 	require.NoError(t, err)
 	assert.Empty(t, summary.ActiveOperations[0].Targets)
-	_, err = service.Review(ctx, 8, app.ReviewWindow{Preview: app.MaxReviewTargetLimit + 1})
+	tooMany := app.ReviewWindow{Preview: app.MaxReviewTargetLimit + 1}
+	_, err = service.Review(ctx, undone.Revision, tooMany)
 	assertAppCode(t, err, app.AppInvalidOperation)
-	_, err = service.Review(ctx, 8, app.ReviewWindow{Preview: -1})
+	_, err = service.Review(ctx, undone.Revision, app.ReviewWindow{Preview: -1})
 	assertAppCode(t, err, app.AppInvalidOperation)
 }
 

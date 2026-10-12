@@ -65,18 +65,22 @@ describe('bounded review controller', () => {
 
     const first = controller.loadMore('active-1')
     expect(controller.targetsLoading('active-1')).toBe(true)
-    expect(controller.targetsLoading('redo-1')).toBe(false)
+    expect(controller.targetsLoading('active-2')).toBe(false)
     await vi.waitFor(() => expect(transport.request).toHaveBeenCalledTimes(2))
     release()
-    await first
+    await expect(first).resolves.toBe(true)
     expect(controller.targetsLoading('active-1')).toBe(false)
-    const second = controller.loadMore('redo-1')
+    const second = controller.loadMore('active-2')
     await vi.waitFor(() => expect(transport.request).toHaveBeenCalledTimes(3))
     release()
-    await second
+    await expect(second).resolves.toBe(true)
 
-    expect(controller.targets('active-1')).toHaveLength(30)
-    expect(controller.targets('redo-1')).toHaveLength(30)
+    expect(controller.targets('active-1').map((row) => row.merchant)).toEqual(
+      merchants('Example', 30),
+    )
+    expect(controller.targets('active-2').map((row) => row.merchant)).toEqual(
+      merchants('Other', 30),
+    )
   })
 
   it('drops rows that arrive after the review reloads', async () => {
@@ -114,32 +118,25 @@ describe('bounded review controller', () => {
   })
 
   it('keeps each operation’s targets when an older request answers last', async () => {
-    const answers: Array<(response: Response) => void> = []
-    const transport: MutationFetch = {
-      request: vi.fn(async (path: string) =>
-        path.endsWith('/targets')
-          ? await new Promise<Response>((resolve) => answers.push(resolve))
-          : jsonResponse(reviewResponse('7')),
-      ),
-    }
+    const answers: Array<() => void> = []
+    const transport = targetServer(30, () => new Promise<void>((resolve) => answers.push(resolve)))
     const controller = createReviewController({ transport, revision: () => 7n })
     await controller.load()
 
-    const first = controller.loadMore('A')
-    const second = controller.loadMore('B')
+    const first = controller.loadMore('active-1')
+    const second = controller.loadMore('active-2')
     await vi.waitFor(() => expect(answers).toHaveLength(2))
-    const merchant = (name: string) => {
-      const response = reviewResponse('7')
-      response.targets[0]!.merchant = name
-      return jsonResponse(response)
-    }
-    answers[1]!(merchant('Merchant B'))
+    answers[1]!()
     await expect(second).resolves.toBe(true)
-    answers[0]!(merchant('Merchant A'))
+    answers[0]!()
     await expect(first).resolves.toBe(true)
 
-    expect(controller.targets('B').map((target) => target.merchant)).toEqual(['Merchant B'])
-    expect(controller.targets('A').map((target) => target.merchant)).toEqual(['Merchant A'])
+    expect(controller.targets('active-2').map((row) => row.merchant)).toEqual(
+      merchants('Other', 30),
+    )
+    expect(controller.targets('active-1').map((row) => row.merchant)).toEqual(
+      merchants('Example', 30),
+    )
     expect(controller.state.phase).toBe('idle')
   })
 
@@ -156,35 +153,61 @@ describe('bounded review controller', () => {
   })
 })
 
+/** Merchant names `<prefix> Merchant 1` through `<prefix> Merchant <count>`. */
+function merchants(prefix: string, count: number): string[] {
+  return Array.from({ length: count }, (_, index) => `${prefix} Merchant ${index + 1}`)
+}
+
 /**
- * A review server whose operations each affect `affected` rows, named by row number. The
- * review carries each active operation's first 20 rows, as the server does.
+ * A review server with two active operations that each affect `affected` rows of their own
+ * merchant, numbered by row. The review carries each active operation's first 20 rows, as the
+ * server does, and a target request for an operation the review did not list fails.
  */
 function targetServer(affected: number, wait?: () => Promise<void>): MutationFetch {
-  const rows = (offset: number, limit: number) =>
-    Array.from({ length: Math.max(0, Math.min(limit, affected - offset)) }, (_, index) => ({
-      ...reviewResponse('7').targets[0]!,
-      merchant: `Example Merchant ${offset + index + 1}`,
-    }))
+  const prefixes = new Map([
+    ['active-1', 'Example'],
+    ['active-2', 'Other'],
+  ])
+  const rows = (prefix: string, offset: number, limit: number) =>
+    merchants(prefix, Math.min(offset + limit, affected))
+      .slice(offset)
+      .map((merchant) => ({ ...reviewResponse('7').targets[0]!, merchant }))
+  const review = reviewResponse('7')
+  const operation = review.active_operations[0]!
+  const active = [...prefixes].map(([operation_id, prefix]) => ({
+    ...operation,
+    operation_id,
+    affected_count: affected,
+    targets: rows(prefix, 0, 20),
+  }))
+  const pending = {
+    active_operations: 2,
+    inactive_operations: 1,
+    affected_transactions: 2 * affected,
+  }
   return {
     request: vi.fn(async (path: string, body: string) => {
       if (!path.endsWith('/targets')) {
-        const review = reviewResponse('7')
-        return jsonResponse({
-          ...review,
-          active_operations: review.active_operations.map((operation) => ({
-            ...operation,
-            affected_count: affected,
-            targets: rows(0, 20),
-          })),
-        })
+        return jsonResponse({ ...review, pending, active_operations: active })
       }
+      const request = JSON.parse(body) as {
+        operation_id: string
+        window: { offset: number; limit: number }
+      }
+      const prefix = prefixes.get(request.operation_id)
+      if (!prefix) throw new Error(`unknown operation ${request.operation_id}`)
       await wait?.()
-      const { offset, limit } = (JSON.parse(body) as { window: { offset: number; limit: number } })
-        .window
-      const targets = rows(offset, limit)
+      const { offset, limit } = request.window
+      const targets = rows(prefix, offset, limit)
       const window = { offset, limit, count: targets.length }
-      return jsonResponse({ ...reviewResponse('7'), window, targets })
+      return jsonResponse({
+        ...review,
+        pending,
+        active_operations: active,
+        operation_id: request.operation_id,
+        window,
+        targets,
+      })
     }),
   }
 }
