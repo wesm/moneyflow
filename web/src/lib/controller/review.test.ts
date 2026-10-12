@@ -52,13 +52,30 @@ describe('bounded review controller', () => {
   })
 
   it('keeps the newest operation’s targets when an older request answers last', async () => {
-    const answers: Array<(response: Response) => void> = []
+    const answers: Array<() => void> = []
+    const review = reviewResponse('7')
+    const operation = review.active_operations[0]!
+    review.active_operations = [
+      { ...operation, operation_id: 'A' },
+      { ...operation, operation_id: 'B' },
+    ]
+    review.pending.active_operations = 2
     const transport: MutationFetch = {
-      request: vi.fn(async (path: string) =>
-        path.endsWith('/targets')
-          ? await new Promise<Response>((resolve) => answers.push(resolve))
-          : jsonResponse(reviewResponse('7')),
-      ),
+      request: vi.fn(async (path: string, body: string) => {
+        if (!path.endsWith('/targets')) return jsonResponse(review)
+        const { operation_id: id, window } = JSON.parse(body) as {
+          operation_id: string
+          window: { offset: number; limit: number }
+        }
+        if (!review.active_operations.some((candidate) => candidate.operation_id === id)) {
+          throw new Error(`unknown operation ${id}`)
+        }
+        await new Promise<void>((resolve) => answers.push(resolve))
+        const response = reviewResponse('7', window.offset, window.limit)
+        response.operation_id = id
+        response.targets[0]!.merchant = `Merchant ${id}`
+        return jsonResponse(response)
+      }),
     }
     const controller = createReviewController({ transport, revision: () => 7n })
     await controller.load()
@@ -66,17 +83,13 @@ describe('bounded review controller', () => {
     const first = controller.loadTargets('A', 0)
     const second = controller.loadTargets('B', 0)
     await vi.waitFor(() => expect(answers).toHaveLength(2))
-    const merchant = (name: string) => {
-      const response = reviewResponse('7')
-      response.targets[0]!.merchant = name
-      return jsonResponse(response)
-    }
-    answers[1]!(merchant('Merchant B'))
+    answers[1]!()
     await expect(second).resolves.toBe(true)
-    answers[0]!(merchant('Merchant A'))
+    answers[0]!()
     await expect(first).resolves.toBe(false)
 
     expect(controller.targets('B', 0).map((target) => target.merchant)).toEqual(['Merchant B'])
+    expect(controller.targets('A', 0)).toEqual([])
     expect(controller.state.phase).toBe('idle')
   })
 
@@ -108,7 +121,7 @@ function reviewResponse(revision: string, offset = 0, limit = 100) {
     inactive_operations: [
       { operation_id: 'redo-1', type: 'hide.toggle', active: false, affected_count: 1 },
     ],
-    operation_id: offset === 0 && limit === 100 ? undefined : 'active-1',
+    operation_id: offset === 0 && limit === 100 ? undefined : ('active-1' as string | undefined),
     window: { offset, limit, count: 1 },
     targets: [
       {

@@ -130,11 +130,12 @@ describe('stepReady', () => {
   })
 
   it('needs an explicit destination to move or merge', () => {
+    const destinations = { move: 'group-b', merge: 'category-uncategorized' } as const
     for (const action of ['move', 'merge'] as const) {
-      expect(stepReady(step({ action, source: category }), 'category', categories)).toBe(false)
-      expect(
-        stepReady(step({ action, source: category, target: 'group-b' }), 'category', categories),
-      ).toBe(true)
+      const started = startStep('category', action, category, catalog)
+      expect(stepReady(started, 'category', categories)).toBe(false)
+      const target = destinations[action]
+      expect(stepReady({ ...started, target }, 'category', categories)).toBe(true)
     }
   })
 })
@@ -261,9 +262,7 @@ describe('stepProblem', () => {
     expect(stepReady(rename, 'category', categories)).toBe(true)
   })
 
-  it('checks only names, not destinations', () => {
-    const merge = step({ action: 'merge', source: category, label: 'Uncategorized', target: 't' })
-    expect(stepProblem(merge, categories)).toBe('')
+  it('accepts a name no other entry uses', () => {
     expect(stepProblem(step({ label: 'Fresh Name' }), categories)).toBe('')
   })
 })
@@ -295,28 +294,40 @@ describe('managerIntent', () => {
   })
 
   it('sends rename labels, move and merge destinations, and delete replacements', () => {
-    const intent = (action: ManagerStep['action']) =>
-      managerIntent('category', step({ action, source: category, label: 'Name', target: 't' }), '')
-        .input
-    expect(intent('rename')).toEqual({ taxonomy: 'rename', entity_id: 'category-a', label: 'Name' })
-    expect(intent('move')).toEqual({
+    const intent = (action: ManagerStep['action'], change: Partial<ManagerStep>) =>
+      managerIntent(
+        'category',
+        { ...startStep('category', action, category, catalog), ...change },
+        '',
+      ).input
+    expect(intent('rename', { label: 'Name' })).toEqual({
+      taxonomy: 'rename',
+      entity_id: 'category-a',
+      label: 'Name',
+    })
+    expect(intent('move', { target: 'group-b' })).toEqual({
       taxonomy: 'move',
       entity_id: 'category-a',
-      destination_id: 't',
+      destination_id: 'group-b',
     })
-    expect(intent('merge')).toEqual({
+    expect(intent('merge', { target: 'category-uncategorized' })).toEqual({
       taxonomy: 'merge',
       entity_id: 'category-a',
-      destination_id: 't',
+      destination_id: 'category-uncategorized',
     })
-    expect(intent('delete')).toEqual({
+    expect(intent('delete', { target: 'category-uncategorized' })).toEqual({
       taxonomy: 'delete',
       entity_id: 'category-a',
-      replacement_id: 't',
+      replacement_id: 'category-uncategorized',
     })
-    expect(managerIntent('group', step({ action: 'merge', source: category }), '').action).toBe(
-      'category-group.manage',
-    )
+  })
+
+  it('stages a group merge into another group', () => {
+    const merge = { ...startStep('group', 'merge', groups[0], catalog), target: 'group-b' }
+    expect(managerIntent('group', merge, '')).toEqual({
+      action: 'category-group.manage',
+      input: { taxonomy: 'merge', entity_id: 'group-a', destination_id: 'group-b' },
+    })
   })
 })
 
