@@ -925,6 +925,55 @@ describe('browser view controller', () => {
 
       expect(history.state).toEqual(parent)
     })
+
+    it('brings back a pending cursor when Forward returns to the entry Back left', async () => {
+      vi.useFakeTimers()
+      history.replaceState(null, '', '/moneyflow/?v=1')
+      const client = clientWith({
+        view: vi.fn(async (body) => projection(body.query, body.window.offset, 450)),
+        transition: vi.fn(async () => projection('v=1&drill=x', 0, 450)),
+      })
+      const controller = debouncedControllerFor(client)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.drill' })
+      const child = history.state as MoneyflowHistoryState
+      await controller.moveCursorTo(4)
+
+      history.replaceState(parent, '', '/moneyflow/?v=1')
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+      history.replaceState(child, '', '/moneyflow/?v=1&drill=x')
+      await controller.restore(new PopStateEvent('popstate', { state: child }))
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(controller.cursorIndex).toBe(4)
+      expect((history.state as MoneyflowHistoryState).cursorIndex).toBe(4)
+    })
+
+    it('forgets a left cursor once a new entry replaces the one Back left', async () => {
+      vi.useFakeTimers()
+      history.replaceState(null, '', '/moneyflow/?v=1')
+      const client = clientWith({
+        view: vi.fn(async (body) => projection(body.query, body.window.offset, 450)),
+        transition: vi.fn(async () => projection('v=1&drill=x', 0, 450)),
+      })
+      const controller = debouncedControllerFor(client)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.drill' })
+      await controller.moveCursorTo(4)
+      history.replaceState(parent, '', '/moneyflow/?v=1')
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+
+      await controller.apply({ action: 'view.drill' })
+      const replacement = history.state as MoneyflowHistoryState
+      history.replaceState(parent, '', '/moneyflow/?v=1')
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+      history.replaceState(replacement, '', '/moneyflow/?v=1&drill=x')
+      await controller.restore(new PopStateEvent('popstate', { state: replacement }))
+
+      expect(controller.cursorIndex).toBe(0)
+    })
   })
 
   describe('showing an anchored row', () => {
@@ -1722,7 +1771,11 @@ describe('browser view controller', () => {
   })
 
   it.each([
-    [{ action: 'view.set-grouping', dimension: 'category' }, 'group=category&v=1', 'mfsel1.example'],
+    [
+      { action: 'view.set-grouping', dimension: 'category' },
+      'group=category&v=1',
+      'mfsel1.example',
+    ],
     [
       { action: 'selection.toggle', target: { kind: 'transaction', identity: 'row-0' } },
       'v=1',

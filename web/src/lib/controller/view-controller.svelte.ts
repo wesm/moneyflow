@@ -169,6 +169,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let showing: ShowRequest | undefined
   let pendingHistory: { state: MoneyflowHistoryState; url: string } | undefined
   let pendingHistoryTimer: ReturnType<typeof setTimeout> | undefined
+  // Pending cursors of entries Back or Forward left before the pause, by entry sequence.
+  const leftCursors = new SvelteMap<number, MoneyflowHistoryState>()
   // Prefetch fills the cache without changing the projection; this tells the table to redraw.
   let cacheChanges = $state(0)
   let applyTail: Promise<void> = Promise.resolve()
@@ -400,10 +402,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function restore(event: PopStateEvent): Promise<void> {
-    // The browser already left the entry the pending cursor belongs to.
-    dropPendingHistory()
+    // The browser already left the entry the pending cursor belongs to; keep it for a return.
+    const left = dropPendingHistory()
+    if (left) leftCursors.set(left.state.sequence, left.state)
     searchSnapshot = undefined
-    const owned = ledger.record(event.state)
+    const owned = withLeftCursor(ledger.record(event.state))
     // A late traversal's view is current only until anything else replaces it, such as an edit.
     const late = lateReturn?.projection === projection ? lateReturn : undefined
     const returned = returning ?? late
@@ -441,6 +444,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   async function reset(): Promise<void> {
     dropPendingHistory()
+    leftCursors.clear()
     browserHistory.replaceState(null, '', basePath)
     await hydrate()
   }
@@ -735,7 +739,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       return
     }
     flushHistory()
-    if (historyMode === 'push') sequence += 1
+    if (historyMode === 'push') {
+      sequence += 1
+      forgetLeftCursorsFrom(sequence)
+    }
     const state = ownedState(next)
     const url = applicationURL(basePath, next.canonical_query)
     if (historyMode === 'push') browserHistory.pushState(state, '', url)
@@ -814,6 +821,24 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     if (!pending) return
     browserHistory.replaceState(pending.state, '', pending.url)
     ledger.record(pending.state)
+  }
+
+  // A pending cursor is always the newest state of its entry: anything else that writes the
+  // entry writes the pending cursor first or drops it.
+  function withLeftCursor(
+    owned: MoneyflowHistoryState | undefined,
+  ): MoneyflowHistoryState | undefined {
+    const left = owned && leftCursors.get(owned.sequence)
+    if (!owned || !left || left.query !== owned.query) return owned
+    leftCursors.delete(owned.sequence)
+    return left
+  }
+
+  // A push replaces every entry from its sequence forward, so their left cursors are gone too.
+  function forgetLeftCursorsFrom(first: number): void {
+    for (const entry of leftCursors.keys()) {
+      if (entry >= first) leftCursors.delete(entry)
+    }
   }
 
   function dropPendingHistory(): typeof pendingHistory {

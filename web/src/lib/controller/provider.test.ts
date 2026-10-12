@@ -248,9 +248,7 @@ describe('provider controller', () => {
     await controller.poll()
 
     expect(transport.mutations.request).toHaveBeenCalledOnce()
-    expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(
-      false,
-    )
+    expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(false)
     expect(controller.state.phase).toBe('idle')
   })
 
