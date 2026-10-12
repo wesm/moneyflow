@@ -1063,7 +1063,7 @@ describe('FinanceGrid', () => {
     it('reveals a cursor move only when a held reveal ends, and not when it is dropped', async () => {
       vi.useFakeTimers()
       const hold = new RevealHold()
-      const scroller = { scrollTop: 0 } as HTMLElement
+      const scroller = scrollerAt(0)
       const props = {
         projection: loaded(0),
         cursorIndex: 0,
