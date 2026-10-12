@@ -194,10 +194,11 @@ describe('CalendarHeatmap', () => {
     const onperiod = vi.fn()
     const props = { entry: october('weeks'), onperiod, cursorDate: '2026-10-02' }
     const { rerender } = render(CalendarHeatmap, props)
-    expect(observe).toHaveBeenCalledTimes(1)
+    // The row of names, and October's one name.
+    expect(observe).toHaveBeenCalledTimes(2)
 
     await rerender({ ...props, cursorDate: '2026-10-05' })
-    expect(observe).toHaveBeenCalledTimes(1)
+    expect(observe).toHaveBeenCalledTimes(2)
   })
 
   it('is one Tab stop that the arrows move by day and week, and Esc leaves', async () => {

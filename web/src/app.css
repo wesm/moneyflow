@@ -1717,8 +1717,8 @@ button.mf-bar:hover {
 .mf-calendar__ticks > span {
   justify-self: start;
 }
-/* A name too near the right edge to fit ends at the edge; one that would then cover the name
-   before it hides, because the strip is too narrow for both. */
+/* A name too near the right edge to fit ends at the edge. The heatmap hides any drawn name that
+   would crowd the shown name before it or pass the edge. */
 .mf-calendar__ticks > .mf-calendar__tick--end {
   grid-column-end: -1;
   justify-self: end;

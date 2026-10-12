@@ -49,8 +49,11 @@ export interface CalendarTick {
   end?: true
 }
 
-/** Week columns a month name needs at the narrowest strip, about 4.6 px a column at 900 px. */
+/** Week columns from the right edge within which the last month name ends at the edge. */
 const tickColumns = 4
+
+/** Pixels a shown month name keeps clear of the one before it, so two never read as one. */
+const tickGap = 4
 
 /** One month's calendar grid, labeled, or the whole strip of week columns with month ticks. */
 export interface CalendarBlock {
@@ -133,6 +136,28 @@ function strip(cells: readonly CalendarCell[]): CalendarBlock {
   const last = ticks.at(-1)
   if (last && weeks.length - last.column <= tickColumns) last.end = true
   return { weeks, ticks }
+}
+
+/** A drawn box, such as an element, whose horizontal edges can be measured in pixels. */
+export interface Drawn {
+  getBoundingClientRect(): { left: number; right: number }
+}
+
+/**
+ * Which of the strip's month names to show, measured as drawn, in strip order. A name shows when
+ * it starts at least `tickGap` past the last shown name and ends within the row of names, give
+ * or take a pixel of rounding. Measuring keeps the names apart whatever width the font gives
+ * them.
+ */
+export function shownTicks(row: Drawn, names: readonly Drawn[]): boolean[] {
+  const limit = row.getBoundingClientRect().right + 1
+  let clear = -Infinity
+  return names.map((name) => {
+    const { left, right } = name.getBoundingClientRect()
+    const show = left >= clear && right <= limit
+    if (show) clear = right + tickGap
+    return show
+  })
 }
 
 /**

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { calendarCells, type CalendarCell, type CalendarDays } from './calendar'
+import {
+  calendarCells,
+  shownTicks,
+  type CalendarCell,
+  type CalendarDays,
+  type Drawn,
+} from './calendar'
 
 /** Every day from `start` through `end`, as ISO dates. */
 function daysFrom(start: string, end: string): string[] {
@@ -263,5 +269,44 @@ describe('calendarCells', () => {
     expect(() => calendarCells(september, short, septemberScope, '2026-10-07')).toThrow(
       /29 values for 30 heatmap days/,
     )
+  })
+})
+
+describe('shownTicks', () => {
+  /** A box drawn from `left` to `right`. */
+  function drawn(left: number, right: number): Drawn {
+    return { getBoundingClientRect: () => ({ left, right }) }
+  }
+
+  /** Month names `width` px wide, one every `step` px from 0, as the strip draws them. */
+  function names(width: number, step: number, count: number): Drawn[] {
+    return Array.from({ length: count }, (_, index) => drawn(index * step, index * step + width))
+  }
+
+  /** The row of names, from 0 to `right`. */
+  function row(right: number): Drawn {
+    return drawn(0, right)
+  }
+
+  it('shows every name that clears the one before it', () => {
+    expect(shownTicks(row(200), names(17, 30, 4))).toEqual([true, true, true, true])
+  })
+
+  it('skips names that touch or crowd the last shown name, however wide the font draws them', () => {
+    // Four 4.7 px week columns hold 18.8 px; 19 px names leave no gap at all.
+    expect(shownTicks(row(200), names(19, 18.8, 5))).toEqual([true, false, true, false, true])
+    expect(shownTicks(row(200), names(17, 18.8, 3))).toEqual([true, false, true])
+    expect(shownTicks(row(200), names(40, 18.8, 5))).toEqual([true, false, false, true, false])
+  })
+
+  it('skips a name that would run past the strip, and keeps one ending at its edge', () => {
+    expect(shownTicks(row(77), names(17, 30, 3))).toEqual([true, true, true])
+    // Grid tracks round to fractions of a pixel, so a name ended at the edge may pass it slightly.
+    expect(shownTicks(row(76.5), names(17, 30, 3))).toEqual([true, true, true])
+    expect(shownTicks(row(75), names(17, 30, 3))).toEqual([true, true, false])
+  })
+
+  it('shows nothing for no names', () => {
+    expect(shownTicks(row(200), [])).toEqual([])
   })
 })
