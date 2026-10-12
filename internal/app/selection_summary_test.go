@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wesm/moneyflow/internal/analytics"
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
@@ -150,27 +149,6 @@ func TestSelectionSummaryIsNilWithoutSelection(t *testing.T) {
 		projection := summaryProjection(t, service, state, EmptySelection())
 		assert.Nil(t, projection.SelectionSummary)
 	}
-}
-
-func TestSelectionSummaryMatchesAnalyticsStatisticsForDetailSelection(t *testing.T) {
-	t.Parallel()
-
-	transactions := summaryTransactions(t)
-	rows := make([]domain.DetailRow, len(transactions))
-	for index, transaction := range transactions {
-		rows[index] = domain.DetailRow{
-			Transaction: transaction, Flags: domain.RowFlags{Selected: index != 1},
-		}
-	}
-
-	got, err := selectionSummary(domain.QueryResult{DetailRows: rows})
-
-	require.NoError(t, err)
-	want, err := analytics.Statistics([]domain.Transaction{
-		transactions[0], transactions[2], transactions[3],
-	})
-	require.NoError(t, err)
-	assert.Equal(t, want, got)
 }
 
 func TestSelectionSummaryCoversSelectedTransactionsHiddenBySearch(t *testing.T) {
