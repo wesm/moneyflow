@@ -123,6 +123,42 @@ describe('AppShell', () => {
     ])
   })
 
+  it('anchors a period segment on the view a pending period change returns', async () => {
+    const controller = heldFirstApply(stubController(periodProjection()))
+    render(AppShell, { controller })
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous period' }))
+    await fireEvent.click(screen.getByRole('radio', { name: 'Month' }))
+    showPeriod(controller, { from: '2025-01-01', to: '2025-12-31' })
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(controller.apply).toHaveBeenLastCalledWith({
+      action: 'time.set-period',
+      period: { start: '2025-12-01', end: '2025-12-31' },
+    })
+  })
+
+  it('applies All time chosen while a period change from all time is pending', async () => {
+    const shown = stubController(periodProjection())
+    showPeriod(shown, undefined)
+    const controller = heldFirstApply(shown)
+    render(AppShell, { controller })
+
+    await fireEvent.click(screen.getByRole('radio', { name: 'Month' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'All time' }))
+    const chooser = within(screen.getByRole('dialog', { name: 'Choose period' }))
+    await fireEvent.click(chooser.getByRole('button', { name: /All time/ }))
+    showPeriod(controller, { from: '2026-10-01', to: '2026-10-31' })
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(controller.apply).mock.calls.map(([action]) => action)).toEqual([
+      { action: 'time.set-period', period: { start: '2026-10-01', end: '2026-10-31' } },
+      { action: 'time.clear-period' },
+    ])
+  })
+
   it('starts a search typed behind queued view changes from their result', async () => {
     const controller = heldFirstApply(stubController(periodProjection()))
     render(AppShell, { controller })
@@ -490,10 +526,12 @@ describe('AppShell', () => {
     await fireEvent.click(view)
     const sheet = screen.getByRole('dialog', { name: 'View' })
     await fireEvent.click(within(sheet).getByRole('radio', { name: 'Month' }))
-    expect(controller.apply).toHaveBeenCalledWith({
-      action: 'time.set-period',
-      period: { start: '2026-10-01', end: '2026-10-31' },
-    })
+    await vi.waitFor(() =>
+      expect(controller.apply).toHaveBeenCalledWith({
+        action: 'time.set-period',
+        period: { start: '2026-10-01', end: '2026-10-31' },
+      }),
+    )
     expect(within(sheet).getByRole('combobox', { name: /^Currency/ })).not.toBeNull()
     expect(within(sheet).getByRole('button', { name: 'Filters' })).not.toBeNull()
 
@@ -765,6 +803,15 @@ function periodProjection(): ReturnType<typeof testProjection> {
     view: { ...base.view, currency: { currency: 'USD', scale: 2 } },
     filters: { ...base.filters, date_range: { from: '2026-01-01', to: '2026-12-31' } },
   })
+}
+
+/** Shows `range` as the view's period, as the controller does once a period change returns. */
+function showPeriod(controller: ViewController, range: { from: string; to: string } | undefined) {
+  const current = controller.projection!
+  const filters = { ...current.filters }
+  delete filters.date_range
+  if (range) filters.date_range = range
+  Object.assign(controller, { projection: { ...current, filters } })
 }
 
 /** Holds the first transition until `finish`, as a slow request would. */

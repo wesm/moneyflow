@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import type { ViewProjection } from '../api/client'
+import { testProjection } from '../../test/projection'
 import { TransitionQueue } from './transition-queue'
 
 function controller() {
-  return { apply: vi.fn(async () => true), settled: vi.fn(async () => undefined) }
+  return {
+    projection: testProjection(),
+    apply: vi.fn(async () => true),
+    settled: vi.fn(async () => undefined),
+  }
 }
 
 describe('TransitionQueue', () => {
@@ -42,5 +48,25 @@ describe('TransitionQueue', () => {
     await done
 
     expect(settled).toBe(true)
+  })
+
+  it('decides a change from the view the controller shows once it settles', async () => {
+    const host = controller()
+    const queue = new TransitionQueue(() => host)
+    let release!: () => void
+    host.settled.mockImplementation(
+      () => new Promise<undefined>((resolve) => (release = () => resolve(undefined))),
+    )
+    const clearPeriod = (current: ViewProjection) =>
+      current.filters.date_range ? { action: 'time.clear-period' as const } : undefined
+
+    const applied = queue.apply(clearPeriod)
+    await vi.waitFor(() => expect(host.settled).toHaveBeenCalled())
+    const range = { from: '2025-01-01', to: '2025-12-31' }
+    host.projection = testProjection({ filters: { ...host.projection.filters, date_range: range } })
+    release()
+    await applied
+
+    expect(host.apply).toHaveBeenCalledWith({ action: 'time.clear-period' })
   })
 })
