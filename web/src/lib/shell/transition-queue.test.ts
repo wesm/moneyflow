@@ -23,19 +23,24 @@ describe('TransitionQueue', () => {
   it('settles only after the queued changes and the controller finish', async () => {
     const host = controller()
     const queue = new TransitionQueue(() => host)
-    let release!: () => void
-    void queue.run(() => new Promise<void>((resolve) => (release = resolve)))
-    const order: string[] = []
-    host.settled.mockImplementation(async () => {
-      order.push('controller settled')
-    })
+    let releaseWork!: () => void
+    let releaseController!: () => void
+    void queue.run(() => new Promise<void>((resolve) => (releaseWork = resolve)))
+    host.settled.mockImplementation(
+      () => new Promise<undefined>((resolve) => (releaseController = () => resolve(undefined))),
+    )
+    let settled = false
+    const done = queue.settled().then(() => (settled = true))
 
-    const settled = queue.settled().then(() => order.push('queue settled'))
     await Promise.resolve()
-    expect(order).toEqual([])
-    release()
-    await settled
+    expect(host.settled).not.toHaveBeenCalled()
+    releaseWork()
+    await vi.waitFor(() => expect(host.settled).toHaveBeenCalled())
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+    releaseController()
+    await done
 
-    expect(order).toEqual(['controller settled', 'queue settled'])
+    expect(settled).toBe(true)
   })
 })
