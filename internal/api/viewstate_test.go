@@ -152,45 +152,76 @@ func TestViewQueryRoundTripsDefaultReturnFrame(t *testing.T) {
 func TestViewQueryRejectsMalformedInput(t *testing.T) {
 	t.Parallel()
 
-	tests := map[string]string{
-		"leading question":     "?v=1",
-		"unknown":              "missing=1",
-		"version":              "v=2",
-		"duplicate scalar":     "v=1&v=1",
-		"invalid percent":      "q=%zz",
-		"invalid mode":         "mode=missing",
-		"invalid boolean":      "hidden=true",
-		"one date bound":       "from=2024-01-01",
-		"invalid date":         "from=2024-01-01&to=2024-02-31",
-		"invalid sort":         "sort=date%3Aup",
-		"incompatible sort":    "sort=date%3Adesc",
-		"duplicate drill":      "drill=merchant%3Aa&drill=merchant%3Ab",
-		"invalid period":       "drill=time%3Amonth%3A2024-13",
-		"search no anchor":     "q=grocer&v=1",
-		"anchor no search":     "search-at=aggregate%3A0&v=1",
-		"anchor four parts":    "q=grocer&search-at=aggregate%3Amerchant%3A_%3A0&v=1",
-		"anchor bad mode":      "q=grocer&search-at=missing%3A0&v=1",
-		"anchor bad depth":     "q=grocer&search-at=aggregate%3Ax&v=1",
-		"anchor deep":          "q=grocer&search-at=aggregate%3A9&v=1",
-		"anchor non canonical": "q=grocer&search-at=aggregate%3A01&v=1",
-		"recursive return":     returnQuery(t, "navigation:return=navigation%253Av%253D1"),
-		"invalid return kind":  returnQuery(t, "missing:group=category"),
-		"label field":          "drill=merchant%3A",
-		"currency no scale":    "cur=USD&v=1",
-		"currency lowercase":   "cur=usd%3A2&v=1",
-		"currency bad scale":   "cur=USD%3A02&v=1",
-		"currency vs drill": "cur=EUR%3A2&drill=merchant%3AUSD%3A2%3Am" +
-			"&mode=detail&sort=date%3Adesc&v=1",
-		"time with currency": "cur=USD%3A2&time=month&v=1",
-		"return time with currency": returnQuery(t,
-			"navigation:cur=USD%3A2&time=day") + "&cur=USD%3A2&v=1",
+	tests := []struct {
+		name  string
+		query string
+		cause string
+	}{
+		{"leading question", "?v=1", "leading question mark"},
+		{"unknown", "v=1&missing=1", `unknown field "missing"`},
+		{"version", "v=2", "unsupported schema version"},
+		{"duplicate scalar", "v=1&v=1", `field "v" must appear once`},
+		{"invalid percent", "q=%zz", "parse query"},
+		{"missing version", "group=category", "schema version is required"},
+		{"invalid mode", "v=1&mode=missing", "invalid result mode"},
+		{"invalid boolean", "v=1&hidden=true", "parse hidden flag"},
+		{"one date bound", "v=1&from=2024-01-01", "date range requires both bounds"},
+		{"invalid date", "v=1&from=2024-01-01&to=2024-02-31", "parse end date"},
+		{"invalid sort", "v=1&sort=date%3Aup", "invalid sort direction"},
+		{"incompatible sort", "v=1&sort=date%3Adesc", "sort is incompatible with aggregate"},
+		{
+			"duplicate drill",
+			"v=1&mode=detail&sort=date%3Adesc" +
+				"&drill=merchant%3AUSD%3A2%3Aa&drill=merchant%3AUSD%3A2%3Ab",
+			"duplicate drill-down dimension",
+		},
+		{
+			"invalid period",
+			"v=1&mode=detail&sort=date%3Adesc&drill=time%3AUSD%3A2%3Amonth%3A2024-13",
+			"time period is invalid",
+		},
+		{"search no anchor", "q=grocer&v=1", "search and search anchor must be present"},
+		{"anchor no search", "search-at=aggregate%3A0&v=1", "search and search anchor must be present"},
+		{
+			"anchor four parts",
+			"q=grocer&search-at=aggregate%3Amerchant%3A_%3A0&v=1",
+			"depth is malformed",
+		},
+		{"anchor bad mode", "q=grocer&search-at=missing%3A0&v=1", "invalid search anchor: invalid mode"},
+		{"anchor bad depth", "q=grocer&search-at=aggregate%3Ax&v=1", "depth is malformed"},
+		{"anchor deep", "q=grocer&search-at=aggregate%3A9&v=1", "invalid drill-down size"},
+		{"anchor non canonical", "q=grocer&search-at=aggregate%3A01&v=1", "anchor is not canonical"},
+		{
+			"recursive return",
+			returnQuery(t, "navigation:return=navigation%253Av%253D1") + "&v=1",
+			"nested return frames",
+		},
+		{"invalid return kind", returnQuery(t, "missing:group=category") + "&v=1", "invalid kind"},
+		{"label field", "v=1&drill=merchant%3A", "drill-down is malformed"},
+		{"currency no scale", "cur=USD&v=1", "must be CODE:SCALE"},
+		{"currency lowercase", "cur=usd%3A2&v=1", "currency scope code is invalid"},
+		{"currency bad scale", "cur=USD%3A02&v=1", "must be CODE:SCALE"},
+		{
+			"currency vs drill",
+			"cur=EUR%3A2&drill=merchant%3AUSD%3A2%3Am&mode=detail&sort=date%3Adesc&v=1",
+			"drill-down currency differs from the currency scope",
+		},
+		{"time with currency", "cur=USD%3A2&time=month&v=1", "time granularity is derived"},
+		{
+			"return time with currency",
+			returnQuery(t, "navigation:cur=USD%3A2&time=day") + "&cur=USD%3A2&v=1",
+			"time granularity is derived",
+		},
 	}
 
-	for name, query := range tests {
-		t.Run(name, func(t *testing.T) {
-			_, _, err := DecodeViewQuery(query)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := DecodeViewQuery(test.query)
 			require.Error(t, err)
 			assertSafeCode(t, err, CodeInvalidViewState)
+			var safe *SafeError
+			require.ErrorAs(t, err, &safe)
+			assert.ErrorContains(t, safe.Unwrap(), test.cause)
 		})
 	}
 }

@@ -551,10 +551,12 @@ func TestTimeRowsListEveryYearOfTheWidestRange(t *testing.T) {
 	assert.Equal(t, domain.TimeGranularityYear, projection.State.Current.TimeGranularity)
 	assert.Equal(t, 9999, projection.TotalRows, "every year from 1 through 9999 is a row")
 
-	selection, err := service.ToggleSelection(
-		projection.State.Current, EmptySelection(), IdentityAggregate,
-		projection.AggregateRows[0].Identity,
-	)
+	first := projection.AggregateRows[0]
+	_, _, selected, err := service.TransitionView(state, EmptySelection(), TransitionRequest{
+		Action: ActionToggleSelection,
+		Target: &RowTarget{Kind: IdentityAggregate, Identity: first.Identity},
+	}, WindowRequest{})
 	require.NoError(t, err, "a row of the widest range resolves as a selection target")
-	assert.NotEqual(t, EmptySelection(), selection)
+	assert.Equal(t, 1, selected.SelectionCount)
+	assert.True(t, selected.AggregateRows[0].Row.Flags.Selected)
 }

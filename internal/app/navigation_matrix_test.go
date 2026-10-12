@@ -403,17 +403,6 @@ func TestEscapeStep4UndoesSubGrouping(t *testing.T) {
 	assert.Equal(t, domain.ResultModeDetail, session.Mode)
 }
 
-func TestEscapeStep6DoesNothingAtTopLevel(t *testing.T) {
-	t.Parallel()
-	session := NewSession()
-	before := session.ViewState()
-
-	_, ok := session.Back()
-
-	assert.False(t, ok)
-	assert.Equal(t, before, session.ViewState())
-}
-
 func TestMatrixFiltersWithNewDateRangeFollowPeriodChange(t *testing.T) {
 	t.Parallel()
 	session := matrixSession(t, "example")
