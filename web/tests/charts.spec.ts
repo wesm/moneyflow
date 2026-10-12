@@ -452,7 +452,6 @@ test('a composition bar click moves the cursor, and a double-click drills', asyn
   )
   await expect(whereItWent(page).getByText(/^\d+ others$/)).toBeVisible()
   await bar(page, 'Online Megastore').click()
-  // The click waits out the double-click time before it moves the cursor.
   await expect(bar(page, 'Online Megastore')).toHaveClass(/mf-bar--cursor/)
   await expect(await activeRow(page)).toContainText('Online Megastore')
 
@@ -501,6 +500,24 @@ test('a double-click drills a composition bar whose row is below the table’s e
   await page.mouse.up({ clickCount: 2 })
   await expect(page).toHaveURL(/[?&]drill=merchant/)
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(label)
+})
+
+test('a composition click moves the cursor at once and scrolls to its row after a pause', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 560 })
+  await openMoneyflow(page, server, september)
+  const target = whereItWent(page).getByRole('button').last()
+  const label = (await target.getAttribute('aria-label'))!.split(',')[0]!
+  await target.click()
+  await expect(target).toHaveClass(/mf-bar--cursor/)
+  // The scroll waits out the double-click time, then shows the cursor row.
+  await expect
+    .poll(() => workspace(page).evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0)
+  await expect(await activeRow(page)).toContainText(label)
+  await expectCursorRowShown(page)
 })
 
 test('the Time grouping shows the cursor day’s groups as the cursor moves', async ({

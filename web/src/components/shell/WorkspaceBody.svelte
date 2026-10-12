@@ -30,6 +30,7 @@
   import { emptyScope, type Period } from '../../lib/shell/period'
   import { status } from '../../lib/shell/status.svelte'
   import type { SelectionButton } from '../../lib/table/selection'
+  import { provideRevealHold, RevealHold } from '../../lib/table/reveal-hold.svelte'
   import { tableInsights } from '../../lib/table/trend'
 
   interface Props {
@@ -61,6 +62,7 @@
   let above = $state(0)
   // The KPI strip shows above phone width; on phones only the chart drawer reads insights.
   const charting = $derived(!compact.current || charts.dialogOpen)
+  provideRevealHold(new RevealHold())
   /** The row whose ⋯ button opened the actions sheet. */
   let sheetRow = $state<components['schemas']['DetailRow']>()
 

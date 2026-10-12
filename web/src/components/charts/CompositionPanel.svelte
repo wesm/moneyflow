@@ -7,6 +7,7 @@
     type CompositionBar,
     type CompositionSide,
   } from '../../lib/charts/composition'
+  import { revealHold } from '../../lib/table/reveal-hold.svelte'
 
   interface Props {
     /** Names the panel and its list, such as "Where it went". */
@@ -65,18 +66,19 @@
     return () => element.removeEventListener('keydown', escape)
   })
 
-  // Moving the cursor can scroll the workspace and the chart with it, so a click waits to see
-  // whether it starts a double-click; otherwise the second click lands on whatever moved there.
+  // Revealing the cursor row can scroll the workspace and the chart with it. A pointer click
+  // moves the cursor at once but holds the scroll, so a double-click's second click still lands
+  // on this bar; that click drops the scroll, and the double-click drills.
   const doubleClickMillis = 400
-  let pendingRow: ReturnType<typeof setTimeout> | undefined
-  $effect(() => () => clearTimeout(pendingRow))
+  const hold = revealHold()
+  $effect(() => () => hold?.end(false))
 
   function click(event: MouseEvent, identity: string): void {
-    clearTimeout(pendingRow)
-    pendingRow = undefined
-    // Space on the focused bar clicks with no count; it moves the cursor at once.
-    if (event.detail === 0) return onrow?.(identity)
-    if (event.detail === 1) pendingRow = setTimeout(() => onrow?.(identity), doubleClickMillis)
+    if (event.detail > 1) return hold?.end(false)
+    // Space on the focused bar clicks with no count; its row is revealed at once.
+    if (event.detail === 1) hold?.start(doubleClickMillis)
+    else hold?.end(true)
+    onrow?.(identity)
   }
 
   function keydown(event: KeyboardEvent, bar: CompositionBar, identity: string): void {
