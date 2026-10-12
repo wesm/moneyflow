@@ -899,6 +899,31 @@ describe('browser view controller', () => {
       expect(controller.cursorIdentity).toBe('merchant:example')
     })
 
+    it('waits for a command-bar transition still on its way before asking for the row', async () => {
+      let answer!: (next: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn(async (body: ViewBody) => ({ ...anchored(body), canonical_query: body.query })),
+        transition: vi.fn(() => new Promise<ViewProjection>((resolve) => (answer = resolve))),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const showing = controller.showAnchor('merchant:example')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      answer({ ...merchants(0), canonical_query: 'v=2' })
+
+      await expect(applying).resolves.toBe(true)
+      await showing
+      expect(vi.mocked(client.view).mock.lastCall?.[0]).toMatchObject({
+        query: 'v=2',
+        anchor: 'merchant:example',
+      })
+      expect(controller.projection?.canonical_query).toBe('v=2')
+      expect(controller.cursorIdentity).toBe('merchant:example')
+    })
+
     it('keeps a cursor move made while the row loads', async () => {
       let answer!: (next: ViewProjection) => void
       const client = clientWith({
@@ -969,6 +994,30 @@ describe('browser view controller', () => {
 
       release()
       await rechecking
+      expect(controller.projection?.revision).toBe('5')
+    })
+
+    it('waits for a command-bar transition still on its way before rechecking', async () => {
+      let answer!: (next: ViewProjection) => void
+      const client = clientWith({
+        view: vi
+          .fn()
+          .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+          .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '5')),
+        transition: vi.fn(() => new Promise<ViewProjection>((resolve) => (answer = resolve))),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const rechecking = controller.recheckNewer('5')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      answer(projection('v=2', 0, 3, '4'))
+
+      await expect(applying).resolves.toBe(true)
+      await rechecking
+      expect(controller.projection?.canonical_query).toBe('v=2')
       expect(controller.projection?.revision).toBe('5')
     })
   })

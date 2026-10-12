@@ -278,17 +278,23 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function recheckNewer(revision: string): Promise<void> {
-    await barrier
-    if (!projection || BigInt(revision) <= BigInt(projection.revision)) return
-    await recheckInternal(undefined, true)
+    await serially(async () => {
+      if (!projection || BigInt(revision) <= BigInt(projection.revision)) return
+      await recheckInternal(undefined, true)
+    })
+  }
+
+  async function apply(action: TransitionAction): Promise<boolean> {
+    return await serially(() => transitionNow(action))
   }
 
   // Each transition starts from the view the one before it returned, whichever control sent
-  // it, so rapid clicks step one at a time instead of aborting each other.
-  async function apply(action: TransitionAction): Promise<boolean> {
+  // it, so rapid clicks step one at a time instead of aborting each other. Chart moves and
+  // rechecks wait their turn too, so they cannot abort a transition still on its way.
+  async function serially<T>(work: () => Promise<T>): Promise<T> {
     const result = applyTail.then(async () => {
       await barrier
-      return await transitionNow(action)
+      return await work()
     })
     applyTail = result.then(
       () => undefined,
@@ -631,7 +637,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function showAnchor(identity: string): Promise<void> {
-    await barrier
+    await serially(() => anchorNow(identity))
+  }
+
+  async function anchorNow(identity: string): Promise<void> {
     if (!projection) return
     const current = projection
     // A cursor move in a cached window bumps no generation, but it is newer, so it wins.
