@@ -22,9 +22,9 @@
   import { keyHints } from '../lib/shell/key-hints'
   import {
     confirmDirectDelete,
+    focusedRow,
     localActions,
     openTransactionInformation,
-    pressedRow,
     type LocalActionContext,
   } from '../lib/shell/local-actions'
   import { SIDEBAR_FULL_QUERY, inSearch } from '../lib/shell/layout'
@@ -62,8 +62,9 @@
     openFilters: () => void commandBar?.openFilters(),
   }
   const local = (action: LocalAction) => localActions(actions)[action]()
-  async function apply(action: string, dimension?: Dimension, row = pressedRow(controller)) {
-    const focused = action === 'view.drill' || action === 'selection.toggle' ? row() : undefined
+  async function apply(action: string, dimension?: Dimension) {
+    const row = focusedRow(controller.projection, controller.cursorIndex)
+    const focused = action === 'view.drill' || action === 'selection.toggle' ? row : undefined
     if (action === 'view.drill' && focused?.kind === 'transaction')
       return openTransactionInformation(actions, focused.identity)
     if (focused) return send({ action, target: focused })
@@ -84,10 +85,9 @@
     status.clear()
     return actions.queue(work)
   }
-  /** Space toggles the row it was pressed on, unless a view change queued before it runs. */
+  /** Space toggles the cursor row when its turn comes; a later cursor move queues behind it. */
   function queueApply(action: string, dimension?: Dimension): void {
-    const pressed = action === 'selection.toggle' ? pressedRow(controller) : undefined
-    queue(() => apply(action, dimension, pressed))
+    queue(() => apply(action, dimension))
   }
   const queueSend = (request: TransitionAction) => queue(() => send(request))
   async function send(request: TransitionAction): Promise<void> {
@@ -97,13 +97,13 @@
   function focusGrid(fromSearch = false): void {
     // A request can finish after the user has opened a dialog or moved into search.
     if (overlays.current !== undefined || charts.dialogOpen || (!fromSearch && inSearch())) return
-    grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
+    const table = grid?.querySelector<HTMLElement>('[role="grid"], .mf-table-empty')
+    table?.focus({ preventScroll: true })
   }
   $effect(() => {
     if (compact.current) return
     if (charts.dialogOpen) charts.setDialog(false)
-    const open = overlays.current
-    if (open === 'navigation' || open === 'view') overlays.close()
+    if (overlays.current === 'navigation' || overlays.current === 'view') overlays.close()
   })
   $effect(() => {
     if (!projection) return

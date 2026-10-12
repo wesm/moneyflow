@@ -6,7 +6,6 @@
   import PeriodChooser from './PeriodChooser.svelte'
   import PeriodSegments from './PeriodSegments.svelte'
   import type { ViewProjection } from '../../lib/api/client'
-  import type { TransitionAction } from '../../lib/controller/view-controller.svelte'
   import { drillFrames } from '../../lib/shell/drills'
   import {
     activeCurrency,
@@ -15,6 +14,7 @@
     scopeKind,
     type Period,
   } from '../../lib/shell/period'
+  import type { ViewChange } from '../../lib/shell/transition-queue'
 
   interface Props {
     projection: ViewProjection
@@ -22,7 +22,7 @@
     onchoose: () => void
     /** Closes the chooser; 'keep' leaves focus where a pointer press put it. */
     onclose: (focus?: 'keep') => void
-    onapply: (action: TransitionAction) => void
+    onapply: (change: ViewChange) => void
     /** Shows the Day, Month, Year, and All segments; at phone width they move to the View sheet. */
     segments?: boolean
   }
@@ -31,19 +31,19 @@
   let labelButton = $state<HTMLButtonElement>()
 
   const range = $derived(projection.filters.date_range)
-  const kind = $derived(scopeKind(range))
   const currency = $derived(activeCurrency(projection))
   const label = $derived(periodLabel(range))
-  const timeDrill = $derived(drillFrames(projection).some((frame) => frame.dimension === 'time'))
 
-  function setPeriod(period: Period | undefined): void {
-    onapply(period ? { action: 'time.set-period', period } : { action: 'time.clear-period' })
-  }
-
-  // All time also clears a time drill, which can be open while the view covers all time.
+  // All time also clears a time drill, which can be open while the view covers all time. It is
+  // decided on the view shown when the change runs, after any pending period change.
   function pick(period: Period | undefined): void {
     onclose()
-    if (period || kind !== 'all' || timeDrill) setPeriod(period)
+    if (period) return onapply({ action: 'time.set-period', period })
+    onapply((current) => {
+      const timeDrill = drillFrames(current).some((frame) => frame.dimension === 'time')
+      const all = scopeKind(current.filters.date_range) === 'all'
+      return all && !timeDrill ? undefined : { action: 'time.clear-period' }
+    })
   }
 </script>
 

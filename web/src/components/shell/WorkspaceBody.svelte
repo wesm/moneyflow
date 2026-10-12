@@ -106,10 +106,8 @@
 
   function onrow(identity: string): void {
     // The row is found in the projection the queued transitions leave.
-    void moveCursor(async () => {
-      await actions.queue(async () => {
-        if (controller.projection) await moveToRow(controller, controller.projection, identity)
-      })
+    void moveCursor(actions, async () => {
+      if (controller.projection) await moveToRow(controller, controller.projection, identity)
     })
   }
 
@@ -178,14 +176,15 @@
       viewport={viewport - covered}
       {above}
       compact={compact.current}
-      onmove={(delta) => moveCursor(() => controller.moveCursor(delta))}
-      onhome={() => moveCursor(() => controller.moveHome())}
-      oncursor={(index) => moveCursor(() => controller.moveCursorTo(index))}
+      onmove={(delta) => moveCursor(actions, () => controller.moveCursor(delta))}
+      onhome={() => moveCursor(actions, () => controller.moveHome())}
+      oncursor={(index) => moveCursor(actions, () => controller.moveCursorTo(index))}
       ontoggle={(identity, kind) =>
         onapply({ action: 'selection.toggle', target: { identity, kind } })}
       ontoggleall={() => onapply({ action: 'selection.toggle-all' })}
       onactivate={(identity, kind) => onapply({ action: 'view.drill', target: { identity, kind } })}
-      oninformation={(identity) => void openTransactionInformation(actions, identity)}
+      oninformation={(identity) =>
+        actions.queue(() => openTransactionInformation(actions, identity))}
       onedit={(identity, field) =>
         openEditorWhenSettled(actions, field, { identity, kind: 'transaction' })}
       onsort={(field) => onapply({ action: 'sort.set', sort_field: field })}

@@ -11,6 +11,14 @@ import { SIDEBAR_FULL_QUERY } from '../lib/shell/layout'
 import { testInsights } from '../test/insights'
 import { testProviderStatus } from '../test/provider'
 
+const escapeCapability = {
+  id: 'view.back',
+  key_display: 'esc',
+  description: 'Go back',
+  category: 'Navigation',
+  available: true,
+}
+
 describe('AppShell', () => {
   afterEach(() => {
     cleanup()
@@ -109,6 +117,74 @@ describe('AppShell', () => {
     ])
   })
 
+  it('moves the cursor only after a pending Esc return restores the parent view', async () => {
+    const controller = heldFirstApply(stubController())
+    controller.projection!.capabilities!.push(escapeCapability, {
+      id: 'cursor.home',
+      key_display: 'home',
+      description: 'Move to the first row',
+      category: '',
+      available: true,
+    })
+    const moves: string[] = []
+    vi.mocked(controller.moveCursor).mockImplementation(async (delta) => {
+      moves.push(`move ${delta}`)
+    })
+    vi.mocked(controller.moveHome).mockImplementation(async () => {
+      moves.push('home')
+    })
+    render(AppShell, { controller })
+    const grid = screen.getByRole('grid', { name: 'Financial results' })
+
+    await fireEvent.keyDown(grid, { key: 'Escape' })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledWith({ action: 'view.back' }))
+    await fireEvent.keyDown(grid, { key: 'ArrowDown' })
+    await fireEvent.keyDown(grid, { key: 'Home' })
+    await fireEvent.keyDown(window, { key: 'j' })
+    await fireEvent.keyDown(window, { key: 'Home' })
+    await tick()
+    expect(moves).toEqual([])
+    controller.finish()
+
+    await vi.waitFor(() => expect(moves).toEqual(['move 1', 'home', 'move 1', 'home']))
+  })
+
+  it('anchors a period segment on the view a pending period change returns', async () => {
+    const controller = heldFirstApply(stubController(periodProjection()))
+    render(AppShell, { controller })
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous period' }))
+    await fireEvent.click(screen.getByRole('radio', { name: 'Month' }))
+    showPeriod(controller, { from: '2025-01-01', to: '2025-12-31' })
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(controller.apply).toHaveBeenLastCalledWith({
+      action: 'time.set-period',
+      period: { start: '2025-12-01', end: '2025-12-31' },
+    })
+  })
+
+  it('applies All time chosen while a period change from all time is pending', async () => {
+    const shown = stubController(periodProjection())
+    showPeriod(shown, undefined)
+    const controller = heldFirstApply(shown)
+    render(AppShell, { controller })
+
+    await fireEvent.click(screen.getByRole('radio', { name: 'Month' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'All time' }))
+    const chooser = within(screen.getByRole('dialog', { name: 'Choose period' }))
+    await fireEvent.click(chooser.getByRole('button', { name: /All time/ }))
+    showPeriod(controller, { from: '2026-10-01', to: '2026-10-31' })
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(controller.apply).mock.calls.map(([action]) => action)).toEqual([
+      { action: 'time.set-period', period: { start: '2026-10-01', end: '2026-10-31' } },
+      { action: 'time.clear-period' },
+    ])
+  })
+
   it('starts a search typed behind queued view changes from their result', async () => {
     const controller = heldFirstApply(stubController(periodProjection()))
     render(AppShell, { controller })
@@ -129,6 +205,32 @@ describe('AppShell', () => {
     expect(vi.mocked(controller.beginSearch).mock.invocationCallOrder[0]).toBeGreaterThan(
       lastApply!,
     )
+  })
+
+  it('leaves the search field after a search with no matches so Esc can clear it', async () => {
+    const base = testProjection()
+    const controller = stubController(
+      testProjection({
+        view: { ...base.view, search: 'no such merchant' },
+        total_rows: 0,
+        window: { offset: 0, limit: 200, count: 0 },
+        detail_rows: [],
+      }),
+    )
+    controller.projection!.capabilities!.push(escapeCapability)
+    vi.mocked(controller.previewSearch).mockResolvedValue('applied')
+    render(AppShell, { controller })
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+    search.focus()
+    await fireEvent.input(search, { target: { value: 'no such merchant' } })
+    await vi.waitFor(() => expect(controller.previewSearch).toHaveBeenCalled())
+
+    await fireEvent.keyDown(search, { key: 'Enter' })
+    await vi.waitFor(() => expect(controller.commitSearch).toHaveBeenCalled())
+    await vi.waitFor(() => expect(document.activeElement).not.toBe(search))
+    await fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledWith({ action: 'view.back' }))
   })
 
   it('starts charts on and hides only the chart row with the switch', async () => {
@@ -428,10 +530,12 @@ describe('AppShell', () => {
     await fireEvent.click(view)
     const sheet = screen.getByRole('dialog', { name: 'View' })
     await fireEvent.click(within(sheet).getByRole('radio', { name: 'Month' }))
-    expect(controller.apply).toHaveBeenCalledWith({
-      action: 'time.set-period',
-      period: { start: '2026-10-01', end: '2026-10-31' },
-    })
+    await vi.waitFor(() =>
+      expect(controller.apply).toHaveBeenCalledWith({
+        action: 'time.set-period',
+        period: { start: '2026-10-01', end: '2026-10-31' },
+      }),
+    )
     expect(within(sheet).getByRole('combobox', { name: /^Currency/ })).not.toBeNull()
     expect(within(sheet).getByRole('button', { name: 'Filters' })).not.toBeNull()
 
@@ -586,49 +690,27 @@ describe('AppShell', () => {
   })
 
   it('shows the last Enter’s transaction when an earlier one’s details arrive later', async () => {
-    const first = testProjection().detail_rows![0]!
-    const rows = [0, 1].map((index) => ({
-      ...first,
-      index,
-      identity: `row-${index}`,
-      merchant: `Example Merchant ${index}`,
-    }))
-    const controller = stubController(
-      testProjection({
-        total_rows: 2,
-        window: { offset: 0, limit: 200, count: 2 },
-        detail_rows: rows,
-      }),
-    )
-    controller.projection!.capabilities!.push({
-      id: 'view.drill',
-      key_display: 'enter',
-      description: 'view.drill',
-      category: 'Views',
-      available: true,
-    })
-    const waiting = new Map<string, () => void>()
-    controller.transactionInformation = vi.fn(
-      (identity: string) =>
-        new Promise<TransactionInformationResponse>((resolve) => {
-          const row = rows.find((candidate) => candidate.identity === identity)!
-          waiting.set(identity, () => resolve(transactionInformation(row)))
-        }),
-    )
+    const { controller, waiting } = lateInformation()
     render(AppShell, { controller })
     await fireEvent.keyDown(window, { key: 'Enter' })
     Object.assign(controller, { cursorIndex: 1, cursorIdentity: 'row-1' })
     await fireEvent.keyDown(window, { key: 'Enter' })
     await new Promise((resolve) => setTimeout(resolve))
 
-    waiting.get('row-1')?.()
-    waiting.get('row-0')!()
-    await vi.waitFor(() => expect(waiting.has('row-1')).toBe(true))
-    waiting.get('row-1')!()
-    const drawer = await screen.findByRole('dialog', { name: 'Transaction information' })
-    await vi.waitFor(() => expect(drawer.textContent).toContain('Example Merchant 1'))
+    await expectLastInformation(waiting)
+  })
+
+  it('shows the last tapped phone row’s transaction when an earlier one’s arrive later', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const { controller, waiting } = lateInformation()
+    render(AppShell, { controller })
+    const merchant = (index: number) =>
+      document.querySelector(`[data-index="${index}"] [data-column="merchant"]`)!
+    await fireEvent.click(merchant(0))
+    await fireEvent.click(merchant(1))
     await new Promise((resolve) => setTimeout(resolve))
-    expect(drawer.textContent).not.toContain('Example Merchant 0')
+
+    await expectLastInformation(waiting)
   })
 
   it('opens duplicate review with D and confirms direct deletion with x', async () => {
@@ -791,6 +873,24 @@ describe('AppShell', () => {
     })
   })
 
+  it('toggles the row j moved to when Space, j, Space wait behind a slow toggle', async () => {
+    const controller = heldFirstApply(lateInformation().controller)
+    vi.mocked(controller.moveCursor).mockImplementation(async (delta) => {
+      Object.assign(controller, { cursorIndex: controller.cursorIndex + delta })
+    })
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: 'j' })
+    await fireEvent.keyDown(window, { key: ' ' })
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(controller.apply).mock.calls.map(([action]) => action)).toEqual([
+      { action: 'selection.toggle', target: { identity: 'row-0', kind: 'transaction' } },
+      { action: 'selection.toggle', target: { identity: 'row-1', kind: 'transaction' } },
+    ])
+  })
+
   it('does not trap shortcuts when an editor has no focused row', async () => {
     const controller = stubController(testProjection({ total_rows: 0, detail_rows: [] }))
     render(AppShell, { controller })
@@ -854,6 +954,15 @@ function periodProjection(): ReturnType<typeof testProjection> {
   })
 }
 
+/** Shows `range` as the view's period, as the controller does once a period change returns. */
+function showPeriod(controller: ViewController, range: { from: string; to: string } | undefined) {
+  const current = controller.projection!
+  const filters = { ...current.filters }
+  delete filters.date_range
+  if (range) filters.date_range = range
+  Object.assign(controller, { projection: { ...current, filters } })
+}
+
 /** Holds the first transition until `finish`, as a slow request would. */
 function heldFirstApply(controller: ViewController): ViewController & { finish: () => void } {
   let release: ((applied: boolean) => void) | undefined
@@ -911,6 +1020,55 @@ function heldToggle() {
 function charted() {
   const base = testProjection()
   return testProjection({ view: { ...base.view, currency: { currency: 'USD', scale: 2 } } })
+}
+
+/** Two transaction rows whose details each wait until the test releases them. */
+function lateInformation(): { controller: ViewController; waiting: Map<string, () => void> } {
+  const first = testProjection().detail_rows![0]!
+  const rows = [0, 1].map((index) => ({
+    ...first,
+    index,
+    identity: `row-${index}`,
+    merchant: `Example Merchant ${index}`,
+  }))
+  const controller = stubController(
+    testProjection({
+      total_rows: 2,
+      window: { offset: 0, limit: 200, count: 2 },
+      detail_rows: rows,
+    }),
+  )
+  controller.projection!.capabilities!.push({
+    id: 'view.drill',
+    key_display: 'enter',
+    description: 'view.drill',
+    category: 'Views',
+    available: true,
+  })
+  const waiting = new Map<string, () => void>()
+  controller.transactionInformation = vi.fn(
+    (identity: string) =>
+      new Promise<TransactionInformationResponse>((resolve) => {
+        const row = rows.find((candidate) => candidate.identity === identity)!
+        waiting.set(identity, () => resolve(transactionInformation(row)))
+      }),
+  )
+  return { controller, waiting }
+}
+
+/**
+ * Answers the second request first when both are out, then the first, and expects the drawer
+ * to end on the second row.
+ */
+async function expectLastInformation(waiting: Map<string, () => void>): Promise<void> {
+  waiting.get('row-1')?.()
+  waiting.get('row-0')!()
+  await vi.waitFor(() => expect(waiting.has('row-1')).toBe(true))
+  waiting.get('row-1')!()
+  const drawer = await screen.findByRole('dialog', { name: 'Transaction information' })
+  await vi.waitFor(() => expect(drawer.textContent).toContain('Example Merchant 1'))
+  await new Promise((resolve) => setTimeout(resolve))
+  expect(drawer.textContent).not.toContain('Example Merchant 0')
 }
 
 function transactionInformation(
