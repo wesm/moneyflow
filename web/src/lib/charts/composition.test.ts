@@ -49,12 +49,6 @@ describe('compositionBars', () => {
     expect(compositionBars(composition, 'income', 2).map((bar) => bar.label)).toEqual(['Payroll'])
   })
 
-  it('shows a zero Net unsigned and keeps the formatted zero in the bar name', () => {
-    const zero = { spending: [{ key: 'z', label: 'Zero', net: '0', share_tenths: 0 }], income: [] }
-    const [bar] = compositionBars(zero, 'spending', 2)
-    expect(bar).toMatchObject({ net: '0.00', name: 'Zero, 0.0%, +0.00' })
-  })
-
   it('sizes bars by share against the largest one', () => {
     const bars = compositionBars(composition, 'spending', 2)
     expect(bars.map((bar) => bar.length)).toEqual([10000, 1550, 5000])

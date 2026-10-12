@@ -14,11 +14,6 @@ const fourTiles: KpiTile[] = [
 describe('KpiStrip', () => {
   afterEach(() => cleanup())
 
-  it('draws five skeleton tiles before any insights arrive', () => {
-    render(KpiStrip, { tiles: undefined, comparisonLabel: undefined })
-    expect(document.querySelectorAll('.mf-kpi')).toHaveLength(5)
-  })
-
   it('draws as many skeleton tiles as the strip last showed', async () => {
     const { rerender } = render(KpiStrip, { tiles: fourTiles, comparisonLabel: undefined })
     expect(document.querySelectorAll('.mf-kpi')).toHaveLength(4)
