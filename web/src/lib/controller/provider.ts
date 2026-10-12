@@ -43,6 +43,8 @@ interface ProviderProjectionHost {
   accept(projection: ViewProjection): void
   /** Rereads the shown view at the newest revision. */
   reload(): Promise<unknown>
+  /** Runs `work` once the view changes already on their way have finished. */
+  serially<T>(work: () => Promise<T>): Promise<T>
 }
 
 interface ProviderControllerOptions {
@@ -184,9 +186,18 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     return true
   }
 
-  // A view or selection change that finished while the refresh ran stays: reread that view at
-  // the refreshed revision rather than reinstall the view the refresh was sent with.
-  async function show(
+  // A view or selection change made while the refresh ran stays: wait for any still on its way,
+  // so installing the refreshed view does not cancel it, then reread the view it produced at the
+  // refreshed revision rather than reinstall the view the refresh was sent with.
+  function show(
+    projection: ViewProjection,
+    sent: ViewProjection,
+    selectionCleared: boolean,
+  ): Promise<string> {
+    return options.host.serially(() => showSettled(projection, sent, selectionCleared))
+  }
+
+  async function showSettled(
     projection: ViewProjection,
     sent: ViewProjection,
     selectionCleared: boolean,

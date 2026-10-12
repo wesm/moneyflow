@@ -223,6 +223,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       current: () => projection,
       accept: (next) => acceptProfileProjection(next, true),
       reload: () => recheckInternal(undefined, true),
+      serially: (work) => serially(work),
     },
   })
 

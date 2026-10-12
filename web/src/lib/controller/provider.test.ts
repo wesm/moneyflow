@@ -342,6 +342,7 @@ function hostStub(current = testProjection()) {
     current: vi.fn(() => current),
     accept: vi.fn(),
     reload: vi.fn(async () => undefined),
+    serially: <T>(work: () => Promise<T>) => work(),
   }
 }
 
