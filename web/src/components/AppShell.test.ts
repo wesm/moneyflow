@@ -16,6 +16,13 @@ vi.mock('../lib/shell/rail', async (importOriginal) => {
 })
 
 const failureText = 'Charts could not load. Reload the page.'
+const escapeCapability = {
+  id: 'view.back',
+  key_display: 'esc',
+  description: 'Go back',
+  category: 'Navigation',
+  available: true,
+}
 
 describe('AppShell', () => {
   afterEach(() => {
@@ -136,6 +143,32 @@ describe('AppShell', () => {
     expect(vi.mocked(controller.beginSearch).mock.invocationCallOrder[0]).toBeGreaterThan(
       lastApply!,
     )
+  })
+
+  it('leaves the search field after a search with no matches so Esc can clear it', async () => {
+    const base = testProjection()
+    const controller = stubController(
+      testProjection({
+        view: { ...base.view, search: 'no such merchant' },
+        total_rows: 0,
+        window: { offset: 0, limit: 200, count: 0 },
+        detail_rows: [],
+      }),
+    )
+    controller.projection!.capabilities!.push(escapeCapability)
+    vi.mocked(controller.previewSearch).mockResolvedValue('applied')
+    render(AppShell, { controller })
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+    search.focus()
+    await fireEvent.input(search, { target: { value: 'no such merchant' } })
+    await vi.waitFor(() => expect(controller.previewSearch).toHaveBeenCalled())
+
+    await fireEvent.keyDown(search, { key: 'Enter' })
+    await vi.waitFor(() => expect(controller.commitSearch).toHaveBeenCalled())
+    await vi.waitFor(() => expect(document.activeElement).not.toBe(search))
+    await fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledWith({ action: 'view.back' }))
   })
 
   it('starts charts off at rail widths so the table keeps the full width', async () => {

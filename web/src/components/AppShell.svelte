@@ -96,7 +96,7 @@
   function focusGrid(fromSearch = false): void {
     // A request can finish after the user has opened a dialog or moved into search.
     if (overlays.current !== undefined || charts.dialogOpen || (!fromSearch && inSearch())) return
-    grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
+    grid?.querySelector<HTMLElement>('.finance-grid')?.focus({ preventScroll: true })
   }
   $effect(() => {
     if (compact.current) return

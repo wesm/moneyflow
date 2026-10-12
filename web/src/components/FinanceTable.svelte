@@ -70,10 +70,13 @@
 </script>
 
 {#if rows.length === 0}
-  <EmptyState
-    title="No transactions"
-    description="Change the current refinements to see results."
-  />
+  <!-- Takes the grid's focus, such as after a search with no matches, so Esc reaches the shell. -->
+  <div class="finance-grid" tabindex="-1">
+    <EmptyState
+      title="No transactions"
+      description="Change the current refinements to see results."
+    />
+  </div>
 {:else}
   <div
     class="finance-grid"
