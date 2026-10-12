@@ -138,3 +138,8 @@ A double-click on a composition bar drills into its row. The performance spec ti
 drill and the cursor's move to a new cash-flow column; their limits are in
 `web/budgets.json`. That spec runs with Playwright tracing off, because tracing snapshots the
 page inside the timed window. Every other spec keeps the configured tracing.
+
+The `chart_drill` limit is 70 ms. It is sized for GitHub's ubuntu runners. The earlier 30 ms
+limit was never met there: the chart this one replaced measured 31–37 ms. The drill now draws
+the transaction view's calendar heatmap in the same task. The limit comes from 4x
+CPU-throttled local runs, which measure a little above those runners, plus headroom.
