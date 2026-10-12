@@ -337,6 +337,30 @@ test('a drag across cash-flow columns sets a custom range', async ({ page, serve
   await expect(page).toHaveURL(/[?&]from=2026-07-01&to=2026-09-30/)
 })
 
+test('a touch drag from a column’s bars sets a custom range', async ({
+  page,
+  server,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', 'Touch input is sent through the Chromium protocol.')
+  await openMoneyflow(page, server)
+  // The press starts on the bars' drawing inside the column, not on the column's own padding.
+  const points = await Promise.all(
+    ['Jul 2026', 'Aug 2026', 'Sep 2026'].map(async (label) => {
+      const box = (await column(page, label).locator('svg').boundingBox())!
+      return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) }
+    }),
+  )
+  const touch = await page.context().newCDPSession(page)
+  const send = (type: string, at: { x: number; y: number }[]) =>
+    touch.send('Input.dispatchTouchEvent', { type, touchPoints: at })
+  await send('touchStart', [points[0]!])
+  await send('touchMove', [points[1]!])
+  await send('touchMove', [points[2]!])
+  await send('touchEnd', [])
+  await expect(periodControl(page)).toHaveText('Jul 1 – Sep 30, 2026')
+})
+
 test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', async ({
   page,
   server,
