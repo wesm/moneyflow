@@ -1,0 +1,67 @@
+<script lang="ts">
+  import { IconButton } from '@kenn-io/kit-ui'
+
+  import type { ViewProjection } from '../../lib/api/client'
+  import {
+    cellClass,
+    compactColumnIndex,
+    type Column,
+    type ColumnKey,
+    type CompactLayout,
+    type SortField,
+  } from '../../lib/table/columns'
+  import { outOfTabOrder } from '../../lib/table/pointer'
+
+  interface Props {
+    columns: Column[]
+    view: ViewProjection['view']
+    /** Every matching row is selected, so the header box shows checked. */
+    allSelected: boolean
+    /** Phone rows' layout: the header keeps only select-all and the current sort field. */
+    compact: CompactLayout | undefined
+    onsort: (field: SortField) => void
+    ontoggleall: () => void
+  }
+
+  let { columns, view, allSelected, compact, onsort, ontoggleall }: Props = $props()
+  const shown = $derived(
+    compact
+      ? columns.filter((column) => column.key === 'select' || column.sortField === view.sort_field)
+      : columns,
+  )
+  /** Columns whose content explains itself; their headers are named for assistive technology. */
+  const unlabelled = new Set<ColumnKey>(['net_bar', 'flags'])
+
+  function sortState(column: Column): 'ascending' | 'descending' | undefined {
+    if (!column.sortField || column.sortField !== view.sort_field) return undefined
+    return view.sort_direction === 'asc' ? 'ascending' : 'descending'
+  }
+</script>
+
+<div class="mf-table__header" role="row">
+  {#each shown as column (column.key)}
+    {@const sort = sortState(column)}
+    {@const field = column.sortField}
+    <!-- prettier-ignore -->
+    <div class={cellClass(column)} role="columnheader" data-column={column.key}
+      aria-colindex={compact && compactColumnIndex(compact, column.key)}
+      aria-sort={sort /* kit-ui-check-ignore: virtual ARIA grid cannot hold header cells */}>
+      {#if column.key === 'select'}
+        <span class="mf-table__select-all" {@attach outOfTabOrder}>
+          <IconButton size="sm" ariaLabel={column.label} onclick={ontoggleall}>
+            <!-- kit-ui-check-ignore: kit Checkbox lacks tabindex (upstream candidate) -->
+            <span class={['mf-check', allSelected && 'mf-check--on']} aria-hidden="true"></span>
+          </IconButton>
+        </span>
+      {:else if field}
+        <button class="mf-table__sort" type="button" tabindex="-1" onclick={() => onsort(field)}
+          >{column.label}</button
+        >
+      {:else if unlabelled.has(column.key)}
+        <span class="kit-sr-only">{column.label}</span>
+      {:else}
+        {column.label}
+      {/if}
+    </div>
+  {/each}
+</div>

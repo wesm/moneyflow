@@ -14,7 +14,7 @@ capabilities can disable actions. Terminal shortcuts do not override your termin
 | `1`–`5` | Group by Merchant, Category, Group, Account, or Time |
 | `d` | Show transaction detail view |
 | `A` | Group by account |
-| Enter / Esc | Drill into a row / undo one step ([Esc order](navigation.md#go-back-with-esc)) |
+| Enter / Esc | Drill into a row, or in the browser open a transaction row's information / undo one step ([Esc order](navigation.md#go-back-with-esc)) |
 | `s` / `v` | Change sort field / reverse order |
 | `t` | Open the time chooser in the TUI or the [period chooser](navigation.md#choose-a-period-in-the-browser) in the browser |
 | `Ctrl+t` | In the TUI, jump to Time grouping; cycle year/month/day within Time |
@@ -36,7 +36,7 @@ for quick paths to this month, last month, and other periods.
 | Space / `Ctrl+A` | Select a row / toggle result selection |
 | `m` / `c` | Edit merchant / category |
 | `h` | Toggle report visibility |
-| `x` | Confirm and stage deletion in detail view |
+| `x` | Confirm and stage deletion in detail view; in grouped browser views, explains why it cannot delete |
 | `C` / `G` | Manage categories / groups |
 | `u` / `U` | Undo / redo |
 | `w` | Review pending changes |

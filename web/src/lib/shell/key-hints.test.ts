@@ -31,6 +31,7 @@ function view(mode: 'aggregate' | 'detail', sub_grouping?: string): ViewProjecti
     time_granularity: 'year',
     sort_field: 'amount',
     sort_direction: 'desc',
+    sort_fields: ['merchant', 'count', 'amount'],
     ...(sub_grouping === undefined ? {} : { sub_grouping }),
   }
 }
@@ -93,6 +94,18 @@ describe('keyHints', () => {
       capabilities: capabilities(['transaction.delete']),
     })
     expect(keyHints(selected, false).map(({ key }) => key)).toEqual(['m', 'c', 'h', 'Esc'])
+  })
+
+  it('keeps x while a grouped selection explains why it cannot delete', () => {
+    const reason = 'Open the group to delete its transactions.'
+    const selected = projection({
+      view: view('aggregate'),
+      selection_count: 2,
+      capabilities: capabilities(['transaction.delete']).map((capability) =>
+        capability.id === 'transaction.delete' ? { ...capability, reason } : capability,
+      ),
+    })
+    expect(keyHints(selected, false).map(({ key }) => key)).toEqual(['m', 'c', 'h', 'x', 'Esc'])
   })
 
   it('offers no row keys over an empty period', () => {

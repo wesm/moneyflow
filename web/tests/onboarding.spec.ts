@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import { cell } from './fixtures'
 import { startOnboardingE2EServer } from '../scripts/e2e-server'
 
 test('keyboard onboarding creates, connects, imports, and opens one profile', async ({ page }) => {
@@ -31,7 +32,9 @@ test('keyboard onboarding creates, connects, imports, and opens one profile', as
     await expect(page.getByText(/of 4 visible/)).toBeVisible()
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
     await expect(page).toHaveURL(/\/moneyflow\/p\/profile_[a-z2-7]{26}\/\?cur=USD%3A2&v=1$/)
-    await expect(page.getByRole('row', { name: /Example Merchant 4/ })).toBeVisible()
+    const merchant = page.getByRole('row', { name: /Example Merchant/ })
+    await expect(merchant).toBeVisible()
+    await expect(cell(merchant, 'count')).toHaveText('4')
   } finally {
     await server.stop()
   }

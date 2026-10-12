@@ -130,12 +130,14 @@ type Period struct {
 	Day         int    `json:"day,omitempty"`
 }
 
-// AggregateRow contains one stable aggregate partition.
+// AggregateRow contains one stable aggregate partition. Group is a category row's group label;
+// other dimensions and ungrouped categories omit it.
 type AggregateRow struct {
 	Index              int     `json:"index"`
 	Identity           string  `json:"identity"`
 	Dimension          string  `json:"dimension"`
 	Label              string  `json:"label"`
+	Group              string  `json:"group,omitempty"`
 	Count              int     `json:"count"`
 	In                 Money   `json:"in"`
 	Out                Money   `json:"out"`
@@ -147,6 +149,9 @@ type AggregateRow struct {
 	Flags              Flags   `json:"flags"`
 	// SavingsRateTenths is a Time row's net over income in tenths of a percent.
 	SavingsRateTenths *int `json:"savings_rate_tenths,omitempty"`
+	// NetRatio is a Time row's |Net| over the largest |Net| of the whole result, in basis points
+	// and signed like Net. It does not depend on the returned window.
+	NetRatio *int `json:"net_ratio,omitempty" minimum:"-10000" maximum:"10000"`
 }
 
 // Statistics contains exact totals for one currency and scale partition.
@@ -239,7 +244,9 @@ type ViewMetadata struct {
 	Search          string `json:"search,omitempty"`
 	SortField       string `json:"sort_field"`
 	SortDirection   string `json:"sort_direction"`
-	SubGrouping     string `json:"sub_grouping,omitempty"`
+	// SortFields are the fields the view's table can sort by, in the order the sort key cycles.
+	SortFields  []string `json:"sort_fields" nullable:"false" enum:"count,amount,date,merchant,category,group,account,time_period"`
+	SubGrouping string   `json:"sub_grouping,omitempty"`
 	// Currency is the single currency the view is scoped to; absent when it shows all.
 	Currency *CurrencyScope `json:"currency,omitempty"`
 }
@@ -255,6 +262,7 @@ type Projection struct {
 	CanonicalQuery          string          `json:"canonical_query"`
 	Selection               string          `json:"selection"`
 	SelectionCount          int             `json:"selection_count"`
+	AllRowsSelected         bool            `json:"all_rows_selected"`
 	SelectionSummary        []Statistics    `json:"selection_summary,omitempty" nullable:"false"`
 	View                    ViewMetadata    `json:"view"`
 	Breadcrumbs             []Breadcrumb    `json:"breadcrumbs"`
@@ -289,7 +297,7 @@ func projectionToWire(
 		Revision: strconv.FormatUint(projection.Revision, 10), ProfileKind: projection.ProfileKind,
 		Pending:        pendingToWire(projection.Pending),
 		CanonicalQuery: canonical, Selection: string(projection.Selection),
-		SelectionCount: projection.SelectionCount,
+		SelectionCount: projection.SelectionCount, AllRowsSelected: projection.AllRowsSelected,
 		View:           viewMetadataToWire(projection.State.Current),
 		BreadcrumbText: projection.BreadcrumbText, Filters: filtersToWire(projection.Filters),
 		TotalRows: projection.TotalRows,
@@ -351,6 +359,9 @@ func viewMetadataToWire(state app.AnalyticalState) ViewMetadata {
 		Search:          state.Search,
 		SortField:       string(state.Sort.Field),
 		SortDirection:   string(state.Sort.Direction),
+	}
+	for _, field := range app.SortFields(state) {
+		view.SortFields = append(view.SortFields, string(field))
 	}
 	if state.SubGrouping != nil {
 		view.SubGrouping = string(*state.SubGrouping)
@@ -458,11 +469,11 @@ func stagedToWire(staged app.StagedValues) *StagedValues {
 func aggregateRowToWire(row app.WebAggregateRow) AggregateRow {
 	wire := AggregateRow{
 		Index: row.Index, Identity: row.Identity, Dimension: string(row.Row.Dimension),
-		Label: row.Row.Label, Count: row.Row.Count, Total: moneyToWire(row.Row.Total),
-		In: moneyToWire(row.Row.In), Out: moneyToWire(row.Row.Out),
+		Label: row.Row.Label, Group: row.Row.Group, Count: row.Row.Count,
+		Total: moneyToWire(row.Row.Total), In: moneyToWire(row.Row.In), Out: moneyToWire(row.Row.Out),
 		TopCategory: row.Row.TopCategory, TopCategoryPercent: row.Row.TopCategoryPercent,
 		ShareTenths: row.Row.ShareTenths, Flags: flagsToWire(row.Row.Flags),
-		SavingsRateTenths: row.SavingsRateTenths,
+		SavingsRateTenths: row.SavingsRateTenths, NetRatio: row.NetRatio,
 	}
 	if row.Row.Period != nil {
 		period := periodToWire(*row.Row.Period)

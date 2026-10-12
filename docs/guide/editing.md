@@ -4,14 +4,41 @@ Edits are staged locally first. Review their scope before committing.
 Pending edits, undo history, and redo history survive closing the application.
 
 **Unreleased:** Transaction tables, group totals, and filters keep showing committed data
-while edits are pending. A pending marker identifies affected rows. For Monarch and YNAB, the table
-updates after the provider-write batch completes successfully; local profiles update on commit.
+while edits are pending. A pending marker identifies affected rows; in the browser it is a gold
+dot. For Monarch and YNAB, the table updates after the provider-write batch completes
+successfully; local profiles update on commit.
+
+**Unreleased:** Browser transaction rows also show their staged values. A changed merchant or
+category appears as the old value struck through, an arrow, and the new value in gold. Gold
+**Hidden**, **Visible**, and **Delete** tags mark staged hides, unhides, and deletions, and a
+staged deletion strikes through the row. Grouped rows and totals stay committed until you
+commit.
 
 ## Choose the transactions
 
 In detail view, an edit targets the current transaction. In a grouped view, it can target the
 transactions represented by that row. Space selects rows; `Ctrl+A` toggles the current result
 selection. The merchant editor shows the affected count and a bounded transaction preview.
+
+**Unreleased:** In the browser, a selection bar shows at the bottom of the table while rows are
+selected. It counts the selected groups in a grouped view, then the affected transactions and
+their Net, such as `3 merchants · 127 transactions · -4,212.40`. Its buttons do what their keys
+do:
+
+- **Merchant** (`m`), **Category** (`c`), **Hide** (`h`), and **Delete** (`x`) edit the
+  selection.
+- **Clear** (`Esc`) empties the selection and returns focus to the table.
+
+Delete is disabled in grouped views; open a group to delete its transactions. A disabled button
+shows its reason when you point at it, for example while a provider write runs. On a phone, the
+bar spans the bottom of the screen with larger buttons.
+
+**Unreleased:** On a phone, a transaction row's ⋯ button opens a sheet with **Merchant**,
+**Category**, **Hide**, **Delete**, and **Info** for that transaction. They do what `m`, `c`,
+`h`, `x`, and `i` do on the cursor row. An item that cannot run shows its reason under it.
+While a selection exists, the four edits are disabled because they would edit the selection;
+use the selection bar, or clear the selection to edit one transaction. **Info** stays available.
+Esc or closing an editor opened from the sheet returns focus to the ⋯ button.
 
 **Unreleased:** In the merchant editor, Enter uses the highlighted suggestion. To use a new name that also
 matches existing merchants, select the `Create` option below the matches.

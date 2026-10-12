@@ -489,6 +489,7 @@ func TestServerProjectionListsCurrenciesAndSummarizesSelectionAcrossCurrencies(t
 		{Currency: "EUR", Scale: 2, Count: 1, First: "2025-06-07", Latest: "2025-06-07"},
 	}, projection.Currencies)
 	assert.Empty(t, projection.SelectionSummary, "nothing is selected")
+	assert.False(t, projection.AllRowsSelected)
 	assert.Nil(t, projection.View.Currency)
 
 	response := requestJSON(t, server, "/api/v1/view/transition", TransitionBody{
@@ -499,6 +500,7 @@ func TestServerProjectionListsCurrenciesAndSummarizesSelectionAcrossCurrencies(t
 	var selected Projection
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &selected))
 	assert.Equal(t, 3, selected.SelectionCount)
+	assert.True(t, selected.AllRowsSelected)
 	require.Len(t, selected.SelectionSummary, 2)
 	byCurrency := map[string]Statistics{}
 	for _, stats := range selected.SelectionSummary {
@@ -548,6 +550,67 @@ func TestServerTimeRowsCarrySavingsRateInCurrencyScopedViews(t *testing.T) {
 	for _, row := range projectState(t, server, state).AggregateRows {
 		assert.Nil(t, row.SavingsRateTenths, "only Time rows carry a savings rate")
 	}
+}
+
+func TestServerAggregateRowsCarryCategoryGroupAndTimeNetRatio(t *testing.T) {
+	t.Parallel()
+	large := apiTransactionWith(t, "large", func(transaction *domain.Transaction) {
+		transaction.Amount.Minor = 100000
+		transaction.Date = mustDate(t, "2024-01-05")
+	})
+	small := apiTransactionWith(t, "small", func(transaction *domain.Transaction) {
+		transaction.Amount.Minor = -25000
+		transaction.Date = mustDate(t, "2024-02-05")
+		transaction.Category.ID, transaction.Category.Name = "category-other", "Other Category"
+		transaction.Category.GroupID, transaction.Category.Group = "group-other", "Other Group"
+	})
+	service, err := app.NewService([]domain.Transaction{large, small})
+	require.NoError(t, err)
+	server := newAPITestServerForService(t, service)
+	state := app.DefaultViewState()
+	state.Current.Dimension = domain.DimensionCategory
+
+	groups := map[string]string{}
+	for _, row := range projectState(t, server, state).AggregateRows {
+		groups[row.Label] = row.Group
+	}
+	assert.Equal(t, map[string]string{
+		"Example Category": "Example Group", "Other Category": "Other Group",
+	}, groups)
+
+	state.Current.Dimension = domain.DimensionTime
+	state.Current.TimeGranularity = domain.TimeGranularityMonth
+	state.Current.Sort = domain.SortSpec{
+		Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc,
+	}
+	query, err := EncodeViewQuery(state)
+	require.NoError(t, err)
+	response := requestJSON(t, server, "/api/v1/view", ViewBody{
+		Query: query, Window: Window{Offset: 1, Limit: 1},
+	})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var windowed Projection
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &windowed))
+	require.Len(t, windowed.AggregateRows, 1)
+	require.NotNil(t, windowed.AggregateRows[0].NetRatio)
+	assert.Equal(t, -2500, *windowed.AggregateRows[0].NetRatio, "250.00 of the 1,000.00 maximum")
+	assert.Empty(t, windowed.AggregateRows[0].Group)
+}
+
+func TestServerViewListsSortableFields(t *testing.T) {
+	t.Parallel()
+	server := newPersistentAPITestServer(t)
+	state := app.DefaultViewState()
+	state.Current.Dimension = domain.DimensionMerchant
+
+	grouped := projectState(t, server, state)
+	state.Current.Mode = domain.ResultModeDetail
+	detail := projectState(t, server, state)
+
+	assert.Equal(t, []string{"merchant", "count", "amount"}, grouped.View.SortFields)
+	assert.Equal(t,
+		[]string{"date", "merchant", "category", "account", "amount"}, detail.View.SortFields,
+	)
 }
 
 func TestServerDetailRowsCarryStagedValuesForPendingEdits(t *testing.T) {

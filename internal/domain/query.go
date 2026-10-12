@@ -139,6 +139,7 @@ type AggregateRow struct {
 	Dimension          Dimension `json:"dimension"`
 	Key                string    `json:"key"`
 	Label              string    `json:"label"`
+	Group              string    `json:"group,omitempty"` // Category rows only: the group's label.
 	Count              int       `json:"count"`
 	In                 Money     `json:"in"`
 	Out                Money     `json:"out"`

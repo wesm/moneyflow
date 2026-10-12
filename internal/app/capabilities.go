@@ -77,7 +77,7 @@ func (service *Service) capabilitiesForStateSnapshot(
 		for index := range result {
 			if result[index].Action == ActionDeleteTransaction && result[index].Available {
 				result[index].Available = false
-				result[index].Reason = "Open transaction detail before deleting."
+				result[index].Reason = "Open the group to delete its transactions."
 			}
 		}
 	}

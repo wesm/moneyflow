@@ -1,5 +1,6 @@
 import { createShortcutManager, type ShortcutManager } from '@kenn-io/kit-ui'
 import type { TransitionBody, ViewProjection } from './api/client'
+import { status } from './shell/status.svelte'
 
 export type Dimension = NonNullable<TransitionBody['dimension']>
 type Capability = NonNullable<ViewProjection['capabilities']>[number]
@@ -106,6 +107,8 @@ const bindings = [
     combos: ['x'],
     local: true,
     localID: 'edit.delete',
+    /** While delete is unavailable, `x` shows the reason instead of doing nothing. */
+    explains: true,
   },
   { id: 'changes.undo', display: 'u', combos: ['u'], local: true, localID: 'edit.undo' },
   { id: 'changes.redo', display: 'U', combos: ['shift+u'], local: true, localID: 'edit.redo' },
@@ -141,29 +144,48 @@ export function validateCapabilities(capabilities: Capability[]): void {
   }
 }
 
+interface ShortcutHandlers {
+  local(action: LocalAction): void
+  apply(action: string, dimension?: Dimension): void
+}
+
+/** What a binding's key does under the capability, or nothing while it is unavailable. */
+function bindingAction(
+  binding: (typeof bindings)[number],
+  capability: Capability | undefined,
+  handlers: ShortcutHandlers,
+  index: number,
+): (() => void) | undefined {
+  if (!capability) return undefined
+  if (!capability.available) {
+    const reason = capability.reason
+    return 'explains' in binding && reason ? () => status.notify(reason) : undefined
+  }
+  if ('local' in binding) {
+    const action = ('localID' in binding ? binding.localID : binding.id) as LocalAction
+    return () => handlers.local(action)
+  }
+  if ('dimensions' in binding) return () => handlers.apply(binding.id, binding.dimensions[index])
+  return () => handlers.apply(binding.id)
+}
+
+/** Binds the shortcuts the capabilities allow. Each key first clears the status notice. */
 export function createMoneyflowShortcuts(
   capabilities: Capability[],
-  handlers: {
-    local(action: LocalAction): void
-    apply(action: string, dimension?: Dimension): void
-  },
+  handlers: ShortcutHandlers,
 ): { manager: ShortcutManager; destroy(): void } {
   validateCapabilities(capabilities)
-  const available = new Set(
-    capabilities.filter((capability) => capability.available).map((capability) => capability.id),
-  )
+  const byID = new Map(capabilities.map((capability) => [capability.id, capability]))
   const manager = createShortcutManager()
   const cleanup: Array<() => void> = []
   for (const binding of bindings) {
-    if (!available.has(binding.id)) continue
     for (const [index, combo] of binding.combos.entries()) {
+      const action = bindingAction(binding, byID.get(binding.id), handlers, index)
+      if (!action) continue
       cleanup.push(
         manager.register(combo, () => {
-          if ('local' in binding) {
-            handlers.local(('localID' in binding ? binding.localID : binding.id) as LocalAction)
-          } else if ('dimensions' in binding) {
-            handlers.apply(binding.id, binding.dimensions[index])
-          } else handlers.apply(binding.id)
+          status.clear()
+          action()
         }),
       )
     }

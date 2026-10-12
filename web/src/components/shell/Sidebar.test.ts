@@ -16,6 +16,7 @@ function projection(overrides: Partial<ViewProjection> = {}): ViewProjection {
       time_granularity: 'year',
       sort_field: 'amount',
       sort_direction: 'desc',
+      sort_fields: ['merchant', 'count', 'amount'],
     },
     capabilities: testCapabilities(navCapabilityIDs, ['transactions.export']),
     ...overrides,

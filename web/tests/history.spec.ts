@@ -1,4 +1,4 @@
-import { activeRow, expect, openMoneyflow, test } from './fixtures'
+import { activeRow, cell, expect, openMoneyflow, test } from './fixtures'
 
 const breadcrumb = (page: import('@playwright/test').Page) =>
   page.getByRole('navigation', { name: 'Breadcrumb' })
@@ -9,7 +9,7 @@ test('@smoke browser history, Esc, refresh, and selection retain server state', 
 }) => {
   await openMoneyflow(page, server)
   const initialLength = await page.evaluate(() => history.length)
-  const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const merchant = await cell(await activeRow(page), 'name').innerText()
 
   await page.keyboard.press('Space')
   await expect(await activeRow(page)).toHaveAttribute('aria-selected', 'true')
@@ -71,7 +71,7 @@ test('Esc after a selection returns to the same entry, and Back and Forward land
   await openMoneyflow(page, server)
   const initialLength = await page.evaluate(() => history.length)
   const topURL = page.url()
-  const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const merchant = await cell(await activeRow(page), 'name').innerText()
   const selectedRows = page.locator('[role="row"][aria-selected="true"]')
 
   await page.keyboard.press('Space')
@@ -101,13 +101,13 @@ test('a breadcrumb click returns to its level and keeps one history entry per vi
   await openMoneyflow(page, server)
   const initialLength = await page.evaluate(() => history.length)
   const topURL = page.url()
-  const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const merchant = await cell(await activeRow(page), 'name').innerText()
   await page.keyboard.press('Enter')
   await expect(breadcrumb(page)).toContainText(merchant)
   const drillURL = page.url()
   await page.keyboard.press('g')
   await expect(breadcrumb(page)).toContainText('by Category')
-  const category = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const category = await cell(await activeRow(page), 'name').innerText()
   await page.keyboard.press('Enter')
   await expect(breadcrumb(page).getByRole('listitem')).toHaveText([
     'Merchants',
@@ -150,7 +150,7 @@ test('Esc falls back to a Go-derived parent when owned history is unavailable', 
   server,
 }) => {
   await openMoneyflow(page, server)
-  const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const merchant = await cell(await activeRow(page), 'name').innerText()
   await page.keyboard.press('Enter')
   await expect(breadcrumb(page)).toContainText(merchant)
   await page.evaluate(() => history.replaceState(null, '', location.href))
@@ -163,7 +163,7 @@ test('a drilled link without a currency opens at its drill in the busiest curren
   server,
 }) => {
   await openMoneyflow(page, server)
-  const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const merchant = await cell(await activeRow(page), 'name').innerText()
   await page.keyboard.press('Enter')
   await expect(breadcrumb(page)).toContainText(merchant)
   const drilled = new URL(page.url())

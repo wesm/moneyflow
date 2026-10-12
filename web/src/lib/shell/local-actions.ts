@@ -3,9 +3,10 @@ import { tick } from 'svelte'
 import type { ViewProjection } from '../api/client'
 import type { ViewController } from '../controller/view-controller.svelte'
 import type { LocalAction } from '../shortcuts'
+import { rowActionButtons, type RowActionButton } from '../table/actions'
 import type { OverlayState } from './overlay-state.svelte'
 import { activeCurrency } from './period'
-import type { TransitionQueue } from './transition-queue'
+import { status } from './status.svelte'
 
 export interface FocusedRow {
   identity: string
@@ -16,10 +17,13 @@ export interface LocalActionContext {
   controller: ViewController
   overlays: OverlayState
   /**
-   * Orders cursor moves with view transitions, so a move waits for an Esc return to restore
-   * the parent view and `i` reads the row the cursor moved to.
+   * Runs `work` after the queued view transitions, and holds later ones until it settles. An
+   * edit or `i` then reads the projection they leave (the selection a quick Space made and the
+   * row the cursor moved to), and a staged edit cannot abort a transition queued after it.
    */
-  transitions: Pick<TransitionQueue, 'run' | 'idle'>
+  queue(work: () => unknown): Promise<unknown>
+  /** Returns focus to the table unless a dialog is open. */
+  focusGrid(): void
   /** Opens Amazon order import, which the app shell owns. */
   importAmazon(): void
   /** Focuses the command bar's search field. */
@@ -39,6 +43,27 @@ export function focusedRow(
   return { identity: row.identity, kind: projection?.detail_rows ? 'transaction' : 'aggregate' }
 }
 
+/**
+ * Moves the cursor from a pointer or a grid key, after pending view changes such as an Esc
+ * return. These never pass through the shortcut manager, so the move clears the status notice
+ * here, as every next action does.
+ */
+export async function moveCursor(
+  context: LocalActionContext,
+  move: () => Promise<void>,
+): Promise<void> {
+  status.clear()
+  await context.queue(move)
+}
+
+/** Queues `work` after view transitions, to run once the shell has drawn their result. */
+function whenSettled(context: LocalActionContext, work: () => unknown): void {
+  void context.queue(async () => {
+    await tick()
+    await work()
+  })
+}
+
 /** Opens the information drawer for a transaction once the server returns its details. */
 export async function openTransactionInformation(
   context: LocalActionContext,
@@ -50,22 +75,40 @@ export async function openTransactionInformation(
   context.overlays.open('information')
 }
 
+/** Opens the merchant or category editor for `target`, such as the cursor or a pointed row. */
+export function openEditor(
+  context: LocalActionContext,
+  field: 'merchant' | 'category',
+  target: FocusedRow | undefined,
+): void {
+  if (!target) return
+  context.overlays.editTarget = target
+  context.overlays.open(field)
+}
+
+/** Opens a pointed row's editor after queued view transitions, as `m` and `c` do. */
+export function openEditorWhenSettled(
+  context: LocalActionContext,
+  field: 'merchant' | 'category',
+  target: FocusedRow,
+): void {
+  whenSettled(context, () => openEditor(context, field, target))
+}
+
 /** Maps each browser-only shortcut to its handler. */
 export function localActions(context: LocalActionContext): Record<LocalAction, () => void> {
   const { controller, overlays } = context
   const row = () => focusedRow(controller.projection, controller.cursorIndex)
-  const openWithRow = (overlay: 'merchant' | 'category') => () => {
-    if (row()) overlays.open(overlay)
-  }
+  const later = (work: () => unknown) => () => whenSettled(context, work)
   return {
-    'cursor.up': () => void context.transitions.run(() => controller.moveCursor(-1)),
-    'cursor.down': () => void context.transitions.run(() => controller.moveCursor(1)),
-    'cursor.home': () => void context.transitions.run(() => controller.moveHome()),
+    'cursor.up': () => void context.queue(() => controller.moveCursor(-1)),
+    'cursor.down': () => void context.queue(() => controller.moveCursor(1)),
+    'cursor.home': () => void context.queue(() => controller.moveHome()),
     'overlay.search': () => context.focusSearch(),
     'overlay.filters': () => context.openFilters(),
     'overlay.help': () => overlays.open('help'),
-    'edit.merchant': openWithRow('merchant'),
-    'edit.category': openWithRow('category'),
+    'edit.merchant': later(() => openEditor(context, 'merchant', row())),
+    'edit.category': later(() => openEditor(context, 'category', row())),
     'manage.categories': () => overlays.open('categories'),
     'manage.groups': () => overlays.open('groups'),
     'edit.review': () =>
@@ -80,22 +123,41 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
       const projection = controller.projection
       if (projection && activeCurrency(projection)) overlays.open('period')
     },
-    'edit.undo': () => void controller.editing.undo(),
-    'edit.redo': () => void controller.editing.redo(),
-    'edit.hide': () => {
+    'edit.undo': later(() => controller.editing.undo()),
+    'edit.redo': later(() => controller.editing.redo()),
+    'edit.hide': later(() => hideRow(context, row())),
+    'edit.delete': later(() => confirmDelete(context, row())),
+    'transaction.info': later(async () => {
       const target = row()
-      if (!target) return
-      void controller.editing.submit({ action: 'transaction.toggle-hidden', input: {}, target })
-    },
-    'edit.delete': () => confirmDelete(context, row()),
-    'transaction.info': () =>
-      void context.transitions.idle().then(async () => {
-        await tick()
-        const target = row()
-        if (target?.kind === 'transaction')
-          await openTransactionInformation(context, target.identity)
-      }),
+      if (target?.kind === 'transaction') await openTransactionInformation(context, target.identity)
+    }),
   }
+}
+
+/**
+ * Runs a row actions sheet item on `target` through the handler its key uses, after queued view
+ * transitions as the key does. A transition can leave the item unavailable, such as a toggle
+ * that selects rows, so it is checked again then. An editor or the delete confirmation replaces
+ * the sheet and returns focus to the sheet's opener when it closes.
+ */
+export function runRowAction(
+  context: LocalActionContext,
+  action: RowActionButton['action'],
+  target: FocusedRow,
+): void {
+  if (action === 'transaction.info')
+    return void openTransactionInformation(context, target.identity)
+  if (action === 'edit.hide') context.overlays.close()
+  whenSettled(context, () => {
+    const projection = context.controller.projection
+    const button = projection && rowActionButtons(projection).find((b) => b.action === action)
+    if (!button) return
+    if (button.reason) return status.notify(button.reason)
+    if (action === 'edit.hide') return hideRow(context, target)
+    if (action === 'edit.merchant') openEditor(context, 'merchant', target)
+    else if (action === 'edit.category') openEditor(context, 'category', target)
+    else confirmDelete(context, target)
+  })
 }
 
 /** Deletes the transaction the delete confirmation names, closing it once the edit is staged. */
@@ -111,7 +173,21 @@ export async function confirmDirectDelete(context: LocalActionContext): Promise<
   if (accepted) overlays.close()
 }
 
-function confirmDelete(context: LocalActionContext, row: FocusedRow | undefined): void {
+/** Stages hiding or showing `target`'s transactions, such as the cursor or a pointed row. */
+export async function hideRow(
+  context: LocalActionContext,
+  target: FocusedRow | undefined,
+): Promise<void> {
+  if (!target) return
+  await context.controller.editing.submit({
+    action: 'transaction.toggle-hidden',
+    input: {},
+    target,
+  })
+}
+
+/** Asks to confirm deleting the transaction `row`, or the selection when there is one. */
+export function confirmDelete(context: LocalActionContext, row: FocusedRow | undefined): void {
   if (row?.kind !== 'transaction') return
   const selected = context.controller.projection?.selection_count
   context.overlays.deleteTarget = { identity: row.identity, kind: 'transaction' }

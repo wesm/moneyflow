@@ -26,16 +26,16 @@
     confirmDirectDelete,
     focusedRow,
     localActions,
+    moveCursor,
     openTransactionInformation,
-    type FocusedRow,
     type LocalActionContext,
   } from '../lib/shell/local-actions'
   import { SIDEBAR_FULL_QUERY, inSearch } from '../lib/shell/layout'
   import type { NavRun } from '../lib/shell/nav-items'
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
+  import { connectionState, status, writeProgress } from '../lib/shell/status.svelte'
   import { TransitionQueue } from '../lib/shell/transition-queue'
-  import { connectionState, writeProgress } from '../lib/shell/status'
   interface Props {
     controller: ViewController
     onreconnect?: (() => void) | undefined
@@ -62,18 +62,20 @@
       return controller
     },
     overlays,
-    transitions,
+    queue,
+    focusGrid,
     importAmazon: () => onamazonimport?.(),
     focusSearch: () => void commandBar?.focusSearch(),
     openFilters: () => void commandBar?.openFilters(),
   }
-  const localActionTable = localActions(actions)
-  const local = (action: LocalAction) => localActionTable[action]()
-  const row = () => focusedRow(projection, controller.cursorIndex)
-  async function apply(action: string, dimension?: Dimension): Promise<void> {
-    const focused = action === 'view.drill' || action === 'selection.toggle' ? row() : undefined
-    if (focused) return transition({ action, target: focused })
-    await transition({ action, ...(dimension === undefined ? {} : { dimension }) })
+  const local = (action: LocalAction) => localActions(actions)[action]()
+  async function apply(action: string, dimension?: Dimension) {
+    const row = focusedRow(controller.projection, controller.cursorIndex)
+    const focused = action === 'view.drill' || action === 'selection.toggle' ? row : undefined
+    if (action === 'view.drill' && focused?.kind === 'transaction')
+      return openTransactionInformation(actions, focused.identity)
+    if (focused) return send({ action, target: focused })
+    await send({ action, ...(dimension === undefined ? {} : { dimension }) })
   }
   function run(entry: NavRun): void {
     if (entry.kind === 'local') local(entry.action)
@@ -85,18 +87,25 @@
     overlays.close('keep')
     void tick().then(work)
   }
-  const queueApply = (action: string, dimension?: Dimension) =>
-    transitions.run(() => apply(action, dimension))
-  const target = (action: string, identity: string, kind: FocusedRow['kind']) =>
-    transitions.run(() => transition({ action, target: { identity, kind } }))
-  async function transition(action: TransitionAction): Promise<void> {
-    await controller.apply(action)
+  /** Queuing a change is the user's next action, so it clears the notice now, not when it runs. */
+  function queue(work: () => unknown): Promise<unknown> {
+    status.clear()
+    return transitions.run(work)
+  }
+  /** Space toggles the cursor row when its turn comes; a later cursor move queues behind it. */
+  function queueApply(action: string, dimension?: Dimension): void {
+    queue(() => apply(action, dimension))
+  }
+  const queueSend = (request: TransitionAction) => queue(() => send(request))
+  async function send(request: TransitionAction): Promise<void> {
+    await controller.apply(request)
     focusGrid()
   }
   function focusGrid(fromSearch = false): void {
     // A request can finish after the user has opened a dialog or moved into search.
     if (overlays.current !== undefined || charts.dialogOpen || (!fromSearch && inSearch())) return
-    grid?.querySelector<HTMLElement>('.finance-grid')?.focus({ preventScroll: true })
+    const table = grid?.querySelector<HTMLElement>('[role="grid"], .mf-table-empty')
+    table?.focus({ preventScroll: true })
   }
   $effect(() => {
     if (compact.current) return
@@ -159,8 +168,9 @@
       loader={charts.rail}
       {projection}
       cursorIndex={controller.cursorIndex}
-      oncursor={(index) => void transitions.run(() => controller.moveCursorTo(index))}
-      ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
+      oncursor={(index) => moveCursor(actions, () => controller.moveCursorTo(index))}
+      ondrill={(identity) =>
+        queueSend({ action: 'view.drill', target: { identity, kind: 'aggregate' } })}
     />
   {/snippet}
   <div class="app-shell">
@@ -204,15 +214,7 @@
           >
             <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
             <div class="app-shell__table" bind:this={grid}>
-              <WorkspaceBody
-                {controller}
-                {projection}
-                queue={transitions}
-                ontarget={(action, identity, kind) => void target(action, identity, kind)}
-                oninformation={(identity) => void openTransactionInformation(actions, identity)}
-                onperiod={(period) =>
-                  void transitions.run(() => transition({ action: 'time.set-period', period }))}
-              />
+              <WorkspaceBody {projection} {actions} onapply={queueSend} />
             </div>
             {#if charts.aside}
               <aside aria-label="Visualizations">
@@ -239,7 +241,6 @@
     {controller}
     {projection}
     {overlays}
-    row={row()}
     onconfirmdelete={() => void confirmDirectDelete(actions)}
     {onreconnect}
   />

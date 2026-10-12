@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-import { activeRow, expect, openMoneyflow, test } from './fixtures'
+import { activeRow, cell, expect, openMoneyflow, test } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
 const breadcrumb = (page: Page) => page.getByRole('navigation', { name: 'Breadcrumb' })
@@ -85,7 +85,7 @@ test('cycles every grouping, account direct view, detail, drill, subgroup, and b
   await expect(breadcrumb(page)).toHaveText('Months')
   await page.keyboard.press('g')
   await expect(breadcrumb(page)).toHaveText('Merchants')
-  const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const merchant = await cell(await activeRow(page), 'name').innerText()
   await page.keyboard.press('Enter')
   await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Merchants', `› ${merchant}`])
   await expect(breadcrumb(page).getByRole('button', { name: 'Merchants' })).toBeVisible()
@@ -125,7 +125,7 @@ test('Break down by sub-groups a drill and returns to its transactions', async (
   server,
 }) => {
   await openMoneyflow(page, server)
-  const merchant = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const merchant = await cell(await activeRow(page), 'name').innerText()
   await page.keyboard.press('Enter')
   await expect(breakDownBy(page)).toBeVisible()
   const drillURL = page.url()
@@ -154,7 +154,7 @@ test('the root crumb of a month opened from Months returns to Months', async ({ 
   await expect(breadcrumb(page)).toHaveText('All transactions')
   await page.keyboard.press('5')
   await expect(breadcrumb(page)).toHaveText('Months')
-  const period = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const period = await cell(await activeRow(page), 'period').innerText()
   await page.keyboard.press('Enter')
   await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Time', `› ${period}`])
   await breadcrumb(page).getByRole('button', { name: 'Time' }).click()
@@ -168,7 +168,7 @@ test('time, sort, and exact selection refinements remain keyboard driven', async
 }) => {
   await openMoneyflow(page, server)
   await page.keyboard.press('s')
-  await expect(header(page, 'merchant')).toHaveAttribute('aria-sort', 'descending')
+  await expect(header(page, 'Merchant')).toHaveAttribute('aria-sort', 'descending')
   await page.keyboard.press('s')
   await expect(header(page, 'Count')).toHaveAttribute('aria-sort', 'descending')
   await page.keyboard.press('v')
@@ -188,7 +188,7 @@ test('time, sort, and exact selection refinements remain keyboard driven', async
     await page.keyboard.press('g')
     await expect(breadcrumb(page)).toHaveText(grouping)
   }
-  const period = await (await activeRow(page)).getByRole('gridcell').first().innerText()
+  const period = await cell(await activeRow(page), 'period').innerText()
   await page.keyboard.press('Enter')
   await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Time', `› ${period}`])
   const unboundedURL = page.url()
@@ -200,6 +200,198 @@ test('time, sort, and exact selection refinements remain keyboard driven', async
   await page.keyboard.press('a')
   await expect(breadcrumb(page)).toHaveText('All transactions')
   await expect(page).not.toHaveURL(/[?&]drill=time/)
+})
+
+test('a row click moves the cursor and only the box toggles selection', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const third = grid.locator('[role="row"][aria-rowindex="4"]')
+  await cell(third, 'net').click()
+  await expect(grid).toHaveAttribute('aria-activedescendant', (await third.getAttribute('id'))!)
+  await expect(grid).toBeFocused()
+  await expect(third).toHaveAttribute('aria-selected', 'false')
+
+  const fifth = grid.locator('[role="row"][aria-rowindex="6"]')
+  await cell(fifth, 'select').click()
+  await expect(fifth).toHaveAttribute('aria-selected', 'true')
+  await expect(grid).toHaveAttribute('aria-activedescendant', (await third.getAttribute('id'))!)
+  await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
+  await expect(grid).toBeFocused()
+
+  await page.getByRole('button', { name: 'Select all matching' }).click()
+  await expect(third).toHaveAttribute('aria-selected', 'true')
+  await expect(grid).toBeFocused()
+
+  const merchant = await cell(fifth, 'name').innerText()
+  await cell(fifth, 'count').dblclick()
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Merchants', `› ${merchant}`])
+})
+
+test('header clicks sort by the server fields and keep the selection', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('Space')
+  await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
+  const count = header(page, 'Count')
+  await count.getByRole('button', { name: 'Count' }).click()
+  await expect(count).toHaveAttribute('aria-sort', 'descending')
+  await count.getByRole('button', { name: 'Count' }).click()
+  await expect(count).toHaveAttribute('aria-sort', 'ascending')
+  await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+  await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
+  for (const name of ['In', 'Out', 'Share']) {
+    await expect(header(page, name).getByRole('button')).toHaveCount(0)
+    await expect(header(page, name)).not.toHaveAttribute('aria-sort')
+  }
+})
+
+test('x in a grouped view explains why it cannot delete', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const notice = page.getByRole('status', { name: 'Notice' })
+  await page.keyboard.press('x')
+  await expect(notice).toHaveText('Open the group to delete its transactions.')
+  await expect(page.getByRole('dialog', { name: 'Confirm deletion' })).toHaveCount(0)
+  // Well under the notice's 4 s, so only the next action can have cleared it.
+  const cleared = { timeout: 1000 }
+  await page.keyboard.press('j')
+  await expect(notice).toHaveText('', cleared)
+
+  // A box click and a header click send transitions without moving the cursor.
+  const reason = 'Open the group to delete its transactions.'
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  await page.keyboard.press('x')
+  await expect(notice).toHaveText(reason)
+  await cell(grid.locator('[role="row"][aria-rowindex="5"]'), 'select').click()
+  await expect(notice).toHaveText('', cleared)
+  await page.keyboard.press('x')
+  await expect(notice).toHaveText(reason)
+  await header(page, 'Count').getByRole('button', { name: 'Count' }).click()
+  await expect(notice).toHaveText('', cleared)
+  await page.keyboard.press('x')
+  await expect(notice).toHaveText(reason)
+  await page
+    .getByRole('complementary', { name: 'Visualizations' })
+    .getByRole('button')
+    .nth(2)
+    .click()
+  await expect(notice).toHaveText('', cleared)
+
+  await page.keyboard.press('x')
+  await expect(notice).toHaveText(reason)
+  const row = await activeRow(page)
+  const merchant = await cell(row, 'name').innerText()
+  await cell(row, 'count').dblclick()
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Merchants', `› ${merchant}`])
+  await expect(notice).toHaveText('', cleared)
+})
+
+test('a chart drill waits for an earlier table transition', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const events: string[] = []
+  await page.route('**/view/transition', async (route) => {
+    const action = route.request().postDataJSON().action
+    events.push(`${action} sent`)
+    if (action !== 'selection.toggle') return route.continue()
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const response = await route.fetch()
+    events.push(`${action} answered`)
+    await route.fulfill({ response })
+  })
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const mark = page
+    .getByRole('complementary', { name: 'Visualizations' })
+    .getByRole('button')
+    .nth(1)
+  const label = (await mark.getAttribute('aria-label'))!.split(',')[0]!
+  await cell(grid.locator('[role="row"][aria-rowindex="4"]'), 'select').click()
+  await mark.dblclick()
+  await expect(breadcrumb(page)).toContainText(label)
+  expect(events).toEqual(['selection.toggle sent', 'selection.toggle answered', 'view.drill sent'])
+})
+
+test('two quick box clicks keep both rows selected', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  // A slow toggle response gives the second click the chance to race the first.
+  await page.route('**/view/transition', async (route) => {
+    if (route.request().postDataJSON().action === 'selection.toggle') {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
+    await route.continue()
+  })
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const third = grid.locator('[role="row"][aria-rowindex="4"]')
+  const fifth = grid.locator('[role="row"][aria-rowindex="6"]')
+  await cell(third, 'select').click()
+  await cell(fifth, 'select').click()
+  await expect(third).toHaveAttribute('aria-selected', 'true')
+  await expect(fifth).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
+})
+
+/** Holds every selection toggle response for 300 ms, so keys pressed meanwhile queue behind it. */
+async function slowToggles(page: Page): Promise<void> {
+  await page.route('**/view/transition', async (route) => {
+    if (route.request().postDataJSON().action === 'selection.toggle') {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
+    await route.continue()
+  })
+}
+
+test('Space, j, Space behind a slow toggle selects both rows the cursor was on', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await slowToggles(page)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const row = (index: number) => grid.locator(`[role="row"][aria-rowindex="${index}"]`)
+  await cell(row(6), 'select').click()
+  await page.keyboard.press('Space')
+  await page.keyboard.press('j')
+  await page.keyboard.press('Space')
+  for (const index of [2, 3, 6]) await expect(row(index)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('row', { selected: true })).toHaveCount(3)
+})
+
+test('h right after Space hides the selection that Space made', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  await expect(grid.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  const first = grid.locator('[role="row"][aria-rowindex="2"]')
+  const second = grid.locator('[role="row"][aria-rowindex="3"]')
+  await page.keyboard.press('Space')
+  await expect(first).toHaveAttribute('aria-selected', 'true')
+  await slowToggles(page)
+  await page.keyboard.press('j')
+  await page.keyboard.press('Space')
+  await page.keyboard.press('h')
+  await expect(cell(second, 'flags')).toContainText('Hidden')
+  await expect(cell(first, 'flags')).toContainText('Hidden')
+
+  await page.keyboard.press('u')
+  await expect(cell(second, 'flags')).not.toContainText('Hidden')
+})
+
+test('Enter opens Info on a transaction row and drills a grouped row', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  await page.keyboard.press('Enter')
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveCount(2)
+  await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  const url = page.url()
+
+  await page.keyboard.press('Enter')
+  const information = page.getByRole('dialog', { name: 'Transaction information' })
+  await expect(information).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(information).toBeHidden()
+  await expect(grid).toBeFocused()
+  await expect(breadcrumb(page).getByRole('listitem')).toHaveCount(2)
+  expect(page.url()).toBe(url)
 })
 
 test('search previews, commits, cancels, and reports invalid regular expressions', async ({
@@ -222,7 +414,7 @@ test('search previews, commits, cancels, and reports invalid regular expressions
   await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
   expect(await page.evaluate(() => history.length)).toBe(initialLength + 1)
   const noodleRows = await grid.getAttribute('aria-rowcount')
-  const noodleRow = await (await activeRow(page)).innerText()
+  const noodleRow = (await (await activeRow(page)).textContent()) ?? ''
 
   await page.keyboard.press('/')
   await expect(search).toBeFocused()
@@ -261,11 +453,12 @@ test('the Filters chip shows and hides hidden transactions and keeps the period'
   await openMoneyflow(page, server)
   const trigger = page.getByRole('button', { name: 'Filters' })
   const hidden = page.getByRole('button', { name: 'Show hidden transactions' })
-  const noodleCount = page
-    .getByRole('row')
-    .filter({ has: page.getByRole('gridcell', { name: 'Noodle House', exact: true }) })
-    .getByRole('gridcell')
-    .nth(1)
+  const noodleCount = cell(
+    page
+      .getByRole('row')
+      .filter({ has: page.getByRole('gridcell', { name: 'Noodle House', exact: true }) }),
+    'count',
+  )
   await expect(noodleCount).toHaveText('144')
   await expect(trigger).toHaveText('Filters')
 
@@ -374,6 +567,14 @@ test('narrow layout keeps the same keyboard refinement surface', async ({ page, 
   await openMoneyflow(page, server)
   await page.keyboard.press('g')
   await expect(breadcrumb(page)).toHaveText('Categories')
+  // Compact phone rows move and select with the same keys.
+  const first = await activeRow(page)
+  expect((await first.boundingBox())!.height).toBeGreaterThanOrEqual(52)
+  const cursorRow = async () => (await activeRow(page)).getAttribute('aria-rowindex')
+  await page.keyboard.press('j')
+  await expect.poll(cursorRow).toBe('3')
+  await page.keyboard.press('k')
+  await expect.poll(cursorRow).toBe('2')
   await page.keyboard.press('Space')
   await expect(await activeRow(page)).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('/')

@@ -2,8 +2,9 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { tick } from 'svelte'
 import AppShell from './AppShell.svelte'
+import type { TransactionInformationResponse } from '../lib/api/client'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
-import { testProjection } from '../test/projection'
+import { testAggregateRow, testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
 import { testProviderWriteController } from '../test/provider-write'
 import { loadRail } from '../lib/shell/rail'
@@ -700,6 +701,59 @@ describe('AppShell', () => {
     expect(screen.getByRole('dialog', { name: 'Review pending changes' })).not.toBeNull()
   })
 
+  it.each([
+    ['u', 'undo', false],
+    ['U', 'redo', true],
+  ] as const)('runs %s after a hide queued behind a slow toggle', async (key, method, shiftKey) => {
+    const controller = stubController()
+    controller.projection!.capabilities!.push({
+      id: 'selection.toggle',
+      key_display: 'space',
+      description: 'selection.toggle',
+      category: 'Views',
+      available: true,
+    })
+    let toggled!: () => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (toggled = () => resolve(true))),
+    )
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: 'h' })
+    await fireEvent.keyDown(window, { key, shiftKey })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(1))
+    expect(controller.editing[method]).not.toHaveBeenCalled()
+
+    toggled()
+    await vi.waitFor(() => expect(controller.editing[method]).toHaveBeenCalledTimes(1))
+    const [hidden] = vi.mocked(controller.editing.submit).mock.invocationCallOrder
+    expect(hidden).toBeLessThan(vi.mocked(controller.editing[method]).mock.invocationCallOrder[0]!)
+  })
+
+  it('shows the last Enter’s transaction when an earlier one’s details arrive later', async () => {
+    const { controller, waiting } = lateInformation()
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: 'Enter' })
+    Object.assign(controller, { cursorIndex: 1, cursorIdentity: 'row-1' })
+    await fireEvent.keyDown(window, { key: 'Enter' })
+    await new Promise((resolve) => setTimeout(resolve))
+
+    await expectLastInformation(waiting)
+  })
+
+  it('shows the last tapped phone row’s transaction when an earlier one’s arrive later', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const { controller, waiting } = lateInformation()
+    render(AppShell, { controller })
+    const merchant = (index: number) =>
+      document.querySelector(`[data-index="${index}"] [data-column="merchant"]`)!
+    await fireEvent.click(merchant(0))
+    await fireEvent.click(merchant(1))
+    await new Promise((resolve) => setTimeout(resolve))
+
+    await expectLastInformation(waiting)
+  })
+
   it('opens duplicate review with D and confirms direct deletion with x', async () => {
     const controller = stubController()
     render(AppShell, { controller })
@@ -784,6 +838,98 @@ describe('AppShell', () => {
     await vi.waitFor(() =>
       expect(screen.getByRole('combobox', { name: /Selected transactions/ })).not.toBeNull(),
     )
+  })
+
+  it('clears the selection without going back once a queued toggle empties it', async () => {
+    const controller = stubController(testProjection({ selection_count: 1 }))
+    let deselect!: () => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          deselect = () => {
+            controller.projection!.selection_count = 0
+            resolve(true)
+          }
+        }),
+    )
+    render(AppShell, { controller })
+    const box = document.querySelector<HTMLElement>('[role="gridcell"][data-column="select"]')!
+    await fireEvent.click(box)
+    await fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    await vi.waitFor(() =>
+      expect(controller.apply).toHaveBeenCalledWith({
+        action: 'selection.toggle',
+        target: { identity: 'row-0', kind: 'transaction' },
+      }),
+    )
+
+    deselect()
+    // The queued Clear runs in the microtasks after the toggle settles.
+    await new Promise((resolve) => setTimeout(resolve))
+    expect(controller.apply).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' }))
+  })
+
+  it('toggles the cursor row of the new view when Space follows a queued view change', async () => {
+    const grouped = testProjection({
+      view: { ...testProjection().view, mode: 'aggregate' },
+      detail_rows: null,
+      aggregate_rows: [testAggregateRow()],
+    })
+    const controller = stubController(grouped)
+    controller.projection!.capabilities!.push(
+      ...[
+        ['view.show-detail', 'd'],
+        ['selection.toggle', 'space'],
+      ].map(([id, key_display]) => ({
+        id: id!,
+        key_display: key_display!,
+        description: id!,
+        category: 'Views',
+        available: true,
+      })),
+    )
+    let showDetail!: () => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          showDetail = () => {
+            Object.assign(controller, {
+              projection: testProjection({ canonical_query: 'v=1&mode=detail' }),
+            })
+            resolve(true)
+          }
+        }),
+    )
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: 'd' })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(1))
+
+    showDetail()
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(controller.apply).toHaveBeenLastCalledWith({
+      action: 'selection.toggle',
+      target: { identity: 'row-0', kind: 'transaction' },
+    })
+  })
+
+  it('toggles the row j moved to when Space, j, Space wait behind a slow toggle', async () => {
+    const controller = heldFirstApply(lateInformation().controller)
+    vi.mocked(controller.moveCursor).mockImplementation(async (delta) => {
+      Object.assign(controller, { cursorIndex: controller.cursorIndex + delta })
+    })
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: 'j' })
+    await fireEvent.keyDown(window, { key: ' ' })
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(controller.apply).mock.calls.map(([action]) => action)).toEqual([
+      { action: 'selection.toggle', target: { identity: 'row-0', kind: 'transaction' } },
+      { action: 'selection.toggle', target: { identity: 'row-1', kind: 'transaction' } },
+    ])
   })
 
   it('does not trap shortcuts when an editor has no focused row', async () => {
@@ -888,6 +1034,72 @@ function captureFrames(): { flush: () => Promise<void> } {
   }
 }
 
+/** Two transaction rows whose details each wait until the test releases them. */
+function lateInformation(): { controller: ViewController; waiting: Map<string, () => void> } {
+  const first = testProjection().detail_rows![0]!
+  const rows = [0, 1].map((index) => ({
+    ...first,
+    index,
+    identity: `row-${index}`,
+    merchant: `Example Merchant ${index}`,
+  }))
+  const controller = stubController(
+    testProjection({
+      total_rows: 2,
+      window: { offset: 0, limit: 200, count: 2 },
+      detail_rows: rows,
+    }),
+  )
+  controller.projection!.capabilities!.push({
+    id: 'view.drill',
+    key_display: 'enter',
+    description: 'view.drill',
+    category: 'Views',
+    available: true,
+  })
+  const waiting = new Map<string, () => void>()
+  controller.transactionInformation = vi.fn(
+    (identity: string) =>
+      new Promise<TransactionInformationResponse>((resolve) => {
+        const row = rows.find((candidate) => candidate.identity === identity)!
+        waiting.set(identity, () => resolve(transactionInformation(row)))
+      }),
+  )
+  return { controller, waiting }
+}
+
+/**
+ * Answers the second request first when both are out, then the first, and expects the drawer
+ * to end on the second row.
+ */
+async function expectLastInformation(waiting: Map<string, () => void>): Promise<void> {
+  waiting.get('row-1')?.()
+  waiting.get('row-0')!()
+  await vi.waitFor(() => expect(waiting.has('row-1')).toBe(true))
+  waiting.get('row-1')!()
+  const drawer = await screen.findByRole('dialog', { name: 'Transaction information' })
+  await vi.waitFor(() => expect(drawer.textContent).toContain('Example Merchant 1'))
+  await new Promise((resolve) => setTimeout(resolve))
+  expect(drawer.textContent).not.toContain('Example Merchant 0')
+}
+
+function transactionInformation(
+  transaction: TransactionInformationResponse['transaction'],
+): TransactionInformationResponse {
+  const none = { offset: 0, limit: 0, count: 0 }
+  return {
+    version: '1',
+    revision: '1',
+    canonical_query: 'v=1',
+    amazon_qualified: false,
+    item_window: none,
+    match_window: none,
+    matches: [],
+    total_matches: 0,
+    transaction,
+  }
+}
+
 function chartAnnouncement(): HTMLElement {
   const region = document.querySelector<HTMLElement>('[data-testid="chart-announcement"]')
   if (!region) throw new Error('chart announcement region is missing')
@@ -956,6 +1168,7 @@ function stubController(projection = testProjection()): ViewController {
     announcement: '',
     cursorIdentity: 'row-0',
     cursorIndex: 0,
+    neighbors: [],
     problem: undefined,
     editing: testEditingController(),
     review: testReviewController(),
@@ -1049,6 +1262,7 @@ function stubController(projection = testProjection()): ViewController {
     moveCursor: vi.fn(),
     moveCursorTo: vi.fn(),
     moveHome: vi.fn(),
+    showIndex: vi.fn(),
     apply: vi.fn(),
     beginSearch: vi.fn(),
     previewSearch: vi.fn(),

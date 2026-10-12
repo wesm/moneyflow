@@ -34,6 +34,14 @@ export interface TransitionAction {
   depth?: TransitionBody['depth']
 }
 
+/** A window load for a row scrolling shows; `index` is the latest row asked for in it. */
+interface ShowRequest {
+  offset: number
+  index: number
+  abort: AbortController
+  superseded(): boolean
+}
+
 interface ReturnInProgress {
   sequence: number
   projection: ViewProjection
@@ -50,7 +58,6 @@ export interface SearchSnapshot {
   history: MoneyflowHistoryState
   cursorIdentity: string | undefined
   cursorIndex: number
-  scrollTop: number
 }
 
 export interface ViewController {
@@ -61,6 +68,8 @@ export interface ViewController {
   readonly announcement: string
   readonly cursorIdentity: string | undefined
   readonly cursorIndex: number
+  /** Cached windows of the current view next to the loaded one, so the table can draw them. */
+  readonly neighbors: readonly ViewProjection[]
   readonly problem: ControllerProblem | undefined
   readonly editing: EditingController
   readonly duplicates: DuplicateController
@@ -73,6 +82,12 @@ export interface ViewController {
   moveCursor(delta: -1 | 1): Promise<void>
   moveCursorTo(index: number): Promise<void>
   moveHome(): Promise<void>
+  /**
+   * Loads the aligned window holding row `index` when scrolling shows it, without a history
+   * entry. If that window does not hold the cursor, the cursor moves to `index`. A row of the
+   * loaded window withdraws a window still loading.
+   */
+  showIndex(index: number): Promise<void>
   apply(action: TransitionAction): Promise<boolean>
   /**
    * Makes later transitions wait for `work`, as they wait for an Esc return. `work` must not
@@ -122,7 +137,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let announcement = $state('')
   let cursorIdentity = $state<string | undefined>()
   let cursorIndex = $state(0)
-  let scrollTop = 0
   let problem = $state<ControllerProblem | undefined>()
   let sequence = existing?.sequence ?? 0
   let generation = 0
@@ -134,6 +148,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let returning: ReturnInProgress | undefined
   let lateReturn: ReturnInProgress | undefined
   let barrier: Promise<unknown> = Promise.resolve()
+  let showing: ShowRequest | undefined
+  // Prefetch fills the cache without changing the projection; this tells the table to redraw.
+  let cacheChanges = $state(0)
   let applyTail: Promise<void> = Promise.resolve()
   const prefetchRequests = new SvelteMap<string, AbortController>()
 
@@ -435,7 +452,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       history: ownedState(projection),
       cursorIdentity,
       cursorIndex,
-      scrollTop,
     }
     return searchSnapshot
   }
@@ -495,7 +511,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     projection = snapshot.projection
     cursorIdentity = snapshot.cursorIdentity
     cursorIndex = snapshot.cursorIndex
-    scrollTop = snapshot.scrollTop
     problem = undefined
     announcement = snapshot.projection.status ?? ''
     sequence = snapshot.history.sequence
@@ -514,13 +529,20 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   async function moveCursor(delta: -1 | 1): Promise<void> {
     if (!projection || projection.total_rows === 0) return
     const nextIndex = Math.min(Math.max(cursorIndex + delta, 0), projection.total_rows - 1)
-    if (nextIndex === cursorIndex) return
+    if (nextIndex === cursorIndex) return keepCursor()
     await moveToIndex(nextIndex)
   }
 
   async function moveHome(): Promise<void> {
-    if (!projection || projection.total_rows === 0 || cursorIndex === 0) return
-    await moveToIndex(0)
+    if (!projection || projection.total_rows === 0) return
+    if (cursorIndex !== 0) return moveToIndex(0)
+    keepCursor()
+  }
+
+  /** A key left the cursor on its row, so a window that scrolling asked for must not move it. */
+  function keepCursor(): void {
+    showing?.abort.abort()
+    showing = undefined
   }
 
   async function moveCursorTo(index: number): Promise<void> {
@@ -540,6 +562,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     if (cached) {
       setProjectionWindow(cached, nextIndex)
       replaceOwnedHistory()
+      schedulePrefetch(cached)
       return
     }
     const query = projection.canonical_query
@@ -553,6 +576,60 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       },
       () => moveToIndex(nextIndex),
     )
+  }
+
+  async function showIndex(index: number): Promise<void> {
+    if (!projection || !Number.isSafeInteger(index)) return
+    if (index < 0 || index >= projection.total_rows) return
+    const offset = alignedOffset(index)
+    // A row of the loaded window: the user scrolled back, so a window on its way is not needed.
+    if (offset === projection.window.offset) return void showing?.abort.abort()
+    if (showing?.offset === offset && !showing.superseded()) {
+      showing.index = index
+      return
+    }
+    showing?.abort.abort()
+    showing = undefined
+    const current = projection
+    const cached = cache.get(current.canonical_query, current.selection, current.revision, offset)
+    if (cached) return showWindow(cached, index)
+    // A projection change or cursor move after this request starts is newer, so it wins.
+    const requestGeneration = generation
+    const requestCursor = cursorIndex
+    const request: ShowRequest = {
+      offset,
+      index,
+      abort: new AbortController(),
+      superseded: () =>
+        request.abort.signal.aborted ||
+        projection !== current ||
+        generation !== requestGeneration ||
+        cursorIndex !== requestCursor,
+    }
+    showing = request
+    try {
+      const next = await options.client.view(
+        viewBody(current.canonical_query, current.selection, offset),
+        request.abort.signal,
+      )
+      if (request.superseded()) return
+      showWindow(next, request.index)
+    } catch (error) {
+      if (isAbort(error) || request.superseded()) return
+      lastRetry = () => showIndex(request.index)
+      setProblem(error)
+    } finally {
+      if (showing === request) showing = undefined
+    }
+  }
+
+  function showWindow(next: ViewProjection, index: number): void {
+    const { offset, count } = next.window
+    const holdsCursor = cursorIndex >= offset && cursorIndex < offset + count
+    problem = undefined
+    setProjectionWindow(next, holdsCursor ? cursorIndex : index)
+    replaceOwnedHistory()
+    schedulePrefetch(next)
   }
 
   async function requestProjection(
@@ -602,7 +679,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     )
     cursorIdentity = cursor.identity
     cursorIndex = cursor.index
-    scrollTop = restored?.scrollTop ?? scrollTop
     announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
     problem = undefined
 
@@ -674,7 +750,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       query: next.canonical_query,
       ...(cursorIdentity === undefined ? {} : { cursorIdentity }),
       cursorIndex,
-      scrollTop,
       selection: next.selection,
     }
   }
@@ -715,12 +790,14 @@ export function createViewController(options: ViewControllerOptions): ViewContro
           )
             return
           cache.store(next)
+          // Scrolling may have moved the loaded window since this prefetch started.
           cache.retainAdjacent(
             current.canonical_query,
             current.selection,
             current.revision,
-            current.window.offset,
+            projection.window.offset,
           )
+          cacheChanges += 1
         })
         .catch(() => undefined)
         .finally(() => prefetchRequests.delete(key))
@@ -767,6 +844,14 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     get cursorIndex() {
       return cursorIndex
     },
+    get neighbors() {
+      void cacheChanges
+      if (!projection) return []
+      const { canonical_query, selection, revision, window } = projection
+      return [window.offset - windowSize, window.offset + windowSize].flatMap(
+        (offset) => cache.get(canonical_query, selection, revision, offset) ?? [],
+      )
+    },
     get problem() {
       return problem
     },
@@ -781,6 +866,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     moveCursor,
     moveCursorTo,
     moveHome,
+    showIndex,
     apply,
     hold,
     settled,

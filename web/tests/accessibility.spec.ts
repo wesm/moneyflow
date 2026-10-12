@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 
-import { activeRow, expect, openMoneyflow, test } from './fixtures'
+import { activeRow, cell, expect, openMoneyflow, test } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
 // kit CollapsibleSidebar renders its resize separator between the sidebar <aside> and the main
@@ -43,12 +43,43 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(page.locator('[aria-live="polite"]')).not.toHaveCount(0)
 
     const row = await activeRow(page)
-    const merchant = await row.getByRole('gridcell').first().innerText()
-    const total = await row.getByRole('gridcell').last().innerText()
+    const merchant = await cell(row, 'name').innerText()
+    const total = await cell(row, 'net').innerText()
     const mark = page
       .getByRole('complementary', { name: 'Visualizations' })
       .getByRole('button', { name: `${merchant}, ${total}`, exact: true })
     await expect(mark).toHaveCount(1)
+  })
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} selected rows, the selection bar, and a hovered pencil pass axe`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openMoneyflow(page, server)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await cell(grid.locator('[role="row"][aria-rowindex="3"]'), 'select').click()
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
+    const bar = page.getByRole('region', { name: 'Selection' })
+    await expect(bar).toContainText('1 merchant · ')
+    await expectNoAxeViolations(page)
+
+    // The detail chart rail scrolls with no focusable content; PR 6 replaces it.
+    await page.getByRole('switch', { name: 'Charts' }).uncheck()
+    await grid.focus()
+    await page.keyboard.press('d')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('Space')
+    const hovered = grid.locator('[role="row"][aria-rowindex="4"]')
+    await hovered.hover()
+    await expect(
+      cell(hovered, 'merchant').getByRole('button', { name: 'Edit merchant' }),
+    ).toBeVisible()
+    await expect(bar).toContainText('1 transaction · ')
+    await expectNoAxeViolations(page)
   })
 }
 
@@ -109,7 +140,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
 }
 
 for (const colorScheme of ['light', 'dark'] as const) {
-  test(`${colorScheme} phone drawer, View sheet, and search pass axe`, async ({ page, server }) => {
+  test(`${colorScheme} phone drawer, sheets, compact rows, and search pass axe`, async ({
+    page,
+    server,
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
     await page.emulateMedia({ reducedMotion: 'reduce' })
@@ -131,6 +165,20 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.keyboard.press('Escape')
     await page.keyboard.press('Escape')
     await expect(sheet).toBeHidden()
+
+    // Compact transaction rows with a selected row, then the row actions sheet over them.
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await cell(grid.locator('[role="row"][aria-rowindex="2"]'), 'select').click()
+    await expect(grid.getByRole('row', { selected: true })).toHaveCount(1)
+    await expect(grid.locator('.mf-compact').first()).toBeVisible()
+    await expectNoAxeViolations(page)
+    await grid
+      .getByRole('button', { name: /^Actions for / })
+      .first()
+      .click()
+    await expect(page.getByRole('button', { name: 'Info', exact: true })).toBeVisible()
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
 
     await page.getByRole('button', { name: 'Search', exact: true }).click()
     await expect(page.getByRole('searchbox', { name: 'Search transactions' })).toBeFocused()

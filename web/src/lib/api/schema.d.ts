@@ -752,11 +752,14 @@ export interface components {
       count: number
       dimension: string
       flags: components['schemas']['Flags']
+      group?: string
       identity: string
       in: components['schemas']['Money']
       /** Format: int64 */
       index: number
       label: string
+      /** Format: int64 */
+      net_ratio?: number
       out: components['schemas']['Money']
       period?: components['schemas']['Period']
       /** Format: int64 */
@@ -1399,6 +1402,7 @@ export interface components {
     }
     Projection: {
       aggregate_rows?: components['schemas']['AggregateRow'][] | null
+      all_rows_selected: boolean
       amazon_match_column: boolean
       amazon_settings?: components['schemas']['AmazonSettings']
       api_schema_version: string
@@ -1775,6 +1779,16 @@ export interface components {
       search?: string
       sort_direction: string
       sort_field: string
+      sort_fields: (
+        | 'count'
+        | 'amount'
+        | 'date'
+        | 'merchant'
+        | 'category'
+        | 'group'
+        | 'account'
+        | 'time_period'
+      )[]
       sub_grouping?: string
       time_granularity: string
     }

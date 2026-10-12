@@ -9,6 +9,8 @@ export interface KeyHint {
 
 interface CandidateHint extends KeyHint {
   capability: string
+  /** The key explains an unavailable capability's reason, so its hint stays. */
+  explains?: true
 }
 
 const helpHint: CandidateHint = { capability: 'overlay.help', key: '?', label: 'Help' }
@@ -39,7 +41,7 @@ const selectionHints: CandidateHint[] = [
   { capability: 'transaction.edit-merchant', key: 'm', label: 'Merchant' },
   { capability: 'transaction.edit-category', key: 'c', label: 'Category' },
   { capability: 'transaction.toggle-hidden', key: 'h', label: 'Hide' },
-  { capability: 'transaction.delete', key: 'x', label: 'Delete' },
+  { capability: 'transaction.delete', key: 'x', label: 'Delete', explains: true },
   { capability: 'view.back', key: 'Esc', label: 'Clear' },
 ]
 
@@ -55,7 +57,13 @@ export function keyHints(projection: ViewProjection, overlayOpen: boolean): KeyH
   } else if (projection.view.mode === 'detail' && !projection.view.sub_grouping) {
     candidates = detailHints
   }
+  const explained = new Set(
+    (projection.capabilities ?? []).filter(({ reason }) => reason).map(({ id }) => id),
+  )
   return candidates
-    .filter(({ capability }) => available.has(capability))
+    .filter(
+      ({ capability, explains }) =>
+        available.has(capability) || (explains && explained.has(capability)),
+    )
     .map(({ key, label }) => ({ key, label }))
 }

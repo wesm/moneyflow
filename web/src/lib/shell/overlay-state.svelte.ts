@@ -1,6 +1,7 @@
 import { tick, untrack } from 'svelte'
 
 import type { TransactionInformationResponse } from '../api/client'
+import type { FocusedRow } from './local-actions'
 
 export type Overlay =
   | 'help'
@@ -17,6 +18,7 @@ export type Overlay =
   | 'period'
   | 'navigation'
   | 'view'
+  | 'actions'
 
 export interface OverlayHost {
   /** Pushes a shortcut scope and returns the function that pops it. */
@@ -34,6 +36,8 @@ export interface OverlayHost {
  */
 export class OverlayState {
   current = $state<Overlay | undefined>()
+  /** The row the merchant or category editor edits. */
+  editTarget = $state<FocusedRow | undefined>()
   deleteTarget = $state<{ identity: string; kind: 'transaction' } | undefined>()
   deleteCount = $state(0)
   information = $state<TransactionInformationResponse | undefined>()
@@ -48,12 +52,13 @@ export class OverlayState {
 
   /**
    * Opens `next` without tracking state, so an effect that opens it does not rerun on close or
-   * when the grid element changes.
+   * when the grid element changes. An `opener` inside the grid, such as a row's actions button,
+   * gets focus back instead of the grid.
    */
-  open(next: Overlay): void {
+  open(next: Overlay, opener?: HTMLElement): void {
     untrack(() => {
       this.#cancelRestore()
-      if (this.current === undefined) this.#opener = this.#openerOutsideGrid()
+      if (this.current === undefined) this.#opener = opener ?? this.#openerOutsideGrid()
       this.#popScope?.()
       this.#popScope = this.#host.pushScope(next)
       this.current = next
@@ -68,6 +73,7 @@ export class OverlayState {
     this.current = undefined
     this.#popScope?.()
     this.#popScope = undefined
+    this.editTarget = undefined
     this.deleteTarget = undefined
     this.deleteCount = 0
     this.information = undefined

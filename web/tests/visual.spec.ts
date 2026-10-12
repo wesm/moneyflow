@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test'
 
-import { expect, openMoneyflow, test } from './fixtures'
+import { cell, expect, openMoneyflow, test } from './fixtures'
 
 test.skip(({ browserName }) => browserName !== 'chromium', 'Layout contracts are Chromium-only.')
 
@@ -124,15 +124,100 @@ for (const viewport of viewports) {
             await expectFullyWithinViewport(page.getByRole('button', { name }), viewport)
           }
         } else {
-          await expectFullyWithinViewport(
-            page.getByRole('grid', { name: 'Financial results' }),
-            viewport,
-          )
+          // The grid is as tall as its result; the workspace that scrolls it must fit.
+          const grid = page.getByRole('grid', { name: 'Financial results' })
+          await expect(grid).toBeVisible()
+          await expectFullyWithinViewport(page.locator('.mf-workspace'), viewport)
+          if (viewport.name === 'narrow') {
+            // Phone rows wrap onto two lines instead of scrolling sideways.
+            const sideways = await grid.evaluate((element) => {
+              const workspace = element.closest<HTMLElement>('.mf-workspace')!
+              return workspace.scrollWidth - workspace.clientWidth
+            })
+            expect(sideways).toBe(0)
+          }
         }
       })
     }
   }
 }
+
+/** The computed color of a theme custom property, such as `--mf-cursor`. */
+async function themeColor(page: Page, property: string): Promise<string> {
+  return await page.evaluate((name) => {
+    const probe = document.createElement('div')
+    probe.style.backgroundColor = `var(${name})`
+    document.body.append(probe)
+    const color = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    return color
+  }, property)
+}
+
+test('hover keeps the cursor and selection tints; hidden rows keep ☐ and flags bright', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const row = (index: number) => grid.locator(`[role="row"][aria-rowindex="${index}"]`)
+  const tint = (locator: Locator) =>
+    locator.evaluate((element) => getComputedStyle(element).backgroundColor)
+  await cell(row(4), 'select').click()
+  await expect(row(4)).toHaveAttribute('aria-selected', 'true')
+
+  await cell(row(2), 'count').hover()
+  expect(await tint(row(2))).toBe(await themeColor(page, '--mf-cursor'))
+  await cell(row(4), 'count').hover()
+  expect(await tint(row(4))).toBe(await themeColor(page, '--mf-selected'))
+  await cell(row(3), 'count').hover()
+  expect(await tint(row(3))).toBe(await themeColor(page, '--bg-surface-hover'))
+
+  await page.keyboard.press('d')
+  await expect(grid.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  await page.keyboard.press('/')
+  await page.getByRole('searchbox', { name: 'Search transactions' }).fill('noodle')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
+  await page.keyboard.press('Enter')
+  const hidden = grid.locator('.mf-table__row--hidden').first()
+  await expect(hidden).toBeVisible()
+  const opacity = (key: string) =>
+    cell(hidden, key).evaluate((element) => Number(getComputedStyle(element).opacity))
+  expect(await opacity('select')).toBe(1)
+  expect(await opacity('flags')).toBe(1)
+  expect(await opacity('date')).toBeLessThan(1)
+})
+
+test('a hidden phone row dims everything but its flags', async ({ page, server }) => {
+  await page.setViewportSize(viewports[2])
+  // The demo hides a few late-month Noodle House visits early in 2026.
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-01-01&to=2026-03-31&v=1')
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  await page.keyboard.press('d')
+  await expect(grid.locator('[data-column="merchant"]').first()).toBeVisible()
+  await page.keyboard.press('/')
+  await page.getByRole('searchbox', { name: 'Search transactions' }).fill('noodle')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
+  await page.keyboard.press('Enter')
+  const hidden = grid.locator('.mf-table__row--hidden').first()
+  await expect(hidden).toBeVisible()
+  // The opacity a cell shows with, including any dimmed wrapper inside the row.
+  const shown = (key: string) =>
+    cell(hidden, key).evaluate((element) => {
+      let opacity = 1
+      for (
+        let node: Element | null = element;
+        node && node.role !== 'row';
+        node = node.parentElement
+      )
+        opacity *= Number(getComputedStyle(node).opacity)
+      return opacity
+    })
+  expect(await shown('flags')).toBe(1)
+  for (const key of ['merchant', 'amount', 'date', 'category', 'account']) {
+    expect(await shown(key), key).toBeLessThan(1)
+  }
+})
 
 for (const theme of themes) {
   test(`chart drawer ${theme} narrow visual contract`, async ({ page, server }) => {

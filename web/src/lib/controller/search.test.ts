@@ -101,7 +101,7 @@ describe('search coordinator', () => {
 })
 
 function fakeHost(overrides: Partial<SearchHost<object>> = {}) {
-  const snapshot = { query: 'v=1', selection: 'opaque', cursorIndex: 7, scrollTop: 120 }
+  const snapshot = { query: 'v=1', selection: 'opaque', cursorIndex: 7 }
   return {
     snapshot,
     beginSearch: vi.fn(() => snapshot),

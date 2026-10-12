@@ -34,6 +34,8 @@ components:
           type: string
         flags:
           $ref: "#/components/schemas/Flags"
+        group:
+          type: string
         identity:
           type: string
         in:
@@ -43,6 +45,11 @@ components:
           type: integer
         label:
           type: string
+        net_ratio:
+          format: int64
+          maximum: 10000
+          minimum: -10000
+          type: integer
         out:
           $ref: "#/components/schemas/Money"
         period:
@@ -1770,6 +1777,8 @@ components:
           type:
             - array
             - "null"
+        all_rows_selected:
+          type: boolean
         amazon_match_column:
           type: boolean
         amazon_settings:
@@ -1861,6 +1870,7 @@ components:
         - canonical_query
         - selection
         - selection_count
+        - all_rows_selected
         - view
         - breadcrumbs
         - breadcrumb_text
@@ -2798,6 +2808,19 @@ components:
           type: string
         sort_field:
           type: string
+        sort_fields:
+          items:
+            enum:
+              - count
+              - amount
+              - date
+              - merchant
+              - category
+              - group
+              - account
+              - time_period
+            type: string
+          type: array
         sub_grouping:
           type: string
         time_granularity:
@@ -2808,6 +2831,7 @@ components:
         - time_granularity
         - sort_field
         - sort_direction
+        - sort_fields
       type: object
     Warning:
       additionalProperties: false

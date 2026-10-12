@@ -303,3 +303,37 @@ func TestRatioHalfUp(t *testing.T) {
 		assert.Equal(t, test.want, got)
 	}
 }
+
+func TestAggregateCategoryRowsCarryTheirGroupLabel(t *testing.T) {
+	t.Parallel()
+
+	dining := testTransaction(t, "txn-1", "2024-01-01", "-10.00", "Example Store", "Dining", "Food")
+	rent := testTransaction(t, "txn-2", "2024-01-02", "-20.00", "Example Store", "Rent", "Housing")
+	ungrouped := testTransaction(t, "txn-3", "2024-01-03", "-30.00", "Example Store", "Misc", "Other")
+	ungrouped.Category.Group, ungrouped.Category.GroupID = "", ""
+
+	rows, err := Aggregate(
+		[]domain.Transaction{dining, rent, ungrouped},
+		domain.DimensionCategory, domain.TimeGranularityYear,
+	)
+
+	require.NoError(t, err)
+	groups := map[string]string{}
+	for _, row := range rows {
+		groups[row.Label] = row.Group
+	}
+	assert.Equal(t, map[string]string{"Dining": "Food", "Rent": "Housing", "Misc": ""}, groups)
+
+	for _, dimension := range []domain.Dimension{
+		domain.DimensionMerchant, domain.DimensionGroup, domain.DimensionAccount,
+		domain.DimensionTime,
+	} {
+		other, err := Aggregate(
+			[]domain.Transaction{dining, rent}, dimension, domain.TimeGranularityYear,
+		)
+		require.NoError(t, err)
+		for _, row := range other {
+			assert.Empty(t, row.Group, "%s rows omit the group", dimension)
+		}
+	}
+}

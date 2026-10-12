@@ -31,7 +31,7 @@ function control(projection: ViewProjection) {
   const chooser = within(screen.getByRole('dialog', { name: 'Choose period' }))
   return {
     sent: async () => {
-      await queue.idle()
+      await queue.settled()
       return host.apply.mock.calls
     },
     onclose,

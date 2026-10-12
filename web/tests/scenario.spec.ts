@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFile, readdir, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { cell } from './fixtures'
 import { withScenarioServer, type ScenarioServer } from '../scripts/scenario-server'
 
 test.describe.configure({ retries: 0 })
@@ -48,10 +49,10 @@ async function september(page: Page, server: ScenarioServer, showHidden = false)
     await expect(page).toHaveURL(/[?&]hidden=0/)
     await page.keyboard.press('Escape')
   }
-  await page
+  const shop = page
     .getByRole('row')
     .filter({ has: page.getByRole('gridcell', { name: 'Example Shop', exact: true }) })
-    .click()
+  await cell(shop, 'select').click()
 }
 
 test('@smoke a narrow empty search view keeps Clear search reachable', async ({ page }, info) => {
@@ -77,7 +78,8 @@ test('@smoke a narrow empty search view keeps Clear search reachable', async ({ 
     const grid = page.getByRole('grid', { name: 'Financial results' })
     await expect(grid).toBeVisible()
     await expect(page.getByText('No transactions', { exact: true })).not.toBeVisible()
-    await grid.click()
+    // Leaving the search field commits the cleared search. A tap on a phone row would drill.
+    await grid.focus()
     await expect(page).not.toHaveURL(/[?&]q=/)
     await expect.poll(() => page.evaluate(() => history.length)).toBe(length + 1)
     await page.goBack()
@@ -167,7 +169,7 @@ test('@smoke filtered merchant editing preserves committed data until the provid
   })
 })
 
-test('@smoke a delayed row selection keeps focus in the category editor', async ({
+test('@smoke c waits for a delayed row selection, then edits it in a focused editor', async ({
   page,
 }, info) => {
   await withScenarioServer(info.outputPath('scenario'), async (server) => {
@@ -186,14 +188,16 @@ test('@smoke a delayed row selection keeps focus in the category editor', async 
       await september(page, server)
       await page.keyboard.press('c')
       const edit = page.getByRole('dialog', { name: 'Change category' })
+      // The editor waits for the selection, so it cannot edit the view before the selection.
+      await expect(edit).toHaveCount(0)
+      releaseSelection()
+      await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
       const filter = edit.getByRole('searchbox', { name: 'Filter categories' })
+      await expect(filter).toBeFocused()
       await filter.fill('Heal')
       await expect(
         edit.getByRole('combobox', { name: 'Category: Health', exact: true }),
       ).toBeVisible()
-      await expect(filter).toBeFocused()
-      releaseSelection()
-      await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
       await expect(filter).toBeFocused()
       await page.keyboard.press('Enter')
       await expect(edit).not.toBeVisible()

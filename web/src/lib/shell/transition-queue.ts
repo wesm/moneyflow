@@ -17,7 +17,7 @@ export type ViewChange =
  * first and the key would act on the view that change produced.
  */
 export class TransitionQueue {
-  #tail: Promise<void> = Promise.resolve()
+  #tail: Promise<unknown> = Promise.resolve()
   #controller: () => Pick<ViewController, 'apply' | 'settled' | 'projection'>
 
   constructor(controller: () => Pick<ViewController, 'apply' | 'settled' | 'projection'>) {
@@ -25,17 +25,19 @@ export class TransitionQueue {
   }
 
   /** Runs `work` after the changes queued before it, even if one of them failed. */
-  run(work: () => Promise<unknown>): Promise<void> {
-    this.#tail = this.#tail.then(work, work).then(() => undefined)
+  run(work: () => unknown): Promise<unknown> {
+    this.#tail = this.#tail.then(work, work)
     return this.#tail
   }
 
   /** Queues one controller transition. */
-  readonly apply = (change: ViewChange): Promise<void> =>
-    this.run(async () => {
-      const action = typeof change === 'function' ? await this.#decide(change) : change
-      if (action) await this.#controller().apply(action)
-    })
+  readonly apply = (change: ViewChange): Promise<unknown> =>
+    typeof change === 'function'
+      ? this.run(async () => {
+          const action = await this.#decide(change)
+          if (action) await this.#controller().apply(action)
+        })
+      : this.run(() => this.#controller().apply(change))
 
   /** Settles once the queued changes, and the controller transitions they started, finish. */
   readonly settled = (): Promise<void> =>
@@ -43,11 +45,6 @@ export class TransitionQueue {
       () => this.#controller().settled(),
       () => this.#controller().settled(),
     )
-
-  /** Settles once the changes queued so far finish. */
-  idle(): Promise<void> {
-    return this.#tail
-  }
 
   // The controller can still be loading a view, such as an Esc return; decide from that view.
   async #decide(change: (current: ViewProjection) => TransitionAction | undefined) {

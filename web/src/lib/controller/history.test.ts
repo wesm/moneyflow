@@ -64,7 +64,6 @@ function state(sequence: number, query: string): MoneyflowHistoryState {
     sequence,
     query,
     cursorIndex: 0,
-    scrollTop: 0,
     selection,
   }
 }

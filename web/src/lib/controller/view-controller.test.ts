@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MoneyflowProblem, type MoneyflowClient, type ViewProjection } from '../api/client'
-import { createViewController } from './view-controller.svelte'
+import { createViewController, type ViewController } from './view-controller.svelte'
 import type { SelectionValue } from '../api/client'
 import type { MoneyflowHistoryState } from './history'
 
@@ -843,7 +843,6 @@ describe('browser view controller', () => {
         sequence: 0,
         query: 'v=1',
         cursorIndex: 400,
-        scrollTop: 0,
         selection: 'mfsel1.example' as SelectionValue,
       } satisfies MoneyflowHistoryState,
       '',
@@ -912,6 +911,298 @@ describe('browser view controller', () => {
     await controller.moveHome()
     expect(controller.cursorIndex).toBe(0)
     expect(controller.projection).toBe(loaded)
+  })
+
+  describe('showing a scrolled-to row', () => {
+    it('loads the aligned window outside the loaded one and moves the cursor into it', async () => {
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      const pushes = vi.spyOn(history, 'pushState')
+      pushes.mockClear()
+      const calls = vi.mocked(client.view).mock.calls.length
+
+      await controller.showIndex(250)
+      expect(client.view).toHaveBeenCalledTimes(calls + 1)
+      expect(vi.mocked(client.view).mock.lastCall?.[0].window).toEqual({ offset: 200, limit: 200 })
+      expect(controller.projection?.window.offset).toBe(200)
+      expect(controller.cursorIndex).toBe(250)
+      expect(controller.cursorIdentity).toBe('row-250')
+      expect((history.state as MoneyflowHistoryState).cursorIndex).toBe(250)
+
+      await controller.showIndex(320)
+      expect(client.view).toHaveBeenCalledTimes(calls + 1)
+      expect(controller.cursorIndex).toBe(250)
+
+      await controller.showIndex(5)
+      expect(client.view).toHaveBeenCalledTimes(calls + 1)
+      expect(controller.projection?.window.offset).toBe(0)
+      expect(controller.cursorIndex).toBe(5)
+      expect(pushes).not.toHaveBeenCalled()
+    })
+
+    it('ignores rows outside the result', async () => {
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      const calls = vi.mocked(client.view).mock.calls.length
+
+      await controller.showIndex(450)
+      await controller.showIndex(-1)
+      await controller.showIndex(1.5)
+      expect(client.view).toHaveBeenCalledTimes(calls)
+      expect(controller.cursorIndex).toBe(0)
+    })
+
+    it('moves the cursor to the latest row asked for while its window loads', async () => {
+      let release!: (value: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          if (body.window.offset === 0) return projection('v=1', 0, 450)
+          return await new Promise<ViewProjection>((resolve) => (release = resolve))
+        }),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      const calls = vi.mocked(client.view).mock.calls.length
+
+      const first = controller.showIndex(250)
+      const second = controller.showIndex(262)
+      release(projection('v=1', 200, 450))
+      await Promise.all([first, second])
+
+      expect(client.view).toHaveBeenCalledTimes(calls + 1)
+      expect(controller.cursorIndex).toBe(262)
+    })
+
+    it('withdraws a scrolled-to window when asked for a row of the loaded one', async () => {
+      let release!: (value: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          if (body.window.offset === 0) return projection('v=1', 0, 450)
+          return await new Promise<ViewProjection>((resolve) => (release = resolve))
+        }),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      await controller.moveCursorTo(50)
+
+      const shown = controller.showIndex(250)
+      await controller.showIndex(40)
+      release(projection('v=1', 200, 450))
+      await shown
+
+      expect(controller.projection?.window.offset).toBe(0)
+      expect(controller.cursorIndex).toBe(50)
+    })
+
+    it('keeps a newer transition’s view when the scrolled-to window arrives late', async () => {
+      let release!: (value: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          if (body.window.offset === 0) return projection('v=1', 0, 450)
+          return await new Promise<ViewProjection>((resolve) => (release = resolve))
+        }),
+        transition: vi.fn(async () => projection('v=1&sort=amount', 0, 450)),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const shown = controller.showIndex(250)
+      await controller.apply({ action: 'sort.set', sort_field: 'amount' })
+      release(projection('v=1', 200, 450))
+      await shown
+
+      expect(controller.projection?.canonical_query).toBe('v=1&sort=amount')
+      expect(controller.projection?.window.offset).toBe(0)
+      expect(controller.cursorIndex).toBe(0)
+    })
+
+    it.each([
+      ['Home', (controller: ViewController) => controller.moveHome()],
+      ['Up', (controller: ViewController) => controller.moveCursor(-1)],
+    ])('drops a scrolled-to window when %s keeps the cursor on the first row', async (_, key) => {
+      let release!: (value: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          if (body.window.offset === 0) return projection('v=1', 0, 450)
+          return await new Promise<ViewProjection>((resolve) => (release = resolve))
+        }),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const shown = controller.showIndex(250)
+      await key(controller)
+      release(projection('v=1', 200, 450))
+      await shown
+
+      expect(controller.projection?.window.offset).toBe(0)
+      expect(controller.cursorIndex).toBe(0)
+    })
+
+    it('drops a scrolled-to window once a key moves the cursor, and can load it again', async () => {
+      const releases: ((value: ViewProjection) => void)[] = []
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          if (body.window.offset === 0) return projection('v=1', 0, 450)
+          return await new Promise<ViewProjection>((resolve) => releases.push(resolve))
+        }),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      const calls = vi.mocked(client.view).mock.calls.length
+
+      const shown = controller.showIndex(250)
+      await controller.moveCursor(1)
+      const again = controller.showIndex(255)
+      releases[0]!(projection('v=1', 200, 450))
+      await shown
+      expect(controller.projection?.window.offset).toBe(0)
+      expect(controller.cursorIndex).toBe(1)
+
+      expect(client.view).toHaveBeenCalledTimes(calls + 2)
+      releases[1]!(projection('v=1', 200, 450))
+      await again
+      expect(controller.cursorIndex).toBe(255)
+    })
+
+    it('reports a scrolled-to window that fails to load, and retries it', async () => {
+      const client = clientWith({
+        view: vi
+          .fn()
+          .mockImplementationOnce(async () => projection('v=1', 0, 450))
+          .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+          .mockImplementation(async (body) => projection('v=1', body.window.offset, 450)),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      await controller.showIndex(250)
+      expect(controller.problem).toEqual({ kind: 'request', code: 'network_error' })
+      expect(controller.projection?.window.offset).toBe(0)
+
+      await controller.retry()
+      expect(controller.problem).toBeUndefined()
+      expect(controller.projection?.window.offset).toBe(200)
+      expect(controller.cursorIndex).toBe(250)
+    })
+
+    it('clears the load error when a retry finds the window a prefetch cached', async () => {
+      let prefetched!: (value: ViewProjection) => void
+      let requests = 0
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          if (body.window.offset !== 200) return projection('v=1', body.window.offset, 450)
+          requests += 1
+          if (requests === 1) return await new Promise<ViewProjection>((r) => (prefetched = r))
+          throw new TypeError('Failed to fetch')
+        }),
+      })
+      const controller = controllerFor(client)
+      await controller.hydrate()
+      await vi.waitFor(() => expect(requests).toBe(1))
+
+      await controller.showIndex(250)
+      expect(controller.problem).toEqual({ kind: 'request', code: 'network_error' })
+      prefetched(projection('v=1', 200, 450))
+      await vi.waitFor(() =>
+        expect(controller.neighbors.map((loaded) => loaded.window.offset)).toEqual([200]),
+      )
+
+      await controller.retry()
+      expect(controller.projection?.window.offset).toBe(200)
+      expect(controller.cursorIndex).toBe(250)
+      expect(controller.problem).toBeUndefined()
+    })
+
+    it('lets a transition already running finish', async () => {
+      let release!: (value: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+        transition: vi.fn(async () => await new Promise<ViewProjection>((r) => (release = r))),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const applied = controller.apply({ action: 'sort.set', sort_field: 'amount' })
+      await vi.waitFor(() => expect(client.transition).toHaveBeenCalled())
+      await controller.showIndex(250)
+      release(projection('v=1&sort=amount', 0, 450))
+
+      await expect(applied).resolves.toBe(true)
+      expect(vi.mocked(client.transition).mock.lastCall?.[1]?.aborted).toBe(false)
+      expect(controller.projection?.canonical_query).toBe('v=1&sort=amount')
+    })
+
+    it('keeps the live window’s neighbors when an older prefetch lands late', async () => {
+      const held = new Map<number, (value: ViewProjection) => void>()
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          const offset = body.window.offset
+          if (offset === 200 || offset === 1000) {
+            return await new Promise<ViewProjection>((resolve) =>
+              held.set(offset, (value) => resolve(value)),
+            )
+          }
+          return projection('v=1', offset, 1200)
+        }),
+      })
+      const controller = controllerFor(client)
+      await controller.hydrate()
+      await vi.waitFor(() => expect(held.has(200)).toBe(true))
+
+      await controller.showIndex(900)
+      await vi.waitFor(() => expect(held.has(1000)).toBe(true))
+      held.get(1000)!(projection('v=1', 1000, 1200))
+      await vi.waitFor(() =>
+        expect(controller.neighbors.map((loaded) => loaded.window.offset)).toContain(1000),
+      )
+      held.get(200)!(projection('v=1', 200, 1200))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(controller.projection?.window.offset).toBe(800)
+      expect(controller.neighbors.map((loaded) => loaded.window.offset)).toContain(1000)
+    })
+
+    it('prefetches past a cached window the cursor moves into', async () => {
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 1200)),
+      })
+      const controller = controllerFor(client)
+      await controller.hydrate()
+      await vi.waitFor(() =>
+        expect(controller.neighbors.map((loaded) => loaded.window.offset)).toEqual([200]),
+      )
+
+      await controller.moveCursorTo(199)
+      await controller.moveCursor(1)
+      expect(controller.projection?.window.offset).toBe(200)
+      expect(controller.cursorIndex).toBe(200)
+      await vi.waitFor(() =>
+        expect(controller.neighbors.map((loaded) => loaded.window.offset)).toEqual([0, 400]),
+      )
+    })
+
+    it('exposes the cached windows next to the loaded one', async () => {
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+      })
+      const controller = controllerFor(client)
+      await controller.hydrate()
+      await vi.waitFor(() =>
+        expect(controller.neighbors.map((loaded) => loaded.window.offset)).toEqual([200]),
+      )
+
+      await controller.showIndex(250)
+      await vi.waitFor(() =>
+        expect(controller.neighbors.map((loaded) => loaded.window.offset)).toEqual([0, 400]),
+      )
+    })
   })
 
   it('aborts superseded requests and rejects stale responses', async () => {
@@ -1346,9 +1637,11 @@ function projection(
       time_granularity: 'year',
       sort_field: 'date',
       sort_direction: 'desc',
+      sort_fields: ['date', 'merchant', 'category', 'account', 'amount'],
     },
     selection: selection as ViewProjection['selection'],
     selection_count: 0,
+    all_rows_selected: false,
     breadcrumbs: [],
     breadcrumb_text: 'All transactions',
     filters: { show_hidden: false, show_transfers: false },

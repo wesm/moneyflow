@@ -9,11 +9,43 @@ In sums positive amounts; Out sums negative amounts; Net combines them. Amount s
 percentages use Net. Hidden transactions count toward the group but do not contribute amounts.
 At narrow terminal widths, the table omits Top Category to keep these amounts readable.
 
+The browser's grouped tables also show **Share**, the row's Net as a percent of all rows with
+the same sign of Net. Merchant tables add the top category and its percent; category tables
+add the group. The first column header names the current grouping, including a breakdown
+inside a group. When sorted by amount, a divider marks where Net changes between spending and
+income. The Time grouping shows a Net bar and the savings rate instead of Share.
+
 ## Move through results
 
 Use arrows or `j`/`k` to move. In the TUI, Page Up/Page Down move by a visible page;
 `T` and `B` jump to the top and bottom. Reversing sort with `v` returns the cursor to
-the top. `s` changes the sort field.
+the top. `s` changes the sort field. In the browser, click a sortable column header to sort by
+it, and click it again to reverse the order.
+
+In the browser, a click on a row moves the cursor and a click on its box selects or clears it; a
+double-click opens a group, edits a transaction's Merchant or Category, or opens the
+transaction's information from any other cell.
+
+On screens 640 px wide or narrower, each row takes two lines. A group shows its name and Net,
+then its count, In, and Out. A transaction shows its merchant and amount, then its date,
+category, and account. Touch works this way:
+
+- Tap the box at the start of a row to select it or clear it.
+- Tap a group, or its › button, to open it. The cursor moves there first, so going back
+  returns to that group.
+- Tap a transaction to open its information. Its ⋯ button opens **Merchant**, **Category**,
+  **Hide**, **Delete**, and **Info** for that transaction.
+- The header keeps the select-all box and the current sort field. Tap the field to reverse the
+  order.
+
+The keys work the same at every width. On wider screens, a table wider than the window scrolls
+sideways while the boxes, the name column, and the selection bar stay in place. Below 760 px,
+merchant and category tables leave out Top category and Group, and the amount columns narrow.
+
+The browser table scrolls through every row of the result. It loads rows 200 at a time, and
+rows still loading show as blank bars. When scrolling reaches rows outside the loaded 200, the
+cursor moves to the first row fully on screen once that row loads. Scrolling back to the cursor
+before then leaves the cursor where it was.
 
 ## Go back with Esc
 
