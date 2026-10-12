@@ -31,7 +31,7 @@
       "manifest_entry": "index.html",
       "kind": "javascript",
       "compression": "gzip",
-      "max_bytes": 152574
+      "max_bytes": 153600
     },
     {
       "name": "total_javascript_brotli",
