@@ -22,12 +22,15 @@ async function prepareState(page: Page, state: (typeof states)[number]): Promise
   if (state === 'search') {
     await page.keyboard.press('/')
     await page.getByRole('searchbox', { name: 'Search transactions' }).fill('noodle')
-    await expect(page.getByRole('navigation', { name: 'Active refinements' })).toContainText(
-      'Search: noodle',
-    )
+    await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
     return
   }
-  await page.keyboard.press(state === 'filters' ? 'f' : '?')
+  if (state === 'filters') {
+    await page.keyboard.press('f')
+    await expect(page.getByRole('button', { name: 'Show transfers' })).toBeVisible()
+    return
+  }
+  await page.keyboard.press('?')
   await expect(page.getByRole('dialog')).toBeVisible()
 }
 
@@ -71,10 +74,12 @@ async function expectThemeContract(page: Page, theme: (typeof themes)[number]): 
     const match = body.backgroundColor.match(/\d+(?:\.\d+)?/g)
     return {
       dark: element.classList.contains('dark'),
+      kitTheme: element.getAttribute('data-kit-theme'),
       backgroundChannels: (match ?? []).slice(0, 3).map(Number),
     }
   })
   expect(state.dark).toBe(theme === 'dark')
+  expect(state.kitTheme).toBe('moneyflow')
   expect(state.backgroundChannels).toHaveLength(3)
   const brightness = state.backgroundChannels.reduce((sum, channel) => sum + channel, 0)
   if (theme === 'dark') {
@@ -112,8 +117,12 @@ for (const viewport of viewports) {
         await prepareState(page, state)
         await expectLayoutContract(page, viewport)
         await expectThemeContract(page, theme)
-        if (state === 'filters' || state === 'help') {
+        if (state === 'help') {
           await expectFullyWithinViewport(page.getByRole('dialog'), viewport)
+        } else if (state === 'filters') {
+          for (const name of ['Filters', 'Show hidden transactions', 'Show transfers']) {
+            await expectFullyWithinViewport(page.getByRole('button', { name }), viewport)
+          }
         } else {
           await expectFullyWithinViewport(
             page.getByRole('grid', { name: 'Financial results' }),
@@ -139,4 +148,23 @@ for (const theme of themes) {
       viewports[2],
     )
   })
+}
+
+for (const theme of themes) {
+  for (const surface of [
+    { opener: 'Open navigation', dialog: 'Navigation' },
+    { opener: 'View', dialog: 'View' },
+  ]) {
+    test(`phone ${surface.dialog} ${theme} visual contract`, async ({ page, server }) => {
+      await page.setViewportSize(viewports[2])
+      await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
+      await openMoneyflow(page, server)
+      await page.getByRole('button', { name: surface.opener, exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: surface.dialog })
+      await expect(dialog).toBeVisible()
+      await expectLayoutContract(page, viewports[2])
+      await expectThemeContract(page, theme)
+      await expectFullyWithinViewport(dialog, viewports[2])
+    })
+  }
 }

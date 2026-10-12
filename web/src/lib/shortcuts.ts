@@ -1,6 +1,7 @@
 import { createShortcutManager, type ShortcutManager } from '@kenn-io/kit-ui'
-import type { ViewProjection } from './api/client'
+import type { TransitionBody, ViewProjection } from './api/client'
 
+export type Dimension = NonNullable<TransitionBody['dimension']>
 type Capability = NonNullable<ViewProjection['capabilities']>[number]
 export type LocalAction =
   | 'cursor.up'
@@ -22,12 +23,19 @@ export type LocalAction =
   | 'edit.delete'
   | 'transaction.info'
   | 'provider.refresh'
+  | 'time.choose'
 
 const bindings = [
   { id: 'cursor.up', display: '↑/k', combos: ['arrowup', 'k'], local: true },
   { id: 'cursor.down', display: '↓/j', combos: ['arrowdown', 'j'], local: true },
   { id: 'cursor.home', display: 'home', combos: ['home'], local: true },
   { id: 'view.cycle-grouping', display: 'g', combos: ['g'] },
+  {
+    id: 'view.set-grouping',
+    display: '1-5',
+    combos: ['1', '2', '3', '4', '5'],
+    dimensions: ['merchant', 'category', 'group', 'account', 'time'],
+  },
   { id: 'view.show-detail', display: 'd', combos: ['d'] },
   {
     id: 'view.find-duplicates',
@@ -42,6 +50,7 @@ const bindings = [
   { id: 'time.clear-period', display: 'a', combos: ['a'] },
   { id: 'time.previous-period', display: '←', combos: ['arrowleft'] },
   { id: 'time.next-period', display: '→', combos: ['arrowright'] },
+  { id: 'time.choose', display: 't', combos: ['t'], local: true },
   { id: 'sort.cycle', display: 's', combos: ['s'] },
   { id: 'sort.reverse', display: 'v', combos: ['v'] },
   { id: 'selection.toggle', display: 'space', combos: ['space'] },
@@ -124,11 +133,20 @@ export function validateCapabilities(capabilities: Capability[]): void {
       throw new Error(`server capability ${binding.id} conflicts with the browser shortcut table`)
     }
   }
+  const bound = new Set<string>(bindings.map((binding) => binding.id))
+  for (const capability of capabilities) {
+    if (capability.key_display && !bound.has(capability.id)) {
+      throw new Error(`server capability ${capability.id} has no browser shortcut`)
+    }
+  }
 }
 
 export function createMoneyflowShortcuts(
   capabilities: Capability[],
-  handlers: { local(action: LocalAction): void; apply(action: string): void },
+  handlers: {
+    local(action: LocalAction): void
+    apply(action: string, dimension?: Dimension): void
+  },
 ): { manager: ShortcutManager; destroy(): void } {
   validateCapabilities(capabilities)
   const available = new Set(
@@ -138,11 +156,13 @@ export function createMoneyflowShortcuts(
   const cleanup: Array<() => void> = []
   for (const binding of bindings) {
     if (!available.has(binding.id)) continue
-    for (const combo of binding.combos) {
+    for (const [index, combo] of binding.combos.entries()) {
       cleanup.push(
         manager.register(combo, () => {
           if ('local' in binding) {
             handlers.local(('localID' in binding ? binding.localID : binding.id) as LocalAction)
+          } else if ('dimensions' in binding) {
+            handlers.apply(binding.id, binding.dimensions[index])
           } else handlers.apply(binding.id)
         }),
       )
@@ -161,5 +181,12 @@ export function handleMoneyflowKeydown(manager: ShortcutManager, event: Keyboard
   ) {
     return false
   }
+  // A focused button activates with Enter or Space; those keys must not also drill or select.
+  if (target instanceof HTMLButtonElement && (event.key === 'Enter' || event.key === ' ')) {
+    return false
+  }
+  // A control that handled the key claims it: the Period segments move with the arrows, and a
+  // popover closes on Escape. The same key must not also shift the period or go back.
+  if (event.defaultPrevented) return false
   return manager.handleKeydown(event)
 }

@@ -28,6 +28,26 @@ Each Esc press undoes one step, in this order:
 At the top level with nothing to undo, Esc does nothing. Returning does not restore an
 earlier selection, and it keeps the current period and filters.
 
+## Use the breadcrumb and Break down by in the browser
+
+The browser's command bar starts with a breadcrumb trail, such as
+`Merchants › Corner Grocery › by Category`. The first crumb names the view that the
+drill-downs started from: the grouping, with time grouping named by its unit (**Years**,
+**Months**, or **Days**), or **All transactions** for the `d` view. When the saved view does
+not record the unit, the crumb reads **Time**. Each drill-down adds a crumb, and a breakdown
+adds "by" and its dimension.
+
+- Click an earlier crumb to return to that level in one step. It clears what pressing Esc
+  repeatedly would clear on the way, and the browser's Back history stays one entry per view.
+- Inside a drill-down, **Break down by** lists **Transactions** and each dimension the
+  drill-down has not used. Choosing a dimension breaks the rows down like `g`;
+  **Transactions** removes the breakdown.
+
+On screens narrower than 640 px, the menu button opens the sidebar as a drawer. The
+period arrows stay in the command bar; **View** opens a sheet with the Day, Month, Year,
+and All choices, currency, filters, and Break down by. The search icon shows or hides the
+search field, which stays open while a search applies.
+
 ## Choose a year, month, or day
 
 In this checkout's TUI, `t` opens a time chooser from a grouped view or transaction list:
@@ -64,7 +84,10 @@ resolution; `a` returns to all time and removes any period drill-down.
 Enter still opens a selected group and Esc returns to its summary.
 
 To browse grouped periods instead, use `Ctrl+t` in the TUI to jump to Time grouping. Press
-it again to cycle year, month, and day. The browser has no key for these units.
+it again to cycle year, month, and day. In the browser, press `5` or choose **Time** in the
+sidebar. The browser picks the unit from the period: a day or month lists days, and a year
+lists months. All time lists months, or years when your transactions span more than 60
+months. A custom range lists days up to 62 days, months up to 36 months, and years beyond.
 
 When you have drilled into a period and no single year, month, or day is selected, left and
 right select the period next to that drill-down. Every period change, whether from these
@@ -72,11 +95,60 @@ keys, `a`, the chooser, or a date filter, removes period drill-downs and keeps t
 If a period drill-down was the only one and you had broken it down, the breakdown becomes
 the top-level grouping. Left, right, and `a` work the same way in the TUI and the browser.
 
+## Choose a period in the browser
+
+The command bar's period control shows the current period, such as `‹ Sep 2026 ›`.
+
+- **‹** and **›** move to the previous or next day, month, or year. They are disabled for a
+  custom range or all time unless you have drilled into a period.
+- **Day**, **Month**, and **Year** select the period of that length around the current one:
+  its last day, or the date of your newest transaction when the period contains it. From all
+  time they select the period containing your newest transaction. **All** shows all time.
+  The segments are disabled when the selected currency has no transactions.
+- Inside the segments, Left and Right change the segment instead of moving the period.
+
+Click the label or press `t` to open the period chooser. Its tabs choose how to pick:
+
+| Tab | Pick |
+| --- | --- |
+| Day | A day on the calendar |
+| Month | A month; ‹ and › change the year |
+| Year | A year from your first transaction to your newest |
+| Custom | A start day and an end day on the calendar, then **Apply** |
+
+The chooser opens on the current period's tab; all time and custom ranges open on Month.
+Arrow keys move between months and years, and Enter picks one. **All time** or `a` shows all
+time. Esc closes the chooser without changing the period and returns to the label; moving
+focus out of the chooser also closes it.
+
+Dates come from your transactions in the selected currency, never from your computer's
+calendar. The chooser offers no dates after your newest transaction, but › can still move
+past it.
+
+When the chosen period has no transactions in the selected currency, the table is replaced by
+"No transactions in" and the period, with a **Jump to latest** button. It selects the period
+of the same length that contains your newest transaction; from a custom range it selects that
+month. A search with no matches, or an empty period inside a merchant, category, group, or
+account, shows the table's own empty state instead.
+
 ## Search
 
 Press `/`, enter a search, and apply it. TUI and web search use case-insensitive regular
 expressions over merchant and category labels. Invalid expressions show an error rather
 than silently changing the query.
+
+In the browser, the search field sits in the command bar. `/` focuses it, or click it.
+
+- The table previews the results as you type.
+- Enter applies the search and returns to the table. Moving focus out of the field also
+  applies it; an invalid expression is dropped instead. Switching to another window leaves
+  the search open.
+- The browser's Back button during a preview ends the search without applying it. Forward
+  then works as it does on any page: it returns to the view you left, with the previewed
+  search.
+- Esc cancels the preview, restores the previous search, and returns to the table.
+- The field's clear button (×) previews the view without a search.
+- A search longer than 2,048 bytes is refused with a message.
 
 For Amazon-like merchants, [imported product names](amazon-mode.md#match-bank-charges-to-products)
 also help find related charges. This does not require an Amazon network connection.

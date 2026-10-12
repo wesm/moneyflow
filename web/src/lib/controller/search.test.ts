@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { createSearchCoordinator, type SearchHost } from './search'
+import { createSearchCoordinator, type SearchHost, type SearchPreview } from './search'
 
 describe('search coordinator', () => {
   afterEach(() => vi.useRealTimers())
@@ -23,13 +23,39 @@ describe('search coordinator', () => {
 
   it('retains the last accepted view after invalid input', async () => {
     vi.useFakeTimers()
-    const host = fakeHost({ previewSearch: vi.fn(async () => false) })
+    const host = fakeHost({ previewSearch: vi.fn(async () => 'rejected' as const) })
     const search = createSearchCoordinator(host)
 
     search.input('[')
     await vi.advanceTimersByTimeAsync(150)
 
     expect(search.error).toBe('That search expression is invalid.')
+    expect(host.commitSearch).not.toHaveBeenCalled()
+  })
+
+  it('shows no error when another request supersedes a preview', async () => {
+    vi.useFakeTimers()
+    const host = fakeHost({ previewSearch: vi.fn(async () => 'superseded' as const) })
+    const search = createSearchCoordinator(host)
+
+    search.input('coffee')
+    await vi.advanceTimersByTimeAsync(150)
+
+    expect(search.error).toBe('')
+    expect(search.pending).toBe(false)
+  })
+
+  it('shows no expression error when a preview request fails', async () => {
+    vi.useFakeTimers()
+    const host = fakeHost({ previewSearch: vi.fn(async () => 'failed' as const) })
+    const search = createSearchCoordinator(host)
+
+    search.input('coffee')
+    await vi.advanceTimersByTimeAsync(150)
+
+    expect(search.error).toBe('')
+    expect(search.pending).toBe(false)
+    await expect(search.commit()).resolves.toBe(false)
     expect(host.commitSearch).not.toHaveBeenCalled()
   })
 
@@ -59,16 +85,16 @@ describe('search coordinator', () => {
   })
 
   it('does not commit after cancellation invalidates an in-flight preview', async () => {
-    let release!: (value: boolean) => void
+    let release!: (value: SearchPreview) => void
     const host = fakeHost({
-      previewSearch: vi.fn(() => new Promise<boolean>((resolve) => (release = resolve))),
+      previewSearch: vi.fn(() => new Promise<SearchPreview>((resolve) => (release = resolve))),
     })
     const search = createSearchCoordinator(host)
     search.input('coffee')
     const committing = search.commit()
     await vi.waitFor(() => expect(host.previewSearch).toHaveBeenCalled())
     search.cancel()
-    release(true)
+    release('applied')
     expect(await committing).toBe(false)
     expect(host.commitSearch).not.toHaveBeenCalled()
   })
@@ -79,7 +105,7 @@ function fakeHost(overrides: Partial<SearchHost<object>> = {}) {
   return {
     snapshot,
     beginSearch: vi.fn(() => snapshot),
-    previewSearch: vi.fn(async () => true),
+    previewSearch: vi.fn(async (): Promise<SearchPreview> => 'applied'),
     commitSearch: vi.fn(),
     restoreSearch: vi.fn(),
     ...overrides,

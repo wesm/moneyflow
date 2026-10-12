@@ -78,6 +78,7 @@ type TransitionRequest struct {
 	Currency  *domain.CurrencyScope
 	SortField *domain.SortField
 	Period    *PeriodTarget
+	Depth     *int
 }
 
 // PeriodTarget sets the view's period. A nil Range means All.
@@ -539,7 +540,7 @@ func (service *Service) transitionSession(
 
 // transitionArguments records which optional TransitionRequest fields are set.
 type transitionArguments struct {
-	target, search, filters, dimension, currency, sortField, period bool
+	target, search, filters, dimension, currency, sortField, period, depth bool
 }
 
 func argumentsOf(transition TransitionRequest) transitionArguments {
@@ -551,6 +552,7 @@ func argumentsOf(transition TransitionRequest) transitionArguments {
 		currency:  transition.Currency != nil,
 		sortField: transition.SortField != nil,
 		period:    transition.Period != nil,
+		depth:     transition.Depth != nil,
 	}
 }
 
@@ -570,6 +572,8 @@ func requiredArguments(action ActionID) transitionArguments {
 		return transitionArguments{sortField: true}
 	case ActionSetPeriod:
 		return transitionArguments{period: true}
+	case ActionBackTo:
+		return transitionArguments{depth: true}
 	default:
 		return transitionArguments{}
 	}
@@ -582,6 +586,9 @@ func validateTransitionArguments(transition TransitionRequest) error {
 	if transition.Search != nil &&
 		(!utf8.ValidString(*transition.Search) || len(*transition.Search) > MaxCommittedSearchBytes) {
 		return invalidWebRequest(errors.New("committed search exceeds durable-state limit or is not UTF-8"))
+	}
+	if transition.Depth != nil && *transition.Depth < 0 {
+		return invalidWebRequest(errors.New("breadcrumb depth is negative"))
 	}
 	return nil
 }
@@ -631,10 +638,8 @@ func (service *Service) applyAnalyticalTransition(
 		if err := session.Drill(row, ViewPosition{}); err != nil {
 			return invalidWebRequest(err)
 		}
-	case ActionBack:
-		if _, changed := session.Back(); !changed {
-			return noChangeWeb(errors.New("view has no parent"))
-		}
+	case ActionBack, ActionBackTo:
+		return applyBackTransition(session, transition)
 	case ActionClearTime, ActionPreviousPeriod, ActionNextPeriod, ActionSetPeriod:
 		return applyPeriodTransition(session, transition)
 	case ActionCycleSort:
@@ -649,6 +654,23 @@ func (service *Service) applyAnalyticalTransition(
 		}
 	default:
 		return applyDirectTransition(session, transition)
+	}
+	return nil
+}
+
+func applyBackTransition(session *Session, transition TransitionRequest) error {
+	if transition.Action == ActionBack {
+		if _, changed := session.Back(); !changed {
+			return noChangeWeb(errors.New("view has no parent"))
+		}
+		return nil
+	}
+	depth := *transition.Depth
+	if depth > len(session.Drilldowns) {
+		return invalidWebRequest(errors.New("breadcrumb depth is deeper than the view"))
+	}
+	if !session.BackTo(depth) {
+		return noChangeWeb(errors.New("view is already at that level"))
 	}
 	return nil
 }

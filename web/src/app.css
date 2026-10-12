@@ -1,17 +1,7 @@
 @import '@kenn-io/kit-ui/theme.css';
+@import './theme.css';
 @import '@kenn-io/kit-ui/themes.css';
 @import '@kenn-io/kit-ui/fonts.css';
-
-:root {
-  --moneyflow-positive: var(--accent-green);
-  --moneyflow-negative: var(--accent-red);
-  --moneyflow-focus: var(--accent-blue);
-}
-
-:root:not(.dark) {
-  /* The kit default muted ink is decorative-grade; Moneyflow uses it for readable status text. */
-  --text-muted: var(--text-secondary);
-}
 
 html,
 body,
@@ -153,13 +143,26 @@ input {
   display: flex;
   flex-direction: column;
 }
+.app-shell__frame,
+.app-shell__column {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+}
+.app-shell__column {
+  flex-direction: column;
+}
 .app-shell__main {
   min-height: 0;
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(15rem, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
   padding: var(--space-4);
+}
+.app-shell__main--charts {
+  grid-template-columns: minmax(0, 3fr) minmax(15rem, 1fr);
 }
 .app-shell__table {
   min-width: 0;
@@ -169,27 +172,652 @@ input {
   min-width: 0;
   min-height: 0;
 }
-.refinement-bar {
-  min-height: 34px;
+.mf-command-bar {
+  box-sizing: border-box;
+  min-height: var(--header-height);
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--border-muted);
-  color: var(--text-secondary);
-  font-size: var(--font-size-xs);
+  gap: var(--space-3) var(--space-6);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-surface);
 }
-.refinement-bar > * {
+.mf-command-bar__leading {
   min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-.refinement-bar__trail {
+  flex: 1 1 auto;
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-6);
+}
+.mf-command-bar__controls {
+  min-width: 0;
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3) var(--space-5);
+}
+/* The view controls and the Charts switch wrap as one row of siblings. */
+.mf-command-bar__center,
+.mf-command-bar__trailing {
+  display: contents;
+}
+
+.mf-breadcrumbs {
+  min-width: 0;
+}
+.mf-breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-sm);
+}
+.mf-breadcrumbs li {
+  display: flex;
+  align-items: center;
   gap: var(--space-2);
+}
+.mf-breadcrumbs__separator {
+  color: var(--text-muted);
+}
+.mf-breadcrumbs__current {
+  overflow-wrap: break-word;
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+.mf-breadcrumbs__link {
+  padding: var(--space-1) var(--space-2);
+  margin: 0 calc(-1 * var(--space-2));
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: start;
+  overflow-wrap: break-word;
+  cursor: pointer;
+}
+.mf-breadcrumbs__link:hover {
+  background: var(--bg-surface-hover);
   color: var(--text-primary);
 }
+.mf-breadcrumbs__link:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+.mf-break-down {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.mf-break-down__label {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+/* kit SelectDropdown reserves 150px; a currency code needs a fraction of that. */
+.mf-command-bar .kit-select-dropdown.mf-currency-chip {
+  min-width: 4.5rem;
+}
+
+/* kit FilterDropdown fades unchecked items to half opacity, which fails WCAG AA contrast;
+   the check mark and dot still show the state (upstream candidate). */
+.mf-filters-chip .kit-filter-dropdown__panel .kit-filter-dropdown__item:not(.active) {
+  opacity: 1;
+}
+
+.mf-command-search {
+  position: relative;
+}
+.mf-command-search__status {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: var(--z-popover);
+}
+.mf-command-search__error {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--accent-red);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.mf-period {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-1);
+}
+.mf-period .kit-segmented {
+  margin-left: var(--space-3);
+}
+.mf-period__label {
+  box-sizing: border-box;
+  min-width: 4.5rem;
+  height: 24px;
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium, 500);
+  font-variant-numeric: tabular-nums;
+  /* A long custom range shrinks with an ellipsis; its title and name keep the full label. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mf-period__label:hover:not(:disabled),
+.mf-period__label[aria-expanded='true'] {
+  border-color: var(--border-default);
+  background: var(--bg-surface-hover);
+}
+.mf-period__label:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+.mf-period__label:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: default;
+}
+.mf-period-chooser {
+  box-sizing: border-box;
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+.mf-period-chooser:focus {
+  outline: none;
+}
+.mf-period-chooser__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.mf-period-chooser__body .kit-calendar {
+  align-self: center;
+}
+.mf-period-chooser__body > .kit-button {
+  align-self: flex-end;
+}
+.mf-period-chooser__stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold, 600);
+  font-variant-numeric: tabular-nums;
+}
+.mf-period-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--mf-period-columns), minmax(0, 1fr));
+  gap: 2px;
+}
+.mf-period-grid__cell {
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.mf-period-grid__cell:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+.mf-period-grid__cell:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+.mf-period-grid__cell[aria-current='date'] {
+  background: var(--accent-blue);
+  color: var(--bg-surface);
+  font-weight: var(--font-weight-semibold, 600);
+}
+.mf-period-grid__cell:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.mf-period-chooser__endpoints {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.mf-period-chooser__endpoint {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+.mf-period-chooser__endpoint--next {
+  border-color: var(--accent-blue);
+}
+.mf-period-chooser__endpoint dt {
+  color: var(--text-muted);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold, 600);
+}
+.mf-period-chooser__endpoint dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mf-period-chooser__footer {
+  display: flex;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-muted);
+}
+
+.mf-sidebar {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mf-sidebar__brand {
+  box-sizing: border-box;
+  height: var(--header-height);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-6);
+  border-bottom: 1px solid var(--border-default);
+}
+.mf-sidebar__provider {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.mf-sidebar__label {
+  margin: 0;
+  padding: var(--space-6) var(--space-4) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--font-size-2xs);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+}
+.mf-sidebar__nav {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-4) var(--space-5);
+}
+.mf-sidebar__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mf-nav-item {
+  box-sizing: border-box;
+  width: 100%;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-3) 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.mf-nav-item:hover:not([aria-disabled='true']) {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+.mf-nav-item:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+.mf-nav-item[aria-current='page'] {
+  background: var(--bg-surface-hover);
+  box-shadow: inset 2px 0 var(--mf-focus);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium, 500);
+}
+.mf-nav-item[aria-disabled='true'] {
+  opacity: var(--opacity-disabled);
+  cursor: default;
+}
+.mf-nav-item > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.mf-nav-item[aria-current='page'] > svg {
+  color: var(--text-primary);
+}
+.mf-nav-item__label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mf-nav-item__key {
+  flex: none;
+  display: inline-flex;
+}
+.mf-sidebar__footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-4);
+  border-top: 1px solid var(--border-muted);
+}
+.mf-pending-card__text {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  line-height: 1.4;
+}
+.mf-pending-card__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.mf-pending-card__text--waiting .mf-pending-card__title {
+  color: var(--text-primary);
+}
+.mf-pending-card__text--waiting .mf-pending-card__title::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--mf-pending);
+}
+.mf-pending-card__detail {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.mf-pending-card__text--waiting .mf-pending-card__detail {
+  padding-left: calc(6px + var(--space-3));
+}
+.mf-pending-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.mf-sidebar__system {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+}
+.mf-sidebar__system .provider-status {
+  min-width: 0;
+  flex: 1;
+}
+.mf-sidebar__theme {
+  margin-left: auto;
+}
+.provider-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.provider-status__meta {
+  color: var(--text-muted);
+  font-size: var(--font-size-2xs);
+}
+
+.mf-rail {
+  box-sizing: border-box;
+  width: 48px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-4) 0;
+  border-right: 1px solid var(--border-default);
+  background: var(--bg-surface);
+}
+.mf-rail__list {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  list-style: none;
+}
+.mf-rail__rule {
+  width: 20px;
+  margin: var(--space-4) auto;
+  border: 0;
+  border-top: 1px solid var(--border-default);
+}
+.mf-rail__footer {
+  margin-top: auto;
+}
+.mf-rail .kit-icon-button.mf-rail__item--active {
+  background: var(--bg-surface-hover);
+  box-shadow: inset 2px 0 var(--mf-focus);
+  color: var(--text-primary);
+}
+.mf-rail__pending {
+  position: relative;
+}
+.mf-rail__count {
+  box-sizing: border-box;
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--mf-pending);
+  color: var(--bg-surface);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.mf-status-line {
+  --status-bar-height: 28px;
+  flex: none;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--bg-surface);
+}
+.mf-status-line__hints,
+.mf-status-line__state {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  font-size: var(--font-size-xs);
+}
+.mf-status-line__hint,
+.mf-status-line__connection {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.mf-status-line__hint {
+  height: var(--status-bar-height);
+  color: var(--text-secondary);
+}
+/* State keeps its natural width; hints take the rest and drop whole hints that do not fit. */
+.mf-status-line .kit-status-bar .kit-status-bar__section--right {
+  flex: 0 1 auto;
+}
+.mf-status-line__hints {
+  height: var(--status-bar-height);
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+.mf-status-line__pending {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+}
+/* kit-ui has no left drawer or bottom sheet (upstream candidates): NavDrawer and BottomSheet
+   compose its focus trap and overlay helpers with these styles. */
+.mf-nav-drawer,
+.mf-sheet {
+  position: fixed;
+  inset: 0; /* kit-ui-check-ignore: kit-ui has no left drawer or bottom sheet component */
+  z-index: var(--z-overlay);
+  display: flex;
+  background: var(--overlay-bg);
+}
+.mf-sheet {
+  align-items: flex-end;
+}
+.mf-nav-drawer__panel {
+  box-sizing: border-box;
+  position: relative;
+  width: min(18rem, calc(100vw - 3rem));
+  height: 100%;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-right: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+  animation: mf-slide-from-left var(--transition-medium) var(--transition-ease, ease-out);
+}
+/* Touch targets: these out-rank kit's scoped component rules, which tie at two classes. */
+.mf-nav-drawer .mf-nav-item {
+  height: 44px;
+}
+.mf-nav-drawer .mf-nav-drawer__panel .kit-icon-button,
+.mf-nav-drawer .mf-nav-drawer__panel .kit-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.mf-sheet .mf-sheet__body .kit-segmented__btn,
+.mf-sheet .mf-sheet__body .kit-select-dropdown__trigger,
+.mf-sheet .mf-sheet__body .kit-filter-dropdown__btn,
+.mf-sheet .mf-sheet__body .kit-filter-dropdown__item,
+.mf-sheet .mf-sheet__body .kit-select-dropdown__option {
+  min-height: 44px;
+}
+/* First in the Tab order, so it comes before the sidebar in the DOM and paints above it. */
+.mf-nav-drawer__close {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-2);
+  z-index: 1;
+}
+.mf-sheet__panel {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 85%;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-top: 1px solid var(--border-default);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+  /* A fade, not a slide: a transform would become the containing block for kit's fixed
+     popovers inside the sheet and misplace them while it runs. */
+  animation: mf-fade-in var(--transition-medium) var(--transition-ease, ease-out);
+}
+.mf-sheet__header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-6);
+  border-bottom: 1px solid var(--border-muted);
+}
+.mf-sheet__title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+.mf-sheet__body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6) var(--space-6);
+}
+.mf-sheet__footer {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border-muted);
+}
+.mf-touch-target.kit-icon-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.mf-view-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.mf-view-sheet__row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+.mf-view-sheet__label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.mf-view-sheet .mf-break-down__label {
+  display: none;
+}
+.mf-view-sheet .kit-select-dropdown,
+.mf-view-sheet .kit-filter-dropdown,
+.mf-view-sheet .kit-filter-dropdown .kit-filter-dropdown__btn {
+  width: 100%;
+}
+.mf-view-sheet .mf-break-down {
+  overflow-x: auto;
+}
+@keyframes mf-slide-from-left {
+  from {
+    transform: translateX(-100%);
+  }
+}
+@keyframes mf-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
 .finance-grid {
   height: 100%;
   overflow: auto;
@@ -254,15 +882,15 @@ input {
   text-decoration: underline;
 }
 .finance-grid__row--active {
-  background: var(--bg-surface-hover);
-  box-shadow: inset 3px 0 var(--moneyflow-focus);
+  background: var(--mf-cursor);
+  box-shadow: inset 3px 0 var(--mf-focus);
 }
 .finance-grid__row--hidden {
   opacity: var(--opacity-disabled);
 }
 
 .finance-grid__row--pending {
-  box-shadow: inset 3px 0 0 var(--moneyflow-focus);
+  box-shadow: inset 3px 0 0 var(--mf-pending);
 }
 
 .pending-marker {
@@ -331,17 +959,7 @@ input {
 .finance-grid .money {
   text-align: right;
   font-family: var(--font-mono);
-}
-.overlay-form {
-  display: flex;
-  min-width: min(28rem, calc(100vw - 6rem));
-  flex-direction: column;
-  gap: var(--space-5);
-}
-.overlay-label {
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
 }
 .overlay-status {
   min-height: 1.25rem;
@@ -416,7 +1034,7 @@ input {
 }
 .layer-chart {
   max-width: 100%;
-  color: var(--moneyflow-focus);
+  color: var(--mf-focus);
   overflow: hidden;
 }
 .layer-chart svg {
@@ -449,8 +1067,8 @@ input {
   outline-offset: 1px;
 }
 .chart-mark--active {
-  border-color: var(--moneyflow-focus);
-  box-shadow: inset 3px 0 var(--moneyflow-focus);
+  border-color: var(--mf-focus);
+  box-shadow: inset 3px 0 var(--mf-focus);
   color: var(--text-primary);
   font-weight: var(--font-weight-semibold);
 }
@@ -481,6 +1099,55 @@ input {
   }
 }
 @media (max-width: 640px) {
+  /* Phone frame: two command bar rows, with 44 px touch targets. */
+  .mf-command-bar {
+    gap: 0;
+    padding: var(--space-1) var(--space-2);
+  }
+  .mf-command-bar__leading,
+  .mf-command-bar__controls {
+    flex-basis: 100%;
+    flex-wrap: nowrap;
+    gap: var(--space-2);
+  }
+  .mf-command-bar__controls {
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+  .mf-command-bar__leading .mf-breadcrumbs {
+    flex: 1;
+  }
+  .mf-breadcrumbs__link {
+    min-height: 44px;
+  }
+  .mf-command-bar .kit-icon-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .mf-command-bar .mf-period__label {
+    min-height: 44px;
+  }
+  .mf-charts-switch {
+    min-height: 44px;
+    padding-right: var(--space-3);
+  }
+  .mf-view-button-slot {
+    display: contents;
+  }
+  .mf-command-bar .kit-button.mf-view-button {
+    min-height: 44px;
+    margin-left: auto;
+  }
+  .mf-command-bar__search {
+    flex-basis: 100%;
+    padding-bottom: var(--space-2);
+  }
+  /* At least 16 px on touch devices (kit's md size), so iOS does not zoom into the field. */
+  .mf-command-bar .mf-command-bar__search .kit-search-input {
+    width: 100%;
+    height: 44px;
+    font-size: var(--font-size-md);
+  }
   .app-shell__main {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
@@ -492,6 +1159,10 @@ input {
 @media (prefers-reduced-motion: reduce) {
   .chart-mark {
     transition: none;
+  }
+  .mf-nav-drawer__panel,
+  .mf-sheet__panel {
+    animation: none;
   }
 }
 

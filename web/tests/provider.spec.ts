@@ -3,9 +3,16 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 import { openMoneyflow } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
-test('an unbound profile explains why provider refresh is unavailable', async ({ page }) => {
+test('an unbound provider profile explains why refresh is unavailable', async ({ page }) => {
   const server = await startE2EServer('/moneyflow/')
   try {
+    const asMonarch = async (route: Route) => {
+      const response = await route.fetch()
+      const body = (await response.json()) as Record<string, unknown>
+      await route.fulfill({ response, json: { ...body, profile_kind: 'monarch' } })
+    }
+    await page.route('**/api/v1/profiles/*/view', asMonarch)
+    await page.route('**/api/v1/profiles/*/view/transition', asMonarch)
     await openMoneyflow(page, server)
 
     const refresh = page.getByRole('button', { name: 'Refresh provider data' })
@@ -29,11 +36,11 @@ test('r refreshes through the protected base-path API without leaking provider s
 
     await expect(page.getByText('Provider refresh complete.')).toBeAttached()
     expect(fixture.refreshBodies).toHaveLength(1)
-    expect(fixture.refreshBodies[0]).toMatchObject({ manual: true, query: 'v=1' })
+    expect(fixture.refreshBodies[0]).toMatchObject({ manual: true, query: 'cur=USD%3A2&v=1' })
     const historyText = await page.evaluate(() => JSON.stringify(history.state))
     expect(historyText).not.toContain('opaque-confirmation')
     expect(historyText).not.toContain('imported_transactions')
-    expect(page.url()).toBe(`${server.url}?v=1`)
+    expect(page.url()).toBe(`${server.url}?cur=USD%3A2&v=1`)
   } finally {
     await server.stop()
   }
@@ -82,7 +89,28 @@ test('Escape cancels deletion confirmation and a later refresh fetches a new can
     await expect(dialog).toBeVisible()
     expect(fixture.refreshBodies).toHaveLength(2)
     expect(fixture.confirmBodies).toHaveLength(0)
-    expect(page.url()).toBe(`${server.url}?v=1`)
+    expect(page.url()).toBe(`${server.url}?cur=USD%3A2&v=1`)
+  } finally {
+    await server.stop()
+  }
+})
+
+test('a refresh confirmation started from the phone drawer closes the drawer', async ({ page }) => {
+  const server = await startE2EServer('/moneyflow/')
+  try {
+    await installProviderRoutes(page, true)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openMoneyflow(page, server)
+    await page.getByRole('button', { name: 'Open navigation' }).click()
+    const drawer = page.getByRole('dialog', { name: 'Navigation' })
+    await drawer.getByRole('button', { name: 'Refresh provider data' }).click()
+
+    const dialog = page.getByRole('dialog', { name: 'Confirm provider refresh' })
+    await expect(dialog).toBeVisible()
+    await expect(drawer).toBeHidden()
+    expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
   } finally {
     await server.stop()
   }
@@ -102,16 +130,24 @@ async function installProviderRoutes(page: Page, requireConfirmation: boolean) {
     capability: refreshCapability(),
   })
 
-  await page.route('**/api/v1/profiles/*/view', async (route) => {
+  const patchProjection = async (route: Route) => {
     const response = await route.fetch()
+    if (!response.ok()) {
+      await route.fulfill({ response })
+      return
+    }
     const body = (await response.json()) as Record<string, unknown>
     const capabilities = body.capabilities as Array<Record<string, unknown>>
     body.capabilities = capabilities.map((capability) =>
       capability.id === 'provider.refresh' ? refreshCapability() : capability,
     )
+    // The demo profile is local, which has no provider controls; present it as a provider profile.
+    body.profile_kind = 'monarch'
     projection = body
     await route.fulfill({ response, json: body })
-  })
+  }
+  await page.route('**/api/v1/profiles/*/view', patchProjection)
+  await page.route('**/api/v1/profiles/*/view/transition', patchProjection)
   await page.route('**/api/v1/profiles/*/provider/status', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', json: status() })
   })

@@ -36,47 +36,52 @@ async function september(page: Page, server: ScenarioServer, showHidden = false)
   await page.clock.setFixedTime(new Date('2026-10-15T12:00:00Z'))
   await page.goto(server.url)
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
-  await page.keyboard.press('f')
-  const filters = page.getByRole('dialog', { name: 'Filter transactions', exact: true })
-  await filters.getByRole('button', { name: 'All time', exact: true }).click()
-  const picker = page.getByRole('dialog', { name: 'Select date range' })
-  await picker.getByRole('radio', { name: 'Custom', exact: true }).click()
-  await picker.getByRole('button', { name: 'Previous month' }).click()
-  await picker.getByRole('button', { name: 'Sep 1, 2026', exact: true }).click()
-  await picker.getByRole('button', { name: 'Sep 30, 2026', exact: true }).click()
-  await filters.locator('button[aria-haspopup="dialog"]').click()
-  if (!showHidden)
-    await filters.getByRole('checkbox', { name: 'Show hidden transactions' }).uncheck()
-  await filters.getByRole('button', { name: 'Apply filters' }).click()
-  await expect(filters).not.toBeVisible()
+  // Latest is in September, so the Month segment selects September.
+  await page
+    .getByRole('radiogroup', { name: 'Period', exact: true })
+    .getByRole('radio', { name: 'Month' })
+    .click()
+  await expect(page.getByRole('button', { name: 'Sep 2026', exact: true })).toBeVisible()
+  if (!showHidden) {
+    await page.keyboard.press('f')
+    await page.getByRole('button', { name: 'Show hidden transactions', exact: true }).click()
+    await expect(page).toHaveURL(/[?&]hidden=0/)
+    await page.keyboard.press('Escape')
+  }
   await page
     .getByRole('row')
     .filter({ has: page.getByRole('gridcell', { name: 'Example Shop', exact: true }) })
     .click()
 }
 
-test('@smoke long active filters keep Clear reachable on a narrow empty view', async ({
-  page,
-}, info) => {
+test('@smoke a narrow empty search view keeps Clear search reachable', async ({ page }, info) => {
   await withScenarioServer(info.outputPath('scenario'), async (server) => {
     await september(page, server)
     await page.setViewportSize({ width: 390, height: 844 })
+    // WebKit reports the phone media query after the resize resolves. Typing before it would
+    // go to the desktop field, which the phone layout then replaces mid-search.
+    await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible()
     await page.keyboard.press('/')
     await page
       .getByRole('searchbox', { name: 'Search transactions' })
       .fill('NoSuchSyntheticMerchant')
     await page.keyboard.press('Enter')
     await expect(page.getByText('No transactions', { exact: true })).toBeVisible()
-    const clear = page
-      .getByRole('navigation', { name: 'Active refinements' })
-      .getByRole('button', { name: /^Clear/ })
+    const clear = page.getByRole('button', { name: 'Clear search' })
     await expect(clear).toBeInViewport()
     expect(
       await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth),
     ).toBe(true)
+    const length = await page.evaluate(() => history.length)
     await clear.click()
-    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeVisible()
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await expect(grid).toBeVisible()
     await expect(page.getByText('No transactions', { exact: true })).not.toBeVisible()
+    await grid.click()
+    await expect(page).not.toHaveURL(/[?&]q=/)
+    await expect.poll(() => page.evaluate(() => history.length)).toBe(length + 1)
+    await page.goBack()
+    await expect(page).toHaveURL(/[?&]q=NoSuchSyntheticMerchant(?:&|$)/)
   })
 })
 

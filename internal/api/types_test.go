@@ -151,7 +151,7 @@ func TestWireCapabilitiesListKeylessWebActionsWithoutKeys(t *testing.T) {
 	assert.True(t, byID[app.ActionSetSort].Available)
 	assert.False(t, byID[app.ActionSetCurrency].Available)
 	assert.Equal(t, "The profile has one currency.", byID[app.ActionSetCurrency].Reason)
-	_, tuiOnly := byID[app.ActionChooseTime]
+	_, tuiOnly := byID[app.ActionToggleTime]
 	assert.False(t, tuiOnly, "actions the web does not offer stay out")
 }
 

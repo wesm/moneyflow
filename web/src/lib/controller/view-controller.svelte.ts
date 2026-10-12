@@ -13,6 +13,7 @@ import { createEditingController, type EditingController } from './editing'
 import { createDuplicateController, type DuplicateController } from './duplicates'
 import { createExportController, type ExportController } from './export'
 import { OwnedHistoryLedger, type MoneyflowHistoryState } from './history'
+import type { SearchPreview } from './search'
 import { createProviderController, type ProviderController } from './provider'
 import { createProviderWriteController, type ProviderWriteController } from './provider-write'
 import { createReviewController, type ReviewController } from './review'
@@ -24,7 +25,19 @@ export interface TransitionAction {
   action: TransitionBody['action']
   target?: TransitionBody['target']
   search?: TransitionBody['search']
-  filters?: TransitionBody['filters']
+  /** The toggles to apply; the transition keeps the period of the view it starts from. */
+  filters?: Omit<NonNullable<TransitionBody['filters']>, 'date_range'>
+  dimension?: TransitionBody['dimension']
+  currency?: TransitionBody['currency']
+  sort_field?: TransitionBody['sort_field']
+  period?: TransitionBody['period']
+  depth?: TransitionBody['depth']
+}
+
+interface ReturnInProgress {
+  sequence: number
+  projection: ViewProjection
+  settle(): void
 }
 
 export interface ControllerProblem {
@@ -43,6 +56,8 @@ export interface SearchSnapshot {
 export interface ViewController {
   readonly projection: ViewProjection | undefined
   readonly loading: boolean
+  /** The first load is still setting the view's currency; a search waits for it. */
+  readonly opening: boolean
   readonly announcement: string
   readonly cursorIdentity: string | undefined
   readonly cursorIndex: number
@@ -59,9 +74,18 @@ export interface ViewController {
   moveCursorTo(index: number): Promise<void>
   moveHome(): Promise<void>
   apply(action: TransitionAction): Promise<boolean>
+  /**
+   * Makes later transitions wait for `work`, as they wait for an Esc return. `work` must not
+   * await `apply()` or another transition: that transition waits for `work`, so neither ends.
+   */
+  hold<T>(work: Promise<T>): Promise<T>
+  /** Settles once the transitions queued so far, and any Esc return or held work, finish. */
+  settled(): Promise<void>
   beginSearch(): SearchSnapshot
-  previewSearch(search: string): Promise<boolean>
+  previewSearch(search: string): Promise<SearchPreview>
+  /** Keeps the preview as a history entry; does nothing once history dropped `snapshot`. */
   commitSearch(snapshot: SearchSnapshot): void
+  /** Returns to the view before the search; does nothing once history dropped `snapshot`. */
   restoreSearch(snapshot: SearchSnapshot): void
   restore(event: PopStateEvent): Promise<void>
   retry(): Promise<void>
@@ -77,6 +101,7 @@ export interface ViewControllerOptions {
   instance?: string
   prefetch?: boolean
   recheckDebounceMillis?: number
+  returnTimeoutMillis?: number
 }
 
 export function createViewController(options: ViewControllerOptions): ViewController {
@@ -88,10 +113,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   const cache = new WindowCache(windowSize)
   const prefetchEnabled = options.prefetch ?? true
   const recheckDebounceMillis = options.recheckDebounceMillis ?? 500
+  const returnTimeoutMillis = options.returnTimeoutMillis ?? 1000
   const existing = ledger.record(browserHistory.state)
 
   let projection = $state.raw<ViewProjection | undefined>()
   let loading = $state(false)
+  let opening = $state(false)
   let announcement = $state('')
   let cursorIdentity = $state<string | undefined>()
   let cursorIndex = $state(0)
@@ -104,6 +131,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let searchSnapshot: SearchSnapshot | undefined
   let recheckRequest: Promise<ViewProjection | undefined> | undefined
   let lastRevisionObservation = 0
+  let returning: ReturnInProgress | undefined
+  let lateReturn: ReturnInProgress | undefined
+  let barrier: Promise<unknown> = Promise.resolve()
+  let applyTail: Promise<void> = Promise.resolve()
   const prefetchRequests = new SvelteMap<string, AbortController>()
 
   const providerWrite = createProviderWriteController({
@@ -150,7 +181,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   async function hydrate(): Promise<void> {
     const query = currentQuery(browserLocation)
     const owned = ledger.read(browserHistory.state)
-    await requestProjection(
+    const loaded = await requestProjection(
       () =>
         options.client.view(
           viewBody(query, owned?.selection, alignedOffset(owned?.cursorIndex ?? 0)),
@@ -159,6 +190,32 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       (next) => accept(next, 'replace', owned),
       hydrate,
     )
+    if (loaded) await openInBusiestCurrency()
+  }
+
+  /** Scopes a view without a currency, such as an empty profile's after its first import. */
+  async function openInBusiestCurrency(): Promise<void> {
+    const busiest = projection && !opening ? busiestCurrency(projection) : undefined
+    if (!busiest) return
+    opening = true
+    try {
+      await hold(transitionNow({ action: 'view.set-currency', currency: busiest }, 'replace'))
+    } finally {
+      opening = false
+    }
+  }
+
+  function hold<T>(work: Promise<T>): Promise<T> {
+    const released = work.then(
+      () => undefined,
+      () => undefined,
+    )
+    barrier = Promise.all([barrier, released])
+    return work
+  }
+
+  async function settled(): Promise<void> {
+    await Promise.all([applyTail, barrier])
   }
 
   async function recheck(selection?: SelectionValue): Promise<ViewProjection | undefined> {
@@ -201,8 +258,26 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return await recheckRequest
   }
 
+  // Each transition starts from the view the one before it returned, whichever control sent
+  // it, so rapid clicks step one at a time instead of aborting each other.
   async function apply(action: TransitionAction): Promise<boolean> {
+    const result = applyTail.then(async () => {
+      await barrier
+      return await transitionNow(action)
+    })
+    applyTail = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return await result
+  }
+
+  async function transitionNow(
+    action: TransitionAction,
+    historyMode?: 'replace',
+  ): Promise<boolean> {
     if (!projection) return false
+    lateReturn = undefined
     const prior = projection
     const body: TransitionBody = {
       query: prior.canonical_query,
@@ -211,23 +286,24 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       window: { offset: alignedOffset(cursorIndex), limit: windowSize },
       ...(action.target === undefined ? {} : { target: action.target }),
       ...(action.search === undefined ? {} : { search: action.search }),
-      ...(action.filters === undefined ? {} : { filters: action.filters }),
+      ...(action.filters === undefined ? {} : { filters: withPeriod(action.filters, prior) }),
+      ...(action.dimension === undefined ? {} : { dimension: action.dimension }),
+      ...(action.currency === undefined ? {} : { currency: action.currency }),
+      ...(action.sort_field === undefined ? {} : { sort_field: action.sort_field }),
+      ...(action.period === undefined ? {} : { period: action.period }),
+      ...(action.depth === undefined ? {} : { depth: action.depth }),
     }
     const run = async () => {
       return await requestProjection(
         async () =>
           ensureVisibleWindow(await options.client.transition(body, activeRequest?.signal)),
-        (next) => {
-          if (action.action === 'view.back') {
-            const delta = ledger.deltaTo(next.canonical_query, next.selection, browserHistory.state)
-            if (delta !== undefined) {
-              browserHistory.go(delta)
-              return
-            }
-            accept(next, 'replace')
+        async (next) => {
+          if (action.action === 'view.back' || action.action === 'view.back-to') {
+            await returnTo(next)
             return
           }
-          accept(next, action.action.startsWith('selection.') ? 'replace' : 'push')
+          const selectionOnly = action.action.startsWith('selection.')
+          accept(next, historyMode ?? (selectionOnly ? 'replace' : 'push'))
         },
         async () => {
           await run()
@@ -237,22 +313,87 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return await run()
   }
 
+  function returnTo(next: ViewProjection): Promise<void> {
+    const current = ledger.read(browserHistory.state)
+    const delta = ledger.deltaTo(next.canonical_query, browserHistory.state)
+    if (current?.query === next.canonical_query || current === undefined || delta === undefined) {
+      accept(next, 'replace')
+      return Promise.resolve()
+    }
+    const traversal = new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        if (returning?.projection !== next) return
+        lateReturn = returning
+        returning = undefined
+        if (!newerThan(next)) accept(next, 'none')
+        resolve()
+      }, returnTimeoutMillis)
+      returning = {
+        sequence: current.sequence + delta,
+        projection: next,
+        settle: () => {
+          clearTimeout(timer)
+          resolve()
+        },
+      }
+    })
+    barrier = Promise.all([barrier, traversal])
+    browserHistory.go(delta)
+    return traversal
+  }
+
+  async function installReturn(
+    returned: ReturnInProgress,
+    owned: MoneyflowHistoryState,
+  ): Promise<void> {
+    generation += 1
+    activeRequest?.abort()
+    loading = false
+    // Later transitions wait for this return and its cursor window, so a row key targets the
+    // restored cursor row. They must run even if installing it fails. The saved cursor can lie
+    // past the end once an edit shrank the parent, so the window follows the clamped cursor.
+    try {
+      accept(returned.projection, 'replace', owned)
+      if (alignedOffset(cursorIndex) !== returned.projection.window.offset) {
+        await moveToIndex(cursorIndex)
+      }
+    } finally {
+      returned.settle()
+    }
+  }
+
   async function restore(event: PopStateEvent): Promise<void> {
     searchSnapshot = undefined
     const owned = ledger.record(event.state)
+    // A late traversal's view is current only until anything else replaces it, such as an edit.
+    const late = lateReturn?.projection === projection ? lateReturn : undefined
+    const returned = returning ?? late
+    returning = undefined
+    lateReturn = undefined
+    const arrived = owned && returned?.sequence === owned.sequence ? returned : undefined
+    if (arrived && owned && !newerThan(arrived.projection)) {
+      await installReturn(arrived, owned)
+      return
+    }
+    // Fetch the view instead. When an edit made the returned view stale, use the selection Esc
+    // left, not the older one history saved. Keys wait until the view loads.
     const query = owned?.query ?? currentQuery(browserLocation)
-    const selection = owned?.selection ?? projection?.selection
-    await requestProjection(
-      async () =>
-        ensureVisibleWindow(
-          await options.client.view(
-            viewBody(query, selection, alignedOffset(owned?.cursorIndex ?? 0)),
-            activeRequest?.signal,
+    const selection = arrived?.projection.selection ?? owned?.selection ?? projection?.selection
+    try {
+      await requestProjection(
+        async () =>
+          ensureVisibleWindow(
+            await options.client.view(
+              viewBody(query, selection, alignedOffset(owned?.cursorIndex ?? 0)),
+              activeRequest?.signal,
+            ),
           ),
-        ),
-      (next) => accept(next, 'replace', owned),
-      () => restore(event),
-    )
+        (next) => accept(next, 'replace', owned),
+        () => restore(event),
+      )
+    } finally {
+      returned?.settle()
+    }
   }
 
   async function retry(): Promise<void> {
@@ -299,12 +440,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return searchSnapshot
   }
 
-  async function previewSearch(search: string): Promise<boolean> {
-    if (!projection) return false
+  async function previewSearch(search: string): Promise<SearchPreview> {
+    if (!projection) return 'superseded'
     const query = searchSnapshot?.projection.canonical_query ?? projection.canonical_query
     const selection = searchSnapshot?.projection.selection ?? projection.selection
     let accepted = false
-    await requestProjection(
+    const request = requestProjection(
       async () =>
         ensureVisibleWindow(
           await options.client.transition(
@@ -324,11 +465,15 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       },
       () => previewSearch(search).then(() => undefined),
     )
-    return accepted
+    const requestGeneration = generation
+    await request
+    if (accepted) return 'applied'
+    if (requestGeneration !== generation || !problem) return 'superseded'
+    return problem.code === 'network_error' ? 'failed' : 'rejected'
   }
 
   function commitSearch(snapshot: SearchSnapshot): void {
-    if (!projection) return
+    if (!projection || snapshot !== searchSnapshot) return
     const accepted = projection
     browserHistory.replaceState(
       snapshot.history,
@@ -342,6 +487,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   function restoreSearch(snapshot: SearchSnapshot): void {
+    if (snapshot !== searchSnapshot) return
     generation += 1
     activeRequest?.abort()
     loading = false
@@ -411,7 +557,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   async function requestProjection(
     request: () => Promise<ViewProjection>,
-    onSuccess: (next: ViewProjection) => void,
+    onSuccess: (next: ViewProjection) => void | Promise<void>,
     retry: () => Promise<void>,
   ): Promise<boolean> {
     lastRetry = async () => {
@@ -426,7 +572,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     try {
       const next = await request()
       if (requestGeneration !== generation) return false
-      onSuccess(next)
+      await onSuccess(next)
       return true
     } catch (error) {
       if (requestGeneration !== generation || isAbort(error)) return false
@@ -439,7 +585,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   function accept(
     next: ViewProjection,
-    historyMode: 'push' | 'replace',
+    historyMode: 'push' | 'replace' | 'none',
     restored?: MoneyflowHistoryState,
   ): void {
     cache.store(next)
@@ -460,6 +606,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
     problem = undefined
 
+    if (historyMode === 'none') {
+      schedulePrefetch(next)
+      return
+    }
     if (historyMode === 'push') sequence += 1
     const state = ownedState(next)
     const url = applicationURL(basePath, next.canonical_query)
@@ -469,8 +619,13 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     schedulePrefetch(next)
   }
 
+  /** Whether the view shown has a newer profile revision than `cached`, such as after an edit. */
+  function newerThan(cached: ViewProjection): boolean {
+    return projection !== undefined && BigInt(cached.revision) < BigInt(projection.revision)
+  }
+
   function acceptProfileProjection(next: ViewProjection, replaceHistory = false): boolean {
-    if (projection && BigInt(next.revision) < BigInt(projection.revision)) return false
+    if (newerThan(next)) return false
     generation += 1
     activeRequest?.abort()
     activeRequest = undefined
@@ -488,6 +643,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     problem = undefined
     if (replaceHistory) replaceOwnedHistory()
     schedulePrefetch(next)
+    void openInBusiestCurrency()
     return true
   }
 
@@ -599,6 +755,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     get loading() {
       return loading
     },
+    get opening() {
+      return opening
+    },
     get announcement() {
       return announcement
     },
@@ -623,6 +782,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     moveCursorTo,
     moveHome,
     apply,
+    hold,
+    settled,
     beginSearch,
     previewSearch,
     commitSearch,
@@ -640,6 +801,24 @@ function viewBody(query: string, selection: SelectionValue | undefined, offset: 
     ...(selection === undefined ? {} : { selection }),
     window: { offset, limit: windowSize },
   }
+}
+
+// filters.apply replaces the date range too, so it carries the period of the view it changes.
+function withPeriod(
+  filters: NonNullable<TransitionAction['filters']>,
+  prior: ViewProjection,
+): NonNullable<TransitionBody['filters']> {
+  const range = prior.filters.date_range
+  return { ...(range ? { date_range: { start: range.from, end: range.to } } : {}), ...filters }
+}
+
+function busiestCurrency(next: ViewProjection): TransitionAction['currency'] {
+  if (next.view.currency) return undefined
+  let busiest: ViewProjection['currencies'][number] | undefined
+  for (const candidate of next.currencies) {
+    if (busiest === undefined || candidate.count > busiest.count) busiest = candidate
+  }
+  return busiest && { currency: busiest.currency, scale: busiest.scale }
 }
 
 function currentQuery(browserLocation: Pick<Location, 'search'>): string {

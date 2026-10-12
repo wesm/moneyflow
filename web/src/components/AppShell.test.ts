@@ -1,13 +1,38 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { tick } from 'svelte'
 import AppShell from './AppShell.svelte'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
 import { testProviderWriteController } from '../test/provider-write'
+import { loadRail } from '../lib/shell/rail'
+import { SIDEBAR_FULL_QUERY } from '../lib/shell/layout'
+import { testProviderStatus } from '../test/provider'
+
+vi.mock('../lib/shell/rail', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../lib/shell/rail')>()
+  return { loadRail: vi.fn(original.loadRail) }
+})
+
+const failureText = 'Charts could not load. Reload the page.'
+const escapeCapability = {
+  id: 'view.back',
+  key_display: 'esc',
+  description: 'Go back',
+  category: 'Navigation',
+  available: true,
+}
+
+// Tests that wait for the chart library's first dynamic import allow 10 s for its cold compile;
+// the test itself needs room beyond that wait.
+const CHART_IMPORT_TEST_MILLIS = 15_000
 
 describe('AppShell', () => {
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.mocked(loadRail).mockClear()
+  })
   it('keeps the finance grid primary and routes the TUI cursor shortcut', async () => {
     const controller = stubController()
     render(AppShell, { controller })
@@ -18,7 +43,306 @@ describe('AppShell', () => {
     vi.mocked(controller.moveCursor).mockClear()
     await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), { key: 'j' })
     expect(controller.moveCursor).toHaveBeenCalledTimes(1)
+  })
+
+  it('focuses the command bar search on / and opens the Filters menu on f', async () => {
+    render(AppShell, { controller: stubController() })
+    await fireEvent.keyDown(window, { key: '/' })
+    expect(document.activeElement).toBe(
+      screen.getByRole('searchbox', { name: 'Search transactions' }),
+    )
+    await fireEvent.keyDown(screen.getByRole('searchbox', { name: 'Search transactions' }), {
+      key: 'f',
+    })
+    expect(screen.queryByRole('button', { name: 'Show hidden transactions' })).toBeNull()
+    await fireEvent.keyDown(window, { key: 'f' })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Filters' }))
+    expect(await screen.findByRole('button', { name: 'Show hidden transactions' })).not.toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('leaves focus in search when a grouping finishes, until Enter returns it', async () => {
+    const controller = stubController()
+    let finish!: (applied: boolean) => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (finish = resolve)),
+    )
+    render(AppShell, { controller })
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+
+    await fireEvent.keyDown(window, { key: '2' })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalled())
+    await fireEvent.keyDown(window, { key: '/' })
+    expect(document.activeElement).toBe(search)
+    finish(true)
+    await tick()
+    await tick()
+    expect(document.activeElement).toBe(search)
+
+    await fireEvent.keyDown(search, { key: 'Enter' })
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' })),
+    )
+  })
+
+  it('leaves focus in search when a breadcrumb return finishes', async () => {
+    const controller = stubController(
+      testProjection({
+        canonical_query: 'v=1&mode=detail&drill=merchant%3AUSD%3A2%3Aexample-key',
+        breadcrumbs: [{ dimension: 'merchant', label: 'Corner Grocery' }],
+      }),
+    )
+    let finish!: (applied: boolean) => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (finish = resolve)),
+    )
+    render(AppShell, { controller })
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+
+    const trail = within(screen.getByRole('navigation', { name: 'Breadcrumb' }))
+    await fireEvent.click(trail.getByRole('button', { name: 'Merchants' }))
+    expect(controller.apply).toHaveBeenCalledWith({ action: 'view.back-to', depth: 0 })
+    await fireEvent.keyDown(window, { key: '/' })
+    expect(document.activeElement).toBe(search)
+    finish(true)
+    await tick()
+    await tick()
+    expect(document.activeElement).toBe(search)
+  })
+
+  it('runs a command-bar period change after the table toggles queued before it', async () => {
+    const controller = heldFirstApply(stubController(periodProjection()))
+    render(AppShell, { controller })
+
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous period' }))
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(3))
+    expect(vi.mocked(controller.apply).mock.calls.map(([action]) => action.action)).toEqual([
+      'selection.toggle',
+      'selection.toggle',
+      'time.previous-period',
+    ])
+  })
+
+  it('moves the cursor only after a pending Esc return restores the parent view', async () => {
+    const controller = heldFirstApply(stubController())
+    controller.projection!.capabilities!.push(escapeCapability, {
+      id: 'cursor.home',
+      key_display: 'home',
+      description: 'Move to the first row',
+      category: '',
+      available: true,
+    })
+    const moves: string[] = []
+    vi.mocked(controller.moveCursor).mockImplementation(async (delta) => {
+      moves.push(`move ${delta}`)
+    })
+    vi.mocked(controller.moveHome).mockImplementation(async () => {
+      moves.push('home')
+    })
+    render(AppShell, { controller })
+    const grid = screen.getByRole('grid', { name: 'Financial results' })
+
+    await fireEvent.keyDown(grid, { key: 'Escape' })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledWith({ action: 'view.back' }))
+    await fireEvent.keyDown(grid, { key: 'ArrowDown' })
+    await fireEvent.keyDown(grid, { key: 'Home' })
+    await fireEvent.keyDown(window, { key: 'j' })
+    await fireEvent.keyDown(window, { key: 'Home' })
+    await tick()
+    expect(moves).toEqual([])
+    controller.finish()
+
+    await vi.waitFor(() => expect(moves).toEqual(['move 1', 'home', 'move 1', 'home']))
+  })
+
+  it('anchors a period segment on the view a pending period change returns', async () => {
+    const controller = heldFirstApply(stubController(periodProjection()))
+    render(AppShell, { controller })
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous period' }))
+    await fireEvent.click(screen.getByRole('radio', { name: 'Month' }))
+    showPeriod(controller, { from: '2025-01-01', to: '2025-12-31' })
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(controller.apply).toHaveBeenLastCalledWith({
+      action: 'time.set-period',
+      period: { start: '2025-12-01', end: '2025-12-31' },
+    })
+  })
+
+  it('applies All time chosen while a period change from all time is pending', async () => {
+    const shown = stubController(periodProjection())
+    showPeriod(shown, undefined)
+    const controller = heldFirstApply(shown)
+    render(AppShell, { controller })
+
+    await fireEvent.click(screen.getByRole('radio', { name: 'Month' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'All time' }))
+    const chooser = within(screen.getByRole('dialog', { name: 'Choose period' }))
+    await fireEvent.click(chooser.getByRole('button', { name: /All time/ }))
+    showPeriod(controller, { from: '2026-10-01', to: '2026-10-31' })
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(controller.apply).mock.calls.map(([action]) => action)).toEqual([
+      { action: 'time.set-period', period: { start: '2026-10-01', end: '2026-10-31' } },
+      { action: 'time.clear-period' },
+    ])
+  })
+
+  it('starts a search typed behind queued view changes from their result', async () => {
+    const controller = heldFirstApply(stubController(periodProjection()))
+    render(AppShell, { controller })
+
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous period' }))
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+    search.focus()
+    await fireEvent.input(search, { target: { value: 'coffee' } })
+    await tick()
+    expect(controller.beginSearch).not.toHaveBeenCalled()
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.beginSearch).toHaveBeenCalled())
+    const [lastApply] = vi.mocked(controller.apply).mock.invocationCallOrder.slice(-1)
+    expect(vi.mocked(controller.apply)).toHaveBeenCalledTimes(3)
+    expect(vi.mocked(controller.beginSearch).mock.invocationCallOrder[0]).toBeGreaterThan(
+      lastApply!,
+    )
+  })
+
+  it('leaves the search field after a search with no matches so Esc can clear it', async () => {
+    const base = testProjection()
+    const controller = stubController(
+      testProjection({
+        view: { ...base.view, search: 'no such merchant' },
+        total_rows: 0,
+        window: { offset: 0, limit: 200, count: 0 },
+        detail_rows: [],
+      }),
+    )
+    controller.projection!.capabilities!.push(escapeCapability)
+    vi.mocked(controller.previewSearch).mockResolvedValue('applied')
+    render(AppShell, { controller })
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+    search.focus()
+    await fireEvent.input(search, { target: { value: 'no such merchant' } })
+    await vi.waitFor(() => expect(controller.previewSearch).toHaveBeenCalled())
+
+    await fireEvent.keyDown(search, { key: 'Enter' })
+    await vi.waitFor(() => expect(controller.commitSearch).toHaveBeenCalled())
+    await vi.waitFor(() => expect(document.activeElement).not.toBe(search))
+    await fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledWith({ action: 'view.back' }))
+  })
+
+  it('starts charts off at rail widths so the table keeps the full width', async () => {
+    render(AppShell, { controller: stubController() })
+    const charts = screen.getByRole('switch', { name: 'Charts' }) as HTMLInputElement
+    expect(charts.checked).toBe(false)
+    expect(screen.queryByRole('complementary', { name: 'Visualizations' })).toBeNull()
+    await fireEvent.click(charts)
+    expect(screen.getByRole('complementary', { name: 'Visualizations' })).not.toBeNull()
+  })
+
+  it('starts charts on with the full sidebar', () => {
+    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
+    render(AppShell, { controller: stubController() })
     expect((screen.getByRole('switch', { name: 'Charts' }) as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByRole('complementary', { name: 'Visualizations' })).not.toBeNull()
+  })
+
+  it(
+    'loads the chart rail into the Visualizations region',
+    async () => {
+      onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
+      render(AppShell, { controller: stubController() })
+
+      const region = screen.getByRole('complementary', { name: 'Visualizations' })
+      // The first dynamic import compiles the chart library, which is slow in a cold test run.
+      const heading = await within(region).findByRole(
+        'heading',
+        { name: 'Visualizations' },
+        { timeout: 10_000 },
+      )
+      expect(heading.tagName).toBe('H2')
+    },
+    CHART_IMPORT_TEST_MILLIS,
+  )
+
+  it('shows a loading line until the chart rail arrives', async () => {
+    vi.mocked(loadRail).mockImplementationOnce(() => new Promise(() => undefined))
+    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
+    render(AppShell, { controller: stubController() })
+
+    const region = screen.getByRole('complementary', { name: 'Visualizations' })
+    expect(within(region).getByText('Loading charts…')).not.toBeNull()
+    expect(chartAnnouncement().textContent).toBe('Loading charts…')
+  })
+
+  it(
+    'explains a failed chart load and retries when charts are shown again',
+    async () => {
+      vi.mocked(loadRail).mockRejectedValueOnce(new Error('chunk 404'))
+      onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
+      render(AppShell, { controller: stubController() })
+
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const region = screen.getByRole('complementary', { name: 'Visualizations' })
+      expect(await within(region).findByText(failureText)).not.toBeNull()
+      expect(within(region).queryByText('Loading charts…')).toBeNull()
+      expect(chartAnnouncement().textContent).toBe(failureText)
+      expect(errors).toHaveBeenCalledWith('moneyflow: chart rail failed to load', expect.any(Error))
+      errors.mockRestore()
+
+      const toggle = screen.getByRole('switch', { name: 'Charts' })
+      await fireEvent.click(toggle)
+      await fireEvent.click(toggle)
+      const heading = await screen.findByRole(
+        'heading',
+        { name: 'Visualizations' },
+        { timeout: 10_000 },
+      )
+      expect(heading.tagName).toBe('H2')
+      expect(screen.queryByText(failureText)).toBeNull()
+      expect(loadRail).toHaveBeenCalledTimes(2)
+    },
+    CHART_IMPORT_TEST_MILLIS,
+  )
+
+  it('explains a failed chart load inside the compact dialog', async () => {
+    const original = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => ({
+        matches: query.includes('640px'),
+        media: query,
+        onchange: null,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      }),
+    })
+    try {
+      vi.mocked(loadRail).mockRejectedValueOnce(new Error('chunk 404'))
+      vi.spyOn(console, 'error').mockImplementationOnce(() => undefined)
+      render(AppShell, { controller: stubController() })
+      await fireEvent.click(screen.getByRole('switch', { name: 'Charts' }))
+      const dialog = screen.getByRole('dialog', { name: 'Moneyflow visualizations' })
+      expect(await within(dialog).findByText(failureText)).not.toBeNull()
+      expect(chartAnnouncement().textContent).toBe(failureText)
+    } finally {
+      Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
+    }
   })
 
   it('keeps the table full width and opens charts in a labelled compact drawer', async () => {
@@ -42,7 +366,8 @@ describe('AppShell', () => {
       expect(screen.getByRole('grid', { name: 'Financial results' })).not.toBeNull()
       expect(screen.queryByRole('complementary', { name: 'Visualizations' })).toBeNull()
       await fireEvent.click(screen.getByRole('switch', { name: 'Charts' }))
-      expect(screen.getByRole('dialog', { name: 'Moneyflow visualizations' })).not.toBeNull()
+      const dialog = screen.getByRole('dialog', { name: 'Moneyflow visualizations' })
+      expect(await within(dialog).findByRole('heading', { name: 'Visualizations' })).not.toBeNull()
       await fireEvent.keyDown(window, { key: 'j' })
       expect(controller.moveCursor).not.toHaveBeenCalled()
     } finally {
@@ -76,6 +401,284 @@ describe('AppShell', () => {
       expect(controller.moveCursor).toHaveBeenCalledWith(1)
     } finally {
       Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
+    }
+  })
+
+  it('frames the workspace with the full sidebar at 1280 px and wider', async () => {
+    const restore = stubMedia((query) => query === SIDEBAR_FULL_QUERY)
+    try {
+      const controller = stubController()
+      render(AppShell, { controller })
+      const sidebar = screen.getByRole('complementary', { name: 'Moneyflow sidebar' })
+      const nav = within(sidebar).getByRole('navigation', { name: 'Workspace' })
+      expect(within(screen.getByRole('banner')).queryByText('Moneyflow')).toBeNull()
+      expect(screen.getByRole('separator', { name: 'Resize sidebar' })).not.toBeNull()
+      expect(screen.getAllByText(/1 pending/)).toHaveLength(1)
+      expect(within(sidebar).getByText(/1 pending/)).not.toBeNull()
+
+      await fireEvent.click(within(nav).getByRole('button', { name: 'Categories' }))
+      await vi.waitFor(() =>
+        expect(controller.apply).toHaveBeenCalledWith({
+          action: 'view.set-grouping',
+          dimension: 'category',
+        }),
+      )
+      await vi.waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole('grid', { name: 'Financial results' }),
+        ),
+      )
+    } finally {
+      restore()
+    }
+  })
+
+  it('opens overlays from Maintain entries and returns focus to the entry on close', async () => {
+    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
+    const frames = captureFrames()
+    render(AppShell, { controller: stubController() })
+    const nav = screen.getByRole('navigation', { name: 'Workspace' })
+    const duplicates = within(nav).getByRole('button', { name: 'Duplicates' })
+    duplicates.focus()
+    await fireEvent.click(duplicates)
+    const dialog = screen.getByRole('dialog', { name: 'Duplicate transactions' })
+    dialog.focus()
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await frames.flush()
+    expect(screen.queryByRole('dialog', { name: 'Duplicate transactions' })).toBeNull()
+    expect(document.activeElement).toBe(duplicates)
+
+    await fireEvent.click(within(nav).getByRole('button', { name: 'Edit groups' }))
+    expect(screen.getByRole('dialog', { name: 'Manage category groups' })).not.toBeNull()
+  })
+
+  it('lets the write drawer close during a confirmation until the phase changes again', async () => {
+    const frames = captureFrames()
+    const confirming = () =>
+      testProviderWriteController({ state: { phase: 'confirmation', announcement: '' } })
+    const controller = { ...stubController(), providerWrite: confirming() }
+    const rendered = render(AppShell, { controller })
+    const name = 'Monarch write status'
+    expect(screen.getByRole('dialog', { name })).not.toBeNull()
+
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await frames.flush()
+    expect(screen.queryByRole('dialog', { name })).toBeNull()
+    await fireEvent.keyDown(window, { key: 'j' })
+    expect(screen.queryByRole('dialog', { name })).toBeNull()
+
+    const idle = testProviderWriteController({ state: { phase: 'idle', announcement: '' } })
+    await rendered.rerender({ controller: { ...controller, providerWrite: idle } })
+    expect(screen.queryByRole('dialog', { name })).toBeNull()
+    await rendered.rerender({ controller: { ...controller, providerWrite: confirming() } })
+    expect(screen.getByRole('dialog', { name })).not.toBeNull()
+  })
+
+  it('returns focus to the grid when the opener is gone', async () => {
+    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
+    const frames = captureFrames()
+    render(AppShell, { controller: stubController() })
+    const grid = screen.getByRole('grid', { name: 'Financial results' })
+    const duplicates = screen.getByRole('button', { name: 'Duplicates' })
+    duplicates.focus()
+    await fireEvent.click(duplicates)
+    screen.getByRole('dialog', { name: 'Duplicate transactions' }).focus()
+    duplicates.remove()
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await frames.flush()
+    expect(document.activeElement).toBe(grid)
+  })
+
+  it('shows the icon rail between 640 and 1279 px and moves pending text to the status line', () => {
+    render(AppShell, { controller: stubController() })
+    expect(screen.queryByRole('separator', { name: 'Resize sidebar' })).toBeNull()
+    const rail = screen.getByRole('complementary', { name: 'Moneyflow sidebar' })
+    const nav = within(rail).getByRole('navigation', { name: 'Workspace' })
+    expect(within(nav).getByRole('button', { name: 'Merchants' })).not.toBeNull()
+    const pending = screen.getAllByText(/1 pending/)
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.closest('footer')).not.toBeNull()
+  })
+
+  it('opens the sidebar in a drawer below 640 px and returns focus to the menu', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const frames = captureFrames()
+    const controller = stubController()
+    render(AppShell, { controller })
+    expect(screen.queryByRole('navigation', { name: 'Workspace' })).toBeNull()
+    expect(screen.getAllByText(/1 pending/)).toHaveLength(1)
+
+    const menu = screen.getByRole('button', { name: 'Open navigation' })
+    menu.focus()
+    await fireEvent.click(menu)
+    const drawer = screen.getByRole('dialog', { name: 'Navigation' })
+    expect(within(drawer).getByRole('navigation', { name: 'Workspace' })).not.toBeNull()
+    expect(drawer.contains(document.activeElement)).toBe(true)
+    expect(screen.getAllByText(/1 pending/)).toHaveLength(1)
+    await fireEvent.keyDown(window, { key: 'j' })
+    expect(controller.moveCursor).not.toHaveBeenCalled()
+
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await frames.flush()
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
+    expect(document.activeElement).toBe(menu)
+    expect(controller.apply).not.toHaveBeenCalledWith({ action: 'view.back' })
+  })
+
+  it('closes the drawer when an entry is chosen and runs the entry', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const controller = stubController()
+    render(AppShell, { controller })
+    await fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    const drawer = screen.getByRole('dialog', { name: 'Navigation' })
+    await fireEvent.click(within(drawer).getByRole('button', { name: 'Categories' }))
+    await vi.waitFor(() =>
+      expect(controller.apply).toHaveBeenCalledWith({
+        action: 'view.set-grouping',
+        dimension: 'category',
+      }),
+    )
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Duplicates' }))
+    await vi.waitFor(() =>
+      expect(screen.getByRole('dialog', { name: 'Duplicate transactions' })).not.toBeNull(),
+    )
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
+  })
+
+  it('moves the view controls into a View sheet below 640 px', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const frames = captureFrames()
+    const usd = { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' }
+    const eur = { currency: 'EUR', scale: 2, count: 1, first: '2025-05-01', latest: '2025-05-01' }
+    const controller = stubController(
+      testProjection({
+        currencies: [usd, eur],
+        view: { ...testProjection().view, currency: { currency: 'USD', scale: 2 } },
+      }),
+    )
+    render(AppShell, { controller })
+    const banner = screen.getByRole('banner')
+    expect(within(banner).queryByRole('radiogroup', { name: 'Period' })).toBeNull()
+    expect(within(banner).queryByRole('button', { name: 'Filters' })).toBeNull()
+    expect(within(banner).getByRole('button', { name: 'Previous period' })).not.toBeNull()
+
+    const view = within(banner).getByRole('button', { name: 'View' })
+    view.focus()
+    await fireEvent.click(view)
+    const sheet = screen.getByRole('dialog', { name: 'View' })
+    await fireEvent.click(within(sheet).getByRole('radio', { name: 'Month' }))
+    await vi.waitFor(() =>
+      expect(controller.apply).toHaveBeenCalledWith({
+        action: 'time.set-period',
+        period: { start: '2026-10-01', end: '2026-10-31' },
+      }),
+    )
+    expect(within(sheet).getByRole('combobox', { name: /^Currency/ })).not.toBeNull()
+    expect(within(sheet).getByRole('button', { name: 'Filters' })).not.toBeNull()
+
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await frames.flush()
+    expect(screen.queryByRole('dialog', { name: 'View' })).toBeNull()
+    expect(document.activeElement).toBe(view)
+  })
+
+  it('keeps the currency row in the View sheet when the view currency has no rows left', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const usd = { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' }
+    const controller = stubController(
+      testProjection({
+        currencies: [usd],
+        view: { ...testProjection().view, currency: { currency: 'EUR', scale: 2 } },
+      }),
+    )
+    render(AppShell, { controller })
+    await fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'View' }))
+    const sheet = screen.getByRole('dialog', { name: 'View' })
+    expect(within(sheet).getByRole('combobox', { name: 'Currency: EUR' })).not.toBeNull()
+  })
+
+  it('opens the Filters menu inside the View sheet on f below 640 px', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    render(AppShell, { controller: stubController() })
+    await fireEvent.keyDown(window, { key: 'f' })
+    const sheet = screen.getByRole('dialog', { name: 'View' })
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(within(sheet).getByRole('button', { name: 'Filters' })),
+    )
+    expect(await screen.findByRole('button', { name: 'Show hidden transactions' })).not.toBeNull()
+  })
+
+  it('keeps an applied search in view below 640 px', () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const projection = testProjection()
+    render(AppShell, {
+      controller: stubController(
+        testProjection({ view: { ...projection.view, search: 'noodle' } }),
+      ),
+    })
+    const field = screen.getByRole('searchbox', { name: 'Search transactions' }) as HTMLInputElement
+    expect(field.value).toBe('noodle')
+    expect(screen.getByRole('button', { name: 'Search' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('reveals search from its icon and returns focus to the icon below 640 px', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    render(AppShell, { controller: stubController() })
+    expect(screen.queryByRole('searchbox', { name: 'Search transactions' })).toBeNull()
+
+    const icon = screen.getByRole('button', { name: 'Search' })
+    icon.focus()
+    await fireEvent.click(icon)
+    const field = await screen.findByRole('searchbox', { name: 'Search transactions' })
+    expect(document.activeElement).toBe(field)
+    expect(icon.getAttribute('aria-pressed')).toBe('true')
+
+    await fireEvent.keyDown(field, { key: 'Escape' })
+    await vi.waitFor(() => expect(document.activeElement).toBe(icon))
+    expect(screen.queryByRole('searchbox', { name: 'Search transactions' })).toBeNull()
+
+    await fireEvent.keyDown(window, { key: '/' })
+    const keyed = await screen.findByRole('searchbox', { name: 'Search transactions' })
+    expect(document.activeElement).toBe(keyed)
+    await fireEvent.keyDown(keyed, { key: 'Escape' })
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' })),
+    )
+  })
+
+  it('reports the connection and profile revision in the status line', async () => {
+    const connected = stubController()
+    const rendered = render(AppShell, { controller: connected })
+    expect(screen.getByText('profile revision 1')).not.toBeNull()
+    expect(screen.getByText('Connected')).not.toBeNull()
+
+    const offline = { ...stubController(), problem: { kind: 'request', code: 'network_error' } }
+    await rendered.rerender({ controller: offline as ViewController })
+    expect(screen.getByText('Offline')).not.toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(offline.retry).toHaveBeenCalledTimes(1)
+  })
+
+  it('hints the keys of the current view', () => {
+    render(AppShell, { controller: stubController() })
+    const footer = screen.getByText('profile revision 1').closest('footer')!
+    expect(within(footer).getByText('Merchant')).not.toBeNull()
+    expect(within(footer).getByText('Help')).not.toBeNull()
+  })
+
+  it('shows the provider confirmation at every width', () => {
+    const restore = stubMedia((query) => query.includes('640px'))
+    try {
+      const controller = stubController()
+      controller.provider.state.phase = 'confirmation'
+      controller.provider.state.status = testProviderStatus({ confirmation_token: 'opaque' })
+      render(AppShell, { controller })
+      expect(screen.getByRole('dialog', { name: 'Confirm provider refresh' })).not.toBeNull()
+    } finally {
+      restore()
     }
   })
 
@@ -234,6 +837,81 @@ describe('AppShell', () => {
   })
 })
 
+/** A view with a year period and a currency, so the period arrows are enabled. */
+function periodProjection(): ReturnType<typeof testProjection> {
+  const base = testProjection()
+  return testProjection({
+    currencies: [
+      { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' },
+    ],
+    view: { ...base.view, currency: { currency: 'USD', scale: 2 } },
+    filters: { ...base.filters, date_range: { from: '2026-01-01', to: '2026-12-31' } },
+  })
+}
+
+/** Shows `range` as the view's period, as the controller does once a period change returns. */
+function showPeriod(controller: ViewController, range: { from: string; to: string } | undefined) {
+  const current = controller.projection!
+  const filters = { ...current.filters }
+  delete filters.date_range
+  if (range) filters.date_range = range
+  Object.assign(controller, { projection: { ...current, filters } })
+}
+
+/** Holds the first transition until `finish`, as a slow request would. */
+function heldFirstApply(controller: ViewController): ViewController & { finish: () => void } {
+  let release: ((applied: boolean) => void) | undefined
+  vi.mocked(controller.apply).mockImplementationOnce(
+    () => new Promise<boolean>((resolve) => (release = resolve)),
+  )
+  return Object.assign(controller, { finish: () => release?.(true) })
+}
+
+/** Holds animation frames until `flush`, so a test can check focus after the restore frame. */
+function captureFrames(): { flush: () => Promise<void> } {
+  const callbacks: FrameRequestCallback[] = []
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    callbacks.push(callback)
+    return callbacks.length
+  })
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    callbacks[id - 1] = () => undefined
+  })
+  onTestFinished(() => {
+    vi.unstubAllGlobals()
+  })
+  return {
+    flush: async () => {
+      await vi.waitFor(() => expect(callbacks.length).toBeGreaterThan(0))
+      for (const callback of callbacks.splice(0)) callback(0)
+    },
+  }
+}
+
+function chartAnnouncement(): HTMLElement {
+  const region = document.querySelector<HTMLElement>('[data-testid="chart-announcement"]')
+  if (!region) throw new Error('chart announcement region is missing')
+  return region
+}
+
+function stubMedia(matches: (query: string) => boolean): () => void {
+  const original = window.matchMedia
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: (query: string) => ({
+      matches: matches(query),
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }),
+  })
+  return () => Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
+}
+
 function stubController(projection = testProjection()): ViewController {
   return {
     projection: testProjection({
@@ -247,7 +925,11 @@ function stubController(projection = testProjection()): ViewController {
           available: true,
         },
         ...[
+          ['view.set-grouping', '1-5'],
+          ['selection.toggle', 'space'],
           ['overlay.help', '?'],
+          ['overlay.search', '/'],
+          ['overlay.filters', 'f'],
           ['transaction.edit-merchant', 'm'],
           ['transaction.edit-category', 'c'],
           ['category.manage', 'C'],
@@ -270,6 +952,7 @@ function stubController(projection = testProjection()): ViewController {
       ],
     }),
     loading: false,
+    opening: false,
     announcement: '',
     cursorIdentity: 'row-0',
     cursorIndex: 0,
@@ -371,6 +1054,8 @@ function stubController(projection = testProjection()): ViewController {
     previewSearch: vi.fn(),
     commitSearch: vi.fn(),
     restoreSearch: vi.fn(),
+    hold: <T>(work: Promise<T>) => work,
+    settled: async () => undefined,
     restore: vi.fn(),
     retry: vi.fn(),
     reset: vi.fn(),

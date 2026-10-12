@@ -11,16 +11,16 @@ capabilities can disable actions. Terminal shortcuts do not override your termin
 | Page Up / Page Down | Move a page in the TUI |
 | `T` / `B` | First / last row in the TUI |
 | `g` | Cycle grouping |
-| `1`–`5` | In the TUI, group by Merchant, Category, Group, Account, or Time |
+| `1`–`5` | Group by Merchant, Category, Group, Account, or Time |
 | `d` | Show transaction detail view |
 | `A` | Group by account |
 | Enter / Esc | Drill into a row / undo one step ([Esc order](navigation.md#go-back-with-esc)) |
 | `s` / `v` | Change sort field / reverse order |
-| `t` | Open the time chooser in the TUI |
+| `t` | Open the time chooser in the TUI or the [period chooser](navigation.md#choose-a-period-in-the-browser) in the browser |
 | `Ctrl+t` | In the TUI, jump to Time grouping; cycle year/month/day within Time |
 | Left / Right | Adjacent year, month, or day at the selected resolution, or the period next to a period drill-down |
 | `a` | Clear the time period and any period drill-down |
-| `/` / `f` | Search / filters |
+| `/` / `f` | Search / filters; in the browser, focus the command bar's search field / open its Filters menu (below 640 px wide, in the **View** sheet) |
 | `i` | Transaction information |
 | `D` | Find duplicate transactions |
 

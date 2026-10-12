@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -802,6 +803,151 @@ func TestServerRejectsUnknownDimensionAndSortFieldInTheSchema(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			response := transitionFrom(t, server, "v=1", body)
 			assert.Equal(t, http.StatusUnprocessableEntity, response.Code, response.Body.String())
+		})
+	}
+}
+
+func TestServerReturnsToABreadcrumbLevel(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	category := "category"
+	top := decodeProjection(t, transitionFrom(t, server, "v=1", TransitionBody{
+		Action: app.ActionDrill,
+		Target: &TransitionTarget{
+			Kind: app.IdentityAggregate, Identity: firstAggregateIdentity(t, server),
+		},
+	}))
+	nested := decodeProjection(t, transitionFrom(t, server, top.CanonicalQuery, TransitionBody{
+		Action: app.ActionSetSubGrouping, Dimension: &category,
+	}))
+	require.NotEmpty(t, nested.AggregateRows)
+	deeper := decodeProjection(t, transitionFrom(t, server, nested.CanonicalQuery, TransitionBody{
+		Action: app.ActionDrill,
+		Target: &TransitionTarget{
+			Kind: app.IdentityAggregate, Identity: nested.AggregateRows[0].Identity,
+		},
+	}))
+	require.Len(t, deeper.Breadcrumbs, 2)
+
+	for depth, want := range map[int][]string{0: {"Merchants"}, 1: {"Example Landlord"}} {
+		backed := decodeProjection(t, transitionFrom(t, server, deeper.CanonicalQuery, TransitionBody{
+			Action: app.ActionBackTo, Depth: &depth,
+		}))
+		var labels []string
+		for _, breadcrumb := range backed.Breadcrumbs {
+			labels = append(labels, breadcrumb.Label)
+		}
+		assert.Equal(t, want, labels, "depth %d", depth)
+	}
+
+	deepest := 3
+	for name, body := range map[string]TransitionBody{
+		"missing depth": {Action: app.ActionBackTo},
+		"too deep":      {Action: app.ActionBackTo, Depth: &deepest},
+	} {
+		response := transitionFrom(t, server, deeper.CanonicalQuery, body)
+		require.Equal(t, http.StatusBadRequest, response.Code, name+": "+response.Body.String())
+	}
+	level := 2
+	response := transitionFrom(t, server, deeper.CanonicalQuery, TransitionBody{
+		Action: app.ActionBackTo, Depth: &level,
+	})
+	assert.Equal(t, http.StatusConflict, response.Code, "already at that level")
+}
+
+func TestServerRejectsANegativeBreadcrumbDepthInTheSchema(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	response := requestServer(
+		t, server, http.MethodPost, "/api/v1/view/transition",
+		strings.NewReader(
+			`{"query":"v=1","action":"view.back-to","depth":-1,"window":{"offset":0,"limit":200}}`,
+		),
+	)
+	assert.Equal(t, http.StatusUnprocessableEntity, response.Code, response.Body.String())
+}
+
+func TestServerResetsAStaleSelectionOnATransition(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	response := transitionFrom(t, server, "v=1", TransitionBody{
+		Selection: "invalid",
+		Action:    app.ActionDrill,
+		Target: &TransitionTarget{
+			Kind: app.IdentityAggregate, Identity: firstAggregateIdentity(t, server),
+		},
+	})
+
+	drilled := decodeProjection(t, response)
+	require.Len(t, drilled.Warnings, 1)
+	assert.Equal(t, string(app.SelectionReset), drilled.Warnings[0].Code)
+	assert.Equal(t, string(app.EmptySelection()), drilled.Selection)
+	assert.NotEmpty(t, drilled.DetailRows, "the drill still happened")
+}
+
+func TestServerKeepsOtherTransitionProblemsWithAStaleSelection(t *testing.T) {
+	t.Parallel()
+
+	server := directNavigationServer(t)
+	response := transitionFrom(t, server, "v=1", TransitionBody{
+		Selection: "invalid", Action: app.ActionBack,
+	})
+
+	assert.Equal(t, http.StatusConflict, response.Code, response.Body.String())
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	assert.Equal(t, "no_change", problem.Code)
+}
+
+func TestServerKeepsAnOversizedSelectionAsAConflictOnATransition(t *testing.T) {
+	t.Parallel()
+
+	longID := strings.Repeat("x", app.MaxSelectionIdentityBytes+1)
+	service, err := app.NewService([]domain.Transaction{
+		apiTransactionWith(t, longID, func(*domain.Transaction) {}),
+	})
+	require.NoError(t, err)
+	server := newAPITestServerForService(t, service)
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+	projection := projectState(t, server, state)
+	require.Len(t, projection.DetailRows, 1)
+
+	response := transitionFrom(t, server, projection.CanonicalQuery, TransitionBody{
+		Selection: projection.Selection,
+		Action:    app.ActionToggleSelection,
+		Target: &TransitionTarget{
+			Kind: app.IdentityTransaction, Identity: projection.DetailRows[0].Identity,
+		},
+	})
+
+	require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	assert.Equal(t, string(app.SelectionTooLarge), problem.Code)
+}
+
+func TestOnlyAnInvalidSelectionIsResetOnATransition(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"invalid selection": {&app.SelectionError{Code: app.SelectionInvalid}, true},
+		"wrapped invalid": {
+			fmt.Errorf("toggle: %w", &app.SelectionError{Code: app.SelectionInvalid}), true,
+		},
+		"too large":      {&app.SelectionError{Code: app.SelectionTooLarge}, false},
+		"other problem":  {errors.New("no change"), false},
+		"no error":       {nil, false},
+		"stale web view": {&app.WebError{Code: app.WebStaleViewTarget}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, test.want, isInvalidTransitionSelection(test.err))
 		})
 	}
 }

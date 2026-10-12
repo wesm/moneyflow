@@ -1,0 +1,73 @@
+/*
+ * The Moneyflow kit theme (Graphite structure, blue accent) and the money color tokens.
+ * Import after kit theme.css and before kit themes.css so high contrast still wins.
+ */
+:root[data-kit-theme='moneyflow'] {
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --transition-fast: 0.06s;
+  --border-width: 0.5px;
+  --radius-dot: 1px;
+  --radius-toggle: 2px;
+  --transition-ease: linear;
+  --transition-medium: 0.08s;
+  --press-transform: none;
+  --icon-stroke: 1.75;
+  --letter-spacing-label: 0.05em;
+
+  --bg-primary: #f5f6f7; /* kit-ui-check-ignore: theme palette */
+  --bg-surface: #ffffff; /* kit-ui-check-ignore: theme palette */
+  --bg-surface-hover: #eceef0; /* kit-ui-check-ignore: theme palette */
+  --bg-inset: #e9ebee; /* kit-ui-check-ignore: theme palette */
+  --border-default: #c9ced4; /* kit-ui-check-ignore: theme palette */
+  --border-muted: #dde1e5; /* kit-ui-check-ignore: theme palette */
+  --text-primary: #15181c; /* kit-ui-check-ignore: theme palette */
+  --text-secondary: #4a525c; /* kit-ui-check-ignore: theme palette */
+  --text-muted: #626a74; /* kit-ui-check-ignore: theme palette */
+  --accent-blue: #1f62d6; /* kit-ui-check-ignore: theme palette */
+  --accent-green: #1b7f45; /* kit-ui-check-ignore: theme palette */
+  --accent-red: #c23b30; /* kit-ui-check-ignore: theme palette */
+  --accent-amber: #9a6400; /* kit-ui-check-ignore: theme palette */
+  --accent-purple: #6a4fd0; /* kit-ui-check-ignore: theme palette */
+  --accent-teal: #13807a; /* kit-ui-check-ignore: theme palette */
+  --status-waiting: #9a6400; /* kit-ui-check-ignore: theme palette */
+
+  --shadow-sm: 0 1px 2px rgba(22, 24, 27, 0.14); /* kit-ui-check-ignore: theme palette */
+  --shadow-md: 0 2px 4px rgba(22, 24, 27, 0.16); /* kit-ui-check-ignore: theme palette */
+  --shadow-lg: 0 3px 8px rgba(22, 24, 27, 0.2); /* kit-ui-check-ignore: theme palette */
+  --overlay-bg: rgba(22, 24, 27, 0.4); /* kit-ui-check-ignore: theme palette */
+}
+
+:root.dark[data-kit-theme='moneyflow'] {
+  --bg-primary: #111316; /* kit-ui-check-ignore: theme palette */
+  --bg-surface: #181b1f; /* kit-ui-check-ignore: theme palette */
+  --bg-surface-hover: #20242a; /* kit-ui-check-ignore: theme palette */
+  --bg-inset: #0c0e10; /* kit-ui-check-ignore: theme palette */
+  --border-default: #2b3036; /* kit-ui-check-ignore: theme palette */
+  --border-muted: #22262b; /* kit-ui-check-ignore: theme palette */
+  --text-primary: #e6e8eb; /* kit-ui-check-ignore: theme palette */
+  --text-secondary: #a3a9b1; /* kit-ui-check-ignore: theme palette */
+  --text-muted: #7d848d; /* kit-ui-check-ignore: theme palette */
+  --accent-blue: #4f8cff; /* kit-ui-check-ignore: theme palette */
+  --accent-green: #3fb877; /* kit-ui-check-ignore: theme palette */
+  --accent-red: #ef6b5f; /* kit-ui-check-ignore: theme palette */
+  --accent-amber: #e0a63a; /* kit-ui-check-ignore: theme palette */
+  --accent-purple: #a68cff; /* kit-ui-check-ignore: theme palette */
+  --accent-teal: #3fb6b0; /* kit-ui-check-ignore: theme palette */
+  --status-waiting: #e0a63a; /* kit-ui-check-ignore: theme palette */
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4); /* kit-ui-check-ignore: theme palette */
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.45); /* kit-ui-check-ignore: theme palette */
+  --shadow-lg: 0 3px 8px rgba(0, 0, 0, 0.55); /* kit-ui-check-ignore: theme palette */
+  --overlay-bg: rgba(0, 0, 0, 0.6); /* kit-ui-check-ignore: theme palette */
+}
+
+:root {
+  --mf-in: var(--accent-green);
+  --mf-out: color-mix(in srgb, var(--accent-red) 70%, var(--bg-surface));
+  --mf-out-muted: color-mix(in srgb, var(--accent-red) 35%, var(--bg-surface));
+  --mf-pending: var(--accent-amber);
+  --mf-cursor: color-mix(in srgb, var(--accent-blue) 16%, transparent);
+  --mf-focus: var(--accent-blue);
+}

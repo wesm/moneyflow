@@ -7,6 +7,7 @@ const capabilities = [
   ['cursor.down', '↓/j'],
   ['cursor.home', 'home'],
   ['view.cycle-grouping', 'g'],
+  ['view.set-grouping', '1-5'],
   ['view.show-detail', 'd'],
   ['view.find-duplicates', 'D'],
   ['view.switch-accounts', 'A'],
@@ -15,10 +16,12 @@ const capabilities = [
   ['time.clear-period', 'a'],
   ['time.previous-period', '←'],
   ['time.next-period', '→'],
+  ['time.choose', 't'],
   ['sort.cycle', 's'],
   ['sort.reverse', 'v'],
   ['selection.toggle', 'space'],
   ['selection.toggle-all', 'ctrl+a'],
+  ['transaction.show-info', 'i'],
   ['overlay.filters', 'f'],
   ['overlay.search', '/'],
   ['overlay.help', '?'],
@@ -30,6 +33,7 @@ const capabilities = [
   ['transaction.delete', 'x'],
   ['changes.undo', 'u'],
   ['changes.redo', 'U'],
+  ['transactions.export', 'E'],
   ['changes.review', 'w'],
   ['provider.refresh', 'r'],
 ].map(([id, key_display]) => ({
@@ -59,6 +63,7 @@ describe('Moneyflow browser shortcuts', () => {
       'a',
       'ArrowLeft',
       'ArrowRight',
+      't',
       's',
       'v',
       ' ',
@@ -95,6 +100,29 @@ describe('Moneyflow browser shortcuts', () => {
     ).toThrow('conflicts')
   })
 
+  it('groups by the dimension that the pressed number selects', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    const dimensions = ['merchant', 'category', 'group', 'account', 'time']
+
+    for (const [index, dimension] of dimensions.entries()) {
+      expect(shortcuts.manager.handleKeydown(keyboard(String(index + 1)))).toBe(true)
+      expect(handlers.apply).toHaveBeenLastCalledWith('view.set-grouping', dimension)
+    }
+    expect(shortcuts.manager.handleKeydown(keyboard('6'))).toBe(false)
+    shortcuts.destroy()
+  })
+
+  it('rejects a server key with no browser binding', () => {
+    expect(() =>
+      validateCapabilities([
+        ...capabilities,
+        { id: 'view.new-key', key_display: 'z', description: 'new', category: '', available: true },
+      ]),
+    ).toThrow('view.new-key')
+    expect(() => validateCapabilities(capabilities)).not.toThrow()
+  })
+
   it('suspends table letter keys while an overlay scope is active', () => {
     const handlers = { local: vi.fn(), apply: vi.fn() }
     const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
@@ -111,6 +139,45 @@ describe('Moneyflow browser shortcuts', () => {
     Object.defineProperty(event, 'target', { value: document.createElement('input') })
     expect(handleMoneyflowKeydown(shortcuts.manager, event)).toBe(false)
     expect(handlers.apply).not.toHaveBeenCalled()
+  })
+
+  it('lets a focused button take Enter and Space but keeps letter keys global', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    const button = document.createElement('button')
+    for (const key of ['Enter', ' ']) {
+      const event = keyboard(key)
+      Object.defineProperty(event, 'target', { value: button })
+      expect(handleMoneyflowKeydown(shortcuts.manager, event)).toBe(false)
+    }
+    expect(handlers.apply).not.toHaveBeenCalled()
+    const letter = keyboard('g')
+    Object.defineProperty(letter, 'target', { value: button })
+    expect(handleMoneyflowKeydown(shortcuts.manager, letter)).toBe(true)
+    expect(handlers.apply).toHaveBeenCalledWith('view.cycle-grouping')
+  })
+
+  it('opens the period chooser locally with t', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    expect(shortcuts.manager.handleKeydown(keyboard('t'))).toBe(true)
+    expect(handlers.local).toHaveBeenCalledWith('time.choose')
+    expect(shortcuts.manager.handleKeydown(keyboard('t', { ctrlKey: true }))).toBe(false)
+    shortcuts.destroy()
+  })
+
+  it('leaves a key to the control that already handled it', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    for (const key of ['ArrowLeft', 'ArrowRight', 'Escape']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      event.preventDefault()
+      expect(handleMoneyflowKeydown(shortcuts.manager, event)).toBe(false)
+    }
+    expect(handlers.apply).not.toHaveBeenCalled()
+    expect(handleMoneyflowKeydown(shortcuts.manager, keyboard('ArrowLeft'))).toBe(true)
+    expect(handlers.apply).toHaveBeenCalledWith('time.previous-period')
+    shortcuts.destroy()
   })
 
   it('dispatches editing keys only when the server capability is available', () => {

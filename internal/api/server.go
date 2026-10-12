@@ -391,10 +391,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 				selection,
 				app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit},
 			)
-			warnings = []Warning{{
-				Code:   string(app.SelectionReset),
-				Detail: "The saved selection was invalid and has been reset.",
-			}}
+			warnings = selectionResetWarnings()
 		}
 		if err != nil {
 			return nil, problemFromError(err)
@@ -423,12 +420,17 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		nextState, _, projection, err := service.TransitionView(
-			state,
-			selection,
-			transition,
-			app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit},
-		)
+		window := app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit}
+		transit := func(selection app.SelectionValue) (app.ViewState, app.WebProjection, error) {
+			next, _, projection, err := service.TransitionView(state, selection, transition, window)
+			return next, projection, err
+		}
+		nextState, projection, err := transit(selection)
+		warnings := []Warning(nil)
+		if isInvalidTransitionSelection(err) {
+			nextState, projection, err = transit(app.EmptySelection())
+			warnings = selectionResetWarnings()
+		}
 		if err != nil {
 			return nil, problemFromError(err)
 		}
@@ -436,7 +438,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		return &projectionOutput{Body: projectionToWire(projection, canonical, nil)}, nil
+		return &projectionOutput{Body: projectionToWire(projection, canonical, warnings)}, nil
 	})
 
 	mux.HandleFunc("GET "+server.basePath+"openapi.json", func(response http.ResponseWriter, _ *http.Request) {
@@ -460,7 +462,9 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 }
 
 func transitionToApp(body TransitionBody) (app.TransitionRequest, error) {
-	transition := app.TransitionRequest{Action: body.Action, Search: body.Search}
+	transition := app.TransitionRequest{
+		Action: body.Action, Search: body.Search, Depth: body.Depth,
+	}
 	if body.Target != nil {
 		transition.Target = &app.RowTarget{
 			Kind: body.Target.Kind, Identity: body.Target.Identity,
@@ -687,6 +691,20 @@ func problemFromProviderError(
 		problem.Provider = &status
 	}
 	return problem
+}
+
+func selectionResetWarnings() []Warning {
+	return []Warning{{
+		Code:   string(app.SelectionReset),
+		Detail: "The saved selection was invalid and has been reset.",
+	}}
+}
+
+// isInvalidTransitionSelection reports a selection that failed to decode. An oversized
+// selection is a conflict the browser handles, so a transition does not reset it.
+func isInvalidTransitionSelection(err error) bool {
+	var selectionErr *app.SelectionError
+	return errors.As(err, &selectionErr) && selectionErr.Code == app.SelectionInvalid
 }
 
 func isInvalidHydrationSelection(err error) bool {

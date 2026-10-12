@@ -117,7 +117,9 @@ func (session *Session) SetSubGrouping(dimension domain.Dimension) error {
 }
 
 // SetCurrency restricts the view to one currency and scale. Drill identities include the
-// currency, so the drill path, sub-grouping, selection, and back history are cleared.
+// currency, so the drill path, sub-grouping, selection, and back history are cleared. The
+// first currency chosen for a drill already in that currency keeps the drill and its history,
+// so a link to a drilled view that names no currency still opens at its drill.
 func (session *Session) SetCurrency(scope *domain.CurrencyScope) error {
 	if scope == nil {
 		return errors.New("set currency: a currency is required")
@@ -126,6 +128,9 @@ func (session *Session) SetCurrency(scope *domain.CurrencyScope) error {
 		return fmt.Errorf("set currency: %q is not a three-letter uppercase code", scope.Currency)
 	}
 	if session.Currency != nil && *session.Currency == *scope {
+		return nil
+	}
+	if session.adoptFirstCurrency(*scope) {
 		return nil
 	}
 	fromDetail := session.fromDetailView()
@@ -179,6 +184,39 @@ func defaultSortDirection(field domain.SortField) domain.SortDirection {
 	default:
 		return domain.SortDirectionAsc
 	}
+}
+
+// adoptFirstCurrency sets the first currency of a session whose drill path and back history
+// all lie in scope, keeping them, and clears the selection. It reports false and changes
+// nothing when the session already has a currency, has no drill, or any frame is elsewhere.
+func (session *Session) adoptFirstCurrency(scope domain.CurrencyScope) bool {
+	if session.Currency != nil || len(session.Drilldowns) == 0 {
+		return false
+	}
+	if !drillsIn(session.Drilldowns, scope) {
+		return false
+	}
+	for _, entry := range session.history {
+		if !drillsIn(entry.snapshot.drilldowns, scope) {
+			return false
+		}
+	}
+	session.Currency = cloneCurrencyScope(&scope)
+	for index := range session.history {
+		session.history[index].snapshot.currency = cloneCurrencyScope(&scope)
+	}
+	session.clearSelections()
+	return true
+}
+
+// drillsIn reports whether every drill-down is in scope's currency and scale.
+func drillsIn(drilldowns []domain.Drilldown, scope domain.CurrencyScope) bool {
+	for _, drilldown := range drilldowns {
+		if drilldown.Currency != scope.Currency || drilldown.Scale != scope.Scale {
+			return false
+		}
+	}
+	return true
 }
 
 func (session *Session) fromDetailView() bool {
@@ -381,6 +419,46 @@ func (session *Session) Back() (ViewPosition, bool) {
 		return session.popHistory()
 	}
 	return ViewPosition{}, false
+}
+
+// BackTo returns to the breadcrumb level that keeps depth drill frames and no sub-grouping,
+// stepping through Back so each step clears what Esc would. A view opened from a link has no
+// back history; there the drill path is cut to depth directly. It reports false when the
+// view is already at that level.
+func (session *Session) BackTo(depth int) bool {
+	changed := false
+	for !session.atDrillLevel(depth) {
+		if _, stepped := session.Back(); !stepped {
+			session.truncateDrillPath(depth)
+			return true
+		}
+		changed = true
+	}
+	return changed
+}
+
+func (session *Session) atDrillLevel(depth int) bool {
+	frames := len(session.Drilldowns)
+	return frames < depth || frames == depth && session.SubGrouping == nil
+}
+
+// truncateDrillPath keeps the first depth drill frames of a view that has no history to
+// pop. A search applied below the kept frames goes with them, as it does under Back.
+func (session *Session) truncateDrillPath(depth int) {
+	if session.searchAnchor != nil && session.searchAnchor.drilldownSize > depth {
+		session.Search = ""
+		session.searchAnchor = nil
+	}
+	session.Drilldowns = session.Drilldowns[:depth]
+	session.SubGrouping = nil
+	session.clearSelections()
+	if depth == 0 {
+		session.Mode = domain.ResultModeAggregate
+		session.Sort = sortForTopLevelTransition(session.Dimension, session.Sort)
+		return
+	}
+	session.Mode = domain.ResultModeDetail
+	session.Sort = sortForDetailTransition(session.Dimension, session.Sort)
 }
 
 var calendarResolutions = []domain.TimeGranularity{

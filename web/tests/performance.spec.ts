@@ -79,9 +79,7 @@ test('chart cursor and drill p95 stay within measured budgets', async ({ page, s
       )
     })
     await drillMark.dispatchEvent('dblclick')
-    await expect(page.getByRole('navigation', { name: 'Active refinements' })).toContainText(
-      drillLabel,
-    )
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(drillLabel)
     await page.waitForFunction(
       (count) => (window as unknown as PerformanceWindow).moneyflowDrillSamples.length === count,
       index + 1,

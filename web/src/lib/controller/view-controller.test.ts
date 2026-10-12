@@ -33,6 +33,126 @@ describe('browser view controller', () => {
     expect((history.state as MoneyflowHistoryState).owner).toBe('moneyflow-web-v1')
   })
 
+  describe('first-load currency', () => {
+    const currencies = (counts: Array<[string, number]>) =>
+      counts.map(([currency, count]) => ({
+        currency,
+        scale: 2,
+        count,
+        first: '2024-01-01',
+        latest: '2024-12-31',
+      }))
+
+    it('opens in the currency with the most transactions and replaces the history entry', async () => {
+      const pushes = vi.spyOn(history, 'pushState')
+      pushes.mockClear()
+      const length = history.length
+      const client = clientWith({
+        view: vi.fn(async (body) => ({
+          ...projection('v=1', body.window.offset, 3),
+          currencies: currencies([
+            ['USD', 3],
+            ['EUR', 9],
+          ]),
+        })),
+        transition: vi.fn(async (body) => ({
+          ...projection('cur=EUR%3A2&v=1', body.window.offset, 3),
+          view: { ...projection('v=1', 0, 3).view, currency: { currency: 'EUR', scale: 2 } },
+        })),
+      })
+      const controller = controllerFor(client)
+
+      await controller.hydrate()
+
+      expect(client.transition).toHaveBeenCalledTimes(1)
+      expect(client.transition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'view.set-currency',
+          currency: { currency: 'EUR', scale: 2 },
+        }),
+        expect.any(AbortSignal),
+      )
+      expect(controller.projection?.canonical_query).toBe('cur=EUR%3A2&v=1')
+      expect(pushes).not.toHaveBeenCalled()
+      expect(history.length).toBe(length)
+      expect(window.location.search).toBe('?cur=EUR%3A2&v=1')
+    })
+
+    it('picks the first currency listed when counts tie', async () => {
+      const client = clientWith({
+        view: vi.fn(async (body) => ({
+          ...projection('v=1', body.window.offset, 3),
+          currencies: currencies([
+            ['USD', 4],
+            ['EUR', 4],
+          ]),
+        })),
+      })
+      await controllerFor(client).hydrate()
+
+      expect(client.transition).toHaveBeenCalledWith(
+        expect.objectContaining({ currency: { currency: 'USD', scale: 2 } }),
+        expect.any(AbortSignal),
+      )
+    })
+
+    it('sends nothing when the view already has a currency', async () => {
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          const result = projection('cur=EUR%3A2&v=1', body.window.offset, 3)
+          return {
+            ...result,
+            view: { ...result.view, currency: { currency: 'EUR', scale: 2 } },
+            currencies: currencies([['USD', 3]]),
+          }
+        }),
+      })
+      await controllerFor(client).hydrate()
+
+      expect(client.transition).not.toHaveBeenCalled()
+    })
+
+    it('sends nothing when the profile has no currencies', async () => {
+      const client = clientWith()
+      await controllerFor(client).hydrate()
+
+      expect(client.transition).not.toHaveBeenCalled()
+    })
+
+    it('sets the currency once an empty profile receives its first transactions', async () => {
+      let populated = false
+      const client = clientWith({
+        view: vi.fn(async (body) => ({
+          ...projection('v=1', body.window.offset, populated ? 3 : 0, populated ? '1' : '0'),
+          currencies: populated ? currencies([['USD', 3]]) : [],
+        })),
+        transition: vi.fn(async (body) => ({
+          ...projection('cur=USD%3A2&v=1', body.window.offset, 3, '1'),
+          view: { ...projection('v=1', 0, 3).view, currency: { currency: 'USD', scale: 2 } },
+          currencies: currencies([['USD', 3]]),
+        })),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      expect(client.transition).not.toHaveBeenCalled()
+
+      populated = true
+      await controller.recheck()
+
+      await vi.waitFor(() =>
+        expect(controller.projection?.view.currency).toEqual({ currency: 'USD', scale: 2 }),
+      )
+      expect(client.transition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'view.set-currency',
+          currency: { currency: 'USD', scale: 2 },
+        }),
+        expect.any(AbortSignal),
+      )
+      expect(window.location.search).toBe('?cur=USD%3A2&v=1')
+    })
+  })
+
   it('pushes analytical transitions and replaces selection-only transitions', async () => {
     const pushes = vi.spyOn(history, 'pushState')
     const replacements = vi.spyOn(history, 'replaceState')
@@ -57,16 +177,112 @@ describe('browser view controller', () => {
     expect(replacements).toHaveBeenCalled()
   })
 
+  it('forwards the dimension, currency, sort field, period, and depth to the transition', async () => {
+    const client = clientWith()
+    const controller = controllerFor(client)
+    await controller.hydrate()
+    const requests = [
+      { action: 'view.set-grouping', dimension: 'category' },
+      { action: 'view.set-currency', currency: { currency: 'EUR', scale: 2 } },
+      { action: 'sort.set', sort_field: 'amount' },
+      { action: 'time.set-period', period: { start: '2024-01-01', end: '2024-01-31' } },
+      { action: 'view.back-to', depth: 0 },
+    ] as const
+
+    for (const request of requests) {
+      await controller.apply(request)
+      expect(client.transition).toHaveBeenLastCalledWith(
+        expect.objectContaining(request),
+        expect.any(AbortSignal),
+      )
+    }
+  })
+
+  it('runs each transition from the view the one before it returned', async () => {
+    const releases: Array<() => void> = []
+    const client = clientWith({
+      transition: vi.fn(
+        (body) =>
+          new Promise<ViewProjection>((resolve) =>
+            releases.push(() => resolve(projection(`${body.query}&p`, 0, 3))),
+          ),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    const first = controller.apply({ action: 'time.previous-period' })
+    const second = controller.apply({ action: 'time.previous-period' })
+    await vi.waitFor(() => expect(releases).toHaveLength(1), { interval: 1 })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(client.transition).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(client.transition).mock.calls[0]?.[1]?.aborted).toBe(false)
+    releases[0]?.()
+    await vi.waitFor(() => expect(releases).toHaveLength(2), { interval: 1 })
+    releases[1]?.()
+    await Promise.all([first, second])
+
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: 'v=1&p', action: 'time.previous-period' }),
+      expect.any(AbortSignal),
+    )
+    expect(controller.projection?.canonical_query).toBe('v=1&p&p')
+  })
+
+  it('sends a filter change with the period of the view it starts from', async () => {
+    let release!: () => void
+    const september = { from: '2026-09-01', to: '2026-09-30' }
+    const client = clientWith({
+      transition: vi.fn(async (body) => {
+        const next = projection(`${body.query}&${body.action}`, 0, 3)
+        if (body.action !== 'time.set-period') return next
+        await new Promise<void>((resolve) => (release = resolve))
+        return { ...next, filters: { ...next.filters, date_range: september } }
+      }),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await controller.apply({
+      action: 'filters.apply',
+      filters: { show_hidden: true, show_transfers: false },
+    })
+    const period = controller.apply({
+      action: 'time.set-period',
+      period: { start: september.from, end: september.to },
+    })
+    const filters = controller.apply({
+      action: 'filters.apply',
+      filters: { show_hidden: true, show_transfers: true },
+    })
+    await vi.waitFor(() => expect(release).toBeDefined(), { interval: 1 })
+    release()
+    await Promise.all([period, filters])
+
+    const sent = vi.mocked(client.transition).mock.calls.map(([body]) => body.filters)
+    expect(sent).toEqual([
+      { show_hidden: true, show_transfers: false },
+      undefined,
+      {
+        date_range: { start: '2026-09-01', end: '2026-09-30' },
+        show_hidden: true,
+        show_transfers: true,
+      },
+    ])
+  })
+
   it('uses verified owned history for Esc and replaces with the server parent otherwise', async () => {
     const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
     const controller = controllerFor(
       clientWith({
-        transition: async () => projection('v=1', 0, 2),
+        transition: async (body) =>
+          projection(body.action === 'view.back' ? 'v=1' : 'v=1&group=category', 0, 2),
       }),
     )
     await controller.hydrate()
+    const top = history.state as MoneyflowHistoryState
     await controller.apply({ action: 'view.cycle-grouping' })
-    await controller.apply({ action: 'view.back' })
+    await traverse(controller, { action: 'view.back' }, top)
     expect(go).toHaveBeenCalledWith(-1)
 
     go.mockClear()
@@ -74,6 +290,526 @@ describe('browser view controller', () => {
     await controller.apply({ action: 'view.back' })
     expect(go).not.toHaveBeenCalled()
     expect(window.location.search).toBe('?v=1')
+  })
+
+  it('keeps one history entry per view when Esc returns after a selection change', async () => {
+    const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const selected = 'mfsel1.selected' as SelectionValue
+    const cleared = 'mfsel1.cleared' as SelectionValue
+    const client = clientWith({
+      view: vi.fn(async (body) => projection('v=1', body.window.offset, 3, '0', cleared)),
+      transition: vi.fn(async (body) => {
+        if (body.action === 'selection.toggle') return projection('v=1', 0, 3, '0', selected)
+        if (body.action === 'view.drill') {
+          return projection('v=1&drill=x', 0, 3, '0', body.selection as SelectionValue)
+        }
+        return projection('v=1', 0, 3, '0', cleared)
+      }),
+    })
+    const controller = controllerFor(client)
+    await controller.hydrate()
+    await controller.apply({
+      action: 'selection.toggle',
+      target: { kind: 'transaction', identity: 'row-0' },
+    })
+    const topLevel = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill', target: { kind: 'aggregate', identity: 'x' } })
+    vi.mocked(client.view).mockClear()
+
+    await traverse(controller, { action: 'view.back' }, topLevel)
+    expect(go).toHaveBeenCalledWith(-1)
+
+    expect(client.view).not.toHaveBeenCalled()
+    expect(controller.projection?.selection).toBe(cleared)
+    expect((history.state as MoneyflowHistoryState).selection).toBe(cleared)
+    expect((history.state as MoneyflowHistoryState).sequence).toBe(topLevel.sequence)
+  })
+
+  it('replaces in place when Esc returns the query the current entry already holds', async () => {
+    const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const pushes = vi.spyOn(history, 'pushState')
+    const controller = controllerFor(clientWith())
+    await controller.hydrate()
+    go.mockClear()
+    pushes.mockClear()
+
+    await controller.apply({ action: 'view.back' })
+
+    expect(go).not.toHaveBeenCalled()
+    expect(pushes).not.toHaveBeenCalled()
+    expect((history.state as MoneyflowHistoryState).sequence).toBe(0)
+  })
+
+  it('returns to a breadcrumb level through owned history', async () => {
+    const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const client = clientWith({
+      transition: async (body) =>
+        projection(body.action === 'view.back-to' ? 'v=1' : `v=1&drill=${body.action}`, 0, 2),
+    })
+    const controller = controllerFor(client)
+    await controller.hydrate()
+    const top = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill' })
+    await controller.apply({ action: 'view.drill-again' })
+    go.mockClear()
+    vi.mocked(client.view).mockClear()
+
+    await traverse(controller, { action: 'view.back-to', depth: 0 }, top)
+
+    expect(go).toHaveBeenCalledWith(-2)
+    expect(client.view).not.toHaveBeenCalled()
+    expect(controller.projection?.canonical_query).toBe('v=1')
+    expect((history.state as MoneyflowHistoryState).sequence).toBe(top.sequence)
+  })
+
+  it('runs a key pressed during an Esc return from the returned view', async () => {
+    const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const stale = 'mfsel1.stale' as SelectionValue
+    const cleared = 'mfsel1.cleared' as SelectionValue
+    const parents: Record<string, string> = { 'v=1&d=2': 'v=1&d=1', 'v=1&d=1': 'v=1' }
+    const client = clientWith({
+      view: vi.fn(async (body) => projection('v=1', body.window.offset, 3, '0', cleared)),
+      transition: vi.fn(async (body) =>
+        body.action === 'view.back'
+          ? projection(parents[body.query] ?? body.query, 0, 3, '0', cleared)
+          : projection(`v=1&d=${body.query === 'v=1' ? 1 : 2}`, 0, 3, '0', stale),
+      ),
+    })
+    const controller = controllerFor(client)
+    await controller.hydrate()
+    const states = [history.state as MoneyflowHistoryState]
+    await controller.apply({ action: 'view.drill' })
+    states.push(history.state as MoneyflowHistoryState)
+    await controller.apply({ action: 'view.drill' })
+    states.push(history.state as MoneyflowHistoryState)
+    go.mockClear()
+    vi.mocked(client.transition).mockClear()
+
+    const first = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(go).toHaveBeenCalledTimes(1), { interval: 1 })
+    const second = controller.apply({ action: 'view.back' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(client.transition).toHaveBeenCalledTimes(1)
+
+    await controller.restore(new PopStateEvent('popstate', { state: states[1] }))
+    await first
+    await vi.waitFor(() => expect(go).toHaveBeenCalledTimes(2), { interval: 1 })
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: 'v=1&d=1', selection: cleared }),
+      expect.any(AbortSignal),
+    )
+    await controller.restore(new PopStateEvent('popstate', { state: states[0] }))
+    await second
+
+    expect(client.view).toHaveBeenCalledTimes(1)
+    expect(controller.projection?.canonical_query).toBe('v=1')
+    expect(controller.projection?.selection).toBe(cleared)
+    expect((history.state as MoneyflowHistoryState).sequence).toBe(0)
+  })
+
+  describe('a history traversal that does not arrive in time', () => {
+    async function timedOut() {
+      vi.spyOn(history, 'go').mockImplementation(() => undefined)
+      const client = clientWith({
+        transition: async (body) =>
+          projection(body.action === 'view.back' ? 'v=1' : 'v=1&group=category', 0, 2),
+      })
+      const controller = controllerFor(client)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.cycle-grouping' })
+      const drill = history.state as MoneyflowHistoryState
+      vi.mocked(client.view).mockClear()
+      await expect(controller.apply({ action: 'view.back' })).resolves.toBe(true)
+      return { client, controller, parent, drill }
+    }
+
+    it('shows the parent without writing it over the drill entry', async () => {
+      const { controller, drill } = await timedOut()
+
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect(controller.loading).toBe(false)
+      expect(history.state).toEqual(drill)
+      expect(window.location.search).toBe('?v=1&group=category')
+    })
+
+    it('installs a late matching popstate without a request', async () => {
+      const { client, controller, parent } = await timedOut()
+
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+
+      expect(client.view).not.toHaveBeenCalled()
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect((history.state as MoneyflowHistoryState).sequence).toBe(parent.sequence)
+      expect(window.location.search).toBe('?v=1')
+    })
+
+    it('fetches the parent on a late popstate after an edit replaced the view', async () => {
+      const { client, controller, parent } = await timedOut()
+      vi.mocked(client.view).mockImplementation(async (body) =>
+        projection(body.query, body.window.offset, 2, '1'),
+      )
+      await controller.recheck()
+      expect(controller.projection?.revision).toBe('1')
+      vi.mocked(client.view).mockClear()
+
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+
+      expect(client.view).toHaveBeenCalledTimes(1)
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect(controller.projection?.revision).toBe('1')
+    })
+
+    it('forgets the expected target once another popstate arrives', async () => {
+      const { client, controller, parent, drill } = await timedOut()
+
+      await controller.restore(new PopStateEvent('popstate', { state: drill }))
+      expect(client.view).toHaveBeenCalledTimes(1)
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+
+      expect(client.view).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('an edit that lands between Esc and its history traversal', () => {
+    const cleared = 'mfsel1.cleared' as SelectionValue
+
+    async function editDuringReturn() {
+      const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+      const client = clientWith({
+        transition: vi.fn(async (body) =>
+          body.action === 'view.back'
+            ? projection('v=1', 0, 3, '0', cleared)
+            : projection('v=1&drill=x', 0, 3),
+        ),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.drill' })
+      const before = go.mock.calls.length
+      const back = controller.apply({ action: 'view.back' })
+      await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+      vi.mocked(client.view).mockImplementation(async (body) =>
+        projection(body.query, body.window.offset, 3, '1'),
+      )
+      await controller.recheck()
+      expect(controller.projection?.revision).toBe('1')
+      vi.mocked(client.view).mockClear()
+      return { client, controller, parent, back }
+    }
+
+    it('fetches the parent at the edited revision when the popstate arrives', async () => {
+      const { client, controller, parent, back } = await editDuringReturn()
+
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+      await back
+
+      expect(client.view).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'v=1' }),
+        expect.any(AbortSignal),
+      )
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect(controller.projection?.revision).toBe('1')
+    })
+
+    it('fetches the parent with the selection Esc left, not the one history saved', async () => {
+      const { client, controller, parent, back } = await editDuringReturn()
+      expect(parent.selection).not.toBe(cleared)
+
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+      await back
+
+      expect(client.view).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'v=1', selection: cleared }),
+        expect.any(AbortSignal),
+      )
+    })
+
+    it('holds a key pressed during the parent fetch until the parent loads', async () => {
+      const { client, controller, parent, back } = await editDuringReturn()
+      let release!: (value: ViewProjection) => void
+      vi.mocked(client.view).mockImplementationOnce(
+        () => new Promise<ViewProjection>((resolve) => (release = resolve)),
+      )
+      vi.mocked(client.transition).mockClear()
+
+      const restoring = controller.restore(new PopStateEvent('popstate', { state: parent }))
+      const key = controller.apply({ action: 'view.drill' })
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      expect(client.transition).not.toHaveBeenCalled()
+      expect(vi.mocked(client.view).mock.calls.at(-1)?.[1]?.aborted).toBe(false)
+      release(projection('v=1', 0, 3, '1'))
+      await Promise.all([restoring, back, key])
+      expect(client.transition).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'v=1', action: 'view.drill' }),
+        expect.any(AbortSignal),
+      )
+    })
+
+    it('keeps the edited view when the traversal times out', async () => {
+      const { controller, back } = await editDuringReturn()
+
+      await back
+
+      expect(controller.projection?.revision).toBe('1')
+    })
+  })
+
+  it('runs later transitions after installing a returned view fails', async () => {
+    const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const client = clientWith({
+      transition: vi.fn(async (body) =>
+        projection(body.action === 'view.back' ? 'v=1' : 'v=1&drill=x', 0, 3),
+      ),
+    })
+    const controller = controllerFor(client)
+    await controller.hydrate()
+    const parent = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill' })
+    const before = go.mock.calls.length
+    const back = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+    vi.spyOn(history, 'replaceState').mockImplementationOnce(() => {
+      throw new Error('history is unavailable')
+    })
+
+    await expect(
+      controller.restore(new PopStateEvent('popstate', { state: parent })),
+    ).rejects.toThrow('history is unavailable')
+    await back
+
+    await expect(controller.apply({ action: 'view.drill' })).resolves.toBe(true)
+    expect(controller.projection?.canonical_query).toBe('v=1&drill=x')
+  })
+
+  it('installs the returned view at once, then fetches the parent cursor window', async () => {
+    vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const cleared = 'mfsel1.cleared' as SelectionValue
+    let release!: (value: ViewProjection) => void
+    const client = clientWith({
+      view: vi.fn(async (body) => projection('v=1', body.window.offset, 450, '0', cleared)),
+      transition: vi.fn(async (body) =>
+        body.action === 'view.back'
+          ? projection('v=1', body.window.offset, 450, '0', cleared)
+          : projection('v=1&drill=x', 0, 450),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.moveCursorTo(250)
+    const parent = history.state as MoneyflowHistoryState
+    expect(parent.cursorIndex).toBe(250)
+    await controller.apply({ action: 'view.drill' })
+    await controller.moveHome()
+    vi.mocked(client.view).mockClear()
+    vi.mocked(client.view).mockImplementationOnce(
+      () => new Promise<ViewProjection>((resolve) => (release = resolve)),
+    )
+
+    const go = vi.mocked(history.go)
+    const before = go.mock.calls.length
+    const done = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+    const restoring = controller.restore(new PopStateEvent('popstate', { state: parent }))
+    await vi.waitFor(() => expect(client.view).toHaveBeenCalledTimes(1), { interval: 1 })
+
+    expect(controller.projection?.canonical_query).toBe('v=1')
+    expect(controller.projection?.window.offset).toBe(0)
+    expect(controller.cursorIndex).toBe(250)
+    expect((history.state as MoneyflowHistoryState).query).toBe('v=1')
+    expect((history.state as MoneyflowHistoryState).sequence).toBe(parent.sequence)
+    expect(client.view).toHaveBeenCalledTimes(1)
+    expect(client.view).toHaveBeenCalledWith(
+      expect.objectContaining({ selection: cleared, window: { offset: 200, limit: 200 } }),
+      expect.any(AbortSignal),
+    )
+
+    release(projection('v=1', 200, 450, '0', cleared))
+    await Promise.all([restoring, done])
+    expect(controller.projection?.window.offset).toBe(200)
+    expect(controller.cursorIndex).toBe(250)
+    expect(controller.loading).toBe(false)
+  })
+
+  it('keeps the parent window when an edit shrinks it below the cursor before Esc', async () => {
+    vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    let revision = '0'
+    let parentRows = 201
+    const client = clientWith({
+      view: vi.fn(async (body) =>
+        body.query === 'v=1&drill=x'
+          ? projection(body.query, 0, 3, revision)
+          : projection('v=1', body.window.offset, parentRows, revision),
+      ),
+      transition: vi.fn(async (body) =>
+        body.action === 'view.back'
+          ? projection('v=1', body.window.offset, parentRows, revision)
+          : projection('v=1&drill=x', 0, 3, revision),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.moveCursorTo(200)
+    const parent = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill' })
+    revision = '1'
+    parentRows = 200
+    await controller.recheck()
+    expect(controller.projection?.revision).toBe('1')
+
+    await traverse(controller, { action: 'view.back' }, parent)
+
+    expect(controller.projection?.window).toEqual({ offset: 0, limit: 200, count: 200 })
+    expect(controller.cursorIndex).toBe(199)
+    expect(controller.cursorIdentity).toBe('row-199')
+  })
+
+  it('runs a row key pressed during an Esc return after the parent cursor window loads', async () => {
+    vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    let release!: (value: ViewProjection) => void
+    const client = clientWith({
+      view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+      transition: vi.fn(async (body) =>
+        body.action === 'view.back'
+          ? projection('v=1', body.window.offset, 450)
+          : projection('v=1&drill=x', 0, 450),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.moveCursorTo(250)
+    const parent = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill' })
+    await controller.moveHome()
+    vi.mocked(client.view).mockImplementationOnce(
+      () => new Promise<ViewProjection>((resolve) => (release = resolve)),
+    )
+    const go = vi.mocked(history.go)
+    const before = go.mock.calls.length
+    const back = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+    const restoring = controller.restore(new PopStateEvent('popstate', { state: parent }))
+    let cursorAtKey: string | undefined = 'not run'
+    const key = back.then(() => {
+      cursorAtKey = controller.cursorIdentity
+    })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(cursorAtKey).toBe('not run')
+    expect(vi.mocked(client.view).mock.calls.at(-1)?.[1]?.aborted).toBe(false)
+    release(projection('v=1', 200, 450))
+    await Promise.all([restoring, key])
+    expect(cursorAtKey).toBe('row-250')
+  })
+
+  it('holds keys behind the first-load currency transition instead of aborting it', async () => {
+    let release!: (value: ViewProjection) => void
+    const pending = new Promise<ViewProjection>((resolve) => (release = resolve))
+    const client = clientWith({
+      view: vi.fn(async (body) => ({
+        ...projection('v=1', body.window.offset, 3),
+        currencies: [
+          { currency: 'EUR', scale: 2, count: 3, first: '2024-01-01', latest: '2024-12-31' },
+        ],
+      })),
+      transition: vi
+        .fn()
+        .mockImplementationOnce(async () => pending)
+        .mockImplementation(async (body) => projection(`${body.query}&group=category`, 0, 3)),
+    })
+    const controller = controllerFor(client)
+
+    const hydrating = controller.hydrate()
+    await vi.waitFor(() => expect(client.transition).toHaveBeenCalledTimes(1), { interval: 1 })
+    expect(controller.opening).toBe(true)
+    const key = controller.apply({ action: 'view.cycle-grouping' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(client.transition).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(client.transition).mock.calls[0]?.[1]?.aborted).toBe(false)
+
+    release(projection('cur=EUR%3A2&v=1', 0, 3))
+    await Promise.all([hydrating, key])
+    expect(controller.opening).toBe(false)
+
+    expect(client.transition).toHaveBeenCalledTimes(2)
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: 'cur=EUR%3A2&v=1', action: 'view.cycle-grouping' }),
+      expect.any(AbortSignal),
+    )
+    expect(controller.projection?.canonical_query).toBe('cur=EUR%3A2&v=1&group=category')
+  })
+
+  it.each([
+    ['rejects', () => Promise.reject(new Error('network down'))],
+    ['is aborted', () => Promise.reject(new DOMException('aborted', 'AbortError'))],
+  ])('releases held keys when the first-load currency change %s', async (_label, fail) => {
+    const client = clientWith({
+      view: vi.fn(async (body) => ({
+        ...projection('v=1', body.window.offset, 3),
+        currencies: [
+          { currency: 'EUR', scale: 2, count: 3, first: '2024-01-01', latest: '2024-12-31' },
+        ],
+      })),
+      transition: vi
+        .fn()
+        .mockImplementationOnce(fail)
+        .mockImplementation(async (body) => projection(`${body.query}&group=category`, 0, 3)),
+    })
+    const controller = controllerFor(client)
+
+    const hydrating = controller.hydrate()
+    await vi.waitFor(() => expect(client.transition).toHaveBeenCalledTimes(1), { interval: 1 })
+    const key = controller.apply({ action: 'view.cycle-grouping' })
+    await hydrating
+
+    expect(controller.opening).toBe(false)
+    await expect(key).resolves.toBe(true)
+    expect(controller.projection?.canonical_query).toBe('v=1&group=category')
+  })
+
+  it('keeps a key behind both a pending return and a hydrate started during it', async () => {
+    vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    let withCurrency = false
+    const client = clientWith({
+      view: vi.fn(async (body) => ({
+        ...projection('v=1', body.window.offset, 3),
+        currencies: withCurrency
+          ? [{ currency: 'EUR', scale: 2, count: 3, first: '2024-01-01', latest: '2024-12-31' }]
+          : [],
+      })),
+      transition: vi.fn(async (body) => {
+        if (body.action === 'view.set-currency') return projection('cur=EUR%3A2&v=1', 0, 3)
+        return projection(body.action === 'view.back' ? 'v=1' : 'v=1&drill=x', 0, 3)
+      }),
+    })
+    const controller = controllerFor(client)
+    await controller.hydrate()
+    const parent = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill' })
+    vi.mocked(client.transition).mockClear()
+
+    const go = vi.mocked(history.go)
+    const before = go.mock.calls.length
+    const back = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+    withCurrency = true
+    await controller.hydrate()
+    const key = controller.apply({ action: 'view.cycle-grouping' })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(client.transition).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'view.cycle-grouping' }),
+      expect.anything(),
+    )
+
+    await controller.restore(new PopStateEvent('popstate', { state: parent }))
+    await Promise.all([back, key])
+
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ action: 'view.cycle-grouping', query: 'v=1' }),
+      expect.any(AbortSignal),
+    )
   })
 
   it('restores owned Back/Forward state including cursor and selection', async () => {
@@ -272,8 +1008,8 @@ describe('browser view controller', () => {
     pushes.mockClear()
     replacements.mockClear()
 
-    expect(await controller.previewSearch('coffee')).toBe(true)
-    expect(await controller.previewSearch('coffee shop')).toBe(true)
+    expect(await controller.previewSearch('coffee')).toBe('applied')
+    expect(await controller.previewSearch('coffee shop')).toBe('applied')
     expect(pushes).not.toHaveBeenCalled()
     expect(replacements).toHaveBeenCalledTimes(2)
     expect(vi.mocked(client.transition).mock.calls[1]?.[0].query).toBe('v=1')
@@ -286,6 +1022,106 @@ describe('browser view controller', () => {
     await controller.previewSearch('temporary')
     controller.restoreSearch(cancelSnapshot)
     expect(controller.projection?.canonical_query).toBe('v=1&q=coffee%20shop')
+  })
+
+  it('runs a transition after held work, such as a search committed on blur', async () => {
+    const client = clientWith({
+      transition: vi.fn(async (body) =>
+        body.action === 'search.apply'
+          ? projection(`v=1&q=${encodeURIComponent(body.search ?? '')}`, 0, 1)
+          : projection(`${body.query}&group=category`, 0, 1),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    const snapshot = controller.beginSearch()
+    let finish!: () => void
+    const held = controller.hold(
+      new Promise<void>((resolve) => (finish = resolve)).then(async () => {
+        await controller.previewSearch('coffee')
+        controller.commitSearch(snapshot)
+      }),
+    )
+
+    const grouping = controller.apply({ action: 'view.cycle-grouping' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(client.transition).not.toHaveBeenCalled()
+    finish()
+    await Promise.all([held, grouping])
+
+    expect(vi.mocked(client.transition).mock.calls.map(([body]) => body.action)).toEqual([
+      'search.apply',
+      'view.cycle-grouping',
+    ])
+    expect(controller.projection?.canonical_query).toBe('v=1&q=coffee&group=category')
+  })
+
+  it('ignores a search commit or restore after browser history drops its snapshot', async () => {
+    const client = clientWith({
+      view: vi.fn(async (body) => projection(body.query, body.window.offset, 3)),
+      transition: vi.fn(async (body) =>
+        projection(`v=1&q=${encodeURIComponent(body.search ?? '')}`, 0, 1),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    const snapshot = controller.beginSearch()
+    await controller.previewSearch('coffee')
+    const earlier = {
+      ...(history.state as MoneyflowHistoryState),
+      query: 'group=category&v=1',
+      sequence: 4,
+    }
+    await controller.restore(new PopStateEvent('popstate', { state: earlier }))
+    const pushes = vi.spyOn(history, 'pushState')
+    const replacements = vi.spyOn(history, 'replaceState')
+    pushes.mockClear()
+    replacements.mockClear()
+
+    controller.commitSearch(snapshot)
+    controller.restoreSearch(snapshot)
+
+    expect(pushes).not.toHaveBeenCalled()
+    expect(replacements).not.toHaveBeenCalled()
+    expect(controller.projection?.canonical_query).toBe('group=category&v=1')
+  })
+
+  it('tells a rejected search preview from one a newer request superseded', async () => {
+    let release!: (value: ViewProjection) => void
+    const transition = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        throw new MoneyflowProblem({
+          type: 'about:blank',
+          title: 'Bad Request',
+          status: 400,
+          detail: 'bad expression',
+          code: 'invalid_request',
+        })
+      })
+      .mockImplementationOnce(() => new Promise<ViewProjection>((resolve) => (release = resolve)))
+      .mockImplementation(async () => projection('v=1&q=b', 0, 1))
+    const controller = controllerFor(clientWith({ transition }), false)
+    await controller.hydrate()
+    controller.beginSearch()
+
+    expect(await controller.previewSearch('[')).toBe('rejected')
+    const slow = controller.previewSearch('a')
+    expect(await controller.previewSearch('b')).toBe('applied')
+    release(projection('v=1&q=a', 0, 1))
+    expect(await slow).toBe('superseded')
+  })
+
+  it('reports a search preview the network failed as failed, not rejected', async () => {
+    const transition = vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    const controller = controllerFor(clientWith({ transition }), false)
+    await controller.hydrate()
+    controller.beginSearch()
+
+    expect(await controller.previewSearch('coffee')).toBe('failed')
+    expect(controller.problem).toEqual({ kind: 'request', code: 'network_error' })
   })
 
   it('aborts an in-flight search preview when cancel restores its snapshot', async () => {
@@ -439,7 +1275,21 @@ function controllerFor(client: MoneyflowClient, prefetch = true) {
     instance: 'test-instance',
     prefetch,
     recheckDebounceMillis: 0,
+    returnTimeoutMillis: 200,
   })
+}
+
+async function traverse(
+  controller: ReturnType<typeof controllerFor>,
+  action: Parameters<ReturnType<typeof controllerFor>['apply']>[0],
+  target: MoneyflowHistoryState,
+): Promise<void> {
+  const go = vi.mocked(history.go)
+  const before = go.mock.calls.length
+  const done = controller.apply(action)
+  await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+  await controller.restore(new PopStateEvent('popstate', { state: target }))
+  await done
 }
 
 function clientWith(overrides: Partial<MoneyflowClient> = {}): MoneyflowClient {
@@ -474,7 +1324,13 @@ function clientWith(overrides: Partial<MoneyflowClient> = {}): MoneyflowClient {
   }
 }
 
-function projection(query: string, offset: number, total: number, revision = '0'): ViewProjection {
+function projection(
+  query: string,
+  offset: number,
+  total: number,
+  revision = '0',
+  selection = 'mfsel1.example',
+): ViewProjection {
   const count = Math.max(0, Math.min(200, total - offset))
   return {
     api_schema_version: '1',
@@ -491,7 +1347,7 @@ function projection(query: string, offset: number, total: number, revision = '0'
       sort_field: 'date',
       sort_direction: 'desc',
     },
-    selection: 'mfsel1.example' as ViewProjection['selection'],
+    selection: selection as ViewProjection['selection'],
     selection_count: 0,
     breadcrumbs: [],
     breadcrumb_text: 'All transactions',

@@ -12,7 +12,9 @@ test('@smoke root and nested deployments keep every request in their configured 
     await page.goto(server.url)
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
     await page.keyboard.press('g')
-    await expect(page).toHaveURL(/\/moneyflow\/p\/profile_[a-z2-7]{26}\/\?group=category&v=1$/)
+    await expect(page).toHaveURL(
+      /\/moneyflow\/p\/profile_[a-z2-7]{26}\/\?cur=USD%3A2&group=category&v=1$/,
+    )
     await page.keyboard.press('h')
     await expect(page.getByText(/1 pending/)).toBeVisible()
 

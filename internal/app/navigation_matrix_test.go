@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -594,6 +595,71 @@ func TestMatrixSetCurrencyClearsDrillSubGroupingHistoryAndSelection(t *testing.T
 	assert.NoError(t, session.ViewState().Validate())
 }
 
+func TestMatrixFirstSetCurrencyKeepsADrillAlreadyInThatCurrency(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "")
+	session.Currency = nil
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	require.NoError(t, session.SetSubGrouping(domain.DimensionCategory))
+	session.ToggleAggregateSelection("category-selected")
+	want := columnsOf(session)
+	usd := &domain.CurrencyScope{Currency: "USD", Scale: 2}
+
+	require.NoError(t, session.SetCurrency(usd))
+
+	want.currency = usd
+	want.selected = 0
+	assert.Equal(t, want, columnsOf(session), "the drill and sub-grouping are kept")
+	assert.Equal(t, domain.ResultModeDetail, session.Mode)
+	assert.NoError(t, session.ViewState().Validate())
+	require.Len(t, session.ViewState().Returns, 2, "Esc still walks back up the drill")
+	for {
+		if _, stepped := session.Back(); !stepped {
+			break
+		}
+		assert.Equal(t, usd, session.Currency, "Back keeps the chosen currency")
+	}
+	assert.Empty(t, session.Drilldowns)
+}
+
+func TestMatrixFirstSetCurrencyClearsADrillInAnotherCurrency(t *testing.T) {
+	t.Parallel()
+	session := matrixSession(t, "")
+	session.Currency = nil
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	for _, scope := range []domain.CurrencyScope{
+		{Currency: "EUR", Scale: 2}, {Currency: "USD", Scale: 3},
+	} {
+		changed := session.Clone()
+
+		require.NoError(t, changed.SetCurrency(&scope))
+
+		assert.Empty(t, changed.Drilldowns, scope)
+		assert.Equal(t, domain.ResultModeAggregate, changed.Mode, scope)
+		assert.Empty(t, changed.ViewState().Returns, scope)
+	}
+}
+
+func TestMatrixFirstSetCurrencyClearsADrillWhoseReturnFrameIsInAnotherCurrency(t *testing.T) {
+	t.Parallel()
+	usdDrill := NewSession()
+	drillMatrixRow(t, &usdDrill, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	eurDrill := NewSession()
+	eurRow := matrixRow(domain.DimensionMerchant, "merchant-2")
+	eurRow.Total.Currency = "EUR"
+	drillMatrixRow(t, &eurDrill, eurRow)
+	state := usdDrill.ViewState()
+	state.Returns = []ReturnFrame{{Kind: ReturnNavigation, State: eurDrill.ViewState().Current}}
+	session, err := NewSessionFromViewState(state)
+	require.NoError(t, err)
+
+	require.NoError(t, session.SetCurrency(&domain.CurrencyScope{Currency: "USD", Scale: 2}))
+
+	assert.Empty(t, session.Drilldowns, "an EUR drill in Esc history is not stamped USD")
+	assert.Equal(t, domain.ResultModeAggregate, session.Mode)
+	assert.Empty(t, session.ViewState().Returns)
+}
+
 func TestMatrixSetCurrencyKeepsAllTransactionsView(t *testing.T) {
 	t.Parallel()
 	session := matrixSession(t, "")
@@ -1014,4 +1080,143 @@ func TestMatrixWebPeriodChangeInsideASubGroupedTimeDrillPromotesTheSubGrouping(t
 		Action: ActionSetSubGrouping, Dimension: &category,
 	})
 	assert.Equal(t, &category, broken.Current.SubGrouping)
+}
+
+// drilledTwice returns a merchant view drilled into a merchant and then a category, with the
+// column values of each level on the way down.
+func drilledTwice(t *testing.T) (session Session, top, middle matrixColumns) {
+	t.Helper()
+	session = matrixSession(t, "example")
+	session.clearSelections()
+	top = columnsOf(session)
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+	middle = columnsOf(session)
+	session.CycleSubGrouping()
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionCategory, "category-1"))
+	return session, top, middle
+}
+
+func TestMatrixBackToPopsToTheRequestedLevel(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name         string
+		depth        int
+		subGrouped   bool
+		selectedRows bool
+	}{
+		{"depth 0", 0, false, false},
+		{"depth 1", 1, false, false},
+		{"depth 0 with sub-grouping", 0, true, false},
+		{"depth 1 with sub-grouping", 1, true, false},
+		{"depth 0 with a selection", 0, false, true},
+		{"depth 1 with a selection", 1, true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			session, top, middle := drilledTwice(t)
+			if test.subGrouped {
+				session.CycleSubGrouping()
+			}
+			if test.selectedRows {
+				session.ToggleAggregateSelection("selected-row")
+			}
+			want := top
+			if test.depth == 1 {
+				want = middle
+			}
+
+			assert.True(t, session.BackTo(test.depth))
+
+			assert.Equal(t, want, columnsOf(session))
+			assert.Nil(t, session.SubGrouping)
+			assert.Empty(t, session.SelectedAggregateKeys)
+		})
+	}
+}
+
+func TestMatrixBackToClearsASearchAppliedAtADeeperLevel(t *testing.T) {
+	t.Parallel()
+	session, _, middle := drilledTwice(t)
+	session.SetSearch("grocer")
+
+	assert.True(t, session.BackTo(1))
+
+	assert.Equal(t, middle, columnsOf(session))
+}
+
+func TestMatrixBackToTheCurrentLevelDropsOnlyASubGrouping(t *testing.T) {
+	t.Parallel()
+	session, _, _ := drilledTwice(t)
+	assert.False(t, session.BackTo(2), "nothing to undo at the current level")
+	session.CycleSubGrouping()
+	require.NotNil(t, session.SubGrouping)
+
+	assert.True(t, session.BackTo(2))
+
+	assert.Nil(t, session.SubGrouping)
+	assert.Len(t, session.Drilldowns, 2)
+}
+
+func TestMatrixBackToFromALinkedViewTruncatesTheDrillPath(t *testing.T) {
+	t.Parallel()
+	for _, depth := range []int{0, 1} {
+		session := NewSession()
+		drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+		session.CycleSubGrouping()
+		drillMatrixRow(t, &session, matrixRow(domain.DimensionCategory, "category-1"))
+		session.CycleSubGrouping()
+		session.ToggleAggregateSelection("selected-row")
+		session.history = nil
+		session.Sort = sortSpec(domain.SortFieldCount, domain.SortDirectionAsc)
+
+		assert.True(t, session.BackTo(depth))
+
+		assert.Len(t, session.Drilldowns, depth)
+		assert.Nil(t, session.SubGrouping)
+		assert.Zero(t, columnsOf(session).selected)
+		if depth == 0 {
+			assert.Equal(t, domain.ResultModeAggregate, session.Mode)
+			assert.Equal(t, domain.SortFieldMerchant, session.Sort.Field)
+		} else {
+			assert.Equal(t, domain.ResultModeDetail, session.Mode)
+			assert.Equal(t, domain.SortFieldDate, session.Sort.Field)
+		}
+		assert.False(t, session.BackTo(depth))
+	}
+}
+
+func TestMatrixBackToFromALinkedViewClearsASearchAtOrBelowTheDeepestLevel(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name         string
+		anchorDepth  int
+		anchorViaSet bool
+	}{
+		{"applied at the deepest level", 2, true},
+		{"anchored below the drill path by a crafted link", 3, false},
+	} {
+		for _, depth := range []int{0, 1} {
+			t.Run(fmt.Sprintf("%s to depth %d", test.name, depth), func(t *testing.T) {
+				t.Parallel()
+				session := NewSession()
+				drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+				session.CycleSubGrouping()
+				drillMatrixRow(t, &session, matrixRow(domain.DimensionCategory, "category-1"))
+				session.SetSearch("grocer")
+				session.history = nil
+				if !test.anchorViaSet {
+					session.searchAnchor = &navigationMarker{
+						mode: session.Mode, drilldownSize: test.anchorDepth,
+					}
+				}
+				require.Equal(t, test.anchorDepth, session.searchAnchor.drilldownSize)
+
+				assert.True(t, session.BackTo(depth))
+
+				assert.Len(t, session.Drilldowns, depth)
+				assert.Empty(t, session.Search)
+				assert.Nil(t, session.searchAnchor)
+			})
+		}
+	}
 }

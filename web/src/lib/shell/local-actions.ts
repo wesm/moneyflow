@@ -1,0 +1,128 @@
+import { tick } from 'svelte'
+
+import type { ViewProjection } from '../api/client'
+import type { ViewController } from '../controller/view-controller.svelte'
+import type { LocalAction } from '../shortcuts'
+import type { OverlayState } from './overlay-state.svelte'
+import { activeCurrency } from './period'
+import type { TransitionQueue } from './transition-queue'
+
+export interface FocusedRow {
+  identity: string
+  kind: 'transaction' | 'aggregate'
+}
+
+export interface LocalActionContext {
+  controller: ViewController
+  overlays: OverlayState
+  /**
+   * Orders cursor moves with view transitions, so a move waits for an Esc return to restore
+   * the parent view and `i` reads the row the cursor moved to.
+   */
+  transitions: Pick<TransitionQueue, 'run' | 'idle'>
+  /** Opens Amazon order import, which the app shell owns. */
+  importAmazon(): void
+  /** Focuses the command bar's search field. */
+  focusSearch(): void
+  /** Opens the command bar's Filters menu. */
+  openFilters(): void
+}
+
+/** Finds the row under the cursor in the loaded window. */
+export function focusedRow(
+  projection: ViewProjection | undefined,
+  cursorIndex: number,
+): FocusedRow | undefined {
+  const rows = [...(projection?.detail_rows ?? []), ...(projection?.aggregate_rows ?? [])]
+  const row = rows.find((candidate) => candidate.index === cursorIndex)
+  if (!row) return undefined
+  return { identity: row.identity, kind: projection?.detail_rows ? 'transaction' : 'aggregate' }
+}
+
+/** Opens the information drawer for a transaction once the server returns its details. */
+export async function openTransactionInformation(
+  context: LocalActionContext,
+  identity: string,
+): Promise<void> {
+  const information = await context.controller.transactionInformation?.(identity)
+  if (!information) return
+  context.overlays.information = information
+  context.overlays.open('information')
+}
+
+/** Maps each browser-only shortcut to its handler. */
+export function localActions(context: LocalActionContext): Record<LocalAction, () => void> {
+  const { controller, overlays } = context
+  const row = () => focusedRow(controller.projection, controller.cursorIndex)
+  const openWithRow = (overlay: 'merchant' | 'category') => () => {
+    if (row()) overlays.open(overlay)
+  }
+  return {
+    'cursor.up': () => void context.transitions.run(() => controller.moveCursor(-1)),
+    'cursor.down': () => void context.transitions.run(() => controller.moveCursor(1)),
+    'cursor.home': () => void context.transitions.run(() => controller.moveHome()),
+    'overlay.search': () => context.focusSearch(),
+    'overlay.filters': () => context.openFilters(),
+    'overlay.help': () => overlays.open('help'),
+    'edit.merchant': openWithRow('merchant'),
+    'edit.category': openWithRow('category'),
+    'manage.categories': () => overlays.open('categories'),
+    'manage.groups': () => overlays.open('groups'),
+    'edit.review': () =>
+      overlays.open(controller.providerWrite.state.status?.phase ? 'write' : 'review'),
+    'view.duplicates': () => overlays.open('duplicates'),
+    'provider.refresh': () => {
+      if (controller.projection?.profile_kind === 'amazon') context.importAmazon()
+      else void controller.provider.refresh()
+    },
+    'transactions.export': () => void beginExport(context),
+    'time.choose': () => {
+      const projection = controller.projection
+      if (projection && activeCurrency(projection)) overlays.open('period')
+    },
+    'edit.undo': () => void controller.editing.undo(),
+    'edit.redo': () => void controller.editing.redo(),
+    'edit.hide': () => {
+      const target = row()
+      if (!target) return
+      void controller.editing.submit({ action: 'transaction.toggle-hidden', input: {}, target })
+    },
+    'edit.delete': () => confirmDelete(context, row()),
+    'transaction.info': () =>
+      void context.transitions.idle().then(async () => {
+        await tick()
+        const target = row()
+        if (target?.kind === 'transaction')
+          await openTransactionInformation(context, target.identity)
+      }),
+  }
+}
+
+/** Deletes the transaction the delete confirmation names, closing it once the edit is staged. */
+export async function confirmDirectDelete(context: LocalActionContext): Promise<void> {
+  const { controller, overlays } = context
+  const target = overlays.deleteTarget
+  if (!target) return
+  const accepted = await controller.editing.submit({
+    action: 'transaction.delete',
+    input: {},
+    target,
+  })
+  if (accepted) overlays.close()
+}
+
+function confirmDelete(context: LocalActionContext, row: FocusedRow | undefined): void {
+  if (row?.kind !== 'transaction') return
+  const selected = context.controller.projection?.selection_count
+  context.overlays.deleteTarget = { identity: row.identity, kind: 'transaction' }
+  context.overlays.deleteCount = selected ? selected : 1
+  context.overlays.open('delete')
+}
+
+async function beginExport(context: LocalActionContext): Promise<void> {
+  const projection = context.controller.projection
+  if (!projection) return
+  if (await context.controller.export.open(projection.canonical_query)) {
+    context.overlays.open('export')
+  }
+}
