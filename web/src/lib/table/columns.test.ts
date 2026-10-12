@@ -22,6 +22,8 @@ function grouped(view: Partial<View>, overrides: Partial<ViewProjection> = {}) {
       sort_field: 'amount',
       sort_direction: 'desc',
       sort_fields: ['merchant', 'count', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
       ...view,
     },
     detail_rows: null,
@@ -39,6 +41,8 @@ function detail(overrides: Partial<ViewProjection> = {}) {
       sort_field: 'date',
       sort_direction: 'desc',
       sort_fields: ['date', 'merchant', 'category', 'account', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'detail', grouping: 'merchant', time_granularity: 'year' },
     },
     ...overrides,
   })
@@ -195,7 +199,7 @@ describe('columnsFor', () => {
   it('narrows the first drilled column by merchant, category, account precedence', () => {
     const drilled = (frames: { dimension: string; label: string }[]) =>
       detail({
-        canonical_query: `v=1${frames.map((frame) => `&drill=${frame.dimension}`).join('')}`,
+        view: { ...detail().view, drill_depth: frames.length },
         breadcrumbs: frames,
       })
     const widthOf = (projection: ViewProjection, key: string) =>
@@ -218,7 +222,7 @@ describe('columnsFor', () => {
     expect(widthOf(short, 'account')).toBe('9ch')
     const amazon = detail({
       profile_kind: 'amazon',
-      canonical_query: 'v=1&drill=account',
+      view: { ...detail().view, drill_depth: 1 },
       breadcrumbs: [{ dimension: 'account', label: 'A1' }],
     })
     expect(widthOf(amazon, 'account')).toBe('7ch')
@@ -297,7 +301,7 @@ describe('columnsThatFit', () => {
   it('counts a drilled column at its narrowed width', () => {
     const category = columnsFor(
       detail({
-        canonical_query: 'v=1&drill=category',
+        view: { ...detail().view, drill_depth: 1 },
         breadcrumbs: [{ dimension: 'category', label: 'Groceries' }],
       }),
     )

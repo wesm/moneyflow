@@ -160,7 +160,9 @@ func (fakeProfile) ApplyAmazonImport(
 ) (store.AmazonImportCommit, error) {
 	return store.AmazonImportCommit{}, nil
 }
-func (fakeProfile) Close() error { return nil }
+func (fakeProfile) LastFullProviderRefresh() time.Time        { return time.Time{} }
+func (fakeProfile) RecordFullProviderRefresh(time.Time) error { return nil }
+func (fakeProfile) Close() error                              { return nil }
 
 var _ store.Profile = fakeProfile{}
 

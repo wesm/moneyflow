@@ -1183,6 +1183,7 @@ export interface components {
       /** Format: int64 */
       outside_view: number
       revision: string
+      source_merchant_id?: string
       transactions: components['schemas']['DetailRow'][] | null
       version: string
     }
@@ -1345,6 +1346,18 @@ export interface components {
       provider?: components['schemas']['ProviderStatusResponse']
       provider_write?: components['schemas']['ProviderWriteStatusResponse']
       provider_write_confirmation_token?: string
+      /** @enum {string} */
+      reason?:
+        | 'refresh_request'
+        | 'refresh_binding'
+        | 'refresh_planner'
+        | 'refresh_plan'
+        | 'provider_write_request'
+        | 'provider_write_planner'
+        | 'provider_write_plan'
+        | 'provider_write_batch'
+        | 'provider_refresh_lease'
+        | 'taxonomy_label_collision'
       selection?: components['schemas']['SelectionDisposition']
       /** Format: int64 */
       status: number
@@ -1494,6 +1507,8 @@ export interface components {
     ProviderStatusResponse: {
       capability: components['schemas']['Capability']
       code?: string
+      /** @description Explains code */
+      code_detail?: string
       confirmation_token?: string
       generation: string
       /** Format: date-time */
@@ -1506,9 +1521,13 @@ export interface components {
       owner_renderer?: string
       progress: components['schemas']['ProviderProgress']
       provider_kind?: string
+      /** @enum {string} */
+      refresh_due: 'none' | 'recent' | 'full'
       revision: string
       summary: components['schemas']['ProviderRefreshSummary']
       version: string
+      /** @description A problem that did not stop the refresh */
+      warning?: string
     }
     ProviderWriteConfirmationBody: {
       confirmation_token: string
@@ -1540,6 +1559,8 @@ export interface components {
       batch_version?: string
       /** Format: int64 */
       completed: number
+      /** Format: date-time */
+      completed_at?: string
       /** Format: int64 */
       failed: number
       generation: string
@@ -1598,6 +1619,7 @@ export interface components {
       before?: string
       label: string
       operation_id: string
+      targets?: components['schemas']['ReviewTarget'][] | null
       taxonomy_effect?: string
       type: string
     }
@@ -1783,8 +1805,11 @@ export interface components {
     }
     ViewMetadata: {
       currency?: components['schemas']['CurrencyScope']
+      /** Format: int64 */
+      drill_depth: number
       grouping: string
       mode: string
+      root: components['schemas']['ViewRoot']
       search?: string
       sort_direction: string
       sort_field: string
@@ -1799,6 +1824,11 @@ export interface components {
         | 'time_period'
       )[]
       sub_grouping?: string
+      time_granularity: string
+    }
+    ViewRoot: {
+      grouping: string
+      mode: string
       time_granularity: string
     }
     Warning: {

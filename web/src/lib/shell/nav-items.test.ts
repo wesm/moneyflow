@@ -18,6 +18,8 @@ function aggregate(overrides: Partial<ViewProjection> = {}): ViewProjection {
       sort_field: 'amount',
       sort_direction: 'desc',
       sort_fields: ['merchant', 'count', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
     },
     canonical_query: 'v=1',
     capabilities: capabilities(),
@@ -87,8 +89,7 @@ describe('navItems', () => {
 
   it('marks the active grouping inside a drill and All transactions only at top level', () => {
     const drilled = aggregate({
-      view: { ...aggregate().view, mode: 'detail', grouping: 'category' },
-      canonical_query: 'drill=category%3Aexample&mode=detail&v=1',
+      view: { ...aggregate().view, mode: 'detail', grouping: 'category', drill_depth: 1 },
     })
     expect(
       navItems(drilled)
@@ -105,14 +106,6 @@ describe('navItems', () => {
         .explore.filter(({ active }) => active)
         .map(({ id }) => id),
     ).toEqual(['detail'])
-  })
-
-  it('ignores drills recorded only in a return frame', () => {
-    const projection = aggregate({
-      view: { ...aggregate().view, mode: 'detail' },
-      canonical_query: `mode=detail&return=${encodeURIComponent('search:drill=merchant%3Aa')}&v=1`,
-    })
-    expect(navItems(projection).explore.find(({ active }) => active)?.id).toBe('detail')
   })
 
   it('disables entries whose capability is unavailable or missing', () => {

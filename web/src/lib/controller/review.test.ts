@@ -21,75 +21,122 @@ describe('bounded review controller', () => {
     expect(JSON.parse(body)).toEqual({ version: '1', expected_revision: '12' })
   })
 
-  it('fetches target details only on demand and retains the current and adjacent windows', async () => {
-    const transport: MutationFetch = {
-      request: vi.fn(async (path, body) => {
-        const request = JSON.parse(body) as { window?: { offset: number; limit: number } }
-        return jsonResponse(
-          path.endsWith('/targets')
-            ? reviewResponse('7', request.window?.offset ?? 0, request.window?.limit ?? 100)
-            : reviewResponse('7'),
-        )
-      }),
-    }
+  it('starts each active operation with the rows the review carries, in one request', async () => {
+    const transport = targetServer(901)
     const controller = createReviewController({ transport, revision: () => 7n })
     await controller.load()
+
     expect(transport.request).toHaveBeenCalledTimes(1)
-
-    await controller.loadTargets('active-1', 0)
-    await controller.loadTargets('active-1', 100)
-    await controller.loadTargets('active-1', 200)
-    await controller.loadTargets('active-1', 300)
-
-    expect(controller.targetOffsets('active-1')).toEqual([200, 300])
-    expect(transport.request).toHaveBeenCalledTimes(5)
-    const [, rawBody] = vi.mocked(transport.request).mock.calls[4]!
-    expect(JSON.parse(rawBody)).toMatchObject({
-      expected_revision: '7',
-      operation_id: 'active-1',
-      window: { offset: 300, limit: 100 },
-    })
+    expect(controller.targets('active-1')).toHaveLength(20)
+    expect(controller.targets('active-1')[19]?.merchant).toBe('Example Merchant 20')
+    expect(controller.targets('redo-1')).toEqual([])
   })
 
-  it('keeps the newest operation’s targets when an older request answers last', async () => {
-    const answers: Array<() => void> = []
-    const review = reviewResponse('7')
-    const operation = review.active_operations[0]!
-    review.active_operations = [
-      { ...operation, operation_id: 'A' },
-      { ...operation, operation_id: 'B' },
-    ]
-    review.pending.active_operations = 2
-    const transport: MutationFetch = {
-      request: vi.fn(async (path: string, body: string) => {
-        if (!path.endsWith('/targets')) return jsonResponse(review)
-        const { operation_id: id, window } = JSON.parse(body) as {
-          operation_id: string
-          window: { offset: number; limit: number }
-        }
-        if (!review.active_operations.some((candidate) => candidate.operation_id === id)) {
-          throw new Error(`unknown operation ${id}`)
-        }
-        await new Promise<void>((resolve) => answers.push(resolve))
-        const response = reviewResponse('7', window.offset, window.limit)
-        response.operation_id = id
-        response.targets[0]!.merchant = `Merchant ${id}`
-        return jsonResponse(response)
-      }),
-    }
+  it('adds one page of rows per request after the rows the review carries', async () => {
+    const transport = targetServer(901)
     const controller = createReviewController({ transport, revision: () => 7n })
     await controller.load()
 
-    const first = controller.loadTargets('A', 0)
-    const second = controller.loadTargets('B', 0)
+    await expect(controller.loadMore('active-1')).resolves.toBe(true)
+    expect(controller.targets('active-1')).toHaveLength(420)
+    await controller.loadMore('active-1')
+    await controller.loadMore('active-1')
+
+    const rows = controller.targets('active-1')
+    expect(rows).toHaveLength(901)
+    expect(rows[0]?.merchant).toBe('Example Merchant 1')
+    expect(rows[900]?.merchant).toBe('Example Merchant 901')
+    const windows = vi
+      .mocked(transport.request)
+      .mock.calls.slice(1)
+      .map(([, body]) => (JSON.parse(body) as { window: unknown }).window)
+    expect(windows).toEqual([
+      { offset: 20, limit: 400 },
+      { offset: 420, limit: 400 },
+      { offset: 820, limit: 400 },
+    ])
+  })
+
+  it('keeps each operation’s rows and reports which operation is loading', async () => {
+    let release = (): void => undefined
+    const transport = targetServer(30, () => new Promise<void>((resolve) => (release = resolve)))
+    const controller = createReviewController({ transport, revision: () => 7n })
+    await controller.load()
+
+    const first = controller.loadMore('active-1')
+    expect(controller.targetsLoading('active-1')).toBe(true)
+    expect(controller.targetsLoading('active-2')).toBe(false)
+    await vi.waitFor(() => expect(transport.request).toHaveBeenCalledTimes(2))
+    release()
+    await expect(first).resolves.toBe(true)
+    expect(controller.targetsLoading('active-1')).toBe(false)
+    const second = controller.loadMore('active-2')
+    await vi.waitFor(() => expect(transport.request).toHaveBeenCalledTimes(3))
+    release()
+    await expect(second).resolves.toBe(true)
+
+    expect(controller.targets('active-1').map((row) => row.merchant)).toEqual(
+      merchants('Example', 30),
+    )
+    expect(controller.targets('active-2').map((row) => row.merchant)).toEqual(
+      merchants('Other', 30),
+    )
+  })
+
+  it('drops rows that arrive after the review reloads', async () => {
+    let release = (): void => undefined
+    const transport = targetServer(30, () => new Promise<void>((resolve) => (release = resolve)))
+    const controller = createReviewController({ transport, revision: () => 7n })
+    await controller.load()
+    const stale = controller.loadMore('active-1')
+    await vi.waitFor(() => expect(transport.request).toHaveBeenCalledTimes(2))
+    const reload = controller.load()
+    release()
+    await expect(stale).resolves.toBe(false)
+    await reload
+
+    expect(controller.targets('active-1')).toHaveLength(20)
+    expect(controller.targetsLoading('active-1')).toBe(false)
+  })
+
+  it('keeps the rows it loaded when a later request fails', async () => {
+    const transport = targetServer(500)
+    const controller = createReviewController({ transport, revision: () => 7n })
+    await controller.load()
+    vi.mocked(transport.request).mockRejectedValueOnce(new Error('offline'))
+
+    await expect(controller.loadMore('active-1')).resolves.toBe(false)
+
+    expect(controller.targets('active-1')).toHaveLength(20)
+    expect(controller.targetsLoading('active-1')).toBe(false)
+    expect(controller.state.announcement).toBe('Pending changes could not be loaded.')
+
+    // Trying again clears the failure.
+    await expect(controller.loadMore('active-1')).resolves.toBe(true)
+    expect(controller.targets('active-1')).toHaveLength(420)
+    expect(controller.state.announcement).toBe('')
+  })
+
+  it('keeps each operation’s targets when an older request answers last', async () => {
+    const answers: Array<() => void> = []
+    const transport = targetServer(30, () => new Promise<void>((resolve) => answers.push(resolve)))
+    const controller = createReviewController({ transport, revision: () => 7n })
+    await controller.load()
+
+    const first = controller.loadMore('active-1')
+    const second = controller.loadMore('active-2')
     await vi.waitFor(() => expect(answers).toHaveLength(2))
     answers[1]!()
     await expect(second).resolves.toBe(true)
     answers[0]!()
-    await expect(first).resolves.toBe(false)
+    await expect(first).resolves.toBe(true)
 
-    expect(controller.targets('B', 0).map((target) => target.merchant)).toEqual(['Merchant B'])
-    expect(controller.targets('A', 0)).toEqual([])
+    expect(controller.targets('active-2').map((row) => row.merchant)).toEqual(
+      merchants('Other', 30),
+    )
+    expect(controller.targets('active-1').map((row) => row.merchant)).toEqual(
+      merchants('Example', 30),
+    )
     expect(controller.state.phase).toBe('idle')
   })
 
@@ -106,6 +153,65 @@ describe('bounded review controller', () => {
   })
 })
 
+/** Merchant names `<prefix> Merchant 1` through `<prefix> Merchant <count>`. */
+function merchants(prefix: string, count: number): string[] {
+  return Array.from({ length: count }, (_, index) => `${prefix} Merchant ${index + 1}`)
+}
+
+/**
+ * A review server with two active operations that each affect `affected` rows of their own
+ * merchant, numbered by row. The review carries each active operation's first 20 rows, as the
+ * server does, and a target request for an operation the review did not list fails.
+ */
+function targetServer(affected: number, wait?: () => Promise<void>): MutationFetch {
+  const prefixes = new Map([
+    ['active-1', 'Example'],
+    ['active-2', 'Other'],
+  ])
+  const rows = (prefix: string, offset: number, limit: number) =>
+    merchants(prefix, Math.min(offset + limit, affected))
+      .slice(offset)
+      .map((merchant) => ({ ...reviewResponse('7').targets[0]!, merchant }))
+  const review = reviewResponse('7')
+  const operation = review.active_operations[0]!
+  const active = [...prefixes].map(([operation_id, prefix]) => ({
+    ...operation,
+    operation_id,
+    affected_count: affected,
+    targets: rows(prefix, 0, 20),
+  }))
+  const pending = {
+    active_operations: 2,
+    inactive_operations: 1,
+    affected_transactions: 2 * affected,
+  }
+  return {
+    request: vi.fn(async (path: string, body: string) => {
+      if (!path.endsWith('/targets')) {
+        return jsonResponse({ ...review, pending, active_operations: active })
+      }
+      const request = JSON.parse(body) as {
+        operation_id: string
+        window: { offset: number; limit: number }
+      }
+      const prefix = prefixes.get(request.operation_id)
+      if (!prefix) throw new Error(`unknown operation ${request.operation_id}`)
+      await wait?.()
+      const { offset, limit } = request.window
+      const targets = rows(prefix, offset, limit)
+      const window = { offset, limit, count: targets.length }
+      return jsonResponse({
+        ...review,
+        pending,
+        active_operations: active,
+        operation_id: request.operation_id,
+        window,
+        targets,
+      })
+    }),
+  }
+}
+
 function responseTransport(body: unknown): MutationFetch {
   return { request: vi.fn(async () => jsonResponse(body)) }
 }
@@ -121,7 +227,7 @@ function reviewResponse(revision: string, offset = 0, limit = 100) {
     inactive_operations: [
       { operation_id: 'redo-1', type: 'hide.toggle', active: false, affected_count: 1 },
     ],
-    operation_id: offset === 0 && limit === 100 ? undefined : ('active-1' as string | undefined),
+    operation_id: offset === 0 && limit === 100 ? undefined : 'active-1',
     window: { offset, limit, count: 1 },
     targets: [
       {

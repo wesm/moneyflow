@@ -17,10 +17,17 @@ income. The Time grouping shows a Net bar and the savings rate instead of Share.
 
 ## Move through results
 
-Use arrows or `j`/`k` to move. In the TUI, Page Up/Page Down move by a visible page;
-`T` and `B` jump to the top and bottom. Reversing sort with `v` returns the cursor to
-the top. `s` changes the sort field. In the browser, click a sortable column header to sort by
-it, and click it again to reverse the order.
+Use arrows or `j`/`k` to move. Page Up/Page Down move by a visible page. Home or `T` jumps to
+the first row, and End or `B` to the last. **Unreleased:** The browser takes all of these keys;
+before, it took only Home. A browser page is the rows fully on screen.
+
+A new period, grouping, drill-down, search, or filter puts the cursor on the first row. After
+a drill-down, Esc returns to the row you left. **Unreleased:** The browser now starts on the
+first row too; before, it kept the cursor's row or position.
+
+`s` changes the sort field and `v` reverses it. A sort returns the TUI cursor to the first row,
+but the browser cursor stays on its row. In the browser, click a sortable column header to sort
+by it, and click it again to reverse the order.
 
 In the browser, a click on a row moves the cursor and a click on its box selects or clears it; a
 double-click opens a group, edits a transaction's Merchant or Category, or opens the
@@ -53,9 +60,15 @@ Below 760 px, every grouped table leaves out Trend and vs prior, along with Top 
 Group where the table has one.
 
 The browser table scrolls through every row of the result. It loads rows 200 at a time, and
-rows still loading show as blank bars. When scrolling reaches rows outside the loaded 200, the
-cursor moves to the first row fully on screen once that row loads. Scrolling back to the cursor
-before then leaves the cursor where it was.
+rows still loading show as blank bars.
+
+**Unreleased:** The browser cursor follows the scroll. When scrolling with the mouse wheel,
+scrollbar, or touch carries the cursor row off screen, the cursor moves to the nearest row fully
+on screen: the first after scrolling down, or the last after scrolling up. The next `j` or `k`
+moves on from there. A row that has not loaded yet gets the cursor once it loads, and scrolling
+back to the cursor before then leaves the cursor where it was. While you drag across rows to
+select text, the cursor stays put. Before, the cursor stayed behind until scrolling left the
+loaded 200 rows, so the next key jumped back to it.
 
 ## Go back with Esc
 

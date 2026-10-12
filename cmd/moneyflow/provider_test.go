@@ -933,14 +933,6 @@ type commandProviderSource struct {
 	endDate     string
 }
 
-func (source *commandProviderSource) SetTransactionRange(startDate string, endDate string) error {
-	source.mu.Lock()
-	defer source.mu.Unlock()
-	source.startDate = startDate
-	source.endDate = endDate
-	return nil
-}
-
 func (source *commandProviderSource) Reader(
 	context.Context,
 	bool,
@@ -968,9 +960,10 @@ func (source *commandProviderSource) Changed(previous provider.SessionFingerprin
 
 type commandProviderReader commandProviderSource
 
+// FetchSnapshot records a requested window and, as Monarch does, reports it on the snapshot.
 func (reader *commandProviderReader) FetchSnapshot(
 	_ context.Context,
-	_ provider.FetchRequest,
+	request provider.FetchRequest,
 	progress provider.ProgressFunc,
 ) (provider.SnapshotResult, error) {
 	source := (*commandProviderSource)(reader)
@@ -979,10 +972,12 @@ func (reader *commandProviderReader) FetchSnapshot(
 	if progress != nil {
 		progress(provider.Progress{Partition: "visible", Fetched: 1, Total: 1, Attempt: 1})
 	}
-	return provider.SnapshotResult{
-		Identity: source.identity,
-		Snapshot: source.snapshot.Clone(),
-	}, source.fetchErr
+	snapshot := source.snapshot.Clone()
+	if window := request.TransactionWindow; window != nil {
+		source.startDate, source.endDate = window.Start.String(), window.End.String()
+		snapshot.TransactionWindow = window
+	}
+	return provider.SnapshotResult{Identity: source.identity, Snapshot: snapshot}, source.fetchErr
 }
 
 type recordingPrompt struct {

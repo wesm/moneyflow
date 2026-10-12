@@ -57,11 +57,11 @@ func TestMutationHideTwiceReportsHideThenShow(t *testing.T) {
 	}
 	hidden := toggle(initial, initial.Revision)
 	assert.Equal(t, &OperationSummary{
-		Kind: "hide", Label: "Toggle report visibility", Affected: 1, Undoable: true,
+		Kind: "hide", Label: "Hide transactions", Affected: 1, Undoable: true,
 	}, hidden.Operation)
 	shown := toggle(hidden.Projection, hidden.Revision)
 	assert.Equal(t, &OperationSummary{
-		Kind: "show", Label: "Toggle report visibility", Affected: 1, Undoable: false,
+		Kind: "show", Label: "Show transactions", Affected: 1, Undoable: false,
 	}, shown.Operation, "cancelling a pending hide rewrites the journal, so u cannot undo it")
 	assert.Zero(t, shown.Pending.ActiveOperations, "the second toggle cancels the first")
 }

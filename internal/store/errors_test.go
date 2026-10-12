@@ -81,3 +81,21 @@ func TestInvalidOperationReasonIsAllowlistedAndSurvivesWrapping(t *testing.T) {
 	_, ok = store.InvalidOperationReasonOf(unknown)
 	assert.False(t, ok)
 }
+
+func TestTaxonomyLabelCollisionReasonKeepsItsDiagnosticInternal(t *testing.T) {
+	t.Parallel()
+
+	cause := errors.New("category label collides; use explicit merge")
+	failure := store.NewInvalidOperationError(store.InvalidOperationTaxonomyLabelCollision, cause)
+
+	reason, ok := store.InvalidOperationReasonOf(fmt.Errorf("build failed: %w", failure))
+	require.True(t, ok)
+	assert.Equal(t, store.InvalidOperationReason("taxonomy_label_collision"), reason)
+	assert.Equal(
+		t,
+		"That label already exists; use merge instead.",
+		store.InvalidOperationDetail(reason),
+	)
+	assert.NotContains(t, failure.Error(), "explicit merge")
+	assert.ErrorIs(t, failure, cause)
+}

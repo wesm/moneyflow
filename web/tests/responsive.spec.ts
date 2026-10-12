@@ -1,6 +1,7 @@
 import type { Locator, Page, Route } from '@playwright/test'
 
 import { activeRow, cell, expect, openMoneyflow, test } from './fixtures'
+import { startE2EServer } from '../scripts/e2e-server'
 
 test('desktop and medium layouts put the charts above a full-width table', async ({
   page,
@@ -268,6 +269,44 @@ test('the sidebar groups by its entries and the rail names them in tooltips', as
   await expect(page.getByRole('separator', { name: 'Resize sidebar' })).toHaveCount(0)
   await nav.getByRole('button', { name: 'Merchants' }).hover()
   await expect(page.getByRole('tooltip')).toHaveText('Merchants · 1')
+})
+
+test('the sidebar collapses to the rail, stays collapsed after a reload, and expands', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openMoneyflow(page, server)
+  const collapse = page.getByRole('button', { name: 'Collapse sidebar' })
+  const expand = page.getByRole('button', { name: 'Expand sidebar' })
+  const resize = page.getByRole('separator', { name: 'Resize sidebar' })
+  const rail = page.locator('.mf-rail')
+  await expect(collapse).toHaveAttribute('aria-expanded', 'true')
+  await expect(expand).toHaveCount(0)
+
+  await collapse.click()
+  await expect(expand).toBeFocused()
+  await expect(expand).toHaveAttribute('aria-expanded', 'false')
+  await expect(collapse).toHaveCount(0)
+  await expect(resize).toHaveCount(0)
+  await expect(rail).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+  await expect(expand).toBeVisible()
+  await expect(collapse).toHaveCount(0)
+
+  // Narrower windows show the rail whatever the choice, so it offers nothing to expand.
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await expect(expand).toHaveCount(0)
+  await page.setViewportSize({ width: 1280, height: 800 })
+
+  await expand.focus()
+  await page.keyboard.press('Enter')
+  await expect(collapse).toBeFocused()
+  await expect(expand).toHaveCount(0)
+  await expect(rail).toHaveCount(0)
+  await expect(resize).toBeVisible()
 })
 
 const phone = { width: 390, height: 844 }
@@ -564,6 +603,41 @@ test('growing past the phone width closes the drawer and focuses the grid', asyn
 
   await expect(drawer).toBeHidden()
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+})
+
+test('the editor keeps its draft when the window crosses the phone width', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await page.setViewportSize({ width: 1024, height: 768 })
+    // September 2026: Maple Court Apartments has one rent payment in view and 33 outside it.
+    await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-09-01&to=2026-09-30&v=1')
+    await page.keyboard.press('m')
+    const editor = page.getByRole('dialog', { name: 'Edit merchant' })
+    const name = editor.getByRole('combobox', { name: 'Merchant' })
+    const whole = editor.getByRole('radio', { name: 'Whole merchant · 34 transactions' })
+    await name.fill('Maple Court Homes')
+    await name.press('Enter')
+    await whole.click()
+    await expect(whole).toBeChecked()
+
+    await page.setViewportSize(phone)
+    const sheet = page.locator('.mf-sheet__panel')
+    await expect(sheet).toBeVisible()
+    await expect(sheet.getByRole('combobox', { name: 'Merchant' })).toHaveValue('Maple Court Homes')
+    await expect(sheet.getByRole('combobox', { name: 'Merchant' })).toBeFocused()
+    await expect(sheet.getByRole('radio', { name: /^Whole merchant/ })).toBeChecked()
+
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await expect(page.locator('.mf-anchored-editor')).toBeVisible()
+    await expect(name).toHaveValue('Maple Court Homes')
+    await expect(name).toBeFocused()
+    await expect(whole).toBeChecked()
+    await editor.getByRole('button', { name: 'Stage change to 34 transactions' }).click()
+    await expect(editor).toBeHidden()
+    await expect(page.getByText(/1 pending edit · 34 transactions/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
 })
 
 test.describe('phone rows by touch', () => {

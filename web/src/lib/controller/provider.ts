@@ -13,12 +13,15 @@ import {
 
 type Capability = NonNullable<ViewProjection['capabilities']>[number]
 export type ProviderPhase = 'idle' | 'refreshing' | 'confirmation' | 'reconnect' | 'failed'
+/** What a running Monarch refresh reads: the last 90 days, or complete history. */
+export type RefreshKind = 'recent' | 'full'
 
 export interface ProviderState {
   phase: ProviderPhase
   announcement: string
   capability: Capability | undefined
   status?: ProviderStatus
+  kind?: RefreshKind | undefined
 }
 
 export interface ProviderController {
@@ -38,20 +41,25 @@ export interface ProviderTransport {
 interface ProviderProjectionHost {
   current(): ViewProjection | undefined
   accept(projection: ViewProjection): void
+  /** Rereads the shown view at the newest revision. */
+  reload(): Promise<unknown>
+  /** Runs `work` once the view changes already on their way have finished. */
+  serially<T>(work: () => Promise<T>): Promise<T>
 }
 
 interface ProviderControllerOptions {
   transport: ProviderTransport
   host: ProviderProjectionHost
-  now?: () => number
 }
 
-const refreshIntervalMillis = 6 * 60 * 60 * 1000
+/** Status polling interval while a refresh runs, so progress and the outcome appear promptly. */
+const refreshingPollMillis = 1_000
 
 export function createProviderController(options: ProviderControllerOptions): ProviderController {
-  const now = options.now ?? Date.now
   let state: ProviderState = { phase: 'idle', announcement: '', capability: undefined }
   let inFlight = false
+  let settled = 0
+  let refreshingPoll: ReturnType<typeof setInterval> | undefined
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
     notify = update
@@ -62,7 +70,20 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 
   function setState(next: ProviderState): void {
     state = next
+    if (state.phase === 'refreshing' && refreshingPoll === undefined) {
+      refreshingPoll = setInterval(() => void poll(), refreshingPollMillis)
+    } else if (state.phase !== 'refreshing' && refreshingPoll !== undefined) {
+      clearInterval(refreshingPoll)
+      refreshingPoll = undefined
+    }
     notify()
+  }
+
+  function refreshKind(manual: boolean): RefreshKind | undefined {
+    const status = state.status
+    if (status?.provider_kind !== 'monarch') return undefined
+    if (manual) return 'full'
+    return status.refresh_due === 'none' ? undefined : status.refresh_due
   }
 
   function sync(projection: ViewProjection): void {
@@ -84,7 +105,12 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     if (inFlight) return false
 
     inFlight = true
-    setState({ ...state, phase: 'refreshing', announcement: 'Refreshing provider data…' })
+    setState({
+      ...state,
+      phase: 'refreshing',
+      kind: refreshKind(manual),
+      announcement: 'Refreshing provider data…',
+    })
     const body: ProviderRefreshBody = {
       version: '1',
       manual,
@@ -131,64 +157,105 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   ): Promise<boolean> {
     const current = options.host.current()
     if (!current) return false
+    let response: ProviderRefreshResponse
     try {
-      const response = await requestProfileJSON<ProviderRefreshResponse>(
+      response = await requestProfileJSON<ProviderRefreshResponse>(
         options.transport.mutations,
         path,
         body,
       )
-      if (response.projection.canonical_query !== current.canonical_query) {
-        throw new Error('The provider refresh changed the analytical view.')
-      }
-      const projection = {
-        ...response.projection,
-        selection: response.selection.value,
-      } as ViewProjection
-      options.host.accept(projection)
-      setState({
-        phase: 'idle',
-        capability: state.capability,
-        status: response.status,
-        announcement:
-          response.selection.kind === 'cleared'
-            ? 'Provider refresh complete. Selection cleared because selected rows changed.'
-            : 'Provider refresh complete.',
-      })
-      return true
     } catch (error) {
-      if (error instanceof MoneyflowProblem) {
-        const problem = error.problem
-        if (problem.code === 'provider_deletion_confirmation_required' && problem.provider) {
-          setState({
-            phase: 'confirmation',
-            capability: state.capability,
-            status: problem.provider,
-            announcement: problem.detail,
-          })
-          return false
-        }
-        if (problem.code === 'provider_reconnect_required') {
-          setState({
-            ...state,
-            phase: 'reconnect',
-            announcement: problem.detail,
-          })
-          return false
-        }
-        if (confirmation && problem.code === 'provider_confirmation_invalid') {
-          await refreshStatusAfterInvalidConfirmation(problem.detail)
-          return false
-        }
-        setState({ ...state, phase: 'failed', announcement: problem.detail })
-        return false
-      }
+      settled++
+      return fail(error, confirmation)
+    }
+    settled++
+    if (response.projection.canonical_query !== current.canonical_query) {
+      return fail(new Error('The provider refresh changed the analytical view.'), confirmation)
+    }
+    const projection = {
+      ...response.projection,
+      selection: response.selection.value,
+    } as ViewProjection
+    const complete = await show(projection, current, response.selection.kind === 'cleared')
+    setState({
+      phase: 'idle',
+      capability: state.capability,
+      status: response.status,
+      announcement: [complete, response.status.warning].filter(Boolean).join(' '),
+    })
+    return true
+  }
+
+  // A view or selection change made while the refresh ran stays: wait for any still on its way,
+  // so installing the refreshed view does not cancel it, then reread the view it produced at the
+  // refreshed revision rather than reinstall the view the refresh was sent with.
+  function show(
+    projection: ViewProjection,
+    sent: ViewProjection,
+    selectionCleared: boolean,
+  ): Promise<string> {
+    return options.host.serially(() => showSettled(projection, sent, selectionCleared))
+  }
+
+  async function showSettled(
+    projection: ViewProjection,
+    sent: ViewProjection,
+    selectionCleared: boolean,
+  ): Promise<string> {
+    const shown = options.host.current()
+    if (
+      !shown ||
+      (shown.canonical_query === sent.canonical_query && shown.selection === sent.selection)
+    ) {
+      options.host.accept(projection)
+      return selectionCleared
+        ? 'Provider refresh complete. Selection cleared because selected rows changed.'
+        : 'Provider refresh complete.'
+    }
+    try {
+      await options.host.reload()
+      return 'Provider refresh complete.'
+    } catch {
+      return 'Provider refresh complete. The current view could not be reread.'
+    }
+  }
+
+  async function fail(error: unknown, confirmation: boolean): Promise<boolean> {
+    if (!(error instanceof MoneyflowProblem)) {
       setState({
         ...state,
         phase: 'failed',
+        kind: undefined,
         announcement: 'Provider refresh failed. Press r to try again.',
       })
       return false
     }
+    const problem = error.problem
+    if (problem.code === 'provider_deletion_confirmation_required' && problem.provider) {
+      setState({
+        phase: 'confirmation',
+        capability: state.capability,
+        status: problem.provider,
+        announcement: problem.detail,
+      })
+      return false
+    }
+    if (problem.code === 'provider_reconnect_required') {
+      setState({ ...state, phase: 'reconnect', kind: undefined, announcement: problem.detail })
+      return false
+    }
+    if (confirmation && problem.code === 'provider_confirmation_invalid') {
+      await refreshStatusAfterInvalidConfirmation(problem.detail)
+      return false
+    }
+    setState({
+      ...state,
+      phase: 'failed',
+      kind: undefined,
+      ...(problem.provider === undefined ? {} : { status: problem.provider }),
+      announcement: problem.detail,
+    })
+    return false
   }
 
   async function refreshStatusAfterInvalidConfirmation(detail: string): Promise<void> {
@@ -207,29 +274,27 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 
   async function poll(): Promise<void> {
     if (state.phase === 'confirmation') return
+    const seen = settled
     try {
       const status = await options.transport.status()
-      const wasReconnect = state.phase === 'reconnect'
+      // A refresh that finished meanwhile returned newer status than this poll read.
+      if (seen !== settled) return
       const phase = statusPhase(status, inFlight)
       setState({
         phase,
         capability: status.capability,
         status,
-        announcement:
-          phase === 'reconnect'
-            ? 'Reconnect through the command line.'
-            : phase === 'refreshing'
-              ? 'Refreshing provider data…'
-              : wasReconnect
-                ? 'Provider session restored.'
-                : state.announcement,
+        kind: phase === 'refreshing' ? state.kind : undefined,
+        announcement: pollAnnouncement(status, phase, state),
       })
+      // The server's refresh_due already waits out a failure's retry delay and stops for one
+      // that needs the user, so a failed last attempt does not block it.
       if (
         inFlight ||
-        status.code !== undefined ||
-        phase !== 'idle' ||
+        phase === 'refreshing' ||
+        phase === 'reconnect' ||
         !status.capability.available ||
-        !isRefreshDue(status, now())
+        status.refresh_due === 'none'
       )
         return
       await refresh(false)
@@ -260,22 +325,18 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   }
 }
 
-function isRefreshDue(status: ProviderStatus, now: number): boolean {
-  if (status.provider_kind === 'monarch') return false
-  if (status.next_eligible && Date.parse(status.next_eligible) > now) return false
-  if (
-    status.provider_kind === 'simplefin' &&
-    status.last_attempt &&
-    (!status.last_success || Date.parse(status.last_attempt) > Date.parse(status.last_success))
-  )
-    return false
-  if (!status.last_success) return true
-  const lastSuccess = Date.parse(status.last_success)
-  return (
-    Number.isFinite(lastSuccess) &&
-    now - lastSuccess >=
-      (status.provider_kind === 'simplefin' ? 24 * 60 * 60 * 1000 : refreshIntervalMillis)
-  )
+function pollAnnouncement(
+  status: ProviderStatus,
+  phase: ProviderPhase,
+  previous: ProviderState,
+): string {
+  if (phase === 'reconnect') return 'Reconnect through the command line.'
+  if (phase === 'refreshing') return 'Refreshing provider data…'
+  if (phase === 'failed') {
+    return `Last refresh failed: ${status.code_detail ?? 'the provider reported an error.'}`
+  }
+  if (previous.phase === 'reconnect') return 'Provider session restored.'
+  return previous.announcement
 }
 
 function statusPhase(status: ProviderStatus, inFlight: boolean): ProviderPhase {

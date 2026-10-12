@@ -28,10 +28,11 @@
     openTransactionInformation,
     type LocalActionContext,
   } from '../lib/shell/local-actions'
-  import { SIDEBAR_FULL_QUERY, inSearch } from '../lib/shell/layout'
+  import { inSearch } from '../lib/shell/layout'
   import type { NavRun } from '../lib/shell/nav-items'
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
+  import { provideSidebarState } from '../lib/shell/sidebar-state.svelte'
   import { connectionState, status, writeProgress } from '../lib/shell/status.svelte'
   import { TransitionQueue } from '../lib/shell/transition-queue'
   interface Props {
@@ -48,7 +49,7 @@
   const transitions = new TransitionQueue(() => controller)
   const projection = $derived(controller.projection)
   const compact = new MediaQuery(MEDIA.compact)
-  const fullSidebar = new MediaQuery(SIDEBAR_FULL_QUERY)
+  const layout = provideSidebarState()
   const pushScope = (name: string) => shortcuts?.manager.pushScope(name)
   const overlays = new OverlayState({ pushScope, focusGrid, grid: () => grid })
   const charts = new ChartState({ compact: () => compact.current, pushScope })
@@ -89,9 +90,8 @@
     return actions.queue(work)
   }
   /** Space toggles the cursor row when its turn comes; a later cursor move queues behind it. */
-  function queueApply(action: string, dimension?: Dimension): void {
-    queue(() => apply(action, dimension))
-  }
+  const queueApply = (action: string, dimension?: Dimension) =>
+    void queue(() => apply(action, dimension))
   const queueSend = (request: TransitionAction) => queue(() => send(request))
   async function send(request: TransitionAction): Promise<void> {
     await controller.apply(request)
@@ -158,7 +158,7 @@
   {/snippet}
   <div class="app-shell">
     <CollapsibleSidebar
-      hideSidebar={!fullSidebar.current}
+      hideSidebar={!layout.full}
       sidebarWidth={176}
       minSidebarWidth={176}
       maxSidebarWidth={280}
@@ -168,7 +168,7 @@
         {@render navigation((work) => work())}
       {/snippet}
       <div class="app-shell__frame">
-        {#if !fullSidebar.current && !compact.current}
+        {#if !layout.full && !compact.current}
           <SidebarRail
             {projection}
             pending={controller.editing.state.pending}
@@ -205,7 +205,7 @@
             hints={keyHints(projection, overlays.current !== undefined || charts.dialogOpen)}
             connection={connectionState(controller.problem, controller.loading)}
             revision={controller.editing.state.revision.toString(10)}
-            pending={fullSidebar.current || overlays.current === 'navigation'
+            pending={layout.full || overlays.current === 'navigation'
               ? undefined
               : pendingText(controller.editing.state.pending)}
             compact={compact.current}

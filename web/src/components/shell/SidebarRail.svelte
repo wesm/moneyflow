@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { IconButton, ThemeToggle, Tooltip } from '@kenn-io/kit-ui'
+  import { IconButton, SidebarToggle, ThemeToggle, Tooltip } from '@kenn-io/kit-ui'
   import PenLineIcon from '@lucide/svelte/icons/pen-line'
 
   import ProviderStatus from '../ProviderStatus.svelte'
@@ -7,6 +7,7 @@
   import type { ProviderController } from '../../lib/controller/provider'
   import { navIcons } from '../../lib/shell/nav-icons'
   import { availableCapabilities, unavailableReason } from '../../lib/shell/capabilities'
+  import { focusClicked } from '../../lib/shell/focus'
   import {
     ariaKeyshortcuts,
     hasProviderStatus,
@@ -14,6 +15,7 @@
     type NavItem,
     type NavRun,
   } from '../../lib/shell/nav-items'
+  import { sidebarState, toggleExpanded } from '../../lib/shell/sidebar-state.svelte'
   import type { WriteProgress } from '../../lib/shell/status.svelte'
 
   interface Props {
@@ -29,6 +31,7 @@
   let { projection, pending, provider, write, onrun, onreview, onreconnect }: Props = $props()
 
   const sections = $derived(navItems(projection))
+  const layout = sidebarState()
   const reviewAvailable = $derived(availableCapabilities(projection).has('changes.review'))
   const waiting = $derived(pending.active_operations > 0)
   // Like the sidebar card: review needs pending edits; a running write always opens its drawer.
@@ -64,7 +67,10 @@
             title=""
             class={item.active ? 'mf-rail__item mf-rail__item--active' : 'mf-rail__item'}
             ariaDisabled={!item.available}
-            onclick={() => onrun(item.run)}
+            onclick={(event) => {
+              focusClicked(event)
+              onrun(item.run)
+            }}
           >
             {#if Icon}<Icon size={16} aria-hidden="true" />{/if}
           </IconButton>
@@ -75,6 +81,12 @@
 {/snippet}
 
 <aside class="mf-rail" aria-label="Moneyflow sidebar">
+  {#if layout?.wide}
+    <span class="mf-collapse-control" {@attach toggleExpanded(false)}>
+      <SidebarToggle state="collapsed" onclick={() => void layout.setCollapsed(false)} />
+    </span>
+    <hr class="mf-rail__rule" />
+  {/if}
   <nav aria-label="Workspace">
     {@render entries(sections.explore)}
     <hr class="mf-rail__rule" />
@@ -88,7 +100,10 @@
           title=""
           class="mf-rail__item"
           ariaDisabled={!reviewOffered}
-          onclick={onreview}
+          onclick={(event) => {
+            focusClicked(event)
+            onreview()
+          }}
         >
           <PenLineIcon size={16} aria-hidden="true" />
         </IconButton>

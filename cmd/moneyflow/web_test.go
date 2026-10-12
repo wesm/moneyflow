@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -159,6 +161,73 @@ func TestBuildWebDependenciesGivesDemoAProcessLocalCanonicalRoute(t *testing.T) 
 	assert.Equal(t, 1, closes)
 }
 
+func TestWebStartRemovesADemoRootLeftByACrashedServer(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := t.TempDir()
+	stale := filepath.Join(root, demoDirectoryPrefix+"crashed")
+	require.NoError(t, os.Mkdir(stale, 0o700))
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(stale, old, old))
+
+	dependencies, err := buildWebDependencies(ctx, ProfileOptions{ExplicitHome: root}, IOStreams{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, dependencies.Close(ctx)) })
+
+	assert.NoDirExists(t, stale)
+}
+
+func TestWebSelectorDemoIsLazyTemporaryAndSeparateFromSavedProfiles(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := t.TempDir()
+	var openedOptions []ProfileOptions
+	dependencies, err := buildWebDependencies(ctx, ProfileOptions{ExplicitHome: root}, IOStreams{
+		OpenProfile: func(ctx context.Context, options ProfileOptions) (OpenedProfile, error) {
+			openedOptions = append(openedOptions, options)
+			return openProfile(ctx, options)
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, dependencies.Close(ctx)) })
+	saved, err := dependencies.Catalog.Create(ctx, profilecatalog.CreateRequest{
+		DisplayName: "Saved profile", ProviderKind: "local",
+	})
+	require.NoError(t, err)
+	require.Empty(t, openedOptions, "the demo opens only when a browser selects it")
+	require.True(t, profilecatalog.ValidProfileID(dependencies.DemoProfileID))
+	require.NotEqual(t, saved.ID, dependencies.DemoProfileID)
+
+	demo, err := dependencies.Registry.Acquire(ctx, dependencies.DemoProfileID)
+	require.NoError(t, err)
+	assert.Equal(t, []ProfileOptions{{Demo: true, TemporaryParent: root}}, openedOptions)
+	assert.True(t, demo.Temporary())
+	result, err := demo.Service().Query(app.NewSession())
+	require.NoError(t, err)
+	commandDemo, err := openProfile(ctx, ProfileOptions{Demo: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, commandDemo.Close()) })
+	expected, err := commandDemo.Service.Query(app.NewSession())
+	require.NoError(t, err)
+	assert.Positive(t, result.FilteredCount)
+	assert.Equal(t, expected.FilteredCount, result.FilteredCount, "the --demo data opens")
+	demoRoot := demo.ProfileRoot()
+	assert.Equal(t, root, filepath.Dir(demoRoot), "the demo must not need a private system TMPDIR")
+	entries, err := dependencies.Catalog.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, saved.ID, entries[0].ID)
+	require.NoError(t, demo.Release())
+
+	reopened, err := dependencies.Registry.Acquire(ctx, dependencies.DemoProfileID)
+	require.NoError(t, err)
+	assert.Same(t, demo.Service(), reopened.Service(), "demo edits last for the server lifetime")
+	require.NoError(t, reopened.Release())
+	require.NoError(t, dependencies.Close(ctx))
+	_, err = os.Stat(demoRoot)
+	assert.ErrorIs(t, err, os.ErrNotExist, "shutdown removes the demo database")
+}
+
 func TestWebListenValidation(t *testing.T) {
 	t.Parallel()
 	for _, address := range []string{
@@ -263,6 +332,46 @@ func TestWebCommandWarnsBeforeNonLoopbackRunner(t *testing.T) {
 	command.SetArgs([]string{"web", "--listen", "100.64.1.2:8080", "--open=false"})
 	require.NoError(t, command.Execute())
 	assert.True(t, warningSeen)
+}
+
+func TestWebCommandListenAddress(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name      string
+		arguments []string
+		requested string
+	}{
+		{"demo binds a free loopback port", []string{"--demo"}, "127.0.0.1:0"},
+		{"profiles keep the stable default", nil, "127.0.0.1:8080"},
+		{"explicit listen wins for a demo", []string{"--demo", "--listen", "localhost:9191"}, "localhost:9191"},
+		{"explicit listen wins for profiles", []string{"--listen", "localhost:9191"}, "localhost:9191"},
+		{
+			"a proxied demo keeps the stable default",
+			[]string{"--demo", "--external-url", "https://moneyflow.example/"},
+			"127.0.0.1:8080",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			refused := errors.New("listener refused by test")
+			var requested string
+			streams := IOStreams{
+				In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+				BuildWeb: testWebDependencyBuilder(t),
+				Listen: func(_ context.Context, _ string, address string) (net.Listener, error) {
+					requested = address
+					return nil, refused
+				},
+				SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
+					return context.WithCancel(parent)
+				},
+			}
+			command := newRootCommand(streams)
+			command.SetArgs(append([]string{"web", "--open=false"}, test.arguments...))
+			require.ErrorIs(t, command.Execute(), refused)
+			assert.Equal(t, test.requested, requested)
+		})
+	}
 }
 
 func TestRunWebBrowserFailureIsWarning(t *testing.T) {

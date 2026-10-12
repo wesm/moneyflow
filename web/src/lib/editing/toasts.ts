@@ -12,7 +12,8 @@ const PAST_TENSE = { hide: 'Hidden', show: 'Shown', delete: 'Deleted' } as const
  * and taxonomy edits return `undefined`: the pending card already shows them.
  *
  * Undo and redo of a hide, show, or delete read from `kind`, which keeps the direction the edit
- * had when staged. The review label for a hide does not name a direction.
+ * had when staged. The review label also names the direction ("Hide transactions" or "Show
+ * transactions"); the toast reads `kind`.
  */
 export function toastMessage(
   operation: OperationSummary | undefined,

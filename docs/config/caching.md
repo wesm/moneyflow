@@ -50,11 +50,12 @@ Moneyflow stops before sending further writes if it cannot save their audit reco
 ## When does data refresh?
 
 Press `r` in TUI or web. Amazon asks for files; network providers start a refresh.
-Monarch refresh downloads complete history and only starts when requested. Opening a
-profile, browsing, reconnecting, and saving edits do not trigger a Monarch refresh.
+For Monarch, `r` downloads complete history. Saving edits does not trigger a Monarch refresh.
 Successful edits update saved transactions without invalidating the rest of the cache.
 
 TUI and web schedule eligible YNAB and SimpleFIN refreshes while running.
+**Unreleased:** They also refresh Monarch on the schedule in
+[Monarch refresh](../guide/monarch.md#refresh-data).
 MCP refresh is always explicit. Recovering an interrupted write with **Stop and reconcile**
 also reloads provider data.
 

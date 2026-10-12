@@ -14,7 +14,7 @@ const grouped = (dimension: string) =>
   })
 
 const merchantDrill = testProjection({
-  canonical_query: 'v=1&drill=merchant%3Am1',
+  view: { ...testProjection().view, drill_depth: 1 },
   breadcrumbs: [{ dimension: 'merchant', label: 'Example Merchant' }],
 })
 

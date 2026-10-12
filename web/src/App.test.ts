@@ -99,6 +99,24 @@ describe('Moneyflow application scaffold', () => {
     }
   })
 
+  it('writes pending cursor history when the page hides, is left, or unmounts', async () => {
+    const controller = stubController()
+    const rendered = render(App, { basePath: '/moneyflow/', controller })
+    try {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+      await fireEvent(document, new Event('visibilitychange'))
+      expect(controller.flushHistory).toHaveBeenCalledTimes(1)
+
+      await fireEvent(window, new Event('pagehide'))
+      expect(controller.flushHistory).toHaveBeenCalledTimes(2)
+
+      rendered.unmount()
+      expect(controller.flushHistory).toHaveBeenCalledTimes(3)
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    }
+  })
+
   it('rolls back a newly added profile when onboarding cannot start and the user goes back', async () => {
     const profileID = 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa'
     const catalogState: CatalogController['state'] = {
@@ -182,6 +200,7 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
     hold: <T>(work: Promise<T>) => work,
     settled: async () => undefined,
     restore: vi.fn(async () => undefined),
+    flushHistory: vi.fn(),
     retry: vi.fn(async () => undefined),
     reset: vi.fn(async () => undefined),
     ...overrides,

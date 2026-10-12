@@ -24,18 +24,22 @@ async function activeRowIndex(page: Page): Promise<number> {
 
 /** The `aria-rowindex` of the first row wholly visible below the sticky header. */
 async function firstVisibleRowIndex(page: Page): Promise<number> {
+  return Math.min(...(await visibleRowIndexes(page)))
+}
+
+/** The `aria-rowindex` of every row wholly visible below the sticky header. */
+async function visibleRowIndexes(page: Page): Promise<number[]> {
   return await workspace(page).evaluate((scroller) => {
     const headerBottom = scroller
       .querySelector('[role="grid"] [role="row"]:not([data-index])')!
       .getBoundingClientRect().bottom
     const bottom = scroller.getBoundingClientRect().bottom
-    const indexes = [...scroller.querySelectorAll('[role="row"][data-index]')]
+    return [...scroller.querySelectorAll('[role="row"][data-index]')]
       .filter((row) => {
         const box = row.getBoundingClientRect()
         return box.top >= headerBottom - 0.5 && box.bottom <= bottom + 0.5
       })
       .map((row) => Number(row.getAttribute('aria-rowindex')))
-    return Math.min(...indexes)
   })
 }
 
@@ -82,6 +86,39 @@ test('the mouse wheel reaches the last row of a long result and j moves from the
   await page.keyboard.press('Home')
   await expect.poll(() => activeRowIndex(page)).toBe(2)
   await expect.poll(async () => (await scrollState(page)).top).toBe(0)
+})
+
+test('the cursor follows a wheel scroll inside the loaded rows, so j moves on from the screen', async ({
+  page,
+  server,
+}) => {
+  // A short window, so the merchant table scrolls by more than a screen.
+  await page.setViewportSize({ width: 1440, height: 600 })
+  await openMoneyflow(page, server)
+  await expect(grid(page).getByRole('columnheader', { name: 'Merchant' })).toBeVisible()
+  const total = Number(await grid(page).getAttribute('aria-rowcount')) - 1
+  expect(total).toBeLessThanOrEqual(200)
+
+  await grid(page).hover()
+  await page.mouse.wheel(0, total * 100)
+  await expect.poll(async () => (await scrollState(page)).atEnd).toBe(true)
+  const first = await firstVisibleRowIndex(page)
+  expect(first).toBeGreaterThan(2)
+  await expect.poll(() => activeRowIndex(page)).toBe(first)
+  const before = (await scrollState(page)).top
+  await page.keyboard.press('j')
+  await expect.poll(() => activeRowIndex(page)).toBe(first + 1)
+  expect((await scrollState(page)).top).toBe(before)
+
+  // Scrolling up a screen leaves the cursor below it, so the cursor moves to the last row shown.
+  const height = await workspace(page).evaluate((scroller) => scroller.clientHeight)
+  await page.mouse.wheel(0, -height)
+  await expect.poll(async () => (await scrollState(page)).top).toBe(before - height)
+  const last = Math.max(...(await visibleRowIndexes(page)))
+  expect(last).toBeGreaterThan(1)
+  expect(last).toBeLessThan(first + 1)
+  await expect.poll(() => activeRowIndex(page)).toBe(last)
+  await expect(grid(page)).toBeFocused()
 })
 
 test('the cursor follows the scroll below a write banner that appeared later', async ({
@@ -143,17 +180,15 @@ test('j moves down across the edge of the 200 loaded rows', async ({ page, serve
   }
 })
 
-test('a header sort that keeps the cursor index brings the cursor row back', async ({
-  page,
-  server,
-}) => {
+test('a header sort brings the cursor row it keeps into view', async ({ page, server }) => {
   await openMoneyflow(page, server)
   await page.keyboard.press('d')
   await expect(grid(page).getByRole('columnheader', { name: 'Date' })).toBeVisible()
-  // Past row 100, beyond the charts above the table.
+  // Past row 100, beyond the charts above the table. The cursor follows to the first row shown.
   await workspace(page).evaluate((scroller) => (scroller.scrollTop = 120 * 30))
   await expect.poll(() => firstVisibleRowIndex(page)).toBeGreaterThan(100)
-  await expect.poll(() => activeRowIndex(page)).toBe(-1)
+  const first = await firstVisibleRowIndex(page)
+  await expect.poll(() => activeRowIndex(page)).toBe(first)
 
   const url = page.url()
   await grid(page).getByRole('button', { name: 'Amount' }).click()

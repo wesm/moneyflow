@@ -30,6 +30,7 @@
   const overlay = $derived(overlays.current)
   const information = $derived(overlays.information)
   const target = $derived(overlays.editTarget)
+  const draft = $derived(overlays.editorDraft)
   const onclose = () => overlays.close()
   const onwrite = () => overlays.open('write')
   // On phones the editor and the delete confirmation are bottom sheets. Staging an edit returns
@@ -38,7 +39,7 @@
 </script>
 
 {#snippet editor(kind: 'merchant' | 'category', onstage: () => void)}
-  {#if target}
+  {#if target && draft}
     <EditorBody
       {kind}
       {target}
@@ -46,6 +47,7 @@
       {projection}
       cursorIndex={controller.cursorIndex}
       id="mf-editor"
+      {draft}
       {onstage}
       oncancel={onclose}
     />

@@ -41,6 +41,7 @@ type Service struct {
 	amazonSettings        *store.AmazonSettings
 	amazonMatcher         *AmazonMatchingService
 	auditWarning          string
+	refreshRecordWarning  string
 	now                   func() time.Time
 }
 

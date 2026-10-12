@@ -78,3 +78,14 @@ export function preserveCursor(
   const row = rows.find((candidate) => candidate.index === index)
   return { identity: row?.identity, index }
 }
+
+/**
+ * Whether a transition starts the cursor on the first row, as the TUI does. Every transition
+ * that shows other rows does: a period change, a drill, a grouping, a search, or a filter. A sort
+ * or a selection lays out the same rows, so the cursor stays on its row. Back returns to the row
+ * its history entry saved.
+ */
+export function startsAtFirstRow(action: string): boolean {
+  if (action.startsWith('sort.') || action.startsWith('selection.')) return false
+  return action !== 'view.back' && action !== 'view.back-to'
+}

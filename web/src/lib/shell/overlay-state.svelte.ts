@@ -2,6 +2,7 @@ import { tick, untrack } from 'svelte'
 import type { Attachment } from 'svelte/attachments'
 
 import type { TransactionInformationResponse } from '../api/client'
+import type { EditorDraft } from '../editing/draft.svelte'
 import { restoreFocus, rowIndex } from './focus'
 import type { FocusedRow } from './local-actions'
 
@@ -52,6 +53,8 @@ export class OverlayState {
   current = $state<Overlay | undefined>()
   /** The row the merchant or category editor edits. */
   editTarget = $state<FocusedRow | undefined>()
+  /** The open editor's input, kept while the editor moves between the popover and the sheet. */
+  editorDraft = $state<EditorDraft | undefined>()
   deleteTarget = $state<{ identity: string; kind: 'transaction' } | undefined>()
   deleteCount = $state(0)
   information = $state<TransactionInformationResponse | undefined>()
@@ -96,6 +99,7 @@ export class OverlayState {
     this.#popScope?.()
     this.#popScope = undefined
     this.editTarget = undefined
+    this.editorDraft = undefined
     this.deleteTarget = undefined
     this.deleteCount = 0
     this.information = undefined

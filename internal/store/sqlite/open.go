@@ -41,6 +41,7 @@ var DefaultOptions = Options{
 type profile struct {
 	database     *sql.DB
 	auditPath    string
+	recordPath   string
 	now          func() time.Time
 	readOnlyFile *os.File
 	closeOnce    sync.Once
@@ -66,7 +67,10 @@ func Open(ctx context.Context, paths home.Paths, options Options) (store.Profile
 	}
 	database.SetMaxOpenConns(options.MaxOpenConnections)
 	database.SetMaxIdleConns(options.MaxOpenConnections)
-	opened := &profile{database: database, auditPath: filepath.Join(paths.Root, "audit.jsonl"), now: options.Now}
+	opened := &profile{
+		database: database, auditPath: filepath.Join(paths.Root, "audit.jsonl"),
+		recordPath: filepath.Join(paths.Root, providerRefreshRecordName), now: options.Now,
+	}
 	success := false
 	defer func() {
 		if !success {

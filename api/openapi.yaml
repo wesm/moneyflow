@@ -1167,6 +1167,8 @@ components:
         revision:
           pattern: ^[0-9]+$
           type: string
+        source_merchant_id:
+          type: string
         transactions:
           items:
             $ref: "#/components/schemas/DetailRow"
@@ -1592,6 +1594,19 @@ components:
           $ref: "#/components/schemas/ProviderWriteStatusResponse"
         provider_write_confirmation_token:
           maxLength: 4096
+          type: string
+        reason:
+          enum:
+            - refresh_request
+            - refresh_binding
+            - refresh_planner
+            - refresh_plan
+            - provider_write_request
+            - provider_write_planner
+            - provider_write_plan
+            - provider_write_batch
+            - provider_refresh_lease
+            - taxonomy_label_collision
           type: string
         selection:
           $ref: "#/components/schemas/SelectionDisposition"
@@ -2020,6 +2035,9 @@ components:
           $ref: "#/components/schemas/Capability"
         code:
           type: string
+        code_detail:
+          description: Explains code
+          type: string
         confirmation_token:
           maxLength: 4096
           type: string
@@ -2044,6 +2062,12 @@ components:
           $ref: "#/components/schemas/ProviderProgress"
         provider_kind:
           type: string
+        refresh_due:
+          enum:
+            - none
+            - recent
+            - full
+          type: string
         revision:
           pattern: ^[0-9]+$
           type: string
@@ -2051,10 +2075,14 @@ components:
           $ref: "#/components/schemas/ProviderRefreshSummary"
         version:
           type: string
+        warning:
+          description: A problem that did not stop the refresh
+          type: string
       required:
         - version
         - revision
         - generation
+        - refresh_due
         - progress
         - summary
         - capability
@@ -2152,6 +2180,9 @@ components:
         completed:
           format: int64
           type: integer
+        completed_at:
+          format: date-time
+          type: string
         failed:
           format: int64
           type: integer
@@ -2294,6 +2325,12 @@ components:
           type: string
         operation_id:
           type: string
+        targets:
+          items:
+            $ref: "#/components/schemas/ReviewTarget"
+          type:
+            - array
+            - "null"
         taxonomy_effect:
           type: string
         type:
@@ -2800,10 +2837,16 @@ components:
       properties:
         currency:
           $ref: "#/components/schemas/CurrencyScope"
+        drill_depth:
+          format: int64
+          minimum: 0
+          type: integer
         grouping:
           type: string
         mode:
           type: string
+        root:
+          $ref: "#/components/schemas/ViewRoot"
         search:
           type: string
         sort_direction:
@@ -2834,6 +2877,22 @@ components:
         - sort_field
         - sort_direction
         - sort_fields
+        - drill_depth
+        - root
+      type: object
+    ViewRoot:
+      additionalProperties: false
+      properties:
+        grouping:
+          type: string
+        mode:
+          type: string
+        time_granularity:
+          type: string
+      required:
+        - mode
+        - grouping
+        - time_granularity
       type: object
     Warning:
       additionalProperties: false

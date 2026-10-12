@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -516,4 +517,42 @@ func requestSignedJSON(
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	return response
+}
+
+func TestMutationProblemReportsTheCollisionReason(t *testing.T) {
+	t.Parallel()
+
+	server := newPersistentAPITestServer(t)
+	initial := projectPersistentView(t, server)
+	mutate := func(input MutationInput) (int, Problem) {
+		response := requestProtectedJSON(t, server, "/api/v1/mutations", MutationBody{
+			Version: MutationSchemaVersion, ExpectedRevision: initial.Revision,
+			Query: initial.CanonicalQuery, Selection: initial.Selection,
+			Action: app.ActionManageCategories, Input: input, Window: Window{Limit: 200},
+		})
+		var problem Problem
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+		return response.Code, problem
+	}
+
+	status, collision := mutate(MutationInput{
+		Taxonomy: string(app.TaxonomyCreate), EntityID: "category-duplicate",
+		Label: "  example CATEGORY ", GroupID: "group-example",
+	})
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	assert.Equal(t, string(CodeInvalidOperation), collision.Code)
+	assert.Equal(t, "taxonomy_label_collision", collision.Reason)
+	assert.True(
+		t, strings.HasSuffix(collision.Detail, "That label already exists; use merge instead."),
+		collision.Detail,
+	)
+	assert.NotContains(t, collision.Detail, "explicit merge")
+
+	status, ordinary := mutate(MutationInput{
+		Taxonomy: string(app.TaxonomyCreate), EntityID: "category-orphan",
+		Label: "Orphan Category", GroupID: "group-missing",
+	})
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	assert.Equal(t, string(CodeInvalidOperation), ordinary.Code)
+	assert.Empty(t, ordinary.Reason)
 }

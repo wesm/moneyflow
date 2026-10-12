@@ -46,6 +46,11 @@ describe('PeriodControl', () => {
     const { sent, onclose, allTimeButton } = control(
       allTime({
         canonical_query: 'v=1&g=time&drill=time%3AUSD%3A2%3Amonth%3A2026-09',
+        view: {
+          ...testProjection().view,
+          currency: { currency: 'USD', scale: 2 },
+          drill_depth: 1,
+        },
         breadcrumbs: [{ dimension: 'time', label: 'Sep 2026' }],
       }),
     )

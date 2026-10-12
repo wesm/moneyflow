@@ -4,6 +4,8 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"errors"
+	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -28,9 +30,11 @@ type WebDependencies struct {
 	AmazonImports        *amazonimport.Coordinator
 	LoadAmazonTaxonomy   func(context.Context, string) (*app.TaxonomyClone, error)
 	PreselectedProfileID string
-	CloseIdle            func(context.Context) error
-	IdleSweepInterval    time.Duration
-	close                func(context.Context) error
+	// DemoProfileID names the profile selector's temporary demo, opened on first use.
+	DemoProfileID     string
+	CloseIdle         func(context.Context) error
+	IdleSweepInterval time.Duration
+	close             func(context.Context) error
 }
 
 // Close releases every cached profile and any unopened temporary demo profile.
@@ -80,25 +84,18 @@ func buildWebDependencies(
 		preselectedID = entry.ID
 	}
 
-	registry, err := webserver.NewProfileRegistry(webserver.ProfileRegistryConfig{
-		Open: func(openContext context.Context, profileID string) (webserver.RegistryProfile, error) {
-			opened, openErr := opener(openContext, ProfileOptions{
-				ExplicitHome: options.ExplicitHome, Profile: profileID,
-			})
-			if openErr != nil {
-				return webserver.RegistryProfile{}, openErr
-			}
-			if configureErr := configureOpenedProvider(
-				openContext, opened, streams, "web",
-			); configureErr != nil {
-				return webserver.RegistryProfile{}, closeOpenedProfile(opened, configureErr)
-			}
-			opened.Service.ConfigureAmazonMatching(amazonMatcher)
-			return webserver.RegistryProfile{
-				ID: opened.ID, Paths: opened.Paths, Service: opened.Service, Close: opened.Close,
-			}, nil
-		},
-	})
+	sweepDemoRootsAtStart(catalog.Paths().Root, streams.Err)
+	demoProfileID, err := profilecatalog.NewProfileID(cryptorand.Reader)
+	if err != nil {
+		return WebDependencies{}, err
+	}
+	profiles := webProfileOpener{
+		explicitHome: options.ExplicitHome, streams: streams, opener: opener,
+		amazonMatcher: amazonMatcher, demoID: demoProfileID, demoParent: catalog.Paths().Root,
+	}
+	registry, err := webserver.NewProfileRegistry(
+		webserver.ProfileRegistryConfig{Open: profiles.open},
+	)
 	if err != nil {
 		return WebDependencies{}, err
 	}
@@ -176,6 +173,7 @@ func buildWebDependencies(
 			return loadAmazonTaxonomyClone(loadContext, catalog, selector)
 		},
 		PreselectedProfileID: preselectedID,
+		DemoProfileID:        demoProfileID,
 		CloseIdle:            registry.CloseIdle,
 		IdleSweepInterval:    time.Minute,
 		close: func(closeContext context.Context) error {
@@ -184,6 +182,61 @@ func buildWebDependencies(
 				registry.Close(closeContext),
 			)
 		},
+	}, nil
+}
+
+// webProfileOpener opens catalog profiles for the registry, plus the selector's demo.
+type webProfileOpener struct {
+	explicitHome  string
+	streams       IOStreams
+	opener        ProfileOpener
+	amazonMatcher *app.AmazonMatchingService
+	demoID        string
+	demoParent    string
+}
+
+func (profiles webProfileOpener) open(
+	ctx context.Context, profileID string,
+) (webserver.RegistryProfile, error) {
+	if profileID == profiles.demoID {
+		return profiles.openDemo(ctx)
+	}
+	opened, err := profiles.opener(ctx, ProfileOptions{
+		ExplicitHome: profiles.explicitHome, Profile: profileID,
+	})
+	if err != nil {
+		return webserver.RegistryProfile{}, err
+	}
+	if err = configureOpenedProvider(ctx, opened, profiles.streams, "web"); err != nil {
+		return webserver.RegistryProfile{}, closeOpenedProfile(opened, err)
+	}
+	opened.Service.ConfigureAmazonMatching(profiles.amazonMatcher)
+	return webserver.RegistryProfile{
+		ID: opened.ID, Paths: opened.Paths, Service: opened.Service, Close: opened.Close,
+	}, nil
+}
+
+// sweepDemoRootsAtStart removes demo roots that crashed servers left in the catalog root. A
+// failed sweep leaves only disk litter, so the server still starts and reports it.
+func sweepDemoRootsAtStart(root string, report io.Writer) {
+	err := sweepStaleDemoRoots(root, time.Now())
+	if err != nil && report != nil {
+		_, _ = fmt.Fprintf(report, "Moneyflow could not remove an old demo folder: %v\n", err)
+	}
+}
+
+// openDemo seeds a temporary demo in the private catalog root. The registry keeps it open, so
+// its edits last until shutdown removes it.
+func (profiles webProfileOpener) openDemo(ctx context.Context) (webserver.RegistryProfile, error) {
+	opened, err := profiles.opener(ctx, ProfileOptions{
+		Demo: true, TemporaryParent: profiles.demoParent,
+	})
+	if err != nil {
+		return webserver.RegistryProfile{}, err
+	}
+	return webserver.RegistryProfile{
+		ID: profiles.demoID, Paths: opened.Paths, Service: opened.Service,
+		Temporary: true, Close: opened.Close,
 	}, nil
 }
 

@@ -427,3 +427,15 @@ func (tuiProviderWriter) DeleteTransaction(
 ) (provider.TransactionDeleteResult, error) {
 	return provider.TransactionDeleteResult{TransactionExternalID: externalID}, nil
 }
+
+func TestProviderSuccessMessageCarriesTheRefreshWarning(t *testing.T) {
+	t.Parallel()
+
+	status := app.ProviderStatus{Warning: "Refresh saved, but the full refresh was not recorded."}
+	status.Summary.ImportedTransactions = 3
+
+	assert.Equal(t,
+		"Provider refresh complete: 3 imported, 0 removed. "+
+			"Refresh saved, but the full refresh was not recorded.",
+		providerSuccessMessage(status))
+}

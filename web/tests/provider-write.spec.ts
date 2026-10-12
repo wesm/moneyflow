@@ -46,6 +46,9 @@ test('w then Enter prepares, writes, and finalizes Monarch edits without extra c
     await expect(write.getByRole('status')).toContainText(/Provider write|Writing pending/)
     await expect(page.getByText(/0 pending edit/)).toBeVisible({ timeout: 10_000 })
     await expect(write.getByRole('status')).toContainText('Provider write complete')
+    // The finished write keeps its counts: every hidden transaction was written.
+    await expect(write.getByText(/^([1-9]\d*) of \1 complete$/)).toBeVisible()
+    await expect(write.getByText('Finished', { exact: true })).toBeVisible()
     const exposed = [await page.locator('body').innerText(), page.url(), ...consoleMessages].join(
       '\n',
     )

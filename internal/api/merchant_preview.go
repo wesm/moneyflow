@@ -14,6 +14,9 @@ type MerchantPreviewResponse struct {
 	Revision             string      `json:"revision" pattern:"^[0-9]+$"`
 	AffectedTransactions int         `json:"affected_transactions"`
 	Transactions         []DetailRow `json:"transactions"`
+	// SourceMerchantID is the merchant every affected transaction has now. Whole-merchant scope
+	// always names it; chosen transactions name it only when they share one merchant.
+	SourceMerchantID string `json:"source_merchant_id,omitempty"`
 	// OutsideView counts affected transactions that the opening view hides.
 	OutsideView int `json:"outside_view"`
 	// OutsideCurrencies lists the currencies of those transactions; empty when there are none.
@@ -40,6 +43,7 @@ func (server *Server) registerMerchantPreviewEndpoint() {
 			Version: MutationSchemaVersion, Revision: strconv.FormatUint(preview.Revision, 10),
 			AffectedTransactions: preview.AffectedTransactions,
 			Transactions:         make([]DetailRow, 0, len(preview.Transactions)),
+			SourceMerchantID:     string(preview.SourceMerchantID),
 			OutsideView:          preview.OutsideView,
 			OutsideCurrencies:    make([]CurrencyScope, 0, len(preview.OutsideCurrencies)),
 		}

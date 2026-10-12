@@ -6,7 +6,10 @@ import { createMoneyflowShortcuts, handleMoneyflowKeydown, validateCapabilities 
 const capabilities = [
   ['cursor.up', '↑/k'],
   ['cursor.down', '↓/j'],
-  ['cursor.home', 'home'],
+  ['cursor.home', 'Home/T'],
+  ['cursor.end', 'End/B'],
+  ['cursor.page-up', 'PgUp'],
+  ['cursor.page-down', 'PgDn'],
   ['view.cycle-grouping', 'g'],
   ['view.set-grouping', '1-5'],
   ['view.show-detail', 'd'],
@@ -46,7 +49,7 @@ const capabilities = [
 }))
 
 describe('Moneyflow browser shortcuts', () => {
-  it('matches the TUI read-only keys without lifecycle or End bindings', () => {
+  it('matches the TUI read-only keys without lifecycle bindings', () => {
     expect(() => validateCapabilities(capabilities)).not.toThrow()
     const handlers = { local: vi.fn(), apply: vi.fn() }
     const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
@@ -57,6 +60,9 @@ describe('Moneyflow browser shortcuts', () => {
       'ArrowDown',
       'j',
       'Home',
+      'End',
+      'PageUp',
+      'PageDown',
       'g',
       'd',
       'Enter',
@@ -87,8 +93,9 @@ describe('Moneyflow browser shortcuts', () => {
     expect(shortcuts.manager.handleKeydown(keyboard('G', { shiftKey: true }))).toBe(true)
     expect(shortcuts.manager.handleKeydown(keyboard('U', { shiftKey: true }))).toBe(true)
     expect(shortcuts.manager.handleKeydown(keyboard('a', { ctrlKey: true }))).toBe(true)
-    for (const key of ['End', 'q'])
-      expect(shortcuts.manager.handleKeydown(keyboard(key))).toBe(false)
+    expect(shortcuts.manager.handleKeydown(keyboard('T', { shiftKey: true }))).toBe(true)
+    expect(shortcuts.manager.handleKeydown(keyboard('B', { shiftKey: true }))).toBe(true)
+    for (const key of ['b', 'q']) expect(shortcuts.manager.handleKeydown(keyboard(key))).toBe(false)
     expect(shortcuts.manager.handleKeydown(keyboard('c', { ctrlKey: true }))).toBe(false)
     shortcuts.destroy()
   })
@@ -156,6 +163,29 @@ describe('Moneyflow browser shortcuts', () => {
     Object.defineProperty(letter, 'target', { value: button })
     expect(handleMoneyflowKeydown(shortcuts.manager, letter)).toBe(true)
     expect(handlers.apply).toHaveBeenCalledWith('view.cycle-grouping')
+  })
+
+  it('moves the cursor with the TUI paging keys, and t still opens the period chooser', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    const presses = [
+      [keyboard('Home'), 'cursor.home'],
+      [keyboard('T', { shiftKey: true }), 'cursor.home'],
+      [keyboard('End'), 'cursor.end'],
+      [keyboard('B', { shiftKey: true }), 'cursor.end'],
+      [keyboard('PageUp'), 'cursor.page-up'],
+      [keyboard('PageDown'), 'cursor.page-down'],
+      [keyboard('t'), 'time.choose'],
+    ] as const
+    for (const [event, action] of presses) {
+      expect(handleMoneyflowKeydown(shortcuts.manager, event)).toBe(true)
+      expect(handlers.local).toHaveBeenLastCalledWith(action)
+    }
+    const typed = keyboard('T', { shiftKey: true })
+    Object.defineProperty(typed, 'target', { value: document.createElement('input') })
+    expect(handleMoneyflowKeydown(shortcuts.manager, typed)).toBe(false)
+    expect(handlers.local).toHaveBeenCalledTimes(presses.length)
+    shortcuts.destroy()
   })
 
   it('opens the period chooser locally with t', () => {

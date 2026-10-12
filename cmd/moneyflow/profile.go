@@ -48,13 +48,15 @@ type ProfileOptions struct {
 	Demo         bool
 	ExplicitHome string
 	FixturePath  string
-	ProviderKind string
-	Profile      string
+	// TemporaryParent holds a demo's temporary root instead of the system temporary directory.
+	TemporaryParent string
+	ProviderKind    string
+	Profile         string
 }
 
 func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, error) {
 	if options.Demo || options.FixturePath != "" {
-		return openDemoProfile(ctx, options.FixturePath)
+		return openDemoProfile(ctx, options.FixturePath, options.TemporaryParent)
 	}
 	catalog, entry, exists, err := resolvePersistentSelection(
 		ctx, options.ExplicitHome, options.Profile,
@@ -218,41 +220,110 @@ func openProfileCatalog(explicitHome string) (*profilecatalog.Catalog, error) {
 	return catalog, nil
 }
 
-func openDemoProfile(ctx context.Context, fixturePath string) (OpenedProfile, error) {
-	root, err := os.MkdirTemp("", demoDirectoryPrefix)
+func openDemoProfile(ctx context.Context, fixturePath, parent string) (OpenedProfile, error) {
+	root, parent, release, err := createDemoRoot(parent)
 	if err != nil {
-		return OpenedProfile{}, fmt.Errorf("open demo profile: create temporary root: %w", err)
+		return OpenedProfile{}, fmt.Errorf("open demo profile: %w", err)
+	}
+	// Release before removal: Windows cannot remove a directory holding an open lock file.
+	discard := func() error {
+		return errors.Join(release(), removeOwnedTemporaryRoot(root, demoDirectoryPrefix, parent))
 	}
 	paths, err := home.ResolveRoot(root, nil, "")
 	if err != nil {
-		_ = removeOwnedTemporaryRoot(root, demoDirectoryPrefix)
-		return OpenedProfile{}, fmt.Errorf("open demo profile: %w", err)
+		return OpenedProfile{}, errors.Join(fmt.Errorf("open demo profile: %w", err), discard())
 	}
 	profile, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
 	if err != nil {
-		_ = removeOwnedTemporaryRoot(root, demoDirectoryPrefix)
-		return OpenedProfile{}, fmt.Errorf("open demo profile: %w", err)
-	}
-	fail := func(cause error) (OpenedProfile, error) {
-		return OpenedProfile{}, errors.Join(
-			cause, profile.Close(), removeOwnedTemporaryRoot(root, demoDirectoryPrefix),
-		)
+		return OpenedProfile{}, errors.Join(fmt.Errorf("open demo profile: %w", err), discard())
 	}
 	service, err := seedDemoService(ctx, profile, fixturePath)
 	if err != nil {
-		return fail(fmt.Errorf("open demo profile: %w", err))
+		return OpenedProfile{}, errors.Join(
+			fmt.Errorf("open demo profile: %w", err), profile.Close(), discard(),
+		)
 	}
 	return OpenedProfile{
 		ID: "profile_demo", DisplayName: "Demo", Service: service,
 		Close: idempotentClose(func() error {
-			return errors.Join(
-				profile.Close(), removeOwnedTemporaryRoot(root, demoDirectoryPrefix),
-			)
+			return errors.Join(profile.Close(), discard())
 		}),
 		Path:  paths.Database,
 		Paths: paths,
 		Demo:  true,
 	}, nil
+}
+
+// createDemoRoot makes a demo's temporary root in parent, or in the system temporary directory
+// when parent is empty. A root in a named parent holds its shared profile lock until release,
+// so another server's start-up sweep can tell it from a crashed demo's leftovers.
+func createDemoRoot(parent string) (string, string, func() error, error) {
+	if parent == "" {
+		root, err := os.MkdirTemp(os.TempDir(), demoDirectoryPrefix)
+		if err != nil {
+			return "", "", nil, fmt.Errorf("create temporary root: %w", err)
+		}
+		return root, os.TempDir(), func() error { return nil }, nil
+	}
+	if err := home.PreparePrivateRoot(parent); err != nil {
+		return "", "", nil, fmt.Errorf("prepare temporary parent: %w", err)
+	}
+	root, err := os.MkdirTemp(parent, demoDirectoryPrefix)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("create temporary root: %w", err)
+	}
+	lock, err := home.TryLockExisting(root, home.LockProfile, home.LockShared)
+	if err != nil {
+		return "", "", nil, errors.Join(
+			fmt.Errorf("lock temporary root: %w", err),
+			removeOwnedTemporaryRoot(root, demoDirectoryPrefix, parent),
+		)
+	}
+	return root, parent, lock.Release, nil
+}
+
+// staleDemoMinAge spares a new demo root during the moment before its demo takes the lock.
+const staleDemoMinAge = 10 * time.Minute
+
+// sweepStaleDemoRoots removes demo roots in parent that no running demo holds. A demo holds
+// its root's shared profile lock while open, and the OS drops the lock when the process
+// exits, so an exclusive lock shows the demo is gone.
+func sweepStaleDemoRoots(parent string, now time.Time) error {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return fmt.Errorf("sweep demo roots: %w", err)
+	}
+	var errs []error
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), demoDirectoryPrefix) {
+			errs = append(errs, sweepDemoRoot(parent, entry.Name(), now))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func sweepDemoRoot(parent, name string, now time.Time) error {
+	root := filepath.Join(parent, name)
+	info, err := os.Lstat(root)
+	if err != nil {
+		return fmt.Errorf("sweep demo root %s: %w", name, err)
+	}
+	if !info.IsDir() || now.Sub(info.ModTime()) < staleDemoMinAge {
+		return nil
+	}
+	lock, err := home.TryLockExisting(root, home.LockProfile, home.LockExclusive)
+	if errors.Is(err, home.ErrLockBusy) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("sweep demo root %s: %w", name, err)
+	}
+	// Only a demo locks its own root, and that demo is gone, so releasing first admits no one.
+	// Windows cannot remove a directory holding an open lock file.
+	if err = lock.Release(); err != nil {
+		return fmt.Errorf("sweep demo root %s: %w", name, err)
+	}
+	return removeOwnedTemporaryRoot(root, demoDirectoryPrefix, parent)
 }
 
 // seedDemoService seeds the built-in demo or a fixture document into an empty profile. The
@@ -299,13 +370,13 @@ func openTemporaryContractProfile(ctx context.Context) (OpenedProfile, error) {
 	}
 	opened, err := openProfile(ctx, ProfileOptions{ExplicitHome: root})
 	if err != nil {
-		_ = removeOwnedTemporaryRoot(root, contractDirectoryPrefix)
+		_ = removeOwnedTemporaryRoot(root, contractDirectoryPrefix, os.TempDir())
 		return OpenedProfile{}, fmt.Errorf("open contract profile: %w", err)
 	}
 	closeProfile := opened.Close
 	opened.Close = idempotentClose(func() error {
 		return errors.Join(
-			closeProfile(), removeOwnedTemporaryRoot(root, contractDirectoryPrefix),
+			closeProfile(), removeOwnedTemporaryRoot(root, contractDirectoryPrefix, os.TempDir()),
 		)
 	})
 	return opened, nil
@@ -320,9 +391,9 @@ func idempotentClose(closeProfile func() error) func() error {
 	}
 }
 
-func removeOwnedTemporaryRoot(root string, prefix string) error {
+func removeOwnedTemporaryRoot(root, prefix, parent string) error {
 	clean := filepath.Clean(root)
-	temporary := filepath.Clean(os.TempDir())
+	temporary := filepath.Clean(parent)
 	if prefix == "" || filepath.Dir(clean) != temporary || !strings.HasPrefix(filepath.Base(clean), prefix) {
 		return errors.New("refuse to remove unowned temporary profile root")
 	}

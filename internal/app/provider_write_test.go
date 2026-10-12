@@ -80,12 +80,16 @@ func TestYNABWriteRenameFinalizesAndReopens(t *testing.T) {
 	status, err := service.RunProviderWrite(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, status.Phase)
+	assertCompletedProviderWrite(t, status, now)
 	assert.Equal(t, 1, writer.callCount())
 	require.NoError(t, handle.Close())
 	handle, err = sqlite.Open(ctx, paths, sqlite.DefaultOptions)
 	require.NoError(t, err)
-	_, err = app.NewProfileService(ctx, handle)
+	service, err = app.NewProfileService(ctx, handle)
 	require.NoError(t, err)
+	status, err = service.ProviderWriteStatus(ctx)
+	require.NoError(t, err)
+	assertCompletedProviderWrite(t, status, now)
 	loaded, err = handle.Load(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, loaded.Journal)
@@ -117,6 +121,30 @@ func TestYNABWriteRenameFinalizesAndReopens(t *testing.T) {
 	assert.Equal(t, "New Payee", planned["requested"].(map[string]any)["merchant_name"])
 	require.NotNil(t, acknowledged)
 	assert.Equal(t, "payee-created", acknowledged["acknowledged"].(map[string]any)["merchant_external_id"])
+
+	// A later edit must not inherit the previous write's completion record.
+	_, err = handle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_ynab_later", Type: domain.OperationMerchantLabel, PayloadVersion: 1,
+		CreatedRevision: loaded.Revision, CreatedAt: now, Targets: []domain.EntityID{merchantID},
+		Label: &domain.LabelPayload{EntityID: merchantID, Label: "Later Payee", CollisionKey: "later payee"},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	status, err = service.ProviderWriteStatus(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, status.CompletedAt)
+	assert.Zero(t, status.Total)
+	assert.Zero(t, status.Completed)
+}
+
+func assertCompletedProviderWrite(t *testing.T, status app.ProviderWriteStatus, finished time.Time) {
+	t.Helper()
+	assert.Empty(t, status.Phase)
+	assert.Equal(t, 1, status.Total)
+	assert.Equal(t, 1, status.Completed)
+	assert.Zero(t, status.Remaining)
+	assert.True(t, finished.Equal(status.CompletedAt), "completed at %s", status.CompletedAt)
 }
 
 func readWriteAudit(t *testing.T, path string) []map[string]any {

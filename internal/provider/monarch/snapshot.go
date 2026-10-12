@@ -30,17 +30,30 @@ func (client *Client) ProbeIdentity(ctx context.Context) (provider.ProfileIdenti
 	return provider.ProfileIdentity{Kind: providerKind, RemoteID: subscription.ID}, nil
 }
 
-// FetchSnapshot reads and validates one complete posted-transaction snapshot.
+// FetchSnapshot reads and validates one posted-transaction snapshot. A request window replaces
+// the client's configured range for this fetch only.
 func (client *Client) FetchSnapshot(
 	ctx context.Context,
-	_ provider.FetchRequest,
+	request provider.FetchRequest,
 	progress provider.ProgressFunc,
 ) (provider.SnapshotResult, error) {
 	identity, err := client.ProbeIdentity(ctx)
 	if err != nil {
 		return provider.SnapshotResult{}, err
 	}
-	snapshot, err := client.fetchSnapshot(ctx, progress)
+	reader := client
+	if window := request.TransactionWindow; window != nil {
+		ranged := *client
+		ranged.options.TransactionStartDate = window.Start.String()
+		ranged.options.TransactionEndDate = window.End.String()
+		if err = validateTransactionRange(
+			ranged.options.TransactionStartDate, ranged.options.TransactionEndDate,
+		); err != nil {
+			return provider.SnapshotResult{}, provider.NewError(provider.CodeDataInvalid)
+		}
+		reader = &ranged
+	}
+	snapshot, err := reader.fetchSnapshot(ctx, progress)
 	if err != nil {
 		return provider.SnapshotResult{}, err
 	}
@@ -265,14 +278,24 @@ func (client *Client) normalizeSnapshot(
 	snapshot := domain.ImportSnapshot{
 		Accounts: accountEntities, Merchants: merchantEntities,
 		Groups: groupEntities, Categories: categoryEntities,
-		Transactions: importedTransactions,
-		ObservedAt:   client.options.Now().UTC().Truncate(time.Millisecond),
+		Transactions: importedTransactions, TransactionWindow: client.transactionWindow(),
+		ObservedAt: client.options.Now().UTC().Truncate(time.Millisecond),
 	}
 	sortSnapshot(&snapshot)
 	if err := snapshot.Validate(); err != nil {
 		return domain.ImportSnapshot{}, provider.NewDataInvalidError(provider.DataInvalidSnapshot)
 	}
 	return snapshot, nil
+}
+
+// transactionWindow reports the validated range this client requests, or nil for all history.
+func (client *Client) transactionWindow() *domain.DateRange {
+	start, startErr := domain.ParseDate(client.options.TransactionStartDate)
+	end, endErr := domain.ParseDate(client.options.TransactionEndDate)
+	if startErr != nil || endErr != nil {
+		return nil
+	}
+	return &domain.DateRange{Start: start, End: end}
 }
 
 func includeTransactionAccounts(

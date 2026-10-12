@@ -56,8 +56,10 @@ type ImportWriteRestriction struct {
 	Reason     string
 }
 
-// ImportSnapshot is one complete provider observation ready for identity mapping and persistence.
+// ImportSnapshot is one provider observation ready for identity mapping and persistence.
 // Provider adapters may inspect pending rows while checking snapshot integrity, but omit them here.
+// TransactionWindow is nil for complete history. Otherwise the snapshot holds only the
+// transactions dated inside that inclusive range, and older local rows are outside its scope.
 type ImportSnapshot struct {
 	Accounts          []ImportEntity
 	Merchants         []ImportEntity
@@ -66,6 +68,7 @@ type ImportSnapshot struct {
 	Transactions      []ImportTransaction
 	Splits            []ImportTransactionSplit
 	WriteRestrictions []ImportWriteRestriction
+	TransactionWindow *DateRange
 	ObservedAt        time.Time
 }
 
@@ -78,13 +81,23 @@ func (snapshot ImportSnapshot) Clone() ImportSnapshot {
 	snapshot.Transactions = append([]ImportTransaction(nil), snapshot.Transactions...)
 	snapshot.Splits = append([]ImportTransactionSplit(nil), snapshot.Splits...)
 	snapshot.WriteRestrictions = append([]ImportWriteRestriction(nil), snapshot.WriteRestrictions...)
+	if snapshot.TransactionWindow != nil {
+		window := *snapshot.TransactionWindow
+		snapshot.TransactionWindow = &window
+	}
 	return snapshot
+}
+
+// InTransactionWindow reports whether a transaction date is within the snapshot's scope.
+func (snapshot ImportSnapshot) InTransactionWindow(date Date) bool {
+	window := snapshot.TransactionWindow
+	return window == nil || (date.Compare(window.Start) >= 0 && date.Compare(window.End) <= 0)
 }
 
 // Validate checks provider-neutral identity, relationship, date, and exact-money invariants.
 func (snapshot ImportSnapshot) Validate() error {
-	if snapshot.ObservedAt.IsZero() {
-		return errors.New("validate import snapshot: observation time is zero")
+	if err := snapshot.validateScope(); err != nil {
+		return err
 	}
 	accounts, err := validateImportEntities("account", EntityKindAccount, snapshot.Accounts, false)
 	if err != nil {
@@ -245,6 +258,25 @@ func validateImportTransaction(transaction ImportTransaction) error {
 	}
 	if !validCurrency(transaction.Amount.Currency) || transaction.Amount.Scale > 9 {
 		return errors.New("invalid money partition")
+	}
+	return nil
+}
+
+func (snapshot ImportSnapshot) validateScope() error {
+	if snapshot.ObservedAt.IsZero() {
+		return errors.New("validate import snapshot: observation time is zero")
+	}
+	window := snapshot.TransactionWindow
+	if window == nil {
+		return nil
+	}
+	if window.Start.IsZero() || window.End.IsZero() || window.Start.Compare(window.End) > 0 {
+		return errors.New("validate import snapshot: transaction window is invalid")
+	}
+	for index, transaction := range snapshot.Transactions {
+		if !snapshot.InTransactionWindow(transaction.Date) {
+			return fmt.Errorf("validate import snapshot: transaction[%d] is outside the window", index)
+		}
 	}
 	return nil
 }

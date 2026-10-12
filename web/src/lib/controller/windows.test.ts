@@ -76,6 +76,8 @@ function projection(
       sort_field: 'date',
       sort_direction: 'desc',
       sort_fields: ['date', 'merchant', 'category', 'account', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'detail', grouping: 'merchant', time_granularity: 'year' },
     },
     selection: selection as ViewProjection['selection'],
     selection_count: 0,

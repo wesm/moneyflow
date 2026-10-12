@@ -79,6 +79,14 @@ var appErrorDetails = map[AppErrorCode]string{
 	AppProviderWriteUnsupported:             "The pending changes cannot be written to this provider.",
 }
 
+// ProviderErrorDetail returns the readable explanation of a provider status code, or "".
+func ProviderErrorDetail(code provider.ErrorCode) string {
+	if code == "" {
+		return ""
+	}
+	return appErrorDetails[AppErrorCode(code)]
+}
+
 // AppError carries allowlisted recovery state without exposing diagnostics.
 //
 //nolint:revive // The App prefix distinguishes this contract from WebError and MutationError.

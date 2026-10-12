@@ -18,6 +18,7 @@
     type SortField,
   } from '../../lib/table/columns'
   import { GridScroll } from '../../lib/table/grid-scroll.svelte'
+  import { cursorMove } from '../../lib/table/cursor-keys'
   import { rowHeight } from '../../lib/table/layout'
   import {
     compactTapAction,
@@ -48,10 +49,10 @@
     viewport?: number
     /** The measured height of the content above the grid in the scroller. */
     above?: number
-    onmove: (delta: -1 | 1) => void
-    onhome: () => void
     /** A row click moves the cursor; the grid keeps focus. Settles once the cursor moved. */
     oncursor: (index: number) => Promise<void>
+    /** A key or a scroll moves the cursor. `decide` returns the row when it is called, or none. */
+    onmove: (decide: () => number | undefined) => void
     /** A click on a row's selection box. */
     ontoggle: (identity: string, kind: RowKind) => void
     ontoggleall: () => void
@@ -76,9 +77,8 @@
     scrollTop = $bindable(0),
     viewport = 520,
     above = 0,
-    onmove,
-    onhome,
     oncursor,
+    onmove,
     ontoggle,
     ontoggleall,
     onactivate,
@@ -131,20 +131,18 @@
     set scrollTop(next) {
       scrollTop = next
     },
-    oncursor: (index) => void oncursor(index),
+    onmove: (decide) => onmove(decide),
     get onshow() {
       return onshow
     },
   })
 
   function keydown(event: KeyboardEvent): void {
-    if (!['ArrowUp', 'k', 'ArrowDown', 'j', 'Home'].includes(event.key)) return
+    const move = cursorMove(event)
+    if (!move) return
     // A row button keeps focus after its sheet closes; the grid takes it back, as its keys expect.
     if (event.target !== grid) grid?.focus({ preventScroll: true })
-    if (event.key === 'ArrowUp' || event.key === 'k') onmove(-1)
-    else if (event.key === 'ArrowDown' || event.key === 'j') onmove(1)
-    else onhome()
-    scroll.keyed()
+    scroll.key(move)
     event.preventDefault()
     event.stopPropagation()
   }
@@ -194,7 +192,7 @@
   </div>
 {:else}
   <div
-    class={['mf-table', compact && 'mf-table--compact']}
+    class={['mf-table', compact && 'mf-table--compact', scrollTop > above && 'mf-table--scrolled']}
     style:--mf-row-height={`${height}px`}
     style:--mf-columns={compact ? undefined : trackSizes}
     role="grid"

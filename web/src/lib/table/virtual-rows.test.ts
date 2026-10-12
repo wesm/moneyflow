@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { revealScrollTop, visibleRange } from './layout'
-import { coveredCursor, loadedRow, rowToShow } from './virtual-rows'
+import { coveredCursor, followRow, loadedRow } from './virtual-rows'
 import { testAggregateRow, testProjection } from '../../test/projection'
 
 describe('visibleRange', () => {
@@ -79,30 +79,24 @@ describe('loadedRow', () => {
   })
 })
 
-describe('rowToShow', () => {
-  const loaded = { offset: 0, limit: 200 }
-
-  it('asks for the first visible row once scrolling leaves the window and the cursor', () => {
-    expect(rowToShow({ first: 300, last: 319 }, 5, loaded)).toBe(300)
+describe('followRow', () => {
+  it('picks the first visible row when scrolling down leaves the cursor above the screen', () => {
+    expect(followRow({ first: 40, last: 59 }, 5)).toBe(40)
+    expect(followRow({ first: 300, last: 319 }, 299)).toBe(300)
   })
 
-  it('asks for nothing while the first visible row is in the loaded window', () => {
-    expect(rowToShow({ first: 150, last: 169 }, 5, loaded)).toBeUndefined()
+  it('picks the last visible row when scrolling up leaves the cursor below the screen', () => {
+    expect(followRow({ first: 40, last: 59 }, 120)).toBe(59)
+    expect(followRow({ first: 40, last: 59 }, 60)).toBe(59)
   })
 
-  it('keeps the window of a cursor that shows on screen', () => {
-    expect(rowToShow({ first: 181, last: 200 }, 200, { offset: 200, limit: 200 })).toBeUndefined()
-    expect(rowToShow({ first: 195, last: 215 }, 205, { offset: 200, limit: 200 })).toBeUndefined()
+  it('keeps a cursor that shows on screen', () => {
+    expect(followRow({ first: 40, last: 59 }, 40)).toBeUndefined()
+    expect(followRow({ first: 40, last: 59 }, 59)).toBeUndefined()
   })
 
-  it('asks for the cursor row when it shows on screen outside the loaded window', () => {
-    // A late selection response can bring back an older window around the moved cursor.
-    expect(rowToShow({ first: 195, last: 215 }, 205, loaded)).toBe(205)
-    expect(rowToShow({ first: 300, last: 319 }, 319, loaded)).toBe(319)
-  })
-
-  it('asks for nothing without rows', () => {
-    expect(rowToShow({ first: 0, last: -1 }, 0, { offset: 200, limit: 200 })).toBeUndefined()
+  it('picks nothing without rows', () => {
+    expect(followRow({ first: 0, last: -1 }, 0)).toBeUndefined()
   })
 })
 

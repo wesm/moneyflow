@@ -45,7 +45,7 @@ describe('toastMessage', () => {
   })
 
   it('words undo and redo of a transaction edit from its kind, not the review label', () => {
-    const label = 'Toggle report visibility'
+    const label = 'Hide transactions'
     expect(toastMessage(operation({ kind: 'hide', label, affected: 2 }), 'undo')).toBe(
       'Undid hide · 2 transactions · Redo U',
     )

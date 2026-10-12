@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 func TestCategoryManagerBuildsEveryPendingOperation(t *testing.T) {
@@ -124,7 +126,7 @@ func TestCategoryManagerRejectsCollisionMissingReplacementRetiredIDAndSentinel(t
 		}, operationMetadata("category_reject_"+string(rune('a'+index))))
 		failure := requireMutationCode(t, err, app.MutationInvalidOperation)
 		if index == 0 {
-			assert.ErrorContains(t, errors.Unwrap(failure), "explicit merge")
+			assert.ErrorContains(t, errors.Unwrap(errors.Unwrap(failure)), "explicit merge")
 		}
 	}
 }
@@ -222,7 +224,7 @@ func TestGroupManagerRejectsCollisionMissingReplacementRetiredIDAndSentinel(t *t
 		}, operationMetadata("group_reject_"+string(rune('a'+index))))
 		failure := requireMutationCode(t, err, app.MutationInvalidOperation)
 		if index == 0 {
-			assert.ErrorContains(t, errors.Unwrap(failure), "explicit merge")
+			assert.ErrorContains(t, errors.Unwrap(errors.Unwrap(failure)), "explicit merge")
 		}
 	}
 }
@@ -247,4 +249,125 @@ func TestTaxonomyLabelsAreTrimmedBeforeNoOpComparisonAndPersistence(t *testing.T
 	}, operationMetadata("group_trimmed"))
 	require.NoError(t, err)
 	assert.Equal(t, "Trimmed Group", plan.Operation.Create.Label)
+}
+
+const taxonomyCollisionDetail = "That label already exists; use merge instead."
+
+func TestTaxonomyCollisionCarriesItsReason(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action app.ActionID
+		input  app.EditInput
+	}{
+		{
+			name: "category create", action: app.ActionManageCategories,
+			input: app.EditInput{
+				Taxonomy: app.TaxonomyCreate, EntityID: "category_new",
+				Label: "  category b ", GroupID: "group_a",
+			},
+		},
+		{
+			name: "category rename", action: app.ActionManageCategories,
+			input: app.EditInput{
+				Taxonomy: app.TaxonomyRename, EntityID: "category_a", Label: " CATEGORY B",
+			},
+		},
+		{
+			name: "group create", action: app.ActionManageGroups,
+			input: app.EditInput{
+				Taxonomy: app.TaxonomyCreate, EntityID: "group_new", Label: "group b  ",
+			},
+		},
+		{
+			name: "group rename", action: app.ActionManageGroups,
+			input: app.EditInput{
+				Taxonomy: app.TaxonomyRename, EntityID: "group_a", Label: "  GROUP B",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			service, err := app.NewProfileService(t.Context(), newMemoryProfile(t, 5))
+			require.NoError(t, err)
+
+			_, err = service.PreviewMutation(t.Context(), app.MutationRequest{
+				Action: test.action, ExpectedRevision: 5, State: app.DefaultViewState(),
+				Selection: app.EmptySelection(), Input: test.input,
+			})
+
+			assertTaxonomyCollision(t, err)
+		})
+	}
+}
+
+func TestCategoryEditorCreateCollisionCarriesItsReason(t *testing.T) {
+	t.Parallel()
+
+	service, err := app.NewProfileService(t.Context(), newMemoryProfile(t, 5))
+	require.NoError(t, err)
+
+	_, err = service.PreviewMutation(t.Context(), app.MutationRequest{
+		Action: app.ActionEditCategory, ExpectedRevision: 5, State: detailViewState(),
+		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_a"},
+		Input: app.EditInput{
+			Scope: app.EditScopeTransactions, DestinationID: "category_new",
+			Label: "  category b ", GroupID: "group_a",
+		},
+	})
+
+	assertTaxonomyCollision(t, err)
+}
+
+func assertTaxonomyCollision(t *testing.T, err error) {
+	t.Helper()
+	var failure *app.AppError
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, app.AppInvalidOperation, failure.Code)
+	assert.True(t, strings.HasSuffix(failure.Detail, taxonomyCollisionDetail), failure.Detail)
+	assert.NotContains(t, failure.Detail, "explicit merge")
+	reason, ok := store.InvalidOperationReasonOf(err)
+	require.True(t, ok)
+	assert.Equal(t, store.InvalidOperationTaxonomyLabelCollision, reason)
+}
+
+func TestTaxonomyRenameToOwnNameInAnotherCaseIsNotACollision(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action app.ActionID
+		input  app.EditInput
+	}{
+		{
+			name: "category", action: app.ActionManageCategories,
+			input: app.EditInput{
+				Taxonomy: app.TaxonomyRename, EntityID: "category_a", Label: "category a",
+			},
+		},
+		{
+			name: "group", action: app.ActionManageGroups,
+			input: app.EditInput{
+				Taxonomy: app.TaxonomyRename, EntityID: "group_a", Label: "group a",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			service, err := app.NewProfileService(t.Context(), newMemoryProfile(t, 5))
+			require.NoError(t, err)
+
+			_, err = service.PreviewMutation(t.Context(), app.MutationRequest{
+				Action: test.action, ExpectedRevision: 5, State: app.DefaultViewState(),
+				Selection: app.EmptySelection(), Input: test.input,
+			})
+
+			require.NoError(t, err)
+		})
+	}
 }

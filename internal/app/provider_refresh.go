@@ -83,12 +83,16 @@ type providerConfirmation struct {
 }
 
 // ProviderRefreshRequest preserves the caller's analytical and transient interaction state.
+// TransactionWindow limits one manual refresh to an inclusive date range; only Monarch accepts
+// it. Onboarding uses it for a month-to-date first import, so later refreshes read their own
+// scope.
 type ProviderRefreshRequest struct {
 	Manual            bool
 	ConfirmationToken string
 	State             ViewState
 	Selection         SelectionValue
 	Window            WindowRequest
+	TransactionWindow *domain.DateRange
 }
 
 // ProviderRefreshResult is one refreshed projection plus counts-only provider status.
@@ -116,6 +120,12 @@ type ProviderStatus struct {
 	Total             int
 	ConfirmationToken string
 	Summary           store.RefreshSummary
+	// LastFullRefresh is the advisory time of the last complete-history refresh, or zero.
+	LastFullRefresh time.Time
+	// RefreshDue is the refresh a scheduler should start now.
+	RefreshDue ProviderRefreshScope
+	// Warning reports a problem that did not stop the refresh, or is empty.
+	Warning string
 }
 
 // ProviderConnectionState exposes only the binding facts needed by the CLI lifecycle.
@@ -267,7 +277,9 @@ func (service *Service) RefreshProvider(
 	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	status := providerStatusFromState(providerState, runtime.provider)
-	if !request.Manual && (runtime.provider == "monarch" || runtime.provider == "simplefin" || !runtime.hasForceReload()) && !ProviderRefreshDue(status, now) {
+	status.LastFullRefresh = service.profile.LastFullProviderRefresh()
+	fetch, due := providerFetchRequest(runtime, request, status, now)
+	if !due {
 		return service.providerProjectionResult(
 			request, selectionBefore, SelectionPreserved, status, nil,
 		)
@@ -312,10 +324,9 @@ func (service *Service) RefreshProvider(
 	service.interactions.Unlock()
 	interactionLocked = false
 
+	fetch.LastSuccess = providerState.Refresh.LastSuccess
 	candidate, remoteIdentity, fingerprint, fetchErr := service.fetchProviderCandidateWithHeartbeat(
-		ctx,
-		runtime,
-		provider.FetchRequest{LastSuccess: providerState.Refresh.LastSuccess, Now: now},
+		ctx, runtime, fetch,
 	)
 	if fetchErr != nil {
 		if errors.Is(fetchErr, context.Canceled) || errors.Is(fetchErr, context.DeadlineExceeded) {
@@ -500,6 +511,37 @@ func normalizeProviderRefreshRequest(request ProviderRefreshRequest) ProviderRef
 	return request
 }
 
+// providerFetchRequest decides whether a refresh runs and which data it reads. Manual
+// refresh reads complete history unless the request names a window. A scheduled refresh runs
+// only when one is due.
+func providerFetchRequest(
+	runtime *providerRuntimeState,
+	request ProviderRefreshRequest,
+	status ProviderStatus,
+	now time.Time,
+) (provider.FetchRequest, bool) {
+	fetch := provider.FetchRequest{Now: now}
+	if request.Manual {
+		fetch.TransactionWindow = request.TransactionWindow
+		return fetch, true
+	}
+	scope := ProviderRefreshDue(status, now)
+	if scope == ProviderRefreshNone {
+		// A replaced YNAB session refreshes at once; Monarch and SimpleFIN wait for their cadence.
+		forced := runtime.provider != "monarch" && runtime.provider != "simplefin" &&
+			runtime.hasForceReload()
+		return fetch, forced
+	}
+	if scope == ProviderRefreshRecent {
+		window, err := monarchRecentWindow(runtime.now())
+		// Only a clock at the edge of the supported calendar fails; read complete history then.
+		if err == nil {
+			fetch.TransactionWindow = window
+		}
+	}
+	return fetch, true
+}
+
 func (service *Service) fetchProviderCandidate(
 	ctx context.Context,
 	runtime *providerRuntimeState,
@@ -516,7 +558,7 @@ func (service *Service) fetchProviderCandidate(
 	}
 	candidate := result.Snapshot
 	identity := result.Identity
-	if err = normalizeProviderSnapshot(&candidate, runtime.currency, runtime.scale); err != nil {
+	if err = normalizeProviderSnapshot(&candidate, runtime, request); err != nil {
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, fingerprint, err
 	}
 	runtime.setFingerprint(fingerprint, false)
@@ -621,7 +663,7 @@ func (service *Service) retryProviderAfterSessionReload(
 	}
 	candidate := result.Snapshot
 	identity := result.Identity
-	if err = normalizeProviderSnapshot(&candidate, runtime.currency, runtime.scale); err != nil {
+	if err = normalizeProviderSnapshot(&candidate, runtime, request); err != nil {
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, replacement, err
 	}
 	runtime.setFingerprint(replacement, false)
@@ -630,14 +672,20 @@ func (service *Service) retryProviderAfterSessionReload(
 
 func normalizeProviderSnapshot(
 	candidate *domain.ImportSnapshot,
-	currency domain.Currency,
-	scale uint8,
+	runtime *providerRuntimeState,
+	request provider.FetchRequest,
 ) error {
 	// Provider observation times cross the SQLite persistence boundary. Canonicalize them here
 	// so every adapter and session-reload path follows the store's millisecond contract.
 	candidate.ObservedAt = candidate.ObservedAt.UTC().Truncate(time.Millisecond)
+	// A requested window must come back unchanged, or the removal scope would be wrong.
+	if request.TransactionWindow != nil && (candidate.TransactionWindow == nil ||
+		*candidate.TransactionWindow != *request.TransactionWindow) {
+		return provider.NewError(provider.CodeDataInvalid)
+	}
 	for _, transaction := range candidate.Transactions {
-		if transaction.Amount.Currency != currency || transaction.Amount.Scale != scale {
+		if transaction.Amount.Currency != runtime.currency ||
+			transaction.Amount.Scale != runtime.scale {
 			return provider.NewError(provider.CodeMoneyMismatch)
 		}
 	}
@@ -789,6 +837,10 @@ func (service *Service) foldProviderCandidate(
 	}
 	status := providerStatusFromState(state, runtime.provider)
 	status.Summary = commit.Summary
+	status.LastFullRefresh = service.recordFullProviderRefresh(
+		runtime, candidate, status.LastSuccess,
+	)
+	status.Warning = service.providerRefreshWarning()
 	return service.providerProjectionResult(
 		request,
 		selectionBefore,
@@ -796,6 +848,42 @@ func (service *Service) foldProviderCandidate(
 		status,
 		details,
 	)
+}
+
+// fullRefreshRecordWarning is fixed text, like the audit warning: it reaches API status, MCP, and
+// the TUI, so it names the file but carries no profile path or OS error.
+const fullRefreshRecordWarning = "Refresh saved, but Moneyflow could not record it as a full " +
+	"refresh in provider-refresh.json. The next check will download complete history again."
+
+// recordFullProviderRefresh notes a folded complete-history Monarch candidate and returns the
+// recorded time. The record is advisory: if it cannot be written, the committed refresh stands,
+// the next scheduled refresh reads complete history again, and provider status warns.
+func (service *Service) recordFullProviderRefresh(
+	runtime *providerRuntimeState,
+	candidate domain.ImportSnapshot,
+	at time.Time,
+) time.Time {
+	if runtime.provider != "monarch" || candidate.TransactionWindow != nil {
+		return service.profile.LastFullProviderRefresh()
+	}
+	err := service.profile.RecordFullProviderRefresh(at)
+	warning := ""
+	if err != nil {
+		warning = fullRefreshRecordWarning
+	}
+	service.mu.Lock()
+	service.refreshRecordWarning = warning
+	service.mu.Unlock()
+	if err != nil {
+		return time.Time{}
+	}
+	return at
+}
+
+func (service *Service) providerRefreshWarning() string {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.refreshRecordWarning
 }
 
 func (service *Service) releaseProviderLease(ctx context.Context, ownerID string) error {
@@ -1016,7 +1104,8 @@ func providerRemovalCounts(
 	existing := 0
 	removed := 0
 	for _, transaction := range committed.Transactions {
-		if transaction.Provider != providerName {
+		// A windowed candidate says nothing about older rows, so they are not removal candidates.
+		if transaction.Provider != providerName || !candidate.InTransactionWindow(transaction.Date) {
 			continue
 		}
 		existing++

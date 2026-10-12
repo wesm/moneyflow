@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -34,15 +35,18 @@ func TestReviewTypesExposeBoundedSummariesWithoutJournalPayloads(t *testing.T) {
 	assert.NotContains(t, text, "transaction_ids")
 }
 
-func TestReviewTypesDescribeTransactionDeletionForRenderers(t *testing.T) {
+func TestReviewTypesCarryTheServiceLabelForRenderers(t *testing.T) {
 	t.Parallel()
 
 	wire := reviewToWire(app.ReviewProjection{ActiveOperations: []app.ReviewOperation{{
-		OperationID: "operation-delete", Type: domain.OperationTransactionDelete,
-		Active: true, AffectedCount: 1,
+		OperationID: "operation-show", Type: domain.OperationTransactionHide,
+		Label: "Show transactions", Active: true, AffectedCount: 1,
+		Before: "Hidden", After: "Visible",
 	}}})
 	require.Len(t, wire.ActiveOperations, 1)
-	assert.Equal(t, "Delete transaction", wire.ActiveOperations[0].Label)
+	assert.Equal(t, "Show transactions", wire.ActiveOperations[0].Label)
+	assert.Equal(t, "Hidden", wire.ActiveOperations[0].Before)
+	assert.Equal(t, "Visible", wire.ActiveOperations[0].After)
 }
 
 func TestReviewTypesSeparateSummaryAndTargetRequests(t *testing.T) {
@@ -100,6 +104,34 @@ func TestReviewEndpointsReturnSeparateSummariesAndBoundedTargets(t *testing.T) {
 		OperationID: operationID, Window: Window{Limit: app.MaxReviewTargetLimit + 1},
 	})
 	assert.Equal(t, http.StatusUnprocessableEntity, oversized.Code, oversized.Body.String())
+}
+
+func TestReviewEndpointCarriesEachActiveOperationsFirstTwentyTargets(t *testing.T) {
+	t.Parallel()
+
+	transactions := make([]domain.Transaction, 0, 25)
+	for index := range 25 {
+		transactions = append(transactions, apiTransactionWith(
+			t, fmt.Sprintf("txn-%02d", index+1), func(*domain.Transaction) {},
+		))
+	}
+	server := newPersistentAPITestServerFor(t, transactions, nil)
+	mutated := appendMerchantMutation(t, server, "Renamed Merchant")
+
+	response := requestProtectedJSON(t, server, "/api/v1/review", ReviewBody{
+		Version: ReviewSchemaVersion, ExpectedRevision: mutated.Revision,
+	})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var review ReviewResponse
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &review))
+	require.Len(t, review.ActiveOperations, 1)
+	operation := review.ActiveOperations[0]
+	assert.Equal(t, 25, operation.AffectedCount)
+	require.Len(t, operation.Targets, 20)
+	assert.Equal(t, "Example Merchant", operation.Targets[0].Merchant)
+	assert.Equal(t, "-1234", operation.Targets[0].Amount.Minor)
+	assert.Empty(t, review.Targets)
+	assert.NotContains(t, response.Body.String(), "transaction_id")
 }
 
 func TestReviewEndpointRejectsStaleRevisionWithoutChangingJournal(t *testing.T) {

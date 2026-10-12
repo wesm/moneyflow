@@ -23,6 +23,8 @@ function grouped(overrides: Partial<ViewProjection['view']> = {}): ViewProjectio
     sort_field: 'amount',
     sort_direction: 'desc',
     sort_fields: ['merchant', 'count', 'amount'],
+    drill_depth: 0,
+    root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
     currency: usd,
     ...overrides,
   }

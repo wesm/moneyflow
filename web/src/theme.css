@@ -37,6 +37,7 @@
   --shadow-md: 0 2px 4px rgba(22, 24, 27, 0.16); /* kit-ui-check-ignore: theme palette */
   --shadow-lg: 0 3px 8px rgba(22, 24, 27, 0.2); /* kit-ui-check-ignore: theme palette */
   --overlay-bg: rgba(22, 24, 27, 0.4); /* kit-ui-check-ignore: theme palette */
+  --mf-hi: #fff; /* kit-ui-check-ignore: theme palette */
 }
 
 :root.dark[data-kit-theme='moneyflow'] {
@@ -61,6 +62,7 @@
   --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.45); /* kit-ui-check-ignore: theme palette */
   --shadow-lg: 0 3px 8px rgba(0, 0, 0, 0.55); /* kit-ui-check-ignore: theme palette */
   --overlay-bg: rgba(0, 0, 0, 0.6); /* kit-ui-check-ignore: theme palette */
+  --mf-hi: rgba(255, 255, 255, 0.06); /* kit-ui-check-ignore: theme palette */
 }
 
 :root {
@@ -76,4 +78,6 @@
   --mf-cursor: color-mix(in srgb, var(--accent-blue) 16%, transparent);
   --mf-selected: color-mix(in srgb, var(--accent-blue) 30%, transparent);
   --mf-focus: var(--accent-blue);
+  /* Relief, lit from above: a hairline top highlight over the theme's short shadow. */
+  --mf-lift: inset 0 1px var(--mf-hi), var(--shadow-sm);
 }

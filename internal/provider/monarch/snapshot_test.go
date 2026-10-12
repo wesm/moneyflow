@@ -43,6 +43,75 @@ func TestSnapshotFetchesBothPartitionsAndExcludesPendingAfterIntegrity(t *testin
 	assert.Equal(t, 2, server.CompleteScans())
 }
 
+func TestSnapshotRequestsTheFetchWindowOnEveryTransactionPage(t *testing.T) {
+	t.Parallel()
+
+	window := snapshotWindow(t, "2026-05-17", "2026-08-15")
+	server := newSnapshotServer(t, snapshotScenario{Range: [2]string{"2026-05-17", "2026-08-15"}})
+	client := newSnapshotClient(t, server)
+
+	result, err := client.FetchSnapshot(
+		context.Background(), provider.FetchRequest{TransactionWindow: &window}, nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result.Snapshot.TransactionWindow)
+	assert.Equal(t, window, *result.Snapshot.TransactionWindow)
+	assert.Len(t, result.Snapshot.Transactions, 2)
+	// Two passes, each with one visible page, one hidden page, and two count checks.
+	assert.Equal(t, 8, server.RangedPages())
+
+	unranged := newSnapshotServer(t, snapshotScenario{})
+	result, err = newSnapshotClient(t, unranged).FetchSnapshot(
+		context.Background(), provider.FetchRequest{}, nil,
+	)
+	require.NoError(t, err)
+	assert.Nil(t, result.Snapshot.TransactionWindow, "an unranged fetch is complete history")
+	assert.Zero(t, unranged.RangedPages())
+}
+
+func TestSnapshotRejectsARowOutsideTheFetchWindow(t *testing.T) {
+	t.Parallel()
+
+	window := snapshotWindow(t, "2026-05-17", "2026-08-15")
+	old := snapshotTransaction("transaction-old", false, false)
+	old.Date = "2026-05-16"
+	server := newSnapshotServer(t, snapshotScenario{
+		Range:   [2]string{"2026-05-17", "2026-08-15"},
+		Visible: []Transaction{snapshotTransaction("transaction-visible", false, false), old},
+	})
+	client := newSnapshotClient(t, server)
+
+	_, err := client.FetchSnapshot(
+		context.Background(), provider.FetchRequest{TransactionWindow: &window}, nil,
+	)
+	assertProviderCode(t, err, provider.CodeDataInvalid)
+}
+
+func TestSnapshotReportsTheOnboardingRangeAsItsWindow(t *testing.T) {
+	t.Parallel()
+
+	server := newSnapshotServer(t, snapshotScenario{Range: [2]string{"2026-08-01", "2026-08-15"}})
+	options := testClientOptions(t, server.URL())
+	options.ImportCurrency, options.ImportScale, options.PageSize = "USD", 2, 2
+	options.TransactionStartDate, options.TransactionEndDate = "2026-08-01", "2026-08-15"
+	client, err := NewClient(options, "session-token", "device-a")
+	require.NoError(t, err)
+
+	result, err := client.FetchSnapshot(context.Background(), provider.FetchRequest{}, nil)
+	require.NoError(t, err)
+	require.NotNil(t, result.Snapshot.TransactionWindow)
+	assert.Equal(t, snapshotWindow(t, "2026-08-01", "2026-08-15"), *result.Snapshot.TransactionWindow)
+}
+
+func snapshotWindow(t *testing.T, start string, end string) domain.DateRange {
+	t.Helper()
+	startDate, err := domain.ParseDate(start)
+	require.NoError(t, err)
+	endDate, err := domain.ParseDate(end)
+	require.NoError(t, err)
+	return domain.DateRange{Start: startDate, End: endDate}
+}
+
 func TestSnapshotCanonicalizesObservationTimeToMilliseconds(t *testing.T) {
 	t.Parallel()
 
@@ -359,12 +428,14 @@ func TestSnapshotRequiresExplicitMoneyFormat(t *testing.T) {
 }
 
 type snapshotScenario struct {
-	Accounts       []Account
-	Merchants      []Merchant
-	Groups         []CategoryGroup
-	Categories     []Category
-	Visible        []Transaction
-	Hidden         []Transaction
+	Accounts   []Account
+	Merchants  []Merchant
+	Groups     []CategoryGroup
+	Categories []Category
+	Visible    []Transaction
+	Hidden     []Transaction
+	// Range is the startDate and endDate every transaction page must send, if any.
+	Range          [2]string
 	BeforeAccounts func(scan int, rows []Account) []Account
 	BeforePage     func(
 		attempt int,
@@ -381,8 +452,9 @@ type scriptedSnapshotServer struct {
 	server   *httptest.Server
 	scenario snapshotScenario
 
-	mu       sync.Mutex
-	attempts int
+	mu          sync.Mutex
+	attempts    int
+	rangedPages int
 }
 
 func newSnapshotServer(t *testing.T, scenario snapshotScenario) *scriptedSnapshotServer {
@@ -417,6 +489,12 @@ func newSnapshotServer(t *testing.T, scenario snapshotScenario) *scriptedSnapsho
 }
 
 func (server *scriptedSnapshotServer) URL() string { return server.server.URL }
+
+func (server *scriptedSnapshotServer) RangedPages() int {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	return server.rangedPages
+}
 
 func (server *scriptedSnapshotServer) CompleteScans() int {
 	server.mu.Lock()
@@ -479,7 +557,16 @@ func (server *scriptedSnapshotServer) writeTransactionPage(
 	assert.Equal(server.t, "date", variables["orderBy"])
 	filters, ok := variables["filters"].(map[string]any)
 	require.True(server.t, ok)
-	require.Len(server.t, filters, 1)
+	if server.scenario.Range == [2]string{} {
+		require.Len(server.t, filters, 1)
+	} else {
+		require.Len(server.t, filters, 3)
+		assert.Equal(server.t, server.scenario.Range[0], filters["startDate"])
+		assert.Equal(server.t, server.scenario.Range[1], filters["endDate"])
+		server.mu.Lock()
+		server.rangedPages++
+		server.mu.Unlock()
+	}
 	hidden := filters["hideFromReports"].(bool)
 	offset := int(variables["offset"].(float64))
 	limit := int(variables["limit"].(float64))

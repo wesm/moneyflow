@@ -15,6 +15,10 @@ type MerchantEditPreview struct {
 	Revision             uint64
 	AffectedTransactions int
 	Transactions         []domain.Transaction
+	// SourceMerchantID is the merchant every affected transaction has now, with pending edits
+	// applied. Whole-merchant scope always names it. Chosen transactions name it only when
+	// they share one merchant.
+	SourceMerchantID domain.EntityID
 	// OutsideView counts affected transactions whose committed values the opening view hides.
 	OutsideView int
 	// OutsideCurrencies lists, sorted by currency then scale and unique, the money partitions of
@@ -39,35 +43,19 @@ func (service *Service) PreviewMerchantEdit(ctx context.Context, request Mutatio
 	if err != nil {
 		return MerchantEditPreview{}, mapAppError(err, snapshot.Revision)
 	}
-	ids := targets.TransactionIDs
-	switch request.Input.Scope {
-	case EditScopeEntity:
-		source, sourceErr := sourceMerchantForEntityEdit(snapshot, targets)
-		if sourceErr != nil {
-			return MerchantEditPreview{}, newAppError(AppInvalidTarget, snapshot.Revision, sourceErr)
-		}
-		ids = affectedByOperation(snapshot.Effective, domain.Operation{
-			Type: domain.OperationMerchantLabel, Targets: []domain.EntityID{source.ID},
-		})
-	case EditScopeTransactions:
-	default:
-		return MerchantEditPreview{}, newAppError(AppInvalidOperation, snapshot.Revision, errors.New("merchant edit scope is invalid"))
+	ids, sourceID, err := previewScope(snapshot, request, targets)
+	if err != nil {
+		return MerchantEditPreview{}, err
 	}
 	transactions, err := snapshot.Effective.MaterializeTransactions()
 	if err != nil {
 		return MerchantEditPreview{}, mapAppError(err, snapshot.Revision)
 	}
 	slices.Sort(ids)
-	preview := make([]domain.Transaction, 0, min(3, len(ids)))
-	for _, transaction := range transactions {
-		if slices.Contains(ids[:min(3, len(ids))], domain.EntityID(transaction.ID)) {
-			preview = append(preview, transaction.Clone())
-		}
-	}
-	slices.SortFunc(preview, func(a, b domain.Transaction) int { return cmp.Compare(a.ID, b.ID) })
+	preview, sharedMerchantID := previewSample(transactions, ids)
 	result := MerchantEditPreview{
 		Revision: snapshot.Revision, AffectedTransactions: len(ids),
-		Transactions: preview,
+		Transactions: preview, SourceMerchantID: cmp.Or(sourceID, sharedMerchantID),
 	}
 	if request.Input.Scope == EditScopeEntity {
 		state := request.State.Current
@@ -76,6 +64,82 @@ func (service *Service) PreviewMerchantEdit(ctx context.Context, request Mutatio
 		}
 	}
 	return result, nil
+}
+
+// previewScope returns the IDs a merchant edit affects and, for whole-merchant scope, the
+// source merchant, which chosen-transaction scope leaves empty.
+func previewScope(
+	snapshot EffectiveSnapshot, request MutationRequest, targets ResolvedTargets,
+) ([]domain.EntityID, domain.EntityID, error) {
+	switch request.Input.Scope {
+	case EditScopeEntity:
+		source, err := sourceMerchantForEntityEdit(snapshot, targets)
+		if err != nil {
+			return nil, "", newAppError(AppInvalidTarget, snapshot.Revision, err)
+		}
+		ids := affectedByOperation(snapshot.Effective, domain.Operation{
+			Type: domain.OperationMerchantLabel, Targets: []domain.EntityID{source.ID},
+		})
+		return ids, source.ID, nil
+	case EditScopeTransactions:
+		return targets.TransactionIDs, "", nil
+	default:
+		return nil, "", newAppError(
+			AppInvalidOperation, snapshot.Revision, errors.New("merchant edit scope is invalid"),
+		)
+	}
+}
+
+// merchantTally finds the one merchant a run of transactions shares.
+type merchantTally struct {
+	id    domain.EntityID
+	mixed bool
+}
+
+func (tally *merchantTally) add(id domain.EntityID) {
+	if tally.id == "" {
+		tally.id = id
+	}
+	tally.mixed = tally.mixed || id != tally.id
+}
+
+func (tally *merchantTally) shared() domain.EntityID {
+	if tally.mixed {
+		return ""
+	}
+	return tally.id
+}
+
+func entityIDSet(ids []domain.EntityID) map[domain.EntityID]struct{} {
+	set := make(map[domain.EntityID]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	return set
+}
+
+// previewSample returns the first three affected transactions by ID and the merchant that all
+// affected transactions share, empty when they differ. It reads the effective transactions in
+// one pass, so the merchant covers every target and not only the sampled rows. ids must be sorted.
+func previewSample(
+	transactions []domain.Transaction, ids []domain.EntityID,
+) ([]domain.Transaction, domain.EntityID) {
+	sampled := entityIDSet(ids[:min(3, len(ids))])
+	affected := entityIDSet(ids)
+	var sample []domain.Transaction
+	var tally merchantTally
+	for _, transaction := range transactions {
+		id := domain.EntityID(transaction.ID)
+		if _, isAffected := affected[id]; !isAffected {
+			continue
+		}
+		if _, isSampled := sampled[id]; isSampled {
+			sample = append(sample, transaction.Clone())
+		}
+		tally.add(domain.EntityID(transaction.Merchant.ID))
+	}
+	slices.SortFunc(sample, func(a, b domain.Transaction) int { return cmp.Compare(a.ID, b.ID) })
+	return sample, tally.shared()
 }
 
 // countOutsideView records which affected transactions the opening view hides, judged by

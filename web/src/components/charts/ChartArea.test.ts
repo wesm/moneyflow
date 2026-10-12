@@ -93,6 +93,42 @@ function withSeries(call: Call | undefined): InsightsResponse {
   return response
 }
 
+/** A Time grouping of Aug and Sep 2026 whose insights hold each month's group shares. */
+async function timeGrouping() {
+  const { cache, calls } = harness()
+  const base = merchants()
+  const months = [8, 9].map((month) => ({ granularity: 'month', year: 2026, month }))
+  const projection: ViewProjection = {
+    ...base,
+    aggregate_rows: months.map((period, index) =>
+      testAggregateRow({ identity: `time:${index}`, index, label: `Month ${index}`, period }),
+    ),
+  }
+  cache.sync(projection, [])
+  const response = september(calls[0])
+  response.ranges.context = months.map((period) => ({
+    start: `2026-0${period.month}-01`,
+    end: `2026-0${period.month}-28`,
+    partial: false,
+    absent: false,
+    period,
+  }))
+  response.summary!.cashflow = {
+    labels: ['Aug 2026', 'Sep 2026'],
+    in: ['0', '0'],
+    out: ['0', '0'],
+    net: ['0', '0'],
+    count: [0, 0],
+  }
+  response.summary!.period_composition = ['Food', 'Travel'].map((label) => ({
+    spending: [{ key: label, label, net: '-100', share_tenths: 1000 }],
+    income: [],
+  }))
+  calls[0]?.resolve(response)
+  await settle()
+  return { projection, cache, calls }
+}
+
 describe('ChartArea', () => {
   afterEach(() => cleanup())
 
@@ -318,37 +354,7 @@ describe('ChartArea', () => {
   })
 
   it('shows the cursor period’s group shares in the Time grouping without a request', async () => {
-    const { cache, calls } = harness()
-    const base = merchants()
-    const months = [8, 9].map((month) => ({ granularity: 'month', year: 2026, month }))
-    const projection: ViewProjection = {
-      ...base,
-      aggregate_rows: months.map((period, index) =>
-        testAggregateRow({ identity: `time:${index}`, index, label: `Month ${index}`, period }),
-      ),
-    }
-    cache.sync(projection, [])
-    const response = september(calls[0])
-    response.ranges.context = months.map((period) => ({
-      start: `2026-0${period.month}-01`,
-      end: `2026-0${period.month}-28`,
-      partial: false,
-      absent: false,
-      period,
-    }))
-    response.summary!.cashflow = {
-      labels: ['Aug 2026', 'Sep 2026'],
-      in: ['0', '0'],
-      out: ['0', '0'],
-      net: ['0', '0'],
-      count: [0, 0],
-    }
-    response.summary!.period_composition = ['Food', 'Travel'].map((label) => ({
-      spending: [{ key: label, label, net: '-100', share_tenths: 1000 }],
-      income: [],
-    }))
-    calls[0]?.resolve(response)
-    await settle()
+    const { projection, cache, calls } = await timeGrouping()
     const props = { projection, cache, chartsOn: true, onperiod: vi.fn() }
     const { rerender } = render(ChartArea, { ...props, cursorIndex: 0 })
     const list = () => screen.getByRole('list', { name: /by group$/ })
@@ -360,6 +366,18 @@ describe('ChartArea', () => {
     expect(list().getAttribute('aria-label')).toBe('Sep 2026 by group')
     expect(within(list()).getByText('Travel')).not.toBeNull()
     expect(calls).toHaveLength(1)
+  })
+
+  it('returns from the Time grouping’s panel to the table on Esc', async () => {
+    const { projection, cache } = await timeGrouping()
+    const onleave = vi.fn()
+    render(ChartArea, { projection, cache, chartsOn: true, ...interaction, onleave })
+    const spending = screen.getByRole('radio', { name: 'Spending' })
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    spending.dispatchEvent(event)
+    expect(onleave).toHaveBeenCalledTimes(1)
+    // Claimed, so the shell's Esc does not also go back a level.
+    expect(event.defaultPrevented).toBe(true)
   })
 
   it('shows the calendar heatmap in a transaction view, outlining the cursor’s day', async () => {

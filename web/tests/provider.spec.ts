@@ -18,6 +18,7 @@ test('an unbound provider profile explains why refresh is unavailable', async ({
     const refresh = page.getByRole('button', { name: 'Refresh provider data' })
     await expect(refresh).toBeDisabled()
     await expect(refresh).toHaveAttribute('title', 'Connect a provider before refreshing.')
+    await expect(page.getByText('Connect a provider before refreshing.')).toBeVisible()
   } finally {
     await server.stop()
   }
@@ -125,6 +126,7 @@ async function installProviderRoutes(page: Page, requireConfirmation: boolean) {
     revision: String(projection?.revision ?? '0'),
     generation: '1',
     last_success: new Date().toISOString(),
+    refresh_due: 'none',
     progress: { fetched: 20, total: 40 },
     summary: summary(0),
     capability: refreshCapability(),

@@ -26,6 +26,12 @@ const (
 	ActionCursorDown ActionID = "cursor.down"
 	// ActionCursorHome moves the renderer-local cursor to the first row.
 	ActionCursorHome ActionID = "cursor.home"
+	// ActionCursorEnd moves the renderer-local cursor to the last row.
+	ActionCursorEnd ActionID = "cursor.end"
+	// ActionCursorPageUp moves the renderer-local cursor up one visible page of rows.
+	ActionCursorPageUp ActionID = "cursor.page-up"
+	// ActionCursorPageDown moves the renderer-local cursor down one visible page of rows.
+	ActionCursorPageDown ActionID = "cursor.page-down"
 	// ActionCycleGrouping cycles the active aggregate grouping.
 	ActionCycleGrouping ActionID = "view.cycle-grouping"
 	// ActionSetGrouping shows one named top-level grouping.
@@ -123,7 +129,10 @@ type ActionDefinition struct {
 var readOnlyActions = []ActionDefinition{
 	{ActionCursorUp, []string{"up", "k"}, "↑/k", "Move cursor up", "", ScopeCursor, true, true},
 	{ActionCursorDown, []string{"down", "j"}, "↓/j", "Move cursor down", "", ScopeCursor, true, true},
-	{ActionCursorHome, []string{"home"}, "home", "Move to first row", "", ScopeCursor, true, true},
+	{ActionCursorHome, []string{"home", "T"}, "Home/T", "Move to first row", "Views", ScopeCursor, true, true},
+	{ActionCursorEnd, []string{"end", "B"}, "End/B", "Move to last row", "Views", ScopeCursor, true, true},
+	{ActionCursorPageUp, []string{"pgup"}, "PgUp", "Move up one page", "Views", ScopeCursor, true, true},
+	{ActionCursorPageDown, []string{"pgdown"}, "PgDn", "Move down one page", "Views", ScopeCursor, true, true},
 	{ActionCycleGrouping, []string{"g"}, "g", "Cycle grouping (Merchant→Category→Group→Account→Time)", "Views", ScopeAnalytical, true, true},
 	{ActionSetGrouping, []string{"1", "2", "3", "4", "5"}, "1-5", "Group by Merchant, Category, Group, Account, or Time", "Views", ScopeAnalytical, true, true},
 	{ActionSetSubGrouping, nil, "", "Break down the drilled rows by a dimension", "", ScopeAnalytical, true, true},

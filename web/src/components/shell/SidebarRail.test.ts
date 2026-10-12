@@ -17,6 +17,8 @@ function projection(overrides: Partial<ViewProjection> = {}): ViewProjection {
       sort_field: 'amount',
       sort_direction: 'desc',
       sort_fields: ['merchant', 'count', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
     },
     capabilities: testCapabilities(navCapabilityIDs, ['view.find-duplicates']),
     ...overrides,
@@ -59,6 +61,20 @@ describe('SidebarRail', () => {
     expect(
       screen.getByRole('button', { name: 'Edit groups' }).getAttribute('aria-keyshortcuts'),
     ).toBe('Shift+G')
+  })
+
+  it('focuses a clicked entry and Review before they run, as WebKit does not', async () => {
+    let focused: Element | null = null
+    const record = () => {
+      focused = document.activeElement
+    }
+    render(SidebarRail, props({ onrun: vi.fn(record), onreview: vi.fn(record) }))
+    const entry = screen.getByRole('button', { name: 'Categories' })
+    await fireEvent.click(entry)
+    expect(focused).toBe(entry)
+    const review = screen.getByRole('button', { name: 'Review pending changes' })
+    await fireEvent.click(review)
+    expect(focused).toBe(review)
   })
 
   it('keeps unavailable entries focusable and explains them in the tooltip', async () => {

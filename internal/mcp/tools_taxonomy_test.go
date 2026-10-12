@@ -286,3 +286,36 @@ func TestMCPTaxonomyStartsPristineLocalProfile(t *testing.T) {
 	require.True(t, stale.IsError)
 	assert.Equal(t, "revision_conflict", stale.StructuredContent.(map[string]any)["code"])
 }
+
+func TestManageCategoryReportsALabelCollision(t *testing.T) {
+	const detail = "That label already exists; use merge instead."
+	for _, test := range []struct {
+		name, tool string
+		args       map[string]any
+	}{
+		{"category", "manage_category", map[string]any{
+			"action": "rename", "category_id": "category_a", "label": " category b ",
+		}},
+		{"group", "manage_category_group", map[string]any{
+			"action": "rename", "group_id": "group_a", "label": " GROUP B",
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, closeProfile := writeTestService(t, 3)
+			defer closeProfile()
+			client, cleanup := connectWriteTestServer(t, service, true)
+			defer cleanup()
+			test.args["expected_revision"] = "1"
+			for _, dry := range []bool{true, false} {
+				test.args["dry_run"] = dry
+				result := callWriteTool(t, client, test.tool, test.args)
+				require.True(t, result.IsError, "%v", result.StructuredContent)
+				doc := result.StructuredContent.(map[string]any)
+				assert.Equal(t, "invalid_operation", doc["code"])
+				assert.True(t, strings.HasSuffix(doc["detail"].(string), detail), "%v", doc)
+				assert.NotContains(t, doc["detail"], "explicit merge")
+				assert.Equal(t, uint64(1), service.Revision())
+			}
+		})
+	}
+}

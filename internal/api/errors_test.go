@@ -3,6 +3,8 @@ package api
 import (
 	"errors"
 	"net/http"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/onboarding"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 func TestSafeErrorDoesNotExposeCause(t *testing.T) {
@@ -90,5 +93,38 @@ func TestProblemMapsPersistentFailuresToStableSafeEnvelopes(t *testing.T) {
 				assert.Nil(t, problem.Selection)
 			}
 		})
+	}
+}
+
+func TestProblemReasonEnumListsEveryStoreReason(t *testing.T) {
+	t.Parallel()
+
+	field, found := reflect.TypeOf(Problem{}).FieldByName("Reason")
+	require.True(t, found)
+	var documented []store.InvalidOperationReason
+	for _, value := range strings.Split(field.Tag.Get("enum"), ",") {
+		documented = append(documented, store.InvalidOperationReason(value))
+	}
+
+	assert.ElementsMatch(t, store.InvalidOperationReasons(), documented)
+}
+
+func TestProblemReportsAReasonOnlyForAnInvalidOperation(t *testing.T) {
+	t.Parallel()
+
+	reasoned := store.NewInvalidOperationError(store.InvalidOperationTaxonomyLabelCollision, nil)
+	for _, test := range []struct {
+		code app.AppErrorCode
+		want string
+	}{
+		{app.AppInvalidOperation, "taxonomy_label_collision"},
+		{app.AppStoreError, ""},
+		{app.AppProviderDataInvalid, ""},
+	} {
+		failure := &app.AppError{Code: test.code, Detail: "Safe detail."}
+
+		problem := problemFromError(errors.Join(failure, reasoned))
+
+		assert.Equal(t, test.want, problem.Reason, test.code)
 	}
 }

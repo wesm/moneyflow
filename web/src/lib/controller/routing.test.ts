@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { assetBase, parseApplicationRoute, profileAPIBase, profileApplicationPath } from './routing'
+import { parseApplicationRoute, profileApplicationPath } from './routing'
 
 const profileID = 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa'
 
@@ -33,11 +33,7 @@ describe('application routing', () => {
     ).toThrow('route is invalid')
   })
 
-  it('keeps profile APIs and application paths separate from the asset base', () => {
-    expect(profileAPIBase('/moneyflow/', profileID)).toBe(
-      `/moneyflow/api/v1/profiles/${profileID}/`,
-    )
+  it('builds a profile application path under the base path', () => {
     expect(profileApplicationPath('/moneyflow/', profileID)).toBe(`/moneyflow/p/${profileID}/`)
-    expect(assetBase('/moneyflow/')).toBe('/moneyflow/')
   })
 })

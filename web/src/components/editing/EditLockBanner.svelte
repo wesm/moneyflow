@@ -2,6 +2,7 @@
   import { Button, Card, KbdBadge } from '@kenn-io/kit-ui'
 
   import { lockText } from '../../lib/editing/lock-text'
+  import { focusClicked } from '../../lib/shell/focus'
 
   interface Props {
     providerName: string
@@ -20,8 +21,12 @@
       <p class="mf-lock-banner__text">
         {lockText(providerName, phase)}
       </p>
-      <Button size="sm" onclick={onstatus}
-        >Status{#snippet trailing()}<KbdBadge keys={['w']} />{/snippet}</Button
+      <Button
+        size="sm"
+        onclick={(event) => {
+          focusClicked(event)
+          onstatus()
+        }}>Status{#snippet trailing()}<KbdBadge keys={['w']} />{/snippet}</Button
       >
     </div>
   </Card>

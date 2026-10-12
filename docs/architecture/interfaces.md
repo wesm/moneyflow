@@ -45,31 +45,68 @@ onboarding flow, not a hidden import during recovery.
 application transitions as the TUI. One SPA serves the configured base path; profile application
 URLs and API routes use `/p/<profile-id>/`. Shared assets remain at the base path.
 
-Each view response is a projection with the rows, `currencies`, a `selection_summary` of the
-selected transactions per currency, and `staged` values on rows with pending edits. Aggregate rows
-carry `savings_rate_tenths` and `net_ratio` on Time rows, and `group` on category rows. `net_ratio`
-is the row's net over the largest absolute net of the whole result, in basis points (−10000 to
-10000). It does not change when the row window moves. `view.sort_fields` lists the fields the
-current view can sort by, in the order the sort key cycles. `all_rows_selected` is true when the
-result has rows and the selection holds all of them; selected rows outside the result, such as
-after a provider refresh, do not count. A whole-merchant preview reports how many affected
-transactions the view hides, with `outside_view` and `outside_currencies`.
+**Unreleased:** Besides its rows and `currencies`, each view response carries a `selection_summary`
+of the selected transactions per currency, and `staged` values on rows with pending edits. Aggregate
+rows carry `savings_rate_tenths` and `net_ratio` on Time rows, and `group` on category rows.
+`net_ratio` is the row's net over the largest absolute net of the whole result, in basis points
+(−10000 to 10000). It does not change when the row window moves. `view.sort_fields` lists the fields
+the current view can sort by, in the order the sort key cycles. `all_rows_selected` is true when the
+result has rows and the selection holds all of them; selected rows outside the result, such as after
+a provider refresh, do not count.
 
-A mutate, undo, or redo response carries `operation`, from which the browser words its toasts:
-the `kind` (`rename`, `recategorize`, `hide`, `show`, `delete`, `manage_category`, or
+**Unreleased:** `view.drill_depth` counts the drill frames in the current view. `view.root` names
+the view that `view.back-to` with depth 0 reaches, as its `mode`, `grouping`, and
+`time_granularity`. The server computes `root` by restoring a copy of the session from the view
+state and stepping it back to depth 0, so it matches that transition, and a Time root always names
+its unit. The browser's breadcrumb trail reads both fields instead of parsing return frames.
+
+**Unreleased:** A merchant preview reports `source_merchant_id`, the merchant every affected
+transaction has now. Whole-merchant scope always sets it; chosen transactions set it only when they
+share one merchant. The editor compares it with the matched merchant's ID to decide whether a rename
+[merges into another merchant](../guide/editing.md#open-the-editor). A whole-merchant preview also
+reports how many affected transactions the view hides, with `outside_view` and `outside_currencies`.
+
+**Unreleased:** A mutate, undo, or redo response carries `operation`, from which the browser words
+its toasts: the `kind` (`rename`, `recategorize`, `hide`, `show`, `delete`, `manage_category`, or
 `manage_group`), the review `label`, the `affected` transaction count, and `undoable`. A commit
 response has no `operation`. Each editor-catalog choice carries `transaction_count`, its committed
 non-deleted transactions, and `in_use`, which applies pending edits and makes a manager delete ask
 for a replacement. Review targets carry each transaction's exact `amount`.
 
-A view request may carry an `anchor`, an aggregate row identity. The server then returns the window
-that holds that row and reports its global index as `anchor_index`. An identity that matches no row
-of the result leaves the window as requested, omits `anchor_index`, and adds the warning
-`anchor_missing`.
+**Unreleased:** An `invalid_operation` problem, the `Problem` a refused operation returns, can carry
+`reason`. The server sets it only from the store's allowlisted reasons; the schema lists them as an
+enum. For example, `taxonomy_label_collision` marks a category or group name that another entry
+already uses. The browser words a refusal from `reason`, never from `detail` text.
 
-Charts read from a separate operation, `POST /api/v1/profiles/{profile_id}/view/insights`. It
-takes the view's query and optional row identities and returns committed chart data from
-`Service.Insights`.
+**Unreleased:** A view request may carry an `anchor`, an aggregate row identity. The server then
+returns the window that holds that row and reports its global index as `anchor_index`. An identity
+that matches no row of the result leaves the window as requested, omits `anchor_index`, and adds the
+warning `anchor_missing`.
+
+**Unreleased:** Charts read from a separate operation,
+`POST /api/v1/profiles/{profile_id}/view/insights`. It takes the view's query and optional row
+identities and returns committed chart data from `Service.Insights`.
+
+**Unreleased:** The browser keeps insights in `InsightsCache`
+(`web/src/lib/insights/cache.svelte.ts`):
+
+- Each entry is keyed by the canonical query without its `sort` and by the profile revision, so
+  a sort change reuses the entry.
+- It keeps the eight most recently used entries.
+- It loads the summary once and row series incrementally. It asks only for rows of the loaded
+  and neighboring table windows that are neither loaded nor in flight, at most 200 per request,
+  with the summary on the first request.
+- Until the displayed view's entry arrives, the charts keep drawing the previous entry, marked
+  stale. They draw it dimmed and inert, as the [web guide](../guide/web.md#charts) describes.
+- A response at a newer revision than the displayed projection asks the view controller to
+  recheck the view, once per revision. Those insights show only after the projection reaches
+  that revision.
+- When the server's day changes, the cache drops every entry and loads the view again.
+
+**Unreleased:** Charts are hand-written Svelte components; the web app uses no chart library. The
+cash-flow chart and the table's trend cells draw inline SVG. The composition bars, calendar, and KPI
+tiles are HTML and CSS. The charts' layout and scale logic lives in `web/src/lib/charts/`; the trend
+cells' sparkline layout lives in `web/src/lib/table/trend.ts`.
 
 The analytical URL is durable state: versioned view parameters, search, filters, drills, and return
 frames. Cursor/scroll and transient selection are not financial profile data. The server owns
@@ -113,14 +150,14 @@ controls; it does not permit direct provider mutations. Dry run validates withou
 Read tools return exact money strings/minor units, not JSON floats. Literal search includes notes,
 preserving Python MCP's search behavior without altering the TUI's regex search.
 
-`get_insights` returns the same chart data as the web insights operation, from the same
-`Service.Insights` primitive over **committed** values. The transaction reads apply pending edits;
-insights do not. The adapter turns its inputs into an analytical state by navigating a shared
+**Unreleased:** `get_insights` returns the same chart data as the web insights operation, from the
+same `Service.Insights` primitive over **committed** values. The transaction reads apply pending
+edits; insights do not. The adapter turns its inputs into an analytical state by navigating a shared
 `app.Session`: ID filters become drill-downs in the order merchant, category, group, account;
 `group_by` is the top-level grouping without filters and the sub-grouping below them; omitting it
 requests a transaction view. Keys become aggregate row identities of that grouping and currency.
-Invalid views return `invalid_operation`; unlike other tools, its `detail` gives the reason.
-The document mirrors the HTTP response's sections but carries every amount as an MCP money object.
+Invalid views return `invalid_operation`, and its `detail` gives the reason. The document mirrors
+the HTTP response's sections but carries every amount as an MCP money object.
 
 Category and merchant assignment, whole-merchant rename/explicit merge, hide cancellation, and
 transaction deletion reuse the application mutation planner and provider checks. Transaction batches

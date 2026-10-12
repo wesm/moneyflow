@@ -19,11 +19,7 @@ export interface KpiTile {
  * only with a comparison label, so All shows none. A drill shows Avg per transaction in place of
  * the savings rate; the server omits the average when no transaction is visible, which shows `—`.
  */
-export function kpiTiles(
-  entry: InsightsEntry,
-  comparisonLabel: string | undefined,
-  drill: boolean,
-): KpiTile[] {
+export function kpiTiles(entry: InsightsEntry, comparisonLabel: string | undefined): KpiTile[] {
   const { scale, summary } = entry.response
   const kpis = summary?.kpis
   if (kpis === undefined) return []
@@ -60,7 +56,7 @@ export function kpiTiles(
       label: 'Savings rate',
       value: tenthsPercent(kpis.savings_rate_tenths),
     })
-  } else if (drill || kpis.average_per_transaction !== undefined) {
+  } else if (drilled(entry.query) || kpis.average_per_transaction !== undefined) {
     const average = kpis.average_per_transaction
     const value = average === undefined ? '—' : unsignedZero(money(average))
     tiles.push({ key: 'average', label: 'Avg per transaction', value })
@@ -73,6 +69,14 @@ export function kpiTiles(
   const detail = counts.length > 0 ? { detail: counts.join(' · ') } : {}
   tiles.push({ key: 'transactions', label: 'Transactions', value: count(scope.count), ...detail })
   return tiles
+}
+
+/**
+ * Whether the entry's own query drills into a row, by its top-level `drill` keys. The entry can
+ * describe an earlier query than the projection, so this reads the entry, not the view.
+ */
+function drilled(query: string): boolean {
+  return new URLSearchParams(query).has('drill')
 }
 
 function count(value: number): string {

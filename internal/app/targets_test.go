@@ -384,14 +384,14 @@ func TestSelectionStaleReturnsFullyRefreshedSelectionWithoutTargets(t *testing.T
 	})
 	failure := requireMutationCode(t, err, app.MutationSelectionStale)
 	assert.Equal(t, uint64(5), failure.CurrentRevision)
-	refreshed, err := app.ResolveSelectionAtRevision(
-		analyticsServiceForMutation(t, effective),
-		state.Current,
-		failure.Selection,
-		5,
-	)
+	targets, err := app.ResolveTargets(effective, app.MutationRequest{
+		ExpectedRevision: 5,
+		State:            state,
+		Selection:        failure.Selection,
+	})
 	require.NoError(t, err)
-	assert.Equal(t, map[string]struct{}{"transaction_a": {}}, refreshed.IDs)
+	assert.True(t, targets.FromSelection)
+	assert.Equal(t, []domain.EntityID{"transaction_a"}, targets.TransactionIDs)
 }
 
 func TestSelectionWithoutDefiningRevisionReturnsRefreshedSelection(t *testing.T) {
@@ -414,14 +414,14 @@ func TestSelectionWithoutDefiningRevisionReturnsRefreshedSelection(t *testing.T)
 		Selection:        selection,
 	})
 	failure := requireMutationCode(t, err, app.MutationSelectionStale)
-	refreshed, err := app.ResolveSelectionAtRevision(
-		service,
-		state.Current,
-		failure.Selection,
-		5,
-	)
+	targets, err := app.ResolveTargets(effective, app.MutationRequest{
+		ExpectedRevision: 5,
+		State:            state,
+		Selection:        failure.Selection,
+	})
 	require.NoError(t, err)
-	assert.Equal(t, map[string]struct{}{"transaction_a": {}}, refreshed.IDs)
+	assert.True(t, targets.FromSelection)
+	assert.Equal(t, []domain.EntityID{"transaction_a"}, targets.TransactionIDs)
 }
 
 func TestSelectionStaleClearsAllWhenAnyIdentityCannotRevalidate(t *testing.T) {

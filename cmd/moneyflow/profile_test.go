@@ -316,6 +316,38 @@ func TestOpenProfileDemoSeedsUniquePrivateTemporaryProfileAndCleansIt(t *testing
 	require.NoError(t, err, "closing one demo must not remove another demo")
 }
 
+func TestSweepStaleDemoRootsRemovesOnlyRootsNoRunningDemoHolds(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	parent := t.TempDir()
+	live, err := openProfile(ctx, ProfileOptions{Demo: true, TemporaryParent: parent})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, live.Close()) })
+	stale := filepath.Join(parent, demoDirectoryPrefix+"stale")
+	young := filepath.Join(parent, demoDirectoryPrefix+"young")
+	other := filepath.Join(parent, "profiles")
+	for _, root := range []string{stale, young, other} {
+		require.NoError(t, os.Mkdir(root, 0o700))
+	}
+	// A demo that crashed left its lock file; the OS dropped its lock.
+	lock, err := home.TryLockExisting(stale, home.LockProfile, home.LockShared)
+	require.NoError(t, err)
+	require.NoError(t, lock.Release())
+	old := time.Now().Add(-time.Hour)
+	for _, root := range []string{live.Paths.Root, stale, other} {
+		require.NoError(t, os.Chtimes(root, old, old))
+	}
+
+	require.NoError(t, sweepStaleDemoRoots(parent, time.Now()))
+
+	assert.NoDirExists(t, stale, "no running demo holds the stale root")
+	assert.DirExists(t, live.Paths.Root, "a running demo keeps its root")
+	assert.DirExists(t, young, "a new demo may not hold its lock yet")
+	assert.DirExists(t, other, "only demo roots are swept")
+	require.NoError(t, live.Close())
+	assert.NoDirExists(t, live.Paths.Root, "closing a demo still removes its root")
+}
+
 func TestOpenProfileDemoFixesInsightsTodayAtTheDemoEnd(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

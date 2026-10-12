@@ -2,6 +2,7 @@
   import { Button, Card, KbdBadge } from '@kenn-io/kit-ui'
 
   import type { PendingSummary } from '../../lib/api/client'
+  import { focusClicked } from '../../lib/shell/focus'
   import { pendingParts } from '../../lib/shell/pending'
 
   interface Props {
@@ -37,11 +38,20 @@
           size="sm"
           ariaLabel="Review pending changes"
           disabled={!reviewAvailable}
-          onclick={onreview}>Review{#snippet trailing()}<KbdBadge keys={['w']} />{/snippet}</Button
+          onclick={(event) => {
+            focusClicked(event)
+            onreview()
+          }}>Review{#snippet trailing()}<KbdBadge keys={['w']} />{/snippet}</Button
         >
       {/if}
       {#if write}
-        <Button size="sm" onclick={onwrite}>Write {write.completed}/{write.total}</Button>
+        <Button
+          size="sm"
+          onclick={(event) => {
+            focusClicked(event)
+            onwrite()
+          }}>Write {write.completed}/{write.total}</Button
+        >
       {/if}
     </div>
   {/if}

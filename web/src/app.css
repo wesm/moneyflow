@@ -160,6 +160,20 @@ input {
   min-width: 0;
   min-height: 0;
 }
+/* Controls stand up from their ground; pressed or open ones and fields sink into it. */
+.kit-button,
+.kit-filter-dropdown__btn,
+.kit-select-dropdown__trigger,
+.kit-segmented .kit-segmented__btn.active,
+.mf-sidebar {
+  box-shadow: var(--mf-lift);
+}
+.kit-segmented,
+.kit-text-input,
+:is(.kit-button, .kit-filter-dropdown__btn, .kit-select-dropdown__trigger):active,
+:is(.kit-select-dropdown__trigger, .mf-period__label)[aria-expanded='true'] {
+  box-shadow: inset var(--shadow-sm);
+}
 .mf-command-bar {
   box-sizing: border-box;
   min-height: var(--header-height);
@@ -426,6 +440,7 @@ input {
   flex-direction: column;
 }
 .mf-sidebar__brand {
+  position: relative;
   box-sizing: border-box;
   height: var(--header-height);
   flex: none;
@@ -435,6 +450,15 @@ input {
   gap: var(--space-1);
   padding: 0 var(--space-6);
   border-bottom: 1px solid var(--border-default);
+}
+.mf-collapse-control {
+  display: flex;
+}
+.mf-sidebar__brand > .mf-collapse-control {
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  translate: 0 -50%;
 }
 .mf-sidebar__provider {
   color: var(--text-muted);
@@ -577,6 +601,9 @@ input {
 .provider-status__meta {
   color: var(--text-muted);
   font-size: var(--font-size-2xs);
+}
+.provider-status__failure {
+  color: var(--mf-out-text);
 }
 
 .mf-rail {
@@ -850,7 +877,17 @@ input {
   align-content: start;
   font-size: var(--font-size-sm);
 }
-.mf-table:focus-visible {
+/* Panels sit a step above the page: a hairline edge plus the shared lift. */
+.mf-workspace .mf-chart-states,
+.mf-table {
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow:
+    0 0 0 1px var(--border-muted),
+    var(--mf-lift);
+}
+/* The grid takes focus on load; its ring waits for a key, so a mouse user never sees it. */
+[data-keyboard] .mf-table:focus-visible {
   /* Neutral and outside the rows, so the blue left rule still marks only the cursor row. */
   outline: 2px solid var(--text-muted);
   outline-offset: 1px;
@@ -873,11 +910,21 @@ input {
   top: 0;
   /* Above the positioned rows, which scroll up beneath it. */
   z-index: 2;
-  background: var(--bg-surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: linear-gradient(
+    var(--bg-surface),
+    color-mix(in srgb, var(--bg-primary) 60%, var(--bg-surface))
+  );
+  box-shadow: inset 0 1px var(--mf-hi);
   border-bottom-color: var(--border-default);
   color: var(--text-secondary);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
+}
+/* Rows scrolled beneath the stuck header pass under its shadow. */
+.mf-table--scrolled > .mf-table__header {
+  border-radius: 0;
+  box-shadow: var(--mf-lift);
 }
 .mf-table__cell {
   min-width: 0;
@@ -912,7 +959,10 @@ input {
 }
 .mf-table__row--active {
   --mf-row-tint: var(--mf-cursor);
-  box-shadow: inset 3px 0 var(--mf-focus);
+  box-shadow:
+    inset 3px 0 var(--mf-focus),
+    inset 10px 0 8px -8px var(--mf-focus),
+    inset 0 1px var(--mf-hi);
 }
 .mf-table__row--selected {
   --mf-row-tint: var(--mf-selected);
@@ -1328,7 +1378,7 @@ input {
   position: relative;
   display: grid;
   gap: var(--space-4);
-  padding-bottom: var(--space-5);
+  padding: var(--space-2) 0;
 }
 /* A chart tooltip covers the table's sticky header, which otherwise paints above the area. */
 .mf-chart-area:has([role='tooltip']) {
@@ -1337,6 +1387,10 @@ input {
 .mf-chart-states {
   display: grid;
   gap: var(--space-5);
+}
+.mf-workspace .mf-chart-states {
+  gap: var(--space-4);
+  padding: var(--space-2);
 }
 .mf-chart-states--stale {
   opacity: var(--opacity-disabled);
@@ -1663,8 +1717,8 @@ button.mf-bar:hover {
 .mf-calendar__ticks > span {
   justify-self: start;
 }
-/* A name too near the right edge to fit ends at the edge; one that would then cover the name
-   before it hides, because the strip is too narrow for both. */
+/* A name too near the right edge to fit ends at the edge. The heatmap hides any drawn name that
+   would crowd the shown name before it or pass the edge. */
 .mf-calendar__ticks > .mf-calendar__tick--end {
   grid-column-end: -1;
   justify-self: end;

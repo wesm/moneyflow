@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { restoreFocus, rowIndex, trapEveryTab } from './focus'
+import { focusClicked, restoreFocus, rowIndex, trapEveryTab } from './focus'
 
 /** A grid of rows, each with a ⋯ button in its actions cell. */
 function grid(indexes: number[]): HTMLElement {
@@ -80,6 +80,26 @@ describe('restoreFocus', () => {
     const opener = document.createElement('button')
     cell.append(opener)
     expect(restoreFocus(opener, 0, root)).toBe(false)
+  })
+})
+
+describe('focusClicked', () => {
+  afterEach(() => document.body.replaceChildren())
+
+  it('focuses the control that was clicked, as WebKit does not', () => {
+    const control = document.createElement('button')
+    document.body.append(control)
+    control.addEventListener('click', focusClicked)
+    control.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(document.activeElement).toBe(control)
+  })
+
+  it('leaves focus alone when the target is not an element that takes focus', () => {
+    const other = document.createElement('button')
+    document.body.append(other)
+    other.focus()
+    focusClicked({ currentTarget: document } as unknown as MouseEvent)
+    expect(document.activeElement).toBe(other)
   })
 })
 

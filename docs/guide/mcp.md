@@ -68,9 +68,39 @@ onboarding wizard. Missing vaults, incorrect passwords, and mismatched plan bind
 
 ## Read and Write Policy
 
-The default server registers account, transaction, spending, insights, taxonomy, merchant,
-Amazon-match, review, provider-status, explicit-refresh, and export tools. Results use exact
-decimal strings plus signed integer minor units; they do not expose floating-point money.
+The default server registers the read tools below and the [export tools](#server-side-export).
+Results use exact decimal strings plus signed integer minor units; they do not expose
+floating-point money.
+
+### Read tools
+
+| Tool | Purpose |
+| --- | --- |
+| `search_transactions` | Search effective transactions with literal text matching. |
+| `get_transactions` | Return a filtered effective transaction window. |
+| `get_spending_summary` | Summarize effective expenses by category or merchant. |
+| `get_insights` | **Unreleased:** Return chart data for one view; see [chart insights](#chart-insights). |
+| `get_categories` | List active category groups and categories. |
+| `get_merchants` | List active merchants and exact totals. |
+| `get_account_info` | Return credential-blind local profile information. |
+| `get_uncategorized_transactions` | Return effective uncategorized transactions. |
+| `get_amazon_order_details` | Return bounded Amazon enrichment for one transaction. |
+| `get_transaction_details` | Return committed details for one transaction. |
+| `review_changes` | Return bounded active and redo journal summaries. |
+| `get_commit_status` | Return the durable provider-write status without provider I/O. |
+| `refresh_data` | Start one explicit provider refresh when available; see [refresh](#explicit-provider-refresh). |
+| `get_refresh_status` | Return process-local provider refresh status. |
+| `confirm_refresh_deletions` | Confirm one process-local provider deletion candidate. |
+
+`refresh_data` and `confirm_refresh_deletions` run without `--allow-write`, but they change the
+local profile: a refresh imports provider data, and a confirmed deletion removes the local
+transactions that the provider no longer lists.
+
+Effective results apply your pending edits. Committed results ignore them until you commit:
+`get_transaction_details` and `get_amazon_order_details` show a transaction as last committed,
+even while an edit to it is pending.
+
+### Staged editing
 
 Enable staged editing explicitly:
 
@@ -89,6 +119,9 @@ Write-enabled tools follow this workflow:
    `scale`.
 4. Call `commit_changes` with the exact reviewed revision.
 
+**Unreleased:** In `review_changes`, a hide operation's `before` and `after` read `Visible` and
+`Hidden`, or `Hidden` and `Visible` when it shows hidden transactions again.
+
 Use the current `expected_revision` for staging/undo/redo. Commit takes both `expected_revision`
 and `reviewed_revision`; use the revision from the review, not an earlier search. On a revision
 conflict, read the current state and review again instead of automatically resending the edit.
@@ -101,7 +134,7 @@ conflict, read the current state and review again instead of automatically resen
 | `batch_update_category` | `transaction_ids`, with a category ID or name. |
 | `reassign_transactions_merchant` | `transaction_ids`, with exactly one of existing `merchant_id` or `new_merchant_label`. |
 | `rename_merchant` | Whole `merchant_id` and `new_label`; a collision requires the explicit `merge_destination_id`. |
-| `toggle_transactions_hidden` | `transaction_ids`; flip hidden state, matching the TUI. **Unreleased:** Pending hide toggles are cancelled only when they changed every target. |
+| `toggle_transactions_hidden` | `transaction_ids`; hide the visible members of a mixed selection; otherwise flip hidden state, matching the TUI. **Unreleased:** Pending hide toggles are cancelled only when they changed every target. |
 | `delete_transactions` | `transaction_ids`; stage undoable deletion, without sending a provider request. |
 | `manage_category` | Create, rename, move, merge, or delete a category on a local, Amazon, or SimpleFIN profile. |
 | `manage_category_group` | Create, rename, merge, or delete a category group on a local, Amazon, or SimpleFIN profile. |
@@ -137,8 +170,11 @@ they never commit automatically. Revision `"0"` is valid for a pristine local pr
 Delete replacement IDs refer to the same entity kind as the source. Category merge/delete
 reassigns its transactions; group merge/delete moves its categories. Neither deletes transactions.
 An empty category/group can be deleted without a replacement. Protected system entities cannot
-be changed, and a colliding rename is rejected: use an explicit merge instead. Fields unrelated
-to the chosen action are rejected rather than ignored.
+be changed, and a create or rename onto a label another entry already uses is rejected: use an
+explicit merge instead. Fields unrelated to the chosen action are rejected rather than ignored.
+
+**Unreleased:** That collision returns `invalid_operation`, and its `detail` ends with
+`That label already exists; use merge instead.`
 
 For example, preview a category move (replace the example IDs and revision with values from
 `get_categories`):
@@ -183,16 +219,42 @@ status and explicitly resume eligible work; startup alone does not resume it. Us
 batch version for controls. `stop_and_reconcile` abandons the failed and unsent frozen intent
 and reloads provider truth; it does not undo remote writes that already succeeded.
 
+**Unreleased:** When a write finishes, the `write` object has no `phase`, and `completed_at`
+records when it finished. `total` and `completed` keep the finished batch's counts until the
+profile changes again, for example with the next edit. A `write` object without `phase` or
+`completed_at` means no write finished at the current revision. After `stop_and_reconcile`,
+that means the batch's remaining edits were discarded.
+
 For an uncertain Monarch update, `resume_commit` first checks the affected transaction before
 continuing. It can confirm an already-applied edit or retry one that still matches its previous
 value, without fetching the full history. See [write recovery](editing.md#recover-an-interrupted-provider-write).
 
+### Audit warning
+
+**Unreleased:** Moneyflow can save your changes but fail to record their completion in the
+profile's [audit log](../config/caching.md#where-can-i-inspect-past-edits). Results then carry
+`audit_warning` with the fixed text `Changes saved, but the audit log could not record completion.`
+
+- `commit_changes` reports it for a commit that saves locally, without a provider write.
+- For Monarch and YNAB, the warning usually first appears in `get_commit_status` after the
+  background write finishes, because `commit_changes` has already returned. `get_account_info`
+  reports it in the same `write` status object.
+- `get_reconcile_status` and `confirm_reconcile` carry it in their `write` object once a
+  reconcile saves.
+- `pause_commit` and `resume_commit` results never carry it.
+
+Later reads in the same server process repeat it until the next saved commit or write result
+clears it.
+
+The changes are saved. Do not commit them again or resend them. Only the log's completion record
+is missing.
+
 ## Chart insights
 
-`get_insights` returns the chart data behind one web view: KPIs with the prior-period comparison,
-cash flow per chart period, spending and income composition, the calendar, and per-row trend
-series. It reads **committed** values only. `get_transactions` and `search_transactions` return
-effective values with pending edits applied, so the two can differ until you commit.
+**Unreleased:** `get_insights` returns the chart data behind one web view: KPIs with the
+prior-period comparison, cash flow per chart period, spending and income composition, the
+calendar, and per-row trend series. It reads **committed** values only, so it can differ from the
+effective transaction reads until you commit.
 
 | Input | Meaning |
 | --- | --- |
@@ -222,12 +284,13 @@ merchant over August:
 ```
 
 The result has the standard header and revision, plus `currency`, `scale`, `today`, `latest`,
-`ranges`, `summary`, and `series`. The server derives every range from the dates and its clock:
-`ranges.context` lists the chart periods, and cash-flow and series values align with it. Each
-amount is a money object with `amount`, `amount_minor`, `currency`, and `scale`. Changes such as
-`net_change` and `vs_prior` are computed by the server; `percent_tenths` and `share_tenths` are
-tenths of a percent. `pending_count` counts transactions the bank still lists as pending. It does
-not count your pending edits, which insights never read.
+`ranges`, `summary`, and `series`. The server derives every range from the dates and its clock,
+following the web's [range rules](web.md#ranges-and-comparisons). For example, a year scope
+charts one period per year. `ranges.context` lists the chart periods, and cash-flow and series
+values align with it. Each amount is a money object with `amount`, `amount_minor`, `currency`,
+and `scale`. Changes such as `net_change` and `vs_prior` are computed by the server;
+`percent_tenths` and `share_tenths` are tenths of a percent. `pending_count` counts transactions
+the bank still lists as pending. It does not count your pending edits, which insights never read.
 
 An ID filter that matches nothing, such as a merchant, category, group, or account ID that does not
 exist, is not an error. It returns zeros.

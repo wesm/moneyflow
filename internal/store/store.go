@@ -42,6 +42,11 @@ type Profile interface {
 	RecordRefreshFailure(context.Context, RefreshFailure) error
 	ClearProviderReconnectFailure(context.Context) error
 	ApplyProviderRefresh(context.Context, AtomicRefreshRequest, RefreshPlanner) (RefreshCommit, error)
+	// LastFullProviderRefresh reads the advisory time of the last complete-history refresh.
+	// It returns the zero time when the record is missing or unreadable.
+	LastFullProviderRefresh() time.Time
+	// RecordFullProviderRefresh atomically replaces the advisory complete-history refresh time.
+	RecordFullProviderRefresh(time.Time) error
 	LoadAmazonState(context.Context) (AmazonImportState, error)
 	LoadAmazonMatchSource(context.Context) (AmazonMatchSourceState, error)
 	ApplyAmazonImport(context.Context, AtomicAmazonImportRequest, AmazonImportPlanner) (AmazonImportCommit, error)

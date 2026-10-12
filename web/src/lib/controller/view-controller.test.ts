@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   MoneyflowProblem,
@@ -841,7 +841,7 @@ describe('browser view controller', () => {
     expect((history.state as MoneyflowHistoryState).sequence).toBe(state.sequence)
   })
 
-  it('refetches the last valid window after a narrowing transition empties the old offset', async () => {
+  it('refetches the last valid window when Back returns to an offset past the parent’s rows', async () => {
     history.replaceState(
       {
         owner: 'moneyflow-web-v1',
@@ -858,18 +858,22 @@ describe('browser view controller', () => {
       view: vi.fn(async (body) =>
         projection(body.query, body.window.offset, body.query === 'v=1' ? 450 : 1),
       ),
-      transition: vi.fn(async (body) => projection('q=narrow&v=1', body.window.offset, 1)),
+      transition: vi.fn(async (body) => projection('group=category&v=1', body.window.offset, 1)),
     })
     const controller = controllerFor(client, false)
     await controller.hydrate()
     expect(controller.cursorIndex).toBe(400)
 
-    await controller.apply({ action: 'search.apply', search: 'narrow' })
+    await controller.apply({ action: 'view.back' })
 
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ window: { offset: 400, limit: 200 } }),
+      expect.any(AbortSignal),
+    )
     expect(controller.projection?.window.offset).toBe(0)
     expect(controller.cursorIndex).toBe(0)
     expect(client.view).toHaveBeenLastCalledWith(
-      expect.objectContaining({ query: 'q=narrow&v=1', window: { offset: 0, limit: 200 } }),
+      expect.objectContaining({ query: 'group=category&v=1', window: { offset: 0, limit: 200 } }),
       expect.any(AbortSignal),
     )
   })
@@ -917,6 +921,167 @@ describe('browser view controller', () => {
     await controller.moveHome()
     expect(controller.cursorIndex).toBe(0)
     expect(controller.projection).toBe(loaded)
+  })
+
+  describe('history writes for cursor moves', () => {
+    afterEach(() => vi.useRealTimers())
+
+    const rows = () =>
+      clientWith({ view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)) })
+
+    it('writes the last cursor once after a burst of moves', async () => {
+      vi.useFakeTimers()
+      const controller = debouncedControllerFor(rows())
+      await controller.hydrate()
+      const replacements = vi.spyOn(history, 'replaceState')
+      replacements.mockClear()
+
+      for (let step = 0; step < 100; step += 1) {
+        await controller.moveCursor(1)
+        await vi.advanceTimersByTimeAsync(10)
+      }
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(replacements.mock.calls.length).toBeGreaterThan(0)
+      expect(replacements.mock.calls.length).toBeLessThanOrEqual(3)
+      expect((history.state as MoneyflowHistoryState).cursorIndex).toBe(100)
+    })
+
+    it('writes the pending cursor before the entry a transition pushes', async () => {
+      vi.useFakeTimers()
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+        transition: vi.fn(async () => projection('v=1&drill=x', 0, 3)),
+      })
+      const controller = debouncedControllerFor(client)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      const writes: Array<[string, MoneyflowHistoryState]> = []
+      vi.spyOn(history, 'replaceState').mockImplementation(function (this: History, state, _, url) {
+        writes.push(['replace', state as MoneyflowHistoryState])
+        History.prototype.replaceState.call(this, state, '', url)
+      })
+      vi.spyOn(history, 'pushState').mockImplementation(function (this: History, state, _, url) {
+        writes.push(['push', state as MoneyflowHistoryState])
+        History.prototype.pushState.call(this, state, '', url)
+      })
+
+      await controller.moveCursorTo(5)
+      await controller.moveCursorTo(7)
+      await controller.apply({ action: 'view.drill' })
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(writes.map(([kind, state]) => [kind, state.query, state.cursorIndex])).toEqual([
+        ['replace', 'v=1', 7],
+        ['push', 'v=1&drill=x', 0],
+      ])
+      expect(writes[0]?.[1].sequence).toBe(parent.sequence)
+    })
+
+    it('writes the pending cursor before going back through history', async () => {
+      vi.useFakeTimers()
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+        transition: vi.fn(async (body) =>
+          projection(body.action === 'view.back' ? 'v=1' : 'v=1&drill=x', 0, 450),
+        ),
+      })
+      const controller = debouncedControllerFor(client)
+      await controller.hydrate()
+      await controller.apply({ action: 'view.drill' })
+      await controller.moveCursorTo(4)
+      let cursorWhenLeaving: number | undefined
+      vi.spyOn(history, 'go').mockImplementation(() => {
+        cursorWhenLeaving = (history.state as MoneyflowHistoryState).cursorIndex
+      })
+
+      void controller.apply({ action: 'view.back' })
+      await vi.waitFor(() => expect(cursorWhenLeaving).toBe(4))
+    })
+
+    it('writes the pending cursor at once when asked to flush', async () => {
+      vi.useFakeTimers()
+      const controller = debouncedControllerFor(rows())
+      await controller.hydrate()
+      const replacements = vi.spyOn(history, 'replaceState')
+      replacements.mockClear()
+
+      await controller.moveCursorTo(9)
+      controller.flushHistory()
+      expect((history.state as MoneyflowHistoryState).cursorIndex).toBe(9)
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(replacements).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not write a pending cursor onto the entry the browser returns to', async () => {
+      vi.useFakeTimers()
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+        transition: vi.fn(async () => projection('v=1&drill=x', 0, 3)),
+      })
+      const controller = debouncedControllerFor(client)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.drill' })
+      await controller.moveCursorTo(2)
+      vi.mocked(client.view).mockImplementation(() => new Promise<ViewProjection>(() => undefined))
+
+      history.replaceState(parent, '', '/moneyflow/?v=1')
+      void controller.restore(new PopStateEvent('popstate', { state: parent }))
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(history.state).toEqual(parent)
+    })
+
+    it('brings back a pending cursor when Forward returns to the entry Back left', async () => {
+      vi.useFakeTimers()
+      history.replaceState(null, '', '/moneyflow/?v=1')
+      const client = clientWith({
+        view: vi.fn(async (body) => projection(body.query, body.window.offset, 450)),
+        transition: vi.fn(async () => projection('v=1&drill=x', 0, 450)),
+      })
+      const controller = debouncedControllerFor(client)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.drill' })
+      const child = history.state as MoneyflowHistoryState
+      await controller.moveCursorTo(4)
+
+      history.replaceState(parent, '', '/moneyflow/?v=1')
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+      history.replaceState(child, '', '/moneyflow/?v=1&drill=x')
+      await controller.restore(new PopStateEvent('popstate', { state: child }))
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(controller.cursorIndex).toBe(4)
+      expect((history.state as MoneyflowHistoryState).cursorIndex).toBe(4)
+    })
+
+    it('forgets a left cursor once a new entry replaces the one Back left', async () => {
+      vi.useFakeTimers()
+      history.replaceState(null, '', '/moneyflow/?v=1')
+      const client = clientWith({
+        view: vi.fn(async (body) => projection(body.query, body.window.offset, 450)),
+        transition: vi.fn(async () => projection('v=1&drill=x', 0, 450)),
+      })
+      const controller = debouncedControllerFor(client)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.drill' })
+      await controller.moveCursorTo(4)
+      history.replaceState(parent, '', '/moneyflow/?v=1')
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+
+      await controller.apply({ action: 'view.drill' })
+      const replacement = history.state as MoneyflowHistoryState
+      history.replaceState(parent, '', '/moneyflow/?v=1')
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+      history.replaceState(replacement, '', '/moneyflow/?v=1&drill=x')
+      await controller.restore(new PopStateEvent('popstate', { state: replacement }))
+
+      expect(controller.cursorIndex).toBe(0)
+    })
   })
 
   describe('showing an anchored row', () => {
@@ -1714,6 +1879,85 @@ describe('browser view controller', () => {
     expect(controller.announcement).not.toContain('raw URL')
   })
 
+  describe('the cursor after a transition', () => {
+    /** The result laid out again, with each row two places above where it was. */
+    function relaid(query: string, offset: number): ViewProjection {
+      const next = projection(query, offset, 450)
+      next.detail_rows = next.detail_rows!.map((row) => ({
+        ...row,
+        identity: `row-${row.index + 2}`,
+      }))
+      return next
+    }
+
+    async function cursorOnRow230() {
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
+        transition: vi.fn(async (body) => relaid(`v=1&after=${body.action}`, body.window.offset)),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      await controller.moveCursorTo(230)
+      expect(controller.cursorIdentity).toBe('row-230')
+      return { client, controller }
+    }
+
+    const rowsChange = [
+      { action: 'time.set-period', period: { start: '2026-09-01', end: '2026-09-30' } },
+      { action: 'time.previous-period' },
+      { action: 'time.next-period' },
+      { action: 'time.clear-period' },
+      { action: 'view.drill', target: { identity: 'row-230', kind: 'aggregate' } },
+      { action: 'view.set-grouping', dimension: 'category' },
+      { action: 'view.cycle-grouping' },
+      { action: 'view.set-subgrouping', dimension: 'account' },
+      { action: 'view.show-detail' },
+      { action: 'view.switch-accounts' },
+      { action: 'view.set-currency', currency: { currency: 'EUR', scale: 2 } },
+      { action: 'search.apply', search: 'coffee' },
+      { action: 'filters.apply', filters: { show_hidden: true, show_transfers: false } },
+    ] as const
+
+    it.each(rowsChange)(
+      'starts on the first row after $action, as the TUI does',
+      async (request) => {
+        const { client, controller } = await cursorOnRow230()
+
+        await controller.apply(request)
+
+        expect(controller.cursorIndex).toBe(0)
+        expect(controller.cursorIdentity).toBe('row-2')
+        expect(client.transition).toHaveBeenLastCalledWith(
+          expect.objectContaining({ window: { offset: 0, limit: 200 } }),
+          expect.any(AbortSignal),
+        )
+      },
+    )
+
+    it('starts a search preview on the first row', async () => {
+      const { controller } = await cursorOnRow230()
+      controller.beginSearch()
+
+      await expect(controller.previewSearch('coffee')).resolves.toBe('applied')
+
+      expect(controller.cursorIndex).toBe(0)
+    })
+
+    it.each([
+      { action: 'sort.set', sort_field: 'amount' },
+      { action: 'sort.cycle' },
+      { action: 'sort.reverse' },
+      { action: 'selection.toggle', target: { identity: 'row-230', kind: 'transaction' } },
+    ] as const)('keeps the cursor on its row after $action', async (request) => {
+      const { controller } = await cursorOnRow230()
+
+      await controller.apply(request)
+
+      expect(controller.cursorIdentity).toBe('row-230')
+      expect(controller.cursorIndex).toBe(228)
+    })
+  })
+
   it('deduplicates passive revision checks and preserves stable cursor without history writes', async () => {
     let release!: (value: ViewProjection) => void
     const passive = new Promise<ViewProjection>((resolve) => (release = resolve))
@@ -1775,6 +2019,99 @@ describe('browser view controller', () => {
     expect(history.state.cursorIndex).toBe(controller.cursorIndex)
   })
 
+  it.each([
+    [
+      { action: 'view.set-grouping', dimension: 'category' },
+      'group=category&v=1',
+      'mfsel1.example',
+    ],
+    [
+      { action: 'selection.toggle', target: { kind: 'transaction', identity: 'row-0' } },
+      'v=1',
+      'mfsel1.selected',
+    ],
+  ] as const)(
+    'keeps a view change made while a provider refresh runs (%o)',
+    async (action, query, selection) => {
+      const refreshCapability = {
+        id: 'provider.refresh',
+        key_display: 'r',
+        description: 'Refresh provider data',
+        category: 'System',
+        available: true,
+      }
+      let revision = '1'
+      const shown = (next: ViewProjection) => ({ ...next, capabilities: [refreshCapability] })
+      let finish: (response: Response) => void = () => undefined
+      const client = clientWith({
+        view: vi.fn(async (body) =>
+          shown(projection(body.query, body.window.offset, 3, revision, body.selection)),
+        ),
+        transition: vi.fn(async () => shown(projection(query, 0, 3, revision, selection))),
+        mutations: {
+          request: vi.fn(() => new Promise<Response>((resolve) => (finish = resolve))),
+        },
+      })
+      history.replaceState(null, '', '/moneyflow/?v=1')
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const refreshing = controller.provider.refresh()
+      await controller.apply(action)
+      revision = '2'
+      finish(Response.json(providerRefreshResponse(projection('v=1', 0, 3, '2'))))
+      await expect(refreshing).resolves.toBe(true)
+
+      expect(controller.projection?.canonical_query).toBe(query)
+      expect(controller.projection?.selection).toBe(selection)
+      expect(controller.projection?.revision).toBe('2')
+      expect((history.state as MoneyflowHistoryState).query).toBe(query)
+    },
+  )
+
+  it('lets a view change still on its way finish before a provider refresh lands', async () => {
+    const refreshCapability = {
+      id: 'provider.refresh',
+      key_display: 'r',
+      description: 'Refresh provider data',
+      category: 'System',
+      available: true,
+    }
+    let revision = '1'
+    const shown = (next: ViewProjection) => ({ ...next, capabilities: [refreshCapability] })
+    let finishRefresh: (response: Response) => void = () => undefined
+    let finishTransition: () => void = () => undefined
+    const client = clientWith({
+      view: vi.fn(async (body) =>
+        shown(projection(body.query, body.window.offset, 3, revision, body.selection)),
+      ),
+      transition: vi.fn(async (body) => {
+        await new Promise<void>((resolve) => (finishTransition = resolve))
+        return shown(projection('group=category&v=1', 0, 3, revision, body.selection))
+      }),
+      mutations: {
+        request: vi.fn(() => new Promise<Response>((resolve) => (finishRefresh = resolve))),
+      },
+    })
+    history.replaceState(null, '', '/moneyflow/?v=1')
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    const refreshing = controller.provider.refresh()
+    const grouping = controller.apply({ action: 'view.set-grouping', dimension: 'category' })
+    await vi.waitFor(() => expect(client.transition).toHaveBeenCalledOnce())
+    revision = '2'
+    finishRefresh(Response.json(providerRefreshResponse(projection('v=1', 0, 3, '2'))))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    finishTransition()
+
+    await expect(grouping).resolves.toBe(true)
+    await expect(refreshing).resolves.toBe(true)
+    expect(controller.projection?.canonical_query).toBe('group=category&v=1')
+    expect(controller.projection?.revision).toBe('2')
+    expect((history.state as MoneyflowHistoryState).query).toBe('group=category&v=1')
+  })
+
   it('synchronizes editing state after an authoritative write reconciliation', async () => {
     const next = projection('v=1', 0, 3, '2')
     const client = clientWith({
@@ -1827,6 +2164,21 @@ function controllerFor(client: MoneyflowClient, prefetch = true) {
     location: window.location,
     instance: 'test-instance',
     prefetch,
+    recheckDebounceMillis: 0,
+    historyDebounceMillis: 0,
+    returnTimeoutMillis: 200,
+  })
+}
+
+/** A controller that defers cursor history writes, as the browser does. */
+function debouncedControllerFor(client: MoneyflowClient) {
+  return createViewController({
+    basePath: '/moneyflow/',
+    client,
+    history,
+    location: window.location,
+    instance: 'test-instance',
+    prefetch: false,
     recheckDebounceMillis: 0,
     returnTimeoutMillis: 200,
   })
@@ -1903,6 +2255,8 @@ function projection(
       sort_field: 'date',
       sort_direction: 'desc',
       sort_fields: ['date', 'merchant', 'category', 'account', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'detail', grouping: 'merchant', time_granularity: 'year' },
     },
     selection: selection as ViewProjection['selection'],
     selection_count: 0,

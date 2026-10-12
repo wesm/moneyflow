@@ -297,6 +297,29 @@ test('a cash-flow column click scopes the view to its month', async ({ page, ser
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
 })
 
+test('a Year scope charts one column per year, and a year column scopes to it', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page
+    .getByRole('radiogroup', { name: 'Period', exact: true })
+    .getByRole('radio', { name: 'Year' })
+    .click()
+  await expect(periodControl(page)).toHaveText('2026')
+  const ticks = cashflow(page).locator('.mf-cashflow__tick')
+  await expect(ticks).toHaveText(['2024', '2025', '2026'])
+  await expect(column(page, '2026')).toHaveClass(/mf-cashflow__column--scope/)
+  await expect(column(page, '2026')).toHaveClass(/mf-cashflow__column--partial/)
+  await expect(column(page, '2025')).not.toHaveClass(/mf-cashflow__column--scope/)
+
+  await column(page, '2025').click()
+  await expect(periodControl(page)).toHaveText('2025')
+  await expect(page).toHaveURL(/[?&]from=2025-01-01&to=2025-12-31/)
+  await expect(ticks).toHaveText(['2024', '2025'])
+  await expect(column(page, '2025')).toHaveClass(/mf-cashflow__column--scope/)
+})
+
 test('a drag across cash-flow columns sets a custom range', async ({ page, server }) => {
   await openMoneyflow(page, server)
   await column(page, 'Jul 2026').hover()
@@ -452,6 +475,22 @@ test('a composition bar click moves the cursor, and a double-click drills', asyn
   )
 })
 
+test('the composition list moves with arrows and drills with Enter', async ({ page, server }) => {
+  await openMoneyflow(page, server, september)
+  const bars = whereItWent(page).getByRole('button')
+  // The list is one Tab stop, reached from the table going back; it starts on the cursor's bar.
+  await page.keyboard.press('Shift+Tab')
+  await expect(bars.first()).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(bars.nth(1)).toBeFocused()
+  await expect(bars.nth(1)).toHaveAccessibleName(/^Online Megastore, /)
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/[?&]drill=merchant/)
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(
+    'Online Megastore',
+  )
+})
+
 test('a double-click drills a composition bar whose row is below the table’s edge', async ({
   page,
   server,
@@ -561,16 +600,10 @@ test('a year of transactions shows the 53-week strip with future days blank', as
   expect(columns).toBe(41)
 })
 
-test('the strip ending at Latest keeps its month names inside the panel, apart', async ({
-  page,
-  server,
-}) => {
-  await openMoneyflow(page, server)
-  await page.keyboard.press('d')
-  const strip = heatmap(page)
-  await expect(strip).toHaveClass(/mf-calendar--weeks/)
-  for (const width of [1440, 1280, 1024, 900]) {
-    await page.setViewportSize({ width, height: 900 })
+/** Whether the strip's shown month names pass its right edge or cover the name before. */
+async function expectTicksApart(strip: Locator, widths: number[]): Promise<void> {
+  for (const width of widths) {
+    await strip.page().setViewportSize({ width, height: 900 })
     await expect
       .poll(
         () =>
@@ -581,15 +614,39 @@ test('the strip ending at Latest keeps its month names inside the panel, apart',
               .map((tick) => tick.getBoundingClientRect())
             const overhang = Math.max(...shown.map((box) => box.right)) - edge
             const overlaps = shown.slice(1).filter((box, index) => box.left < shown[index]!.right)
-            return { overhang: overhang > 0.5, overlaps: overlaps.length }
+            return { overhang: overhang > 0.5, overlaps: overlaps.length, few: shown.length < 3 }
           }),
         { message: `${width} px` },
       )
-      .toEqual({ overhang: false, overlaps: 0 })
+      .toEqual({ overhang: false, overlaps: 0, few: false })
   }
+}
+
+test('the strip ending at Latest keeps its month names inside the panel, apart', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  const strip = heatmap(page)
+  await expect(strip).toHaveClass(/mf-calendar--weeks/)
+  await expectTicksApart(strip, [1440, 1280, 1024, 900])
   await page.setViewportSize({ width: 1440, height: 900 })
   await expect(strip.locator('.mf-calendar__ticks > span').last()).toBeVisible()
   await expect(strip.locator('.mf-calendar__ticks > span').last()).toHaveText('Oct')
+})
+
+test('the strip keeps its month names apart however wide the font draws them', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  // Wider than common fonts draw the names, standing in for a machine whose fonts run wide.
+  await page.addStyleTag({ content: '.mf-calendar__ticks { letter-spacing: 3px; }' })
+  await page.keyboard.press('d')
+  const strip = heatmap(page)
+  await expect(strip).toHaveClass(/mf-calendar--weeks/)
+  await expectTicksApart(strip, [1440, 900])
 })
 
 for (const theme of ['light', 'dark'] as const) {

@@ -8,15 +8,9 @@ export interface DrillFrame {
 
 /**
  * The view's drill-downs, outermost first. At the top level the server's single breadcrumb
- * names the grouping, so the query's top-level `drill` keys tell the two apart; drills saved
- * inside a `return` frame belong to an earlier view.
+ * names the grouping, so `view.drill_depth` tells the two apart.
  */
 export function drillFrames(projection: ViewProjection): DrillFrame[] {
-  if (!drilled(projection.canonical_query)) return []
+  if (projection.view.drill_depth === 0) return []
   return projection.breadcrumbs ?? []
-}
-
-/** Whether a canonical view query drills into a row, by its top-level `drill` keys. */
-export function drilled(query: string): boolean {
-  return new URLSearchParams(query).has('drill')
 }

@@ -33,6 +33,26 @@ describe('PendingCard', () => {
     ).toBe(true)
   })
 
+  it('focuses Review and Write before they run, as WebKit does not', async () => {
+    let focused: Element | null = null
+    const record = () => {
+      focused = document.activeElement
+    }
+    render(PendingCard, {
+      pending,
+      reviewAvailable: true,
+      write: { completed: 2, total: 5 },
+      onreview: vi.fn(record),
+      onwrite: vi.fn(record),
+    })
+    const review = screen.getByRole('button', { name: 'Review pending changes' })
+    await fireEvent.click(review)
+    expect(focused).toBe(review)
+    const write = screen.getByRole('button', { name: 'Write 2/5' })
+    await fireEvent.click(write)
+    expect(focused).toBe(write)
+  })
+
   it('shows write progress while a provider write runs', async () => {
     const onwrite = vi.fn()
     render(PendingCard, {

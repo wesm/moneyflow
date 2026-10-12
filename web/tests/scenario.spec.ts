@@ -122,6 +122,10 @@ test('@smoke mixed hiding, undo, rejection and cancellation remain usable at nar
     await page.screenshot({ path: info.outputPath('narrow-write.png'), fullPage: true })
     await write.getByRole('button', { name: 'Stop and reconcile' }).click()
     await expect.poll(async () => (await server.observe()).pending).toBe(0)
+    await expect(write.getByRole('status')).toHaveText(
+      'Provider write stopped. Remaining edits discarded.',
+    )
+    await expect(write.getByText('Progress', { exact: true })).toHaveCount(0)
     expect((await server.observe()).rows.older).toEqual(before.rows.older)
     // Explicit reconciliation reloads provider truth; the rejected write itself
     // must not trigger that download before the user chooses this escape hatch.
@@ -170,6 +174,9 @@ test('@smoke filtered merchant editing preserves committed data until the provid
     expect(after.rows.older).toEqual(before.rows.older)
     expect(after.snapshot_calls).toBe(1)
     expect(after.audit).toContain('current-a')
+    const write = page.getByRole('dialog', { name: 'Monarch write status' })
+    await expect(write.getByRole('status')).toHaveText('Provider write complete.')
+    await expect(write.getByText('2 of 2 complete', { exact: true })).toBeVisible()
   })
 })
 

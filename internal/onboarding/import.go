@@ -6,13 +6,10 @@ import (
 	"time"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
 )
-
-type transactionRanger interface {
-	SetTransactionRange(startDate string, endDate string) error
-}
 
 // TakeOpenedProfile transfers one completed configured profile to a presenter exactly once.
 func (coordinator *Coordinator) TakeOpenedProfile(
@@ -70,17 +67,10 @@ func (coordinator *Coordinator) importProfile(ctx context.Context, attemptID str
 		coordinator.importFailure(attemptID, err)
 		return
 	}
+	var window *domain.DateRange
 	if monthToDate {
-		today := runtime.Now()
-		first := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
-		ranger, supported := readSource.(transactionRanger)
-		if !supported || ranger.SetTransactionRange(
-			first.Format(time.DateOnly), today.Format(time.DateOnly),
-		) != nil {
-			coordinator.fail(
-				attemptID, genericFailureCode,
-				"Month-to-date import is not supported by this provider source.", false, false,
-			)
+		if window, err = monthToDateWindow(runtime.Now()); err != nil {
+			coordinator.importFailure(attemptID, err)
 			return
 		}
 	}
@@ -111,12 +101,27 @@ func (coordinator *Coordinator) importProfile(ctx context.Context, attemptID str
 	}
 	result, err := opened.Service.RefreshProvider(ctx, app.ProviderRefreshRequest{
 		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		TransactionWindow: window,
 	})
 	if err != nil {
 		coordinator.importFailure(attemptID, err)
 		return
 	}
 	coordinator.completeImport(attemptID, result.Status.Summary.ImportedTransactions, startedAt)
+}
+
+// monthToDateWindow is the inclusive range from the first of today's month through today. It
+// applies to the first import only; the scheduler's next full refresh reads complete history.
+func monthToDateWindow(today time.Time) (*domain.DateRange, error) {
+	end, err := domain.NewDate(today.Year(), today.Month(), today.Day())
+	if err != nil {
+		return nil, err
+	}
+	start, err := domain.NewDate(today.Year(), today.Month(), 1)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.DateRange{Start: start, End: end}, nil
 }
 
 func (coordinator *Coordinator) importInputs(

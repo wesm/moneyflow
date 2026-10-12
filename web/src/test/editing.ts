@@ -96,7 +96,7 @@ export function testReviewController(overrides: Partial<ReviewController> = {}):
         {
           operation_id: 'operation-b',
           type: 'hide.toggle',
-          label: 'Toggle report visibility',
+          label: 'Hide transactions',
           active: false,
           affected_count: 1,
         },
@@ -104,7 +104,7 @@ export function testReviewController(overrides: Partial<ReviewController> = {}):
       announcement: '',
     },
     load: vi.fn(async () => true),
-    loadTargets: vi.fn(async () => true),
+    loadMore: vi.fn(async () => true),
     targets: vi.fn(() => [
       {
         date: '2024-01-01',
@@ -120,7 +120,7 @@ export function testReviewController(overrides: Partial<ReviewController> = {}):
         hidden: false,
       },
     ]),
-    targetOffsets: vi.fn(() => [0]),
+    targetsLoading: vi.fn(() => false),
     isStale: vi.fn(() => false),
     clear: vi.fn(),
     ...overrides,

@@ -187,8 +187,13 @@ func TestSimpleFINRefreshCadenceSurvivesRestart(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "simplefin", status.ProviderKind)
 			require.Equal(t, now.Add(-59*time.Minute), status.LastAttempt)
-			require.False(t, app.ProviderRefreshDue(status, now.Add(22*time.Hour)))
-			require.Equal(t, failure == "success", app.ProviderRefreshDue(status, now.Add(24*time.Hour)))
+			require.Equal(t, app.ProviderRefreshNone,
+				app.ProviderRefreshDue(status, now.Add(22*time.Hour)))
+			want := app.ProviderRefreshNone
+			if failure == "success" {
+				want = app.ProviderRefreshFull
+			}
+			require.Equal(t, want, app.ProviderRefreshDue(status, now.Add(24*time.Hour)))
 			now = now.Add(time.Minute)
 			if failure == "rate-limited" {
 				now = now.Add(2 * time.Hour)

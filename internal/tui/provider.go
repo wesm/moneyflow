@@ -22,6 +22,7 @@ const (
 type providerTUIState struct {
 	bound              bool
 	refreshing         bool
+	scope              app.ProviderRefreshScope
 	cancel             context.CancelFunc
 	refreshContext     context.Context
 	status             app.ProviderStatus
@@ -66,6 +67,10 @@ func (model *Model) startProviderRefresh(manual bool, confirmationToken string) 
 		model.status = capabilityMessage(capability)
 		return nil
 	}
+	// Manual refresh reads complete history. Confirmation folds the candidate it was asked about.
+	if manual && confirmationToken == "" {
+		model.provider.scope = app.ProviderRefreshFull
+	}
 	refreshContext, cancel := context.WithCancel(model.ctx)
 	model.provider.refreshing = true
 	model.provider.cancel = cancel
@@ -73,7 +78,7 @@ func (model *Model) startProviderRefresh(manual bool, confirmationToken string) 
 	model.provider.confirmationToken = confirmationToken
 	model.provider.timerGeneration++
 	timerGeneration := model.provider.timerGeneration
-	model.status = "Refreshing provider data… Esc=Cancel"
+	model.status = "Refreshing " + model.providerRefreshSubject() + "… Esc=Cancel"
 	return tea.Batch(
 		model.providerRefreshCommand(manual, confirmationToken),
 		providerProgressTickCommand(timerGeneration),
@@ -243,7 +248,7 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 		model.provider.reconnectRequested = true
 	}
 	if model.provider.refreshing {
-		model.status = providerProgressMessage(message.status)
+		model.status = model.providerProgressMessage(message.status)
 		return providerProgressTickCommand(model.provider.timerGeneration)
 	}
 	if message.writeStatus.Phase != "" {
@@ -295,8 +300,10 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 	if warning := message.writeStatus.AuditWarning; warning != "" && !strings.Contains(model.status, warning) {
 		model.status = strings.TrimSpace(model.status + " " + warning)
 	}
+	scope := app.ProviderRefreshDue(message.status, message.at)
 	if capability, available := model.capability(app.ActionRefreshProvider); available &&
-		app.ProviderRefreshDue(message.status, message.at) {
+		scope != app.ProviderRefreshNone {
+		model.provider.scope = scope
 		return model.startProviderRefresh(false, "")
 	} else if !available && model.status == "" {
 		model.status = capabilityMessage(capability)
@@ -344,19 +351,34 @@ func (model Model) renderProviderConfirmation(screen *RenderedScreen) {
 	screen.Overlay = []string{"Confirm Provider Refresh", message, "Enter=Confirm", "Esc=Cancel"}
 }
 
-func providerProgressMessage(status app.ProviderStatus) string {
+func (model Model) providerProgressMessage(status app.ProviderStatus) string {
+	subject := model.providerRefreshSubject()
 	if status.Total > 0 {
-		return fmt.Sprintf("Refreshing provider data: %d of %d fetched.", status.Fetched, status.Total)
+		return fmt.Sprintf(
+			"Refreshing %s: %d of %d fetched.", subject, status.Fetched, status.Total,
+		)
 	}
-	return "Refreshing provider data… Esc=Cancel"
+	return "Refreshing " + subject + "… Esc=Cancel"
+}
+
+// providerRefreshSubject names what the running refresh reads. Only Monarch has two kinds.
+func (model Model) providerRefreshSubject() string {
+	if model.profileKind != "monarch" {
+		return "provider data"
+	}
+	if model.provider.scope == app.ProviderRefreshRecent {
+		return "recent provider data (last 90 days)"
+	}
+	return "complete provider history"
 }
 
 func providerSuccessMessage(status app.ProviderStatus) string {
-	return fmt.Sprintf(
+	complete := fmt.Sprintf(
 		"Provider refresh complete: %d imported, %d removed.",
 		status.Summary.ImportedTransactions,
 		status.Summary.RemovedTransactions,
 	)
+	return strings.TrimSpace(complete + " " + status.Warning)
 }
 
 func providerStatusMessage(status app.ProviderStatus, profileKind string) string {

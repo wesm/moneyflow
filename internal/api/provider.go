@@ -62,6 +62,9 @@ type ProviderStatusResponse struct {
 	Revision          string                 `json:"revision" pattern:"^[0-9]+$"`
 	Generation        string                 `json:"generation" pattern:"^[0-9]+$"`
 	Code              provider.ErrorCode     `json:"code,omitempty"`
+	CodeDetail        string                 `json:"code_detail,omitempty" doc:"Explains code"`
+	RefreshDue        string                 `json:"refresh_due" enum:"none,recent,full"`
+	Warning           string                 `json:"warning,omitempty" doc:"A problem that did not stop the refresh"`
 	LastSuccess       string                 `json:"last_success,omitempty" format:"date-time"`
 	NextEligible      string                 `json:"next_eligible,omitempty" format:"date-time"`
 	OwnerRenderer     string                 `json:"owner_renderer,omitempty"`
@@ -236,6 +239,12 @@ func providerStatusToWire(revision uint64, status app.ProviderStatus) ProviderSt
 			RebasedHideTargets:      summary.RebasedHideTargets,
 			DiscardedRedoOperations: summary.DiscardedRedoOperations,
 		},
+	}
+	wire.CodeDetail = app.ProviderErrorDetail(status.Code)
+	wire.Warning = status.Warning
+	wire.RefreshDue = string(status.RefreshDue)
+	if wire.RefreshDue == "" {
+		wire.RefreshDue = string(app.ProviderRefreshNone)
 	}
 	if !status.LastAttempt.IsZero() {
 		wire.LastAttempt = status.LastAttempt.UTC().Format(time.RFC3339Nano)

@@ -54,7 +54,7 @@ editor has a scope control instead; see [Edit in the browser](#edit-in-the-brows
 | --- | --- |
 | `m` | Rename merchant |
 | `c` | Change category |
-| `h` | Toggle report visibility, when supported |
+| `h` | Toggle hide from reports, when supported |
 | `x` | Stage a confirmed deletion from detail view |
 | `u` / `U` | Undo / redo a pending operation |
 | `C` / `G` | Manage categories / groups, when supported |
@@ -104,8 +104,10 @@ A merchant edit offers two scopes:
 
 The editor previews the affected transactions. For **Whole merchant**, it also says how many of
 them are outside the current view, such as other periods, filters, or currencies. A rename onto
-an existing merchant says which merchant it merges into. The stage button states the count, for
-example **Stage change to 3 transactions**.
+another existing merchant shows **Merges into** and that merchant's name. For **Whole merchant**,
+the editor compares merchant IDs, so the line is exact: renaming a merchant to its own name in
+another case does not show it. The stage button states the count, for example **Stage change to 3
+transactions**.
 
 ### Editor keys
 
@@ -182,9 +184,13 @@ the view or open the merchant editor behind it.
 Each confirmed step is a pending edit. A new or renamed entry cannot take a name another entry
 already uses, ignoring case and surrounding spaces. The step then shows
 `That label already exists; use merge instead.` and stages nothing. If the server refuses a
-step, the step stays open with a general message, such as
-`That action is not available for the current target.` If you leave a step with Esc before the
-server answers, the drawer does not show that answer.
+step, the step stays open and shows the server's collision reason when there is one. A name
+collision that only the server finds, such as with an entry created after the drawer loaded its
+list, shows the same `That label already exists; use merge instead.` The editor's
+`Create "…"` does the same: if another tab or an MCP client created that category after the
+editor loaded its suggestions, the editor stays open and shows that message. Other refusals show
+a general message, such as `That action is not available for the current target.` If you leave a
+step with Esc before the server answers, the drawer does not show that answer.
 
 ## Review possible duplicates
 
@@ -207,11 +213,17 @@ changes and discards redo history. Esc returns without committing.
 
 **Unreleased:** In the browser, `w` or the pending-edits card's **Review** button opens **Review
 pending changes** as a large drawer. It lists each staged operation as its old and new value with
-the affected count. Select an operation to list its transactions 100 at a time, with each
-transaction's date, merchant, category, and amount in its currency. Enter commits
-unless focus is on a button or another control with its own Enter. Esc or **Cancel** closes the
-drawer without committing. For Monarch and YNAB, the same drawer becomes write status after the
-commit starts the provider write.
+the affected count. Each operation starts expanded and lists its first 20 transactions, with each
+transaction's date, merchant, category, and amount in its currency. When the operation changes
+a transaction's merchant, category, or visibility, the row shows that field's old and new value.
+A longer operation says how many transactions are not shown, and **Show 400 more** loads up to
+400 more. Select an operation's heading to collapse or expand it. Enter commits unless focus is
+on a button or another control with its own Enter.
+Esc or **Cancel** closes the drawer without committing. For Monarch and YNAB, the same drawer
+becomes write status after the commit starts the provider write.
+
+**Unreleased:** The browser and TUI review name each hide operation by its direction:
+**Hide transactions** or **Show transactions**.
 
 Commit applies the reviewed revision. If another process changed the profile, refresh the
 review instead of assuming the old preview is still current.
@@ -236,6 +248,11 @@ locked until the write finishes` while a write runs. Its **Status** button, or `
 status. Write status shows progress and offers the actions the batch allows: **Pause**,
 **Resume** or **Check and resume**, **Stop and reconcile**, **Confirm reconciliation**, or
 **Reconnect Monarch** / **Reconnect YNAB**.
+
+**Unreleased:** When a write finishes, browser write status keeps its counts, such as
+`4 of 4 complete`, and shows when it finished. The result stays after polling or reopening the
+profile, until the profile changes again. After **Stop and reconcile**, write status reads
+`Provider write stopped. Remaining edits discarded.` instead of reporting success.
 
 **Unreleased:** In the TUI, write status shows the first change's From/To values and
 transaction count, alongside overall progress. It also reports when the batch contains

@@ -7,12 +7,8 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
-func friendlyReviewOperationLabel(operationType domain.OperationType) string {
-	return app.ReviewOperationLabel(operationType)
-}
-
 func reviewOperationLine(operation app.ReviewOperation) string {
-	label := friendlyReviewOperationLabel(operation.Type)
+	label := operation.Label
 	if operation.Type == domain.OperationTransactionDelete && operation.AffectedCount != 1 {
 		label = "Delete transactions"
 	}

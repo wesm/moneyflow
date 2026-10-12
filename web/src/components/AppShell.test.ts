@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { tick } from 'svelte'
 import AppShell from './AppShell.svelte'
-import type { TransactionInformationResponse } from '../lib/api/client'
+import type { TransactionInformationResponse, ViewProjection } from '../lib/api/client'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testAggregateRow, testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
@@ -24,7 +24,7 @@ describe('AppShell', () => {
     cleanup()
   })
   it('keeps the finance grid primary and routes the TUI cursor shortcut', async () => {
-    const controller = stubController()
+    const controller = stubController(twoRows(testProjection()))
     render(AppShell, { controller })
     expect(screen.getByRole('main', { name: 'Moneyflow workspace' })).not.toBeNull()
     expect(screen.getByRole('grid', { name: 'Financial results' })).not.toBeNull()
@@ -32,7 +32,8 @@ describe('AppShell', () => {
     expect(controller.moveCursor).toHaveBeenCalledWith(1)
     vi.mocked(controller.moveCursor).mockClear()
     await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), { key: 'j' })
-    expect(controller.moveCursor).toHaveBeenCalledTimes(1)
+    expect(controller.moveCursorTo).toHaveBeenCalledWith(1)
+    expect(controller.moveCursor).not.toHaveBeenCalled()
   })
 
   it('focuses the command bar search on / and opens the Filters menu on f', async () => {
@@ -79,6 +80,12 @@ describe('AppShell', () => {
     const controller = stubController(
       testProjection({
         canonical_query: 'v=1&mode=detail&drill=merchant%3AUSD%3A2%3Aexample-key',
+        view: {
+          ...testProjection().view,
+          mode: 'detail',
+          drill_depth: 1,
+          root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
+        },
         breadcrumbs: [{ dimension: 'merchant', label: 'Corner Grocery' }],
       }),
     )
@@ -118,15 +125,28 @@ describe('AppShell', () => {
   })
 
   it('moves the cursor only after a pending Esc return restores the parent view', async () => {
-    const controller = heldFirstApply(stubController())
-    controller.projection!.capabilities!.push(escapeCapability, {
-      id: 'cursor.home',
-      key_display: 'home',
-      description: 'Move to the first row',
-      category: '',
-      available: true,
-    })
+    const controller = heldFirstApply(stubController(twoRows(testProjection())))
+    controller.projection!.capabilities!.push(
+      escapeCapability,
+      {
+        id: 'cursor.home',
+        key_display: 'Home/T',
+        description: 'Move to the first row',
+        category: '',
+        available: true,
+      },
+      {
+        id: 'cursor.end',
+        key_display: 'End/B',
+        description: 'Move to the last row',
+        category: '',
+        available: true,
+      },
+    )
     const moves: string[] = []
+    vi.mocked(controller.moveCursorTo).mockImplementation(async (index) => {
+      moves.push(`to ${index}`)
+    })
     vi.mocked(controller.moveCursor).mockImplementation(async (delta) => {
       moves.push(`move ${delta}`)
     })
@@ -139,14 +159,14 @@ describe('AppShell', () => {
     await fireEvent.keyDown(grid, { key: 'Escape' })
     await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledWith({ action: 'view.back' }))
     await fireEvent.keyDown(grid, { key: 'ArrowDown' })
-    await fireEvent.keyDown(grid, { key: 'Home' })
     await fireEvent.keyDown(window, { key: 'j' })
     await fireEvent.keyDown(window, { key: 'Home' })
+    await fireEvent.keyDown(window, { key: 'End' })
     await tick()
     expect(moves).toEqual([])
     controller.finish()
 
-    await vi.waitFor(() => expect(moves).toEqual(['move 1', 'home', 'move 1', 'home']))
+    await vi.waitFor(() => expect(moves).toEqual(['to 1', 'move 1', 'home', 'to 1']))
   })
 
   it('anchors a period segment on the view a pending period change returns', async () => {
@@ -247,12 +267,12 @@ describe('AppShell', () => {
   })
 
   it('keeps the table working when insights fail', async () => {
-    const controller = stubController(charted())
+    const controller = stubController(twoRows(charted()))
     vi.mocked(controller.insights).mockRejectedValue(new Error('insights unavailable'))
     render(AppShell, { controller })
     expect(await screen.findByText(/Couldn't load charts/)).not.toBeNull()
     await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), { key: 'j' })
-    expect(controller.moveCursor).toHaveBeenCalledWith(1)
+    expect(controller.moveCursorTo).toHaveBeenCalledWith(1)
   })
 
   it('loads an off-window bar’s row only after a pending Space toggle', async () => {
@@ -1032,6 +1052,17 @@ function charted() {
   return testProjection({ view: { ...base.view, currency: { currency: 'USD', scale: 2 } } })
 }
 
+/** `projection` with a second row, so the cursor has a row to move down to. */
+function twoRows(projection: ViewProjection): ViewProjection {
+  const first = projection.detail_rows![0]!
+  return {
+    ...projection,
+    total_rows: 2,
+    window: { offset: 0, limit: 200, count: 2 },
+    detail_rows: [first, { ...first, index: 1, identity: 'row-1' }],
+  }
+}
+
 /** Two transaction rows whose details each wait until the test releases them. */
 function lateInformation(): { controller: ViewController; waiting: Map<string, () => void> } {
   const first = testProjection().detail_rows![0]!
@@ -1267,6 +1298,7 @@ function stubController(projection = testProjection()): ViewController {
     hold: <T>(work: Promise<T>) => work,
     settled: async () => undefined,
     restore: vi.fn(),
+    flushHistory: vi.fn(),
     retry: vi.fn(),
     reset: vi.fn(),
   }

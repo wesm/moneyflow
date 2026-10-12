@@ -14,6 +14,10 @@ import (
 // ReviewSchemaVersion identifies the pending-review wire contract.
 const ReviewSchemaVersion = "1"
 
+// reviewPreviewRows is how many affected rows the summary carries for each active operation,
+// so the review drawer opens with one request.
+const reviewPreviewRows = 20
+
 // ReviewBody requests operation summaries for one exact profile revision.
 type ReviewBody struct {
 	Version          string `json:"version"`
@@ -29,15 +33,17 @@ type ReviewTargetsBody struct {
 }
 
 // ReviewOperation summarizes one journal unit without exposing its payload or sequence number.
+// In the summary response, an active operation also carries its first affected rows.
 type ReviewOperation struct {
-	OperationID    string `json:"operation_id"`
-	Type           string `json:"type"`
-	Label          string `json:"label"`
-	Active         bool   `json:"active"`
-	AffectedCount  int    `json:"affected_count"`
-	Before         string `json:"before,omitempty"`
-	After          string `json:"after,omitempty"`
-	TaxonomyEffect string `json:"taxonomy_effect,omitempty"`
+	OperationID    string         `json:"operation_id"`
+	Type           string         `json:"type"`
+	Label          string         `json:"label"`
+	Active         bool           `json:"active"`
+	AffectedCount  int            `json:"affected_count"`
+	Before         string         `json:"before,omitempty"`
+	After          string         `json:"after,omitempty"`
+	TaxonomyEffect string         `json:"taxonomy_effect,omitempty"`
+	Targets        []ReviewTarget `json:"targets,omitempty"`
 }
 
 // ReviewTarget is one bounded affected-row detail without provider or journal data.
@@ -81,7 +87,9 @@ func (server *Server) registerReviewEndpoints(_ Config) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		projection, err := profileService(ctx).Review(ctx, expected, app.ReviewWindow{})
+		projection, err := profileService(ctx).Review(
+			ctx, expected, app.ReviewWindow{Preview: reviewPreviewRows},
+		)
 		if err != nil {
 			return nil, problemFromError(err)
 		}
@@ -133,13 +141,19 @@ func reviewToWire(projection app.ReviewProjection) ReviewResponse {
 	}
 	response.ActiveOperations = reviewOperationsToWire(projection.ActiveOperations)
 	response.InactiveOperations = reviewOperationsToWire(projection.InactiveOperations)
-	for _, target := range projection.Targets {
-		response.Targets = append(response.Targets, ReviewTarget{
+	response.Targets = reviewTargetsToWire(projection.Targets)
+	return response
+}
+
+func reviewTargetsToWire(targets []app.ReviewTarget) []ReviewTarget {
+	var result []ReviewTarget
+	for _, target := range targets {
+		result = append(result, ReviewTarget{
 			Date: target.Date.String(), Merchant: target.Merchant,
 			Category: target.Category, Amount: moneyToWire(target.Amount), Hidden: target.Hidden,
 		})
 	}
-	return response
+	return result
 }
 
 func reviewOperationsToWire(operations []app.ReviewOperation) []ReviewOperation {
@@ -147,10 +161,11 @@ func reviewOperationsToWire(operations []app.ReviewOperation) []ReviewOperation 
 	for _, operation := range operations {
 		result = append(result, ReviewOperation{
 			OperationID: operation.OperationID, Type: string(operation.Type),
-			Label:  app.ReviewOperationLabel(operation.Type),
+			Label:  operation.Label,
 			Active: operation.Active, AffectedCount: operation.AffectedCount,
 			Before: operation.Before, After: operation.After,
 			TaxonomyEffect: operation.TaxonomyEffect,
+			Targets:        reviewTargetsToWire(operation.Targets),
 		})
 	}
 	return result

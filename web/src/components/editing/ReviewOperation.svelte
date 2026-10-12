@@ -1,54 +1,51 @@
 <script lang="ts">
   import { Button, Chip } from '@kenn-io/kit-ui'
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right'
-  import { tick } from 'svelte'
 
+  import StagedValue from '../table/StagedValue.svelte'
   import type { components } from '../../lib/api/schema'
-  import type { ReviewController } from '../../lib/controller/review'
+  import { reviewTargetPage, type ReviewController } from '../../lib/controller/review'
+  import {
+    reviewRowChange,
+    type ReviewRowChange,
+    type ReviewRowField,
+  } from '../../lib/editing/review-rows'
   import { transactionCount } from '../../lib/editing/toasts'
 
   interface Props {
     operation: components['schemas']['ReviewOperation']
     review: ReviewController
-    expanded: boolean
-    /** Expands this operation, collapsing any other, or collapses it. */
-    ontoggle: () => void
   }
 
-  let { operation, review, expanded, ontoggle }: Props = $props()
-  const PAGE = 100
+  let { operation, review }: Props = $props()
   const id = $props.id()
   const total = $derived(operation.affected_count)
-  let offset = $state(0)
-  let paging = $state<HTMLElement>()
-  const targets = $derived(expanded ? review.targets(operation.operation_id, offset) : [])
+  const targets = $derived(review.targets(operation.operation_id))
+  const remaining = $derived(Math.max(0, total - targets.length))
+  const loading = $derived(review.targetsLoading(operation.operation_id))
+  let expanded = $state(true)
+  let toggle = $state<HTMLButtonElement>()
 
-  async function toggle(): Promise<void> {
-    const opening = !expanded
-    ontoggle()
-    if (!opening) return
-    offset = 0
-    await review.loadTargets(operation.operation_id, 0)
+  /** The new value of `field`, when `change` changes it. */
+  function after(change: ReviewRowChange | undefined, field: ReviewRowField): string | undefined {
+    return change?.field === field ? change.after : undefined
   }
 
-  /** Shows the page at `next`. At the first or last page, focus moves to the other button. */
-  async function page(next: number): Promise<void> {
-    if (review.state.phase === 'loading') return
-    if (await review.loadTargets(operation.operation_id, next)) offset = next
-    await tick()
-    if (paging && !paging.contains(document.activeElement)) {
-      paging.querySelector<HTMLElement>('button:enabled')?.focus()
-    }
+  /** Loads the next rows. Focus moves to the toggle, as the loading line replaces Show more. */
+  function showMore(): void {
+    toggle?.focus()
+    void review.loadMore(operation.operation_id)
   }
 </script>
 
 <li class="mf-review-op">
   <button
+    bind:this={toggle}
     type="button"
     class="mf-review-op__toggle"
     aria-expanded={expanded}
-    aria-controls={expanded ? `${id}-targets` : undefined}
-    onclick={() => void toggle()}
+    aria-controls={expanded && total ? `${id}-targets` : undefined}
+    onclick={() => (expanded = !expanded)}
   >
     <ChevronRightIcon class="mf-review-op__chevron" size="14" aria-hidden="true" />
     <span class="mf-review-op__label">{operation.label}</span>
@@ -60,44 +57,57 @@
       >
     {/if}
   </button>
-  {#if expanded}
+  {#if expanded && total}
     <div class="mf-review-op__targets" id={`${id}-targets`}>
-      <table class="mf-review-op__table">
-        <caption class="kit-sr-only">Affected transactions</caption>
-        <thead>
-          <tr>
-            <th scope="col">Date</th>
-            <th scope="col">Merchant</th>
-            <th scope="col">Category</th>
-            <th scope="col" class="mf-review-op__amount">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each targets as target, index (offset + index)}
+      {#if targets.length}
+        <table class="mf-review-op__table">
+          <caption class="kit-sr-only">Affected transactions</caption>
+          <thead>
             <tr>
-              <td>{target.date}</td>
-              <td
-                >{target.merchant}
-                {#if target.hidden}<Chip size="xs" tone="muted" uppercase={false}>Hidden</Chip
-                  >{/if}</td
-              >
-              <td>{target.category}</td>
-              <td class="mf-review-op__amount">{target.amount.display} {target.amount.currency}</td>
+              <th scope="col">Date</th>
+              <th scope="col">Merchant</th>
+              <th scope="col">Category</th>
+              <th scope="col" class="mf-review-op__amount">Amount</th>
             </tr>
-          {/each}
-        </tbody>
-      </table>
-      <div class="mf-review-op__paging" bind:this={paging}>
-        <Button size="sm" disabled={offset === 0} onclick={() => void page(offset - PAGE)}
-          >Previous</Button
-        >
-        <span
-          >Showing {Math.min(offset + 1, total)}–{Math.min(offset + PAGE, total)} of {total}</span
-        >
-        <Button size="sm" disabled={offset + PAGE >= total} onclick={() => void page(offset + PAGE)}
-          >Next</Button
-        >
-      </div>
+          </thead>
+          <tbody>
+            {#each targets as target, index (index)}
+              {@const change = reviewRowChange(operation, target)}
+              <tr>
+                <td>{target.date}</td>
+                <td
+                  ><StagedValue committed={target.merchant} staged={after(change, 'merchant')} />
+                  {#if change?.field === 'visibility'}<StagedValue
+                      committed={change.before}
+                      staged={change.after}
+                    />{:else if target.hidden}<Chip size="xs" tone="muted" uppercase={false}
+                      >Hidden</Chip
+                    >{/if}</td
+                >
+                <td
+                  ><StagedValue
+                    committed={target.category}
+                    staged={after(change, 'category')}
+                  /></td
+                >
+                <td class="mf-review-op__amount"
+                  >{target.amount.display} {target.amount.currency}</td
+                >
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+      {#if loading}
+        <p class="mf-review-op__more mf-quiet">Loading transactions…</p>
+      {:else if remaining}
+        <p class="mf-review-op__more">
+          <span class="mf-quiet">{transactionCount(remaining)} not shown</span>
+          <Button size="sm" onclick={showMore}
+            >Show {Math.min(reviewTargetPage, remaining)} more</Button
+          >
+        </p>
+      {/if}
     </div>
   {/if}
 </li>
@@ -190,14 +200,13 @@
   .mf-review-op__table td.mf-review-op__amount {
     font-family: var(--font-mono);
   }
-  .mf-review-op__paging {
+  /* As tall as the small button it replaces, so loading does not move the rows below. */
+  .mf-review-op__more {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
     gap: var(--space-4);
-    margin-top: var(--space-4);
-    color: var(--text-secondary);
+    min-height: 28px;
+    margin: var(--space-4) 0 0;
     font-size: var(--font-size-sm);
   }
 </style>

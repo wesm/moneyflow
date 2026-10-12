@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import EditorBody from './EditorBody.svelte'
 import type { EditorCatalog, MerchantPreview, ViewProjection } from '../../lib/api/client'
 import type { EditingController } from '../../lib/controller/editing'
+import { EditorDraft } from '../../lib/editing/draft.svelte'
 import { testCatalog, testEditingController } from '../../test/editing'
 import { testAggregateRow, testProjection } from '../../test/projection'
 
@@ -43,9 +44,10 @@ interface Setup {
   kind?: Kind
   projection?: ViewProjection
   controller?: EditingController
+  draft?: EditorDraft
 }
 
-function setup({ kind = 'merchant', projection, controller }: Setup = {}) {
+function setup({ kind = 'merchant', projection, controller, draft }: Setup = {}) {
   const editing = controller ?? testEditingController()
   const onstage = vi.fn()
   const oncancel = vi.fn()
@@ -61,6 +63,7 @@ function setup({ kind = 'merchant', projection, controller }: Setup = {}) {
       projection: view,
       cursorIndex: 0,
       id: 'editor',
+      draft: draft ?? new EditorDraft(),
       onstage,
       oncancel,
     },
@@ -91,6 +94,11 @@ function loading() {
   })
   return { ...setup({ controller }), catalog, previewed }
 }
+
+const twoGroups = [
+  ...(testCatalog.groups ?? []),
+  { id: 'group-b', label: 'Second Group', protected: false, transaction_count: 0, in_use: false },
+]
 
 const stageButton = (count: string) =>
   screen.findByRole('button', { name: `Stage change to ${count}` })
@@ -240,13 +248,67 @@ describe('EditorBody', () => {
     const own = { ...testCatalog.merchants![0]!, id: 'merchant-current', label: 'Current Merchant' }
     const editing = testEditingController({
       catalog: vi.fn(async () => ({ ...testCatalog, merchants: [own] })),
-      previewMerchant: vi.fn(async () => preview({ affected_transactions: 1 })),
+      previewMerchant: vi.fn(async () =>
+        preview({ affected_transactions: 1, source_merchant_id: 'merchant-current' }),
+      ),
     })
     const { input } = setup({ controller: editing })
     await stageButton('1 transaction')
     await type(input, 'current merchant')
     expect(screen.getByRole('option', { name: /^Current Merchant, / })).toBeTruthy()
     expect(screen.queryByText(/^Merges into/)).toBeNull()
+  })
+
+  it('remounts with the draft and the view it opened over, focusing the field', async () => {
+    const draft = new EditorDraft()
+    const first = setup({ projection: { ...merchantRows, revision: '1' }, draft })
+    await type(first.input, 'Renamed Example')
+    await fireEvent.click(await screen.findByRole('radio', { name: /^Whole merchant/ }))
+    first.unmount()
+
+    const moved = { ...merchantRows, revision: '1', selection_count: 3 }
+    const { editing, input, onstage } = setup({ projection: moved, draft })
+    expect(input.value).toBe('Renamed Example')
+    expect(document.activeElement).toBe(input)
+    expect(document.getElementById('editor-count')?.textContent).toBe('· 4 transactions')
+    expect(
+      screen.getByRole('radio', { name: /^Whole merchant/ }).getAttribute('aria-checked'),
+    ).toBe('true')
+    await fireEvent.click(await stageButton('5 transactions'))
+    await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    expect(editing.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { kind: 'aggregate', identity: 'agg-0' },
+        input: { scope: 'entity', label: 'Renamed Example' },
+      }),
+    )
+  })
+
+  it('remounts on the group step of an accepted Create with its group', async () => {
+    const editing = testEditingController({
+      catalog: vi.fn(async () => ({ ...testCatalog, groups: twoGroups })),
+    })
+    const draft = new EditorDraft()
+    const first = setup({ kind: 'category', controller: editing, draft })
+    await stageButton('5 transactions')
+    await type(first.input, 'Pet Care')
+    await fireEvent.keyDown(first.input, { key: 'Enter' })
+    await fireEvent.click(await screen.findByRole('combobox', { name: /Category group/ }))
+    await fireEvent.click(screen.getByRole('option', { name: 'Second Group' }))
+    first.unmount()
+
+    const { input, onstage } = setup({ kind: 'category', controller: editing, draft })
+    expect(input.value).toBe('Pet Care')
+    expect(document.activeElement).toBe(input)
+    expect(
+      await screen.findByRole('combobox', { name: 'Category group: Second Group' }),
+    ).toBeTruthy()
+    await fireEvent.click(await stageButton('5 transactions'))
+    await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(editing.submit).mock.calls[0]?.[0].input).toMatchObject({
+      label: 'Pet Care',
+      group_id: 'group-b',
+    })
   })
 
   it('does not report a stage that finishes after the editor closed', async () => {
@@ -398,18 +460,8 @@ describe('EditorBody', () => {
   })
 
   it('keeps the chosen group when Create is accepted again', async () => {
-    const groups = [
-      ...(testCatalog.groups ?? []),
-      {
-        id: 'group-b',
-        label: 'Second Group',
-        protected: false,
-        transaction_count: 0,
-        in_use: false,
-      },
-    ]
     const editing = testEditingController({
-      catalog: vi.fn(async () => ({ ...testCatalog, groups })),
+      catalog: vi.fn(async () => ({ ...testCatalog, groups: twoGroups })),
     })
     const { input, onstage } = setup({ kind: 'category', controller: editing })
     await stageButton('5 transactions')

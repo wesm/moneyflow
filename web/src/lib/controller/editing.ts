@@ -12,11 +12,13 @@ import {
   type MutationInput,
   type MutationResponse,
   type PendingSummary,
+  type Problem,
   type ProviderWriteStatus,
   type RevisionBody,
   type SelectionValue,
   type ViewProjection,
 } from '../api/client'
+import { LABEL_TAKEN } from '../editing/manager'
 import { toastMessage, type ToastAction } from '../editing/toasts'
 
 export type MutationPhase = 'idle' | 'submitting' | 'conflict' | 'failed'
@@ -327,7 +329,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
       })
       return
     }
-    setState({ ...state, phase: 'failed', announcement: safeFailureMessage(code) })
+    setState({ ...state, phase: 'failed', announcement: safeFailureMessage(error.problem) })
   }
 
   async function refreshAfterRejection(selection?: SelectionValue): Promise<boolean> {
@@ -371,7 +373,9 @@ function mutationAnnouncement(message: string, disposition: string): string {
   return message
 }
 
-function safeFailureMessage(code: string): string {
+/** The message for a refusal. It names the server's reason only from `reason`, never `detail`. */
+function safeFailureMessage({ code, reason }: Problem): string {
+  if (reason === 'taxonomy_label_collision') return LABEL_TAKEN
   if (code === 'store_busy') return 'The profile is busy. Try the action again when ready.'
   if (code === 'store_error') return 'The profile could not save that action.'
   if (code === 'token_expired') return 'The secure browser session expired. Reload and try again.'

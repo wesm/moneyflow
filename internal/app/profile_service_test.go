@@ -764,6 +764,12 @@ func (profile *memoryProfile) ApplyProviderRefresh(
 	return store.RefreshCommit{}, errors.New("not implemented")
 }
 
+func (*memoryProfile) LastFullProviderRefresh() time.Time { return time.Time{} }
+
+func (*memoryProfile) RecordFullProviderRefresh(time.Time) error {
+	return errors.New("not implemented")
+}
+
 func (profile *memoryProfile) LoadCSVSettings(context.Context) (*store.CSVSettings, error) {
 	return nil, nil
 }

@@ -1,7 +1,12 @@
 <script lang="ts">
   import { Tooltip } from '@kenn-io/kit-ui'
 
-  import { calendarCells, type CalendarCell, type CalendarWeek } from '../../lib/charts/calendar'
+  import {
+    calendarCells,
+    shownTicks,
+    type CalendarCell,
+    type CalendarWeek,
+  } from '../../lib/charts/calendar'
   import { DayTip } from '../../lib/charts/day-tip.svelte'
   import type { InsightsEntry } from '../../lib/insights/cache.svelte'
   import type { Period } from '../../lib/shell/period'
@@ -20,8 +25,8 @@
   const id = $props.id()
   let grid = $state<HTMLElement>()
   let ticksRow = $state<HTMLElement>()
-  /** The last month's name, ended at the strip's edge, would cover the name before it. */
-  let crowded = $state(false)
+  /** Per month name, whether it shows; one that would crowd a shown name or the edge hides. */
+  let shown = $state<boolean[]>([])
   const response = $derived(entry.response)
   const heatmap = $derived(response.ranges.heatmap)
   const blocks = $derived.by(() => {
@@ -73,17 +78,12 @@
   $effect(() => {
     const row = ticksRow
     if (!row || tickLabels === '') return
-    const check = () => (crowded = overlapping(row))
-    check()
-    const observer = new ResizeObserver(check)
-    observer.observe(row)
+    const names = [...row.children]
+    // The row resizes with the panel; a name resizes when its font loads.
+    const observer = new ResizeObserver(() => (shown = shownTicks(row, names)))
+    for (const node of [row, ...names]) observer.observe(node)
     return () => observer.disconnect()
   })
-
-  function overlapping(row: HTMLElement): boolean {
-    const [before, last] = [...row.children].slice(-2).map((tick) => tick.getBoundingClientRect())
-    return before !== undefined && last !== undefined && last.left < before.right
-  }
 
   /** Makes `date` the Tab stop. */
   function choose(date: string): void {
@@ -136,11 +136,11 @@
     {#each blocks as block, index (index)}
       {#if block.ticks}
         <div class="mf-calendar__ticks" aria-hidden="true" bind:this={ticksRow}>
-          {#each block.ticks as tick (tick.column)}
+          {#each block.ticks as tick, index (tick.column)}
             <span
               class={[
                 tick.end && 'mf-calendar__tick--end',
-                tick.end && crowded && 'mf-calendar__tick--hidden',
+                !shown[index] && 'mf-calendar__tick--hidden',
               ]}
               style:grid-column-start={tick.column + 1}>{tick.label}</span
             >

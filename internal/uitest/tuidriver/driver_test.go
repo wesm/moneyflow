@@ -148,7 +148,7 @@ func TestRealKeysSelectMatchesCreateExplicitlyAndHideOnlyVisibleRows(t *testing.
 		{"category exact", "c", "Health Extras", "Health Extras", 0},
 		{"merchant creation despite partial match", "m", "Dest", "Dest", 1},
 		{"category creation despite partial match", "c", "Heal", "Heal", 2},
-		{"mixed hidden group", "h", "", "Toggle report visibility", 0},
+		{"mixed hidden group", "h", "", "Hide transactions", 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

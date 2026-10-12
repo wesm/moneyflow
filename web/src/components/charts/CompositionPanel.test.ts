@@ -148,6 +148,32 @@ describe('CompositionPanel', () => {
     expect(onleave).toHaveBeenCalled()
   })
 
+  it('jumps to the last bar with End, steps back with ArrowUp, and returns with Home', async () => {
+    const three: Composition = {
+      spending: [
+        ...composition.spending.slice(0, 2),
+        { key: 'k3', identity: 'merchant:cafe', label: 'Cafe', net: '-1200', share_tenths: 2 },
+      ],
+      income: [],
+    }
+    render(CompositionPanel, {
+      title: 'Where it went',
+      composition: three,
+      scale: 2,
+      onrow: vi.fn(),
+    })
+    const list = screen.getByRole('list', { name: 'Where it went' })
+    const [rent, mega, cafe] = within(list).getAllByRole('button')
+    rent?.focus()
+    await fireEvent.keyDown(rent!, { key: 'End' })
+    expect(document.activeElement).toBe(cafe)
+    await fireEvent.keyDown(cafe!, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(mega)
+    await fireEvent.keyDown(mega!, { key: 'Home' })
+    expect(document.activeElement).toBe(rent)
+    expect(rent?.getAttribute('tabindex')).toBe('0')
+  })
+
   it('switches to Income without asking anything, and shows the empty state there', async () => {
     const { onrow } = setup()
     await fireEvent.click(screen.getByRole('radio', { name: 'Income' }))

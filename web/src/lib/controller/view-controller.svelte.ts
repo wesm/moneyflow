@@ -19,9 +19,11 @@ import type { SearchPreview } from './search'
 import { createProviderController, type ProviderController } from './provider'
 import { createProviderWriteController, type ProviderWriteController } from './provider-write'
 import { createReviewController, type ReviewController } from './review'
-import { preserveCursor, WindowCache } from './windows'
+import { preserveCursor, startsAtFirstRow, WindowCache } from './windows'
 
 const windowSize = 200
+// Browsers limit history writes (Safari: 100 in 10 seconds), so cursor moves wait for a pause.
+const defaultHistoryDebounceMillis = 300
 
 export interface TransitionAction {
   action: TransitionBody['action']
@@ -122,6 +124,8 @@ export interface ViewController {
   /** Returns to the view before the search; does nothing once history dropped `snapshot`. */
   restoreSearch(snapshot: SearchSnapshot): void
   restore(event: PopStateEvent): Promise<void>
+  /** Writes a cursor position still waiting for a pause to history now, as the page is left. */
+  flushHistory(): void
   retry(): Promise<void>
   reset(): Promise<void>
   transactionInformation?(identity: string): Promise<TransactionInformationResponse | undefined>
@@ -135,6 +139,8 @@ export interface ViewControllerOptions {
   instance?: string
   prefetch?: boolean
   recheckDebounceMillis?: number
+  /** How long cursor moves pause before history records them; 0 records each move at once. */
+  historyDebounceMillis?: number
   returnTimeoutMillis?: number
 }
 
@@ -147,6 +153,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   const cache = new WindowCache(windowSize)
   const prefetchEnabled = options.prefetch ?? true
   const recheckDebounceMillis = options.recheckDebounceMillis ?? 500
+  const historyDebounceMillis = options.historyDebounceMillis ?? defaultHistoryDebounceMillis
   const returnTimeoutMillis = options.returnTimeoutMillis ?? 1000
   const existing = ledger.record(browserHistory.state)
 
@@ -168,6 +175,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let lateReturn: ReturnInProgress | undefined
   let barrier: Promise<unknown> = Promise.resolve()
   let showing: ShowRequest | undefined
+  let pendingHistory: { state: MoneyflowHistoryState; url: string } | undefined
+  let pendingHistoryTimer: ReturnType<typeof setTimeout> | undefined
+  // Pending cursors of entries Back or Forward left before the pause, by entry sequence.
+  const leftCursors = new SvelteMap<number, MoneyflowHistoryState>()
   // Prefetch fills the cache without changing the projection; this tells the table to redraw.
   let cacheChanges = $state(0)
   let applyTail: Promise<void> = Promise.resolve()
@@ -211,6 +222,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     host: {
       current: () => projection,
       accept: (next) => acceptProfileProjection(next, true),
+      reload: () => recheckInternal(undefined, true),
+      serially: (work) => serially(work),
     },
   })
 
@@ -344,11 +357,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     if (!projection) return false
     lateReturn = undefined
     const prior = projection
+    const fromTop = startsAtFirstRow(action.action)
     const body: TransitionBody = {
       query: prior.canonical_query,
       selection: prior.selection,
       action: action.action,
-      window: { offset: alignedOffset(cursorIndex), limit: windowSize },
+      window: { offset: fromTop ? 0 : alignedOffset(cursorIndex), limit: windowSize },
       ...(action.target === undefined ? {} : { target: action.target }),
       ...(action.search === undefined ? {} : { search: action.search }),
       ...(action.filters === undefined ? {} : { filters: withPeriod(action.filters, prior) }),
@@ -368,6 +382,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
             return
           }
           const selectionOnly = action.action.startsWith('selection.')
+          if (fromTop) moveToFirstRow()
           accept(next, historyMode ?? (selectionOnly ? 'replace' : 'push'))
         },
         async () => {
@@ -403,6 +418,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       }
     })
     barrier = Promise.all([barrier, traversal])
+    flushHistory()
     browserHistory.go(delta)
     return traversal
   }
@@ -428,8 +444,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function restore(event: PopStateEvent): Promise<void> {
+    // The browser already left the entry the pending cursor belongs to; keep it for a return.
+    const left = dropPendingHistory()
+    if (left) leftCursors.set(left.state.sequence, left.state)
     searchSnapshot = undefined
-    const owned = ledger.record(event.state)
+    const owned = withLeftCursor(ledger.record(event.state))
     // A late traversal's view is current only until anything else replaces it, such as an edit.
     const late = lateReturn?.projection === projection ? lateReturn : undefined
     const returned = returning ?? late
@@ -466,6 +485,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function reset(): Promise<void> {
+    dropPendingHistory()
+    leftCursors.clear()
     browserHistory.replaceState(null, '', basePath)
     await hydrate()
   }
@@ -518,12 +539,13 @@ export function createViewController(options: ViewControllerOptions): ViewContro
               selection,
               action: 'search.apply',
               search,
-              window: { offset: alignedOffset(cursorIndex), limit: windowSize },
+              window: { offset: 0, limit: windowSize },
             },
             activeRequest?.signal,
           ),
         ),
       (next) => {
+        moveToFirstRow()
         accept(next, 'replace')
         accepted = true
       },
@@ -539,6 +561,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   function commitSearch(snapshot: SearchSnapshot): void {
     if (!projection || snapshot !== searchSnapshot) return
     const accepted = projection
+    flushHistory()
     browserHistory.replaceState(
       snapshot.history,
       '',
@@ -565,6 +588,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     cache.store(snapshot.projection)
     editing.sync(snapshot.projection)
     provider.sync(snapshot.projection)
+    flushHistory()
     browserHistory.replaceState(
       snapshot.history,
       '',
@@ -609,7 +633,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     )
     if (cached) {
       setProjectionWindow(cached, nextIndex)
-      replaceOwnedHistory()
+      deferOwnedHistory()
       schedulePrefetch(cached)
       return
     }
@@ -619,7 +643,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       () => options.client.view(viewBody(query, selection, offset), activeRequest?.signal),
       (next) => {
         setProjectionWindow(next, nextIndex)
-        replaceOwnedHistory()
+        deferOwnedHistory()
         schedulePrefetch(next)
       },
       () => moveToIndex(nextIndex),
@@ -702,7 +726,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const holdsCursor = cursorIndex >= offset && cursorIndex < offset + count
     problem = undefined
     setProjectionWindow(next, holdsCursor ? cursorIndex : index)
-    replaceOwnedHistory()
+    deferOwnedHistory()
     schedulePrefetch(next)
   }
 
@@ -760,7 +784,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       schedulePrefetch(next)
       return
     }
-    if (historyMode === 'push') sequence += 1
+    flushHistory()
+    if (historyMode === 'push') {
+      sequence += 1
+      forgetLeftCursorsFrom(sequence)
+    }
     const state = ownedState(next)
     const url = applicationURL(basePath, next.canonical_query)
     if (historyMode === 'push') browserHistory.pushState(state, '', url)
@@ -797,6 +825,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return true
   }
 
+  /** Forgets the cursor's row, so the projection accepted next puts the cursor on its first row. */
+  function moveToFirstRow(): void {
+    cursorIdentity = undefined
+    cursorIndex = 0
+  }
+
   function setProjectionWindow(next: ViewProjection, requestedIndex: number): void {
     cache.store(next)
     cache.retainAdjacent(next.canonical_query, next.selection, next.revision, next.window.offset)
@@ -811,9 +845,55 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   function replaceOwnedHistory(): void {
     if (!projection) return
+    dropPendingHistory()
     const state = ownedState(projection)
     browserHistory.replaceState(state, '', applicationURL(basePath, projection.canonical_query))
     ledger.record(state)
+  }
+
+  /** Records the cursor in the current entry once moves pause; see historyDebounceMillis. */
+  function deferOwnedHistory(): void {
+    if (!projection) return
+    dropPendingHistory()
+    pendingHistory = {
+      state: ownedState(projection),
+      url: applicationURL(basePath, projection.canonical_query),
+    }
+    if (historyDebounceMillis <= 0) flushHistory()
+    else pendingHistoryTimer = setTimeout(flushHistory, historyDebounceMillis)
+  }
+
+  function flushHistory(): void {
+    const pending = dropPendingHistory()
+    if (!pending) return
+    browserHistory.replaceState(pending.state, '', pending.url)
+    ledger.record(pending.state)
+  }
+
+  // A pending cursor is always the newest state of its entry: anything else that writes the
+  // entry writes the pending cursor first or drops it.
+  function withLeftCursor(
+    owned: MoneyflowHistoryState | undefined,
+  ): MoneyflowHistoryState | undefined {
+    const left = owned && leftCursors.get(owned.sequence)
+    if (!owned || !left || left.query !== owned.query) return owned
+    leftCursors.delete(owned.sequence)
+    return left
+  }
+
+  // A push replaces every entry from its sequence forward, so their left cursors are gone too.
+  function forgetLeftCursorsFrom(first: number): void {
+    for (const entry of leftCursors.keys()) {
+      if (entry >= first) leftCursors.delete(entry)
+    }
+  }
+
+  function dropPendingHistory(): typeof pendingHistory {
+    clearTimeout(pendingHistoryTimer)
+    pendingHistoryTimer = undefined
+    const pending = pendingHistory
+    pendingHistory = undefined
+    return pending
   }
 
   function ownedState(next: ViewProjection): MoneyflowHistoryState {
@@ -953,6 +1033,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     commitSearch,
     restoreSearch,
     restore,
+    flushHistory,
     retry,
     reset,
     transactionInformation,

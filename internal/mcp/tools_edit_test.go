@@ -216,6 +216,50 @@ func TestMCPHideCancellationAndDeletionPreview(t *testing.T) {
 	assert.Equal(t, float64(3), rows.StructuredContent.(map[string]any)["total"])
 }
 
+func TestMCPReviewNamesTheHideDirectionInBeforeAndAfter(t *testing.T) {
+	service, closeProfile := writeTestService(t, 3)
+	defer closeProfile()
+	client, cleanup := connectWriteTestServer(t, service, true)
+	defer cleanup()
+	staged := callWriteTool(t, client, "toggle_transactions_hidden", map[string]any{
+		"expected_revision": "1", "transaction_ids": []string{"transaction_000"},
+	})
+	require.False(t, staged.IsError, "%v", staged.StructuredContent)
+	review := callWriteTool(t, client, "review_changes", map[string]any{"expected_revision": "2"})
+	require.False(t, review.IsError)
+	operations := review.StructuredContent.(map[string]any)["operations"].([]any)
+	require.Len(t, operations, 1)
+	operation := operations[0].(map[string]any)
+	assert.Equal(t, "Visible", operation["before"])
+	assert.Equal(t, "Hidden", operation["after"])
+}
+
+func TestMCPReviewNamesTheShowDirectionInBeforeAndAfter(t *testing.T) {
+	service, closeProfile := writeTestService(t, 3)
+	defer closeProfile()
+	client, cleanup := connectWriteTestServer(t, service, true)
+	defer cleanup()
+	hide := map[string]any{"transaction_ids": []string{"transaction_000"}}
+	hide["expected_revision"] = "1"
+	require.False(t, callWriteTool(t, client, "toggle_transactions_hidden", hide).IsError)
+	committed := callWriteTool(t, client, "commit_changes", map[string]any{
+		"expected_revision": "2", "reviewed_revision": "2",
+	})
+	require.False(t, committed.IsError, "%v", committed.StructuredContent)
+	revision := strconv.FormatUint(service.Revision(), 10)
+	hide["expected_revision"] = revision
+	require.False(t, callWriteTool(t, client, "toggle_transactions_hidden", hide).IsError)
+	review := callWriteTool(t, client, "review_changes", map[string]any{
+		"expected_revision": strconv.FormatUint(service.Revision(), 10),
+	})
+	require.False(t, review.IsError)
+	operations := review.StructuredContent.(map[string]any)["operations"].([]any)
+	require.Len(t, operations, 1)
+	operation := operations[0].(map[string]any)
+	assert.Equal(t, "Hidden", operation["before"])
+	assert.Equal(t, "Visible", operation["after"])
+}
+
 func TestMCPEditToolsRejectWholeInvalidBatchAndStaleRevision(t *testing.T) {
 	for _, name := range []string{"reassign_transactions_merchant", "toggle_transactions_hidden", "delete_transactions"} {
 		t.Run(name, func(t *testing.T) {

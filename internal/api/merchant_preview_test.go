@@ -66,3 +66,52 @@ func TestMerchantPreviewReturnsEmptyOutsideCurrenciesWhenTheViewShowsEverything(
 	assert.NotNil(t, preview.OutsideCurrencies)
 	assert.Empty(t, preview.OutsideCurrencies)
 }
+
+func previewMerchantSelection(t testing.TB, server *Server) map[string]any {
+	t.Helper()
+	initial := projectPersistentViewForQuery(t, server, "v=1")
+	selected := requestJSON(t, server, "/api/v1/view/transition", TransitionBody{
+		Query: initial.CanonicalQuery, Selection: initial.Selection,
+		Action: app.ActionToggleSelectAll, Window: Window{Limit: 200},
+	})
+	require.Equal(t, http.StatusOK, selected.Code, selected.Body.String())
+	var projection Projection
+	require.NoError(t, json.Unmarshal(selected.Body.Bytes(), &projection))
+	response := requestProtectedJSON(t, server, "/api/v1/merchant-preview", MutationBody{
+		Version: MutationSchemaVersion, ExpectedRevision: projection.Revision,
+		Query: projection.CanonicalQuery, Selection: projection.Selection,
+		Action: app.ActionEditMerchant,
+		Input:  MutationInput{Scope: string(app.EditScopeTransactions), Label: "Renamed Merchant"},
+		Window: Window{Limit: 200},
+	})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	return body
+}
+
+func TestMerchantPreviewNamesItsSourceMerchantWhenThereIsOne(t *testing.T) {
+	t.Parallel()
+	server := newPersistentAPITestServer(t)
+
+	assert.Equal(t, "merchant-example",
+		previewMerchantEntity(t, server, "v=1").SourceMerchantID, "whole-merchant scope")
+
+	body := previewMerchantSelection(t, server)
+	assert.Equal(t, "merchant-example", body["source_merchant_id"], "one merchant selected")
+}
+
+func TestMerchantPreviewOmitsTheSourceMerchantForSelectionsAcrossMerchants(t *testing.T) {
+	t.Parallel()
+	other := apiTransactionWith(t, "other", func(transaction *domain.Transaction) {
+		transaction.Merchant = domain.EntityRef{ID: "merchant-other", Name: "Other Merchant"}
+	})
+	server := newPersistentAPITestServerFor(
+		t, []domain.Transaction{apiTransaction(t), other}, nil,
+	)
+
+	body := previewMerchantSelection(t, server)
+
+	assert.EqualValues(t, 2, body["affected_transactions"])
+	assert.NotContains(t, body, "source_merchant_id")
+}

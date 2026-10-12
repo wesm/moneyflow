@@ -707,3 +707,59 @@ test('Tab and Shift+Tab stay inside the anchored editor', async ({ page }) => {
     await server.stop()
   }
 })
+
+test('@smoke overlays opened by a click return focus to the control clicked', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+
+    const sidebarItem = page.getByRole('button', { name: 'Edit categories', exact: true })
+    await sidebarItem.click()
+    await expect(page.getByRole('dialog', { name: 'Manage categories' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Manage categories' })).toBeHidden()
+    await expect(sidebarItem).toBeFocused()
+
+    await page.keyboard.press('h')
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    const review = page.getByRole('button', { name: 'Review pending changes' })
+    await review.click()
+    await expect(page.getByRole('dialog', { name: 'Review pending changes' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Review pending changes' })).toBeHidden()
+    await expect(review).toBeFocused()
+    await expect(grid).not.toBeFocused()
+  } finally {
+    await server.stop()
+  }
+})
+
+test('@smoke the selection bar returns focus to the grid row, not to its button', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await page.keyboard.press('d')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('Space')
+    await page.keyboard.press('j')
+    await page.keyboard.press('Space')
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
+
+    const merchant = page
+      .getByRole('region', { name: 'Selection' })
+      .getByRole('button', { name: 'Merchant' })
+    await merchant.click()
+    const editor = page.getByRole('dialog', { name: 'Edit merchant' })
+    await expect(editor).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(editor).toBeHidden()
+    await expect(grid).toBeFocused()
+    await expect(merchant).not.toBeFocused()
+  } finally {
+    await server.stop()
+  }
+})

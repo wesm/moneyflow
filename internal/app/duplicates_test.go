@@ -91,9 +91,10 @@ func TestProjectDuplicatesBindsTransientSelectionToItsCheckedRevision(t *testing
 		app.DuplicateWindowRequest{},
 	)
 	require.NoError(t, err)
-	resolved, err := app.ResolveSelectionAtRevision(
-		service, state.Current, projection.Selection, projection.Revision,
-	)
+	bound, err := app.BindSelectionRevision(selection, projection.Revision)
+	require.NoError(t, err)
+	assert.Equal(t, bound, projection.Selection)
+	resolved, err := service.ResolveSelection(state.Current, projection.Selection)
 	require.NoError(t, err)
 	assert.Contains(t, resolved.IDs, "transaction_a")
 }

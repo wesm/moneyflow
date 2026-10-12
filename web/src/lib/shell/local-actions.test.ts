@@ -14,6 +14,7 @@ import {
 } from './local-actions'
 import { OverlayState } from './overlay-state.svelte'
 import { status } from './status.svelte'
+import { setPageRows } from '../table/cursor-keys'
 import type { ViewController } from '../controller/view-controller.svelte'
 import { testCapabilities } from '../../test/capabilities'
 import { testAggregateRow, testProjection } from '../../test/projection'
@@ -42,6 +43,8 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
       sort_field: 'amount',
       sort_direction: 'desc',
       sort_fields: ['merchant', 'count', 'amount'],
+      drill_depth: 0,
+      root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
     },
     detail_rows: null,
     selection_count: 0,
@@ -367,5 +370,46 @@ describe('moveCursor', () => {
     settle()
     await moved
     expect(move).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('paging keys outside the table', () => {
+  afterEach(() => {
+    setPageRows(1)
+    document.body.replaceChildren()
+  })
+
+  function paged(cursorIndex: number) {
+    const moveCursorTo = vi.fn(() => Promise.resolve())
+    const controller = {
+      projection: testProjection({ total_rows: 500 }),
+      cursorIndex,
+      moveCursorTo,
+    } as unknown as ViewController
+    const context = { ...setup(0).context, controller }
+    setPageRows(18)
+    return { context, controller, moveCursorTo, actions: localActions(context) }
+  }
+
+  it('move the cursor by the page the table last showed, or to the last row', async () => {
+    const { actions, moveCursorTo } = paged(40)
+    actions['cursor.page-down']()
+    await vi.waitFor(() => expect(moveCursorTo).toHaveBeenLastCalledWith(58))
+    actions['cursor.page-up']()
+    await vi.waitFor(() => expect(moveCursorTo).toHaveBeenLastCalledWith(22))
+    actions['cursor.end']()
+    await vi.waitFor(() => expect(moveCursorTo).toHaveBeenLastCalledWith(499))
+  })
+
+  it('move from the cursor a pending view change leaves', async () => {
+    const { actions, context, controller, moveCursorTo } = paged(40)
+    const settle = holdTransitions(context)
+    actions['cursor.page-down']()
+    await tick()
+    expect(moveCursorTo).not.toHaveBeenCalled()
+    Object.assign(controller, { cursorIndex: 10 })
+    settle()
+
+    await vi.waitFor(() => expect(moveCursorTo).toHaveBeenCalledWith(28))
   })
 })

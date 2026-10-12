@@ -238,6 +238,17 @@ type ViewMetadata struct {
 	SubGrouping string   `json:"sub_grouping,omitempty"`
 	// Currency is the single currency the view is scoped to; absent when it shows all.
 	Currency *CurrencyScope `json:"currency,omitempty"`
+	// DrillDepth is the number of drill frames in the current view.
+	DrillDepth int `json:"drill_depth" minimum:"0"`
+	// Root is the view that view.back-to with depth 0 reaches.
+	Root ViewRoot `json:"root"`
+}
+
+// ViewRoot names the view at the top of the breadcrumb trail.
+type ViewRoot struct {
+	Mode            string `json:"mode"`
+	Grouping        string `json:"grouping"`
+	TimeGranularity string `json:"time_granularity"`
 }
 
 // Projection is the strict browser-facing view contract.
@@ -288,7 +299,7 @@ func projectionToWire(
 		Pending:        pendingToWire(projection.Pending),
 		CanonicalQuery: canonical, Selection: string(projection.Selection),
 		SelectionCount: projection.SelectionCount, AllRowsSelected: projection.AllRowsSelected,
-		View:           viewMetadataToWire(projection.State.Current),
+		View:           viewMetadataToWire(projection),
 		BreadcrumbText: projection.BreadcrumbText, Filters: filtersToWire(projection.Filters),
 		TotalRows: projection.TotalRows,
 		Window: ReturnedWindow{
@@ -338,7 +349,8 @@ func appendRowsToWire(wire *Projection, projection app.WebProjection) {
 	}
 }
 
-func viewMetadataToWire(state app.AnalyticalState) ViewMetadata {
+func viewMetadataToWire(projection app.WebProjection) ViewMetadata {
+	state := projection.State.Current
 	view := ViewMetadata{
 		Mode:            string(state.Mode),
 		Grouping:        string(state.Dimension),
@@ -346,6 +358,12 @@ func viewMetadataToWire(state app.AnalyticalState) ViewMetadata {
 		Search:          state.Search,
 		SortField:       string(state.Sort.Field),
 		SortDirection:   string(state.Sort.Direction),
+		DrillDepth:      projection.DrillDepth,
+		Root: ViewRoot{
+			Mode:            string(projection.Root.Mode),
+			Grouping:        string(projection.Root.Dimension),
+			TimeGranularity: string(projection.Root.TimeGranularity),
+		},
 	}
 	for _, field := range app.SortFields(state) {
 		view.SortFields = append(view.SortFields, string(field))

@@ -145,14 +145,14 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 		model.clampCursor()
 	case app.ActionCursorHome:
 		model.cursor, model.scroll = 0, 0
-	case actionCursorEnd:
+	case app.ActionCursorEnd:
 		model.cursor = model.rowCount() - 1
 		model.clampCursor()
-	case actionCursorPageUp:
+	case app.ActionCursorPageUp:
 		model.cursor -= model.visibleRows()
 		model.scroll -= model.visibleRows()
 		model.clampCursor()
-	case actionCursorPageDown:
+	case app.ActionCursorPageDown:
 		model.cursor += model.visibleRows()
 		model.scroll += model.visibleRows()
 		model.clampCursor()

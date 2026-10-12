@@ -190,9 +190,12 @@
       viewport={viewport - covered}
       above={above + bannerHeight}
       compact={compact.current}
-      onmove={(delta) => moveCursor(actions, () => controller.moveCursor(delta))}
-      onhome={() => moveCursor(actions, () => controller.moveHome())}
       oncursor={(index) => moveCursor(actions, () => controller.moveCursorTo(index))}
+      onmove={(decide) =>
+        void moveCursor(actions, async () => {
+          const index = decide()
+          if (index !== undefined) await controller.moveCursorTo(index)
+        })}
       ontoggle={(identity, kind) =>
         onapply({ action: 'selection.toggle', target: { identity, kind } })}
       ontoggleall={() => onapply({ action: 'selection.toggle-all' })}

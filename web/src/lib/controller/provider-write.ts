@@ -80,6 +80,10 @@ export function createProviderWriteController(
   }
 
   function install(status: ProviderWriteStatus): void {
+    if (repeatsFinishedResult(status)) {
+      setState({ ...state, status })
+      return
+    }
     const retainConfirmation =
       confirmationToken !== '' &&
       state.status?.phase === 'reconcile_confirmation_required' &&
@@ -91,6 +95,19 @@ export function createProviderWriteController(
       phase: phaseFor(status),
       announcement: announcementFor(status, providerName(options.host.current()?.profile_kind)),
     })
+  }
+
+  // Polling an unchanged finished result must keep the announcement that completion chose.
+  function repeatsFinishedResult(status: ProviderWriteStatus): boolean {
+    const previous = state.status
+    return (
+      state.phase === 'complete' &&
+      !status.phase &&
+      !previous?.phase &&
+      status.revision === previous?.revision &&
+      status.completed_at === previous?.completed_at &&
+      status.audit_warning === previous?.audit_warning
+    )
   }
 
   function can(action: string): boolean {
@@ -214,7 +231,7 @@ export function createProviderWriteController(
           selection: response.selection?.value ?? response.projection.selection,
         } as ViewProjection)
       }
-      if (!response.status.phase) await complete()
+      if (!response.status.phase) await complete(path.includes('/reconcile'))
       return true
     } catch (error) {
       if (error instanceof MoneyflowProblem) {
@@ -248,13 +265,13 @@ export function createProviderWriteController(
     }
   }
 
-  async function complete(): Promise<void> {
+  async function complete(reconciled = false): Promise<void> {
     const projection = await options.host.reload()
     if (projection) options.host.accept(projection)
     setState({
       ...(state.status ? { status: state.status } : {}),
       phase: 'complete',
-      announcement: ['Provider write complete.', state.status?.audit_warning]
+      announcement: [finishedMessage(state.status, reconciled), state.status?.audit_warning]
         .filter(Boolean)
         .join(' '),
     })
@@ -275,8 +292,13 @@ export function createProviderWriteController(
   }
 }
 
+function finishedMessage(status: ProviderWriteStatus | undefined, reconciled: boolean): string {
+  if (status?.completed_at) return 'Provider write complete.'
+  return reconciled ? 'Provider write stopped. Remaining edits discarded.' : 'Provider write ended.'
+}
+
 function phaseFor(status: ProviderWriteStatus): ProviderWritePhase {
-  if (!status.phase) return status.audit_warning ? 'complete' : 'idle'
+  if (!status.phase) return status.completed_at || status.audit_warning ? 'complete' : 'idle'
   if (status.phase === 'paused') return 'paused'
   if (status.phase === 'attention_required') return 'attention'
   if (status.phase === 'reconcile_confirmation_required') return 'confirmation'
@@ -293,9 +315,12 @@ function phaseForProblem(code: string): ProviderWritePhase {
 
 function announcementFor(status: ProviderWriteStatus, providerName: string): string {
   if (!status.phase)
-    return status.audit_warning
-      ? `Provider write complete. ${status.audit_warning}`
-      : 'No provider write is active.'
+    return [
+      status.completed_at ? 'Provider write complete.' : 'No provider write is active.',
+      status.audit_warning,
+    ]
+      .filter(Boolean)
+      .join(' ')
   if (status.phase === 'paused')
     return 'Provider write paused. Already accepted writes remain applied.'
   if (status.phase === 'attention_required') {

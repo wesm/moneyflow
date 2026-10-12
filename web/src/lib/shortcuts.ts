@@ -8,6 +8,9 @@ export type LocalAction =
   | 'cursor.up'
   | 'cursor.down'
   | 'cursor.home'
+  | 'cursor.end'
+  | 'cursor.page-up'
+  | 'cursor.page-down'
   | 'overlay.filters'
   | 'overlay.search'
   | 'overlay.help'
@@ -29,7 +32,10 @@ export type LocalAction =
 const bindings = [
   { id: 'cursor.up', display: '↑/k', combos: ['arrowup', 'k'], local: true },
   { id: 'cursor.down', display: '↓/j', combos: ['arrowdown', 'j'], local: true },
-  { id: 'cursor.home', display: 'home', combos: ['home'], local: true },
+  { id: 'cursor.home', display: 'Home/T', combos: ['home', 'shift+t'], local: true },
+  { id: 'cursor.end', display: 'End/B', combos: ['end', 'shift+b'], local: true },
+  { id: 'cursor.page-up', display: 'PgUp', combos: ['pageup'], local: true },
+  { id: 'cursor.page-down', display: 'PgDn', combos: ['pagedown'], local: true },
   { id: 'view.cycle-grouping', display: 'g', combos: ['g'] },
   {
     id: 'view.set-grouping',

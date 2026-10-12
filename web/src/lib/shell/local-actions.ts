@@ -2,8 +2,10 @@ import { tick } from 'svelte'
 
 import type { ViewProjection } from '../api/client'
 import type { ViewController } from '../controller/view-controller.svelte'
+import { EditorDraft } from '../editing/draft.svelte'
 import type { LocalAction } from '../shortcuts'
 import { rowActionButtons, type RowActionButton } from '../table/actions'
+import { currentPageRows, cursorTarget, type CursorMove } from '../table/cursor-keys'
 import type { EditorAnchor, OverlayState } from './overlay-state.svelte'
 import { activeCurrency } from './period'
 import { status } from './status.svelte'
@@ -92,7 +94,10 @@ function anchorFor(context: LocalActionContext, target: FocusedRow): EditorAncho
   return row ? { element: row, above: false } : undefined
 }
 
-/** Opens the merchant or category editor for `target`, such as the cursor or a pointed row. */
+/**
+ * Opens the merchant or category editor for `target`, such as the cursor or a pointed row, with
+ * an empty draft.
+ */
 export function openEditor(
   context: LocalActionContext,
   field: 'merchant' | 'category',
@@ -101,7 +106,16 @@ export function openEditor(
   if (!target) return
   context.overlays.anchor = anchorFor(context, target)
   context.overlays.editTarget = target
+  context.overlays.editorDraft = new EditorDraft()
   context.overlays.open(field)
+}
+
+/** Moves the cursor as a key pressed outside the table asks, by the page the table last showed. */
+function moveBy(controller: ViewController, move: CursorMove): Promise<void> {
+  const total = controller.projection?.total_rows ?? 0
+  return controller.moveCursorTo(
+    cursorTarget(move, controller.cursorIndex, total, currentPageRows()),
+  )
 }
 
 /** Opens a pointed row's editor after queued view transitions, as `m` and `c` do. */
@@ -122,6 +136,9 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
     'cursor.up': () => void context.queue(() => controller.moveCursor(-1)),
     'cursor.down': () => void context.queue(() => controller.moveCursor(1)),
     'cursor.home': () => void context.queue(() => controller.moveHome()),
+    'cursor.end': () => void context.queue(() => moveBy(controller, 'end')),
+    'cursor.page-up': () => void context.queue(() => moveBy(controller, 'page-up')),
+    'cursor.page-down': () => void context.queue(() => moveBy(controller, 'page-down')),
     'overlay.search': () => context.focusSearch(),
     'overlay.filters': () => context.openFilters(),
     'overlay.help': () => overlays.open('help'),

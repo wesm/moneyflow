@@ -424,7 +424,7 @@ func reviewSemanticSummary(projection app.ReviewProjection) []string {
 			state = "redo"
 		}
 		result = append(result, fmt.Sprintf("%s %s %d targets", state,
-			friendlyReviewOperationLabel(operation.Type), operation.AffectedCount))
+			operation.Label, operation.AffectedCount))
 	}
 	return result
 }
