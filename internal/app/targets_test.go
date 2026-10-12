@@ -1,8 +1,10 @@
 package app_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,6 +76,146 @@ func TestResolveTargetsExpandsFocusedAggregateOnce(t *testing.T) {
 	assert.Equal(t, []domain.EntityID{"transaction_a"}, targets.TransactionIDs)
 	assert.Equal(t, []domain.EntityID{"merchant_a"}, targets.EntityIDs)
 	assert.False(t, targets.FromSelection)
+}
+
+func TestResolveTargetsFindsTimeRowsAtTheDerivedGranularity(t *testing.T) {
+	t.Parallel()
+
+	effective := effectiveForMutation(t, 5)
+	state := app.DefaultViewState()
+	state.Current.Dimension = domain.DimensionTime
+	state.Current.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+	state.Current.Sort = domain.SortSpec{
+		Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc,
+	}
+	start, err := domain.ParseDate("2026-08-01")
+	require.NoError(t, err)
+	end, err := domain.ParseDate("2026-08-31")
+	require.NoError(t, err)
+	state.Current.DateRange = &domain.DateRange{Start: start, End: end}
+	day := app.AggregateIdentity(domain.AggregateRow{
+		Dimension: domain.DimensionTime, Key: "2026-08-14",
+		Total: domain.Money{Currency: "USD", Scale: 2},
+	})
+
+	targets, err := app.ResolveTargets(effective, app.MutationRequest{
+		ExpectedRevision: 5, State: state, Selection: app.EmptySelection(),
+		Target: &app.RowTarget{Kind: app.IdentityAggregate, Identity: day},
+	})
+	require.NoError(t, err, "a month's Time rows are days, whatever granularity the URL had")
+	assert.Equal(t, []domain.EntityID{"transaction_a", "transaction_b"}, targets.TransactionIDs)
+}
+
+// timeTargetState is a USD Time view of dateRange; the URL leaves the granularity derived.
+func timeTargetState(t *testing.T, start, end string) app.ViewState {
+	t.Helper()
+	state := app.DefaultViewState()
+	state.Current.Dimension = domain.DimensionTime
+	state.Current.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+	state.Current.Sort = domain.SortSpec{
+		Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc,
+	}
+	startDate, err := domain.ParseDate(start)
+	require.NoError(t, err)
+	endDate, err := domain.ParseDate(end)
+	require.NoError(t, err)
+	state.Current.DateRange = &domain.DateRange{Start: startDate, End: endDate}
+	return state
+}
+
+func timeRowIdentity(key string) string {
+	return app.AggregateIdentity(domain.AggregateRow{
+		Dimension: domain.DimensionTime, Key: key,
+		Total: domain.Money{Currency: "USD", Scale: 2},
+	})
+}
+
+// profileOn returns the replay profile with every transaction on date.
+func profileOn(t *testing.T, date string) domain.CommittedProfile {
+	t.Helper()
+	day, err := domain.ParseDate(date)
+	require.NoError(t, err)
+	profile := replayProfile(t)
+	for index := range profile.Transactions {
+		profile.Transactions[index].Date = day
+	}
+	return profile
+}
+
+func TestSelectionsWithEmptyTimeRowsTargetTheirTransactions(t *testing.T) {
+	t.Parallel()
+
+	effective, err := app.Replay(domain.ProfileSnapshot{
+		Revision: 5, Committed: profileOn(t, "2025-08-14"),
+	})
+	require.NoError(t, err)
+	state := timeTargetState(t, "2025-01-01", "2025-12-31")
+	service := analyticsServiceForMutation(t, effective)
+	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	require.Len(t, projection.AggregateRows, 12, "a past year lists every month")
+	selection, err := service.ToggleAllSelection(state.Current, app.EmptySelection())
+	require.NoError(t, err)
+	selection, err = app.BindSelectionRevision(selection, 5)
+	require.NoError(t, err)
+	request := app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: 5, State: state, Selection: selection,
+	}
+
+	targets, err := app.ResolveTargets(effective, request)
+	require.NoError(t, err, "empty months contribute nothing")
+	assert.Equal(t, []domain.EntityID{"transaction_a", "transaction_b"}, targets.TransactionIDs)
+	plan, err := app.BuildHideMutation(effective, request, operationMetadata("operation_hide_year"))
+	require.NoError(t, err)
+	assert.Equal(t, []domain.EntityID{"transaction_a"}, plan.Operation.Targets,
+		"the mixed scope hides its visible member")
+
+	empty, err := service.ToggleSelection(
+		state.Current, app.EmptySelection(), app.IdentityAggregate, timeRowIdentity("2025-01"),
+	)
+	require.NoError(t, err)
+	request.Selection, err = app.BindSelectionRevision(empty, 5)
+	require.NoError(t, err)
+	_, err = app.ResolveTargets(effective, request)
+	failure := requireMutationCode(t, err, app.MutationInvalidTarget)
+	assert.ErrorContains(t, failure.Unwrap(), "no current transaction targets")
+}
+
+// TestEditTargetsUseTheServiceClock selects two days of January 2025 while the service is on
+// the system clock, then moves the service clock back to January 15. The projection now ends
+// at the 15th, so edit targets must not resolve the selected 20th either.
+func TestEditTargetsUseTheServiceClock(t *testing.T) {
+	t.Parallel()
+
+	service, err := app.NewProfileService(context.Background(), &memoryProfile{
+		snapshot: domain.ProfileSnapshot{Revision: 7, Committed: profileOn(t, "2025-01-01")},
+	})
+	require.NoError(t, err)
+	state := timeTargetState(t, "2025-01-01", "2025-01-31")
+	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	require.Len(t, projection.AggregateRows, 31, "the system clock lists the whole month")
+	selection := app.EmptySelection()
+	for _, key := range []string{"2025-01-01", "2025-01-20"} {
+		selection, err = service.ToggleSelection(
+			state.Current, selection, app.IdentityAggregate, timeRowIdentity(key),
+		)
+		require.NoError(t, err, key)
+	}
+	selection, err = app.BindSelectionRevision(selection, projection.Revision)
+	require.NoError(t, err)
+
+	service.SetClock(func() time.Time { return time.Date(2025, 1, 15, 12, 0, 0, 0, time.Local) })
+	projection, err = service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	assert.Len(t, projection.AggregateRows, 15, "the service clock ends the month at the 15th")
+	_, err = service.PreviewMutation(context.Background(), app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: projection.Revision,
+		State: state, Selection: selection,
+	})
+	failure := requireMutationCode(t, err, app.MutationInvalidTarget)
+	assert.ErrorContains(t, failure.Unwrap(), "selected aggregate does not resolve",
+		"the 20th is not a row under the service clock")
 }
 
 func TestResolveTargetsKeepsCommittedAggregateScopeAfterPendingMerge(t *testing.T) {

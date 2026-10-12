@@ -233,8 +233,6 @@ func snapshotFromAnalyticalState(state AnalyticalState) sessionSnapshot {
 		search: state.Search, searchAnchor: markerFromNavigationScope(state.SearchAnchor),
 		showHidden: state.ShowHidden, showTransfers: state.ShowTransfers,
 		currency: cloneCurrencyScope(state.Currency), sort: state.Sort,
-		selectedTransactionIDs: make(map[string]struct{}),
-		selectedAggregateKeys:  make(map[string]struct{}),
 	}
 }
 

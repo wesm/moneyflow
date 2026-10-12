@@ -316,3 +316,37 @@ func rangeScope(t *testing.T, scope [2]string) *domain.DateRange {
 	}
 	return &domain.DateRange{Start: rangeDate(t, scope[0]), End: rangeDate(t, scope[1])}
 }
+
+func TestTimeRowPeriodsCoverTheWidestRange(t *testing.T) {
+	t.Parallel()
+	granularity, periods, err := TimeRowPeriods(RangeInput{
+		Scope: rangeScope(t, [2]string{"0001-01-01", "9999-12-31"}), Today: rangeDate(t, "2026-10-08"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, domain.TimeGranularityYear, granularity)
+	assert.Len(t, periods, 9999)
+	assert.Equal(t, [2]string{"0001", "9999"}, firstLastKeys(periods))
+
+	_, err = ResolveRanges(RangeInput{
+		Scope: rangeScope(t, [2]string{"0001-01-01", "9999-12-31"}), Today: rangeDate(t, "2026-10-08"),
+		TimeGrouping: true,
+	})
+	require.Error(t, err, "a custom range has no comparison range before year 1")
+}
+
+func TestTimeRowPeriodsListAPartialYearThroughToday(t *testing.T) {
+	t.Parallel()
+	input := RangeInput{
+		Scope: rangeScope(t, [2]string{"2026-01-01", "2026-12-31"}), Today: rangeDate(t, "2026-10-08"),
+		TimeGrouping: true,
+	}
+	granularity, periods, err := TimeRowPeriods(input)
+	require.NoError(t, err)
+	assert.Equal(t, domain.TimeGranularityMonth, granularity)
+	assert.Len(t, periods, 10)
+	assert.Equal(t, [2]string{"2026-01", "2026-10"}, firstLastKeys(periods))
+
+	input.Scope = rangeScope(t, [2]string{"2026-02-01", "2026-01-01"})
+	_, _, err = TimeRowPeriods(input)
+	require.Error(t, err)
+}

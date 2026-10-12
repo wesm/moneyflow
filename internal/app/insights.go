@@ -40,6 +40,23 @@ func (service *Service) SetClock(now func() time.Time) {
 	service.now = now
 }
 
+// clock returns the service clock; nil means the system clock.
+func (service *Service) clock() func() time.Time {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.now
+}
+
+// today returns the service clock's date.
+func (service *Service) today() (domain.Date, error) {
+	now := service.clock()
+	if now == nil {
+		now = time.Now
+	}
+	current := now()
+	return domain.NewDate(current.Year(), current.Month(), current.Day())
+}
+
 // Insights returns chart data computed from committed values; pending edits never change it.
 func (service *Service) Insights(
 	ctx context.Context, request InsightsRequest,
@@ -93,13 +110,8 @@ func (service *Service) insightsInputs(
 	transactions := append([]domain.Transaction(nil), service.browseTransactionsLocked()...)
 	matcher := service.amazonMatcher
 	rawLabels := service.rawProviderMerchantLabelsLocked()
-	now := service.now
 	service.mu.RUnlock()
-	if now == nil {
-		now = time.Now
-	}
-	current := now()
-	today, err := domain.NewDate(current.Year(), current.Month(), current.Day())
+	today, err := service.today()
 	if err != nil {
 		return nil, fmt.Errorf("insights: today: %w", err)
 	}

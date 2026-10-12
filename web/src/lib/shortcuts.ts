@@ -39,7 +39,6 @@ const bindings = [
   { id: 'view.switch-accounts', display: 'A', combos: ['shift+a'] },
   { id: 'view.drill', display: 'enter', combos: ['enter'] },
   { id: 'view.back', display: 'esc', combos: ['escape'] },
-  { id: 'time.toggle-granularity', display: 't', combos: ['t'] },
   { id: 'time.clear-period', display: 'a', combos: ['a'] },
   { id: 'time.previous-period', display: '←', combos: ['arrowleft'] },
   { id: 'time.next-period', display: '→', combos: ['arrowright'] },

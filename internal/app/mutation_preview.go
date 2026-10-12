@@ -35,6 +35,7 @@ func (service *Service) PreviewMutation(
 ) (MutationPreview, error) {
 	service.interactions.Lock()
 	defer service.interactions.Unlock()
+	request.now = service.clock()
 	if _, err := service.refreshLocked(ctx); err != nil {
 		return MutationPreview{}, err
 	}

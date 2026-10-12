@@ -53,11 +53,12 @@ const (
 )
 
 type searchState struct {
-	input           textinput.Model
-	originalSession app.Session
-	originalCursor  int
-	originalScroll  int
-	err             string
+	input             textinput.Model
+	originalSession   app.Session
+	originalSelection app.SelectionValue
+	originalCursor    int
+	originalScroll    int
+	err               string
 }
 
 // Model owns terminal-only state around a renderer-neutral application session.

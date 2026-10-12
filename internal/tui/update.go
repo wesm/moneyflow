@@ -159,6 +159,8 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 	case app.ActionCycleGrouping:
 		model.session.CycleGrouping()
 		model.resetAndRefresh()
+	case app.ActionSetGrouping:
+		model.setGrouping(message)
 	case app.ActionShowDetail:
 		model.session.ShowAllDetail()
 		model.resetAndRefresh()
@@ -171,7 +173,7 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 		model.drill()
 	case app.ActionBack:
 		model.back()
-	case actionChooseTime:
+	case app.ActionChooseTime:
 		model.openTimeChooser()
 	case app.ActionToggleTime:
 		if model.visibleMode() == domain.ResultModeAggregate && model.timeContext() {
@@ -183,9 +185,9 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 	case app.ActionClearTime:
 		model.applyTimeRange(nil)
 	case app.ActionPreviousPeriod:
-		model.navigateTimePeriod(-1)
+		model.shiftTimePeriod(-1)
 	case app.ActionNextPeriod:
-		model.navigateTimePeriod(1)
+		model.shiftTimePeriod(1)
 	case app.ActionCycleSort:
 		model.session.CycleSort()
 		model.resetAndRefresh()
@@ -314,6 +316,18 @@ func (model *Model) refreshForInteraction() bool {
 	return false
 }
 
+func (model *Model) setGrouping(message tea.KeyPressMsg) {
+	dimension, ok := app.GroupingForKey(message.Keystroke())
+	if !ok {
+		return
+	}
+	if err := model.session.SetGrouping(dimension); err != nil {
+		model.err = err
+		return
+	}
+	model.resetAndRefresh()
+}
+
 func (model *Model) drill() {
 	if model.result.AggregateRows == nil || model.cursor >= len(model.result.AggregateRows) {
 		return
@@ -330,11 +344,14 @@ func (model *Model) drill() {
 }
 
 func (model *Model) back() {
+	clearsSelection := selectedSessionCount(model.session) > 0
 	position, ok := model.session.Back()
 	if !ok {
 		return
 	}
-	model.cursor, model.scroll = position.Cursor, position.Scroll
+	if !clearsSelection {
+		model.cursor, model.scroll = position.Cursor, position.Scroll
+	}
 	model.refresh()
 	if err := model.rebuildSelectionValue(); err != nil {
 		model.clearSessionSelection()

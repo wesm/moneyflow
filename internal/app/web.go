@@ -70,10 +70,19 @@ type RowTarget struct {
 
 // TransitionRequest applies exactly one renderer-neutral action.
 type TransitionRequest struct {
-	Action  ActionID
-	Target  *RowTarget
-	Search  *string
-	Filters *Filters
+	Action    ActionID
+	Target    *RowTarget
+	Search    *string
+	Filters   *Filters
+	Dimension *domain.Dimension
+	Currency  *domain.CurrencyScope
+	SortField *domain.SortField
+	Period    *PeriodTarget
+}
+
+// PeriodTarget sets the view's period. A nil Range means All.
+type PeriodTarget struct {
+	Range *domain.DateRange
 }
 
 // Window describes the returned row range.
@@ -111,6 +120,8 @@ type WebAggregateRow struct {
 	Index    int
 	Identity string
 	Row      domain.AggregateRow
+	// SavingsRateTenths is a Time row's Net ÷ In in tenths of a percent; nil unless In > 0.
+	SavingsRateTenths *int
 }
 
 // ChartMark contains renderer-neutral exact chart geometry for one aggregate row.
@@ -177,6 +188,17 @@ func (service *Service) projectViewLocked(
 	selection SelectionValue,
 	window WindowRequest,
 ) (WebProjection, error) {
+	return service.projectViewWith(state, selection, window, service.currencies())
+}
+
+// projectViewWith projects a view with the profile's currencies, which the caller computed
+// once for the request. The projection's state carries the derived Time granularity.
+func (service *Service) projectViewWith(
+	state ViewState,
+	selection SelectionValue,
+	window WindowRequest,
+	currencies []domain.CurrencyCount,
+) (WebProjection, error) {
 	if err := state.Validate(); err != nil {
 		return WebProjection{}, invalidWebRequest(err)
 	}
@@ -184,15 +206,11 @@ func (service *Service) projectViewLocked(
 	if err != nil {
 		return WebProjection{}, err
 	}
-	resolvedSession, breadcrumbs, err := service.ResolveViewSession(state.Current)
+	resolvedSession, breadcrumbs, result, err := service.queryProjection(&state.Current, currencies)
 	if err != nil {
 		return WebProjection{}, err
 	}
-	result, err := service.Query(resolvedSession)
-	if err != nil {
-		return WebProjection{}, invalidWebRequest(err)
-	}
-	snapshot, err := service.ResolveSelection(state.Current, selection)
+	snapshot, err := service.resolveSelection(state.Current, selection, currencies)
 	if err != nil {
 		return WebProjection{}, err
 	}
@@ -226,34 +244,71 @@ func (service *Service) projectViewLocked(
 			DateRange:  cloneDateRange(state.Current.DateRange),
 			ShowHidden: state.Current.ShowHidden, ShowTransfers: state.Current.ShowTransfers,
 		},
-		Actions: actions, TotalRows: resultRowCount(result),
+		Actions:    actions,
 		Statistics: append([]domain.CurrencyStats(nil), result.Statistics...),
+		Currencies: currencies,
 	}
 	service.mu.RLock()
 	projection.AuditWarning = service.auditWarning
-	projection.Currencies = analytics.Currencies(service.browseTransactionsLocked())
 	if service.amazonSettings != nil {
 		projection.AmazonSettings = &AmazonProjectionSettings{
 			Currency: service.amazonSettings.Currency, Scale: service.amazonSettings.Scale,
 		}
 	}
 	service.mu.RUnlock()
-	projection.Window = windowResult(window, projection.TotalRows)
-	projection.DetailRows = detailWindow(result.DetailRows, projection.Window)
-	service.decorateStagedValues(projection.DetailRows)
-	if err = service.decorateAmazonMatchColumn(&projection, result.DetailRows); err != nil {
+	if err = service.projectRows(&projection, result, window); err != nil {
 		return WebProjection{}, invalidWebRequest(err)
-	}
-	projection.AggregateRows = aggregateWindow(result.AggregateRows, projection.Window)
-	if result.DetailRows != nil {
-		projection.Chart.Summary = append([]domain.CurrencyStats(nil), result.Statistics...)
-	} else {
-		projection.Chart.Marks = chartMarks(projection.AggregateRows)
 	}
 	if projection.TotalRows == 0 {
 		projection.Status = "No transactions match the current view."
 	}
 	return projection, nil
+}
+
+// queryProjection derives the view's Time granularity, then resolves its breadcrumbs and the
+// rows the browser shows. Rows are complete before selection decoration, so a selected empty
+// Time row shows as selected.
+func (service *Service) queryProjection(
+	state *AnalyticalState, currencies []domain.CurrencyCount,
+) (Session, []BreadcrumbSegment, domain.QueryResult, error) {
+	periods, err := service.deriveTimeRows(state, currencies)
+	if err != nil {
+		return Session{}, nil, domain.QueryResult{}, invalidWebRequest(err)
+	}
+	session, breadcrumbs, err := service.ResolveViewSession(*state)
+	if err != nil {
+		return Session{}, nil, domain.QueryResult{}, err
+	}
+	result, err := service.Query(session)
+	if err != nil {
+		return Session{}, nil, domain.QueryResult{}, invalidWebRequest(err)
+	}
+	result.AggregateRows = mergeTimeRows(*state, result.AggregateRows, periods)
+	return session, breadcrumbs, result, nil
+}
+
+// projectRows sets the row count, the row window, and the chart of a projection.
+func (service *Service) projectRows(
+	projection *WebProjection, result domain.QueryResult, window WindowRequest,
+) error {
+	var err error
+	projection.TotalRows = resultRowCount(result)
+	projection.Window = windowResult(window, projection.TotalRows)
+	projection.DetailRows = detailWindow(result.DetailRows, projection.Window)
+	service.decorateStagedValues(projection.DetailRows)
+	if err = service.decorateAmazonMatchColumn(projection, result.DetailRows); err != nil {
+		return err
+	}
+	projection.AggregateRows = aggregateWindow(result.AggregateRows, projection.Window)
+	if err = decorateSavingsRates(projection.AggregateRows); err != nil {
+		return err
+	}
+	if result.DetailRows != nil {
+		projection.Chart.Summary = append([]domain.CurrencyStats(nil), result.Statistics...)
+	} else {
+		projection.Chart.Marks = chartMarks(projection.AggregateRows)
+	}
+	return nil
 }
 
 func (service *Service) decorateAmazonMatchColumn(
@@ -346,100 +401,182 @@ func (service *Service) transitionViewLocked(
 	transition TransitionRequest,
 	window WindowRequest,
 ) (ViewState, SelectionValue, WebProjection, error) {
-	if err := state.Validate(); err != nil {
-		return rejectedTransition(state, selection, invalidWebRequest(err))
-	}
-	if _, err := normalizeWindow(window); err != nil {
-		return rejectedTransition(state, selection, err)
-	}
-	definition, ok := ActionByID(transition.Action)
-	if !ok || !definition.Web || !definition.Implemented ||
-		(definition.Scope != ScopeAnalytical && definition.Scope != ScopeSelection) {
-		return rejectedTransition(
-			state,
-			selection,
-			invalidWebRequest(errors.New("action is not a server transition")),
-		)
-	}
-	if err := validateTransitionArguments(transition); err != nil {
-		return rejectedTransition(state, selection, err)
-	}
-	if definition.Scope == ScopeSelection {
-		nextSelection, err := service.applySelectionTransition(state.Current, selection, transition)
-		if err != nil {
-			return rejectedTransition(state, selection, err)
-		}
-		if nextSelection == selection {
-			return rejectedTransition(state, selection, noChangeWeb(errors.New("selection did not change")))
-		}
-		nextSelection, err = BindSelectionRevision(nextSelection, service.Revision())
-		if err != nil {
-			return rejectedTransition(state, selection, err)
-		}
-		projection, err := service.projectViewLocked(state, nextSelection, window)
-		if err != nil {
-			return rejectedTransition(state, selection, err)
-		}
-		return state.Clone(), nextSelection, projection, nil
-	}
-
-	session, err := NewSessionFromViewState(state)
+	result, err := service.applyTransition(state, selection, transition, window)
 	if err != nil {
 		return rejectedTransition(state, selection, err)
+	}
+	return result.state, result.selection, result.projection, nil
+}
+
+// transitionResult is an accepted transition's next state, selection, and projection.
+type transitionResult struct {
+	state      ViewState
+	selection  SelectionValue
+	projection WebProjection
+}
+
+// applyTransition validates a transition and applies it to the derived current state, so a
+// stored granularity that the period no longer gives does not count as a change.
+func (service *Service) applyTransition(
+	state ViewState,
+	selection SelectionValue,
+	transition TransitionRequest,
+	window WindowRequest,
+) (transitionResult, error) {
+	if err := state.Validate(); err != nil {
+		return transitionResult{}, invalidWebRequest(err)
+	}
+	if _, err := normalizeWindow(window); err != nil {
+		return transitionResult{}, err
+	}
+	definition, ok := ActionByID(transition.Action)
+	if !ok || !isServerTransition(definition) {
+		return transitionResult{}, invalidWebRequest(errors.New("action is not a server transition"))
+	}
+	if err := validateTransitionArguments(transition); err != nil {
+		return transitionResult{}, err
+	}
+	currencies := service.currencies()
+	state, err := service.deriveViewState(state, currencies)
+	if err != nil {
+		return transitionResult{}, err
+	}
+	if definition.Scope == ScopeSelection {
+		return service.applySelectionTransitionView(state, selection, transition, window, currencies)
+	}
+	return service.applyAnalyticalTransitionView(state, selection, transition, window, currencies)
+}
+
+func isServerTransition(definition ActionDefinition) bool {
+	return definition.Web && definition.Implemented &&
+		(definition.Scope == ScopeAnalytical || definition.Scope == ScopeSelection)
+}
+
+func (service *Service) applySelectionTransitionView(
+	state ViewState,
+	selection SelectionValue,
+	transition TransitionRequest,
+	window WindowRequest,
+	currencies []domain.CurrencyCount,
+) (transitionResult, error) {
+	nextSelection, err := service.applySelectionTransition(
+		state.Current, selection, transition, currencies,
+	)
+	if err != nil {
+		return transitionResult{}, err
+	}
+	if nextSelection == selection {
+		return transitionResult{}, noChangeWeb(errors.New("selection did not change"))
+	}
+	nextSelection, err = BindSelectionRevision(nextSelection, service.Revision())
+	if err != nil {
+		return transitionResult{}, err
+	}
+	projection, err := service.projectViewWith(state, nextSelection, window, currencies)
+	if err != nil {
+		return transitionResult{}, err
+	}
+	return transitionResult{
+		state: state.Clone(), selection: nextSelection, projection: projection,
+	}, nil
+}
+
+func (service *Service) applyAnalyticalTransitionView(
+	state ViewState,
+	selection SelectionValue,
+	transition TransitionRequest,
+	window WindowRequest,
+	currencies []domain.CurrencyCount,
+) (transitionResult, error) {
+	session, err := service.transitionSession(state, selection, currencies)
+	if err != nil {
+		return transitionResult{}, err
+	}
+	if err := service.applyAnalyticalTransition(&session, transition, currencies); err != nil {
+		return transitionResult{}, err
+	}
+	nextState, err := service.deriveViewState(session.ViewState(), currencies)
+	if err != nil {
+		return transitionResult{}, err
+	}
+	nextSelection, err := service.selectionFromSession(
+		nextState.Current, selection, session, currencies,
+	)
+	if err != nil {
+		return transitionResult{}, err
+	}
+	if reflect.DeepEqual(state, nextState) && nextSelection == selection {
+		return transitionResult{}, noChangeWeb(errors.New("action did not change view"))
+	}
+	projection, err := service.projectViewWith(nextState, nextSelection, window, currencies)
+	if err != nil {
+		return transitionResult{}, err
+	}
+	return transitionResult{state: nextState, selection: nextSelection, projection: projection}, nil
+}
+
+// transitionSession rebuilds the session of a view state with resolved drill labels and the
+// current selection.
+func (service *Service) transitionSession(
+	state ViewState, selection SelectionValue, currencies []domain.CurrencyCount,
+) (Session, error) {
+	session, err := NewSessionFromViewState(state)
+	if err != nil {
+		return Session{}, err
 	}
 	resolvedCurrent, _, err := service.ResolveViewSession(state.Current)
 	if err != nil {
-		return rejectedTransition(state, selection, err)
+		return Session{}, err
 	}
 	session.Drilldowns = resolvedCurrent.Drilldowns
-	selectionDocument, err := decodeSelection(selection)
+	snapshot, err := service.resolveSelection(state.Current, selection, currencies)
 	if err != nil {
-		return rejectedTransition(state, selection, err)
-	}
-	if len(selectionDocument.Returns) != 0 && len(selectionDocument.Returns) != len(state.Returns) {
-		return rejectedTransition(
-			state,
-			selection,
-			invalidSelection(errors.New("return selections do not match return frames")),
-		)
-	}
-	snapshot, err := service.resolveSelectionPayload(state.Current, selectionDocument.payload())
-	if err != nil {
-		return rejectedTransition(state, selection, err)
+		return Session{}, err
 	}
 	applySnapshotToSession(&session, snapshot)
-	for index, payload := range selectionDocument.Returns {
-		returnSnapshot, resolveErr := service.resolveSelectionPayload(state.Returns[index].State, payload)
-		if resolveErr != nil {
-			return rejectedTransition(state, selection, resolveErr)
-		}
-		applySnapshotToHistory(&session.history[index].snapshot, returnSnapshot)
+	return session, nil
+}
+
+// transitionArguments records which optional TransitionRequest fields are set.
+type transitionArguments struct {
+	target, search, filters, dimension, currency, sortField, period bool
+}
+
+func argumentsOf(transition TransitionRequest) transitionArguments {
+	return transitionArguments{
+		target:    transition.Target != nil,
+		search:    transition.Search != nil,
+		filters:   transition.Filters != nil,
+		dimension: transition.Dimension != nil,
+		currency:  transition.Currency != nil,
+		sortField: transition.SortField != nil,
+		period:    transition.Period != nil,
 	}
-	if err := service.applyAnalyticalTransition(&session, transition); err != nil {
-		return rejectedTransition(state, selection, err)
+}
+
+func requiredArguments(action ActionID) transitionArguments {
+	switch action {
+	case ActionDrill, ActionToggleSelection:
+		return transitionArguments{target: true}
+	case ActionApplySearch:
+		return transitionArguments{search: true}
+	case ActionApplyFilters:
+		return transitionArguments{filters: true}
+	case ActionSetGrouping, ActionSetSubGrouping:
+		return transitionArguments{dimension: true}
+	case ActionSetCurrency:
+		return transitionArguments{currency: true}
+	case ActionSetSort:
+		return transitionArguments{sortField: true}
+	case ActionSetPeriod:
+		return transitionArguments{period: true}
+	default:
+		return transitionArguments{}
 	}
-	nextState := session.ViewState()
-	if reflect.DeepEqual(state, nextState) {
-		return rejectedTransition(state, selection, noChangeWeb(errors.New("action did not change view")))
-	}
-	nextSelection, err := service.selectionFromSession(nextState, selection, selectionDocument, session)
-	if err != nil {
-		return rejectedTransition(state, selection, err)
-	}
-	projection, err := service.projectViewLocked(nextState, nextSelection, window)
-	if err != nil {
-		return rejectedTransition(state, selection, err)
-	}
-	return nextState, nextSelection, projection, nil
 }
 
 func validateTransitionArguments(transition TransitionRequest) error {
-	wantTarget := transition.Action == ActionDrill || transition.Action == ActionToggleSelection
-	wantSearch := transition.Action == ActionApplySearch
-	wantFilters := transition.Action == ActionApplyFilters
-	if (transition.Target != nil) != wantTarget ||
-		(transition.Search != nil) != wantSearch ||
-		(transition.Filters != nil) != wantFilters {
+	if argumentsOf(transition) != requiredArguments(transition.Action) {
 		return invalidWebRequest(errors.New("action arguments do not match action"))
 	}
 	if transition.Search != nil &&
@@ -453,20 +590,22 @@ func (service *Service) applySelectionTransition(
 	state AnalyticalState,
 	selection SelectionValue,
 	transition TransitionRequest,
+	currencies []domain.CurrencyCount,
 ) (SelectionValue, error) {
 	switch transition.Action {
 	case ActionToggleSelection:
-		if err := service.validateRowTarget(state, *transition.Target); err != nil {
+		if err := service.validateRowTarget(state, *transition.Target, currencies); err != nil {
 			return selection, err
 		}
-		return service.ToggleSelection(
+		return service.toggleSelection(
 			state,
 			selection,
 			transition.Target.Kind,
 			transition.Target.Identity,
+			currencies,
 		)
 	case ActionToggleSelectAll:
-		return service.ToggleAllSelection(state, selection)
+		return service.toggleAllSelection(state, selection, currencies)
 	default:
 		return selection, invalidWebRequest(errors.New("unsupported selection action"))
 	}
@@ -475,6 +614,7 @@ func (service *Service) applySelectionTransition(
 func (service *Service) applyAnalyticalTransition(
 	session *Session,
 	transition TransitionRequest,
+	currencies []domain.CurrencyCount,
 ) error {
 	switch transition.Action {
 	case ActionCycleGrouping:
@@ -484,7 +624,7 @@ func (service *Service) applyAnalyticalTransition(
 	case ActionSwitchAccounts:
 		session.SwitchAccounts()
 	case ActionDrill:
-		row, err := service.resolveAggregateTarget(*session, *transition.Target)
+		row, err := service.resolveAggregateTarget(*session, *transition.Target, currencies)
 		if err != nil {
 			return err
 		}
@@ -495,20 +635,8 @@ func (service *Service) applyAnalyticalTransition(
 		if _, changed := session.Back(); !changed {
 			return noChangeWeb(errors.New("view has no parent"))
 		}
-	case ActionToggleTime:
-		session.ToggleTimeGranularity()
-	case ActionClearTime:
-		if !session.ClearTimePeriod() {
-			return noChangeWeb(errors.New("view has no active time period"))
-		}
-	case ActionPreviousPeriod:
-		if !session.NavigatePeriod(-1) {
-			return noChangeWeb(errors.New("view has no previous time period"))
-		}
-	case ActionNextPeriod:
-		if !session.NavigatePeriod(1) {
-			return noChangeWeb(errors.New("view has no next time period"))
-		}
+	case ActionClearTime, ActionPreviousPeriod, ActionNextPeriod, ActionSetPeriod:
+		return applyPeriodTransition(session, transition)
 	case ActionCycleSort:
 		session.CycleSort()
 	case ActionReverseSort:
@@ -520,7 +648,38 @@ func (service *Service) applyAnalyticalTransition(
 			return invalidWebRequest(err)
 		}
 	default:
-		return invalidWebRequest(errors.New("unsupported analytical action"))
+		return applyDirectTransition(session, transition)
+	}
+	return nil
+}
+
+func applyDirectTransition(session *Session, transition TransitionRequest) error {
+	var err error
+	switch transition.Action {
+	case ActionSetGrouping:
+		err = session.SetGrouping(*transition.Dimension)
+	case ActionSetSubGrouping:
+		err = session.SetSubGrouping(*transition.Dimension)
+	case ActionSetCurrency:
+		err = session.SetCurrency(transition.Currency)
+	case ActionSetSort:
+		err = session.SetSort(*transition.SortField)
+	default:
+		err = errors.New("unsupported analytical action")
+	}
+	if err != nil {
+		return invalidWebRequest(err)
+	}
+	return nil
+}
+
+func shiftWebPeriod(session *Session, delta int, unchanged string) error {
+	changed, err := session.ShiftPeriod(delta)
+	if err != nil {
+		return invalidWebRequest(err)
+	}
+	if !changed {
+		return noChangeWeb(errors.New(unchanged))
 	}
 	return nil
 }
@@ -528,11 +687,12 @@ func (service *Service) applyAnalyticalTransition(
 func (service *Service) resolveAggregateTarget(
 	session Session,
 	target RowTarget,
+	currencies []domain.CurrencyCount,
 ) (domain.AggregateRow, error) {
 	if target.Kind != IdentityAggregate || target.Identity == "" {
 		return domain.AggregateRow{}, invalidWebRequest(errors.New("drill target kind is invalid"))
 	}
-	result, err := service.Query(session)
+	result, err := service.webQuery(analyticalStateFromSession(session), currencies)
 	if err != nil {
 		return domain.AggregateRow{}, invalidWebRequest(err)
 	}
@@ -549,15 +709,16 @@ func (service *Service) resolveAggregateTarget(
 	return domain.AggregateRow{}, staleWebTarget(errors.New("aggregate target no longer resolves"))
 }
 
-func (service *Service) validateRowTarget(state AnalyticalState, target RowTarget) error {
+func (service *Service) validateRowTarget(
+	state AnalyticalState, target RowTarget, currencies []domain.CurrencyCount,
+) error {
 	if target.Kind != identityKindForState(state) || target.Identity == "" {
 		return invalidWebRequest(errors.New("selection target kind is invalid"))
 	}
-	session, _, err := service.ResolveViewSession(state)
-	if err != nil {
+	if _, _, err := service.ResolveViewSession(state); err != nil {
 		return err
 	}
-	result, err := service.Query(session)
+	result, err := service.webQuery(state, currencies)
 	if err != nil {
 		return invalidWebRequest(err)
 	}
@@ -587,51 +748,21 @@ func applySnapshotToSession(session *Session, snapshot SelectionSnapshot) {
 	session.SelectedAggregateKeys = cloneSet(snapshot.IDs)
 }
 
-func applySnapshotToHistory(snapshot *sessionSnapshot, selection SelectionSnapshot) {
-	snapshot.selectedTransactionIDs = make(map[string]struct{})
-	snapshot.selectedAggregateKeys = make(map[string]struct{})
-	if selection.Kind == IdentityTransaction {
-		snapshot.selectedTransactionIDs = cloneSet(selection.IDs)
-		return
-	}
-	snapshot.selectedAggregateKeys = cloneSet(selection.IDs)
-}
-
 func (service *Service) selectionFromSession(
-	state ViewState,
+	state AnalyticalState,
 	old SelectionValue,
-	oldDocument selectionDocument,
 	session Session,
+	currencies []domain.CurrencyCount,
 ) (SelectionValue, error) {
-	if len(session.history) != len(state.Returns) {
-		return old, invalidSelection(errors.New("session history does not match return frames"))
-	}
-	returns := make([]selectionPayload, len(session.history))
-	for index, entry := range session.history {
-		returnState := state.Returns[index].State
-		returnKind := identityKindForState(returnState)
-		returnTarget := entry.snapshot.selectedAggregateKeys
-		if returnKind == IdentityTransaction {
-			returnTarget = entry.snapshot.selectedTransactionIDs
-		}
-		payload, err := service.smallestSelectionPayload(returnState, returnKind, returnTarget)
-		if err != nil {
-			return old, err
-		}
-		returns[index] = payload
-	}
-
-	kind := identityKindForState(state.Current)
+	kind := identityKindForState(state)
 	target := session.SelectedAggregateKeys
 	if kind == IdentityTransaction {
 		target = session.SelectedTransactionIDs
 	}
-	if len(target) == 0 && len(returns) == 0 {
+	if len(target) == 0 {
 		return EmptySelection(), nil
 	}
-	return service.smallestSelectionWithReturns(
-		state.Current, old, oldDocument, kind, target, returns,
-	)
+	return service.smallestSelection(state, old, kind, target, currencies)
 }
 
 func rejectedTransition(

@@ -134,7 +134,7 @@ func (model Model) displayBreadcrumb() string {
 	if model.session.DateRange != nil {
 		breadcrumb = model.session.Breadcrumb(nil)
 		label := model.session.DateRange.Start.String() + " to " + model.session.DateRange.End.String()
-		if anchor, resolution, ok := calendarPeriod(model.session.DateRange); ok {
+		if anchor, resolution, ok := app.CalendarPeriod(model.session.DateRange); ok {
 			label = calendarPeriodLabel(anchor, resolution)
 		}
 		breadcrumb = label + " > " + breadcrumb

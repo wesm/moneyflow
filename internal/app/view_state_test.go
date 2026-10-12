@@ -78,11 +78,12 @@ func TestViewStatePreservesSearchAnchorScope(t *testing.T) {
 
 	restored, err := NewSessionFromViewState(state)
 	require.NoError(t, err)
+	require.NoError(t, restored.Drill(domain.AggregateRow{
+		Dimension: domain.DimensionCategory, Key: "category", Label: "Groceries",
+	}, ViewPosition{}))
 	_, ok := restored.Back()
-	assert.False(t, ok, "search must not clear outside its opening scope")
-	for range 4 {
-		restored.CycleGrouping()
-	}
+	require.True(t, ok)
+	assert.Equal(t, "grocer", restored.Search, "search must not clear below its opening level")
 	_, ok = restored.Back()
 	assert.True(t, ok)
 	assert.Empty(t, restored.Search)

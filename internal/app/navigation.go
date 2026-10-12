@@ -2,6 +2,8 @@ package app
 
 import (
 	"errors"
+	"fmt"
+	"slices"
 	"time"
 
 	"github.com/wesm/moneyflow/internal/domain"
@@ -80,6 +82,141 @@ func (session *Session) CycleSubGrouping() {
 	session.clearSelections()
 }
 
+// SetGrouping shows the top-level aggregate for dimension. It leaves any drill path,
+// sub-grouping, selection, and back history, and keeps the period, search, currency, and
+// filters. The sort follows the same rule as cycling the grouping at the top level.
+func (session *Session) SetGrouping(dimension domain.Dimension) error {
+	if !slices.Contains(dimensionOrder, dimension) {
+		return fmt.Errorf("set grouping: unknown dimension %q", dimension)
+	}
+	fromDetail := session.fromDetailView()
+	session.Mode = domain.ResultModeAggregate
+	session.Dimension = dimension
+	session.leaveDrillPath()
+	session.Sort = topLevelSort(dimension, session.Sort, fromDetail)
+	session.rebaseSearchAnchor()
+	return nil
+}
+
+// SetSubGrouping breaks the drilled rows down by dimension. Back undoes it, as it undoes
+// cycling the sub-grouping.
+func (session *Session) SetSubGrouping(dimension domain.Dimension) error {
+	if len(session.Drilldowns) == 0 {
+		return errors.New("set sub-grouping: the view is not drilled into a row")
+	}
+	if !slices.Contains(session.availableSubGroupings(), dimension) {
+		return fmt.Errorf("set sub-grouping: %q is not available below the drill path", dimension)
+	}
+	if session.SubGrouping == nil {
+		session.pushHistory(historySubGrouping, ViewPosition{})
+	}
+	session.SubGrouping = &dimension
+	session.Sort = sortForAggregateTransition(dimension, session.Sort)
+	session.clearSelections()
+	return nil
+}
+
+// SetCurrency restricts the view to one currency and scale. Drill identities include the
+// currency, so the drill path, sub-grouping, selection, and back history are cleared.
+func (session *Session) SetCurrency(scope *domain.CurrencyScope) error {
+	if scope == nil {
+		return errors.New("set currency: a currency is required")
+	}
+	if !domain.IsValidCurrency(scope.Currency) {
+		return fmt.Errorf("set currency: %q is not a three-letter uppercase code", scope.Currency)
+	}
+	if session.Currency != nil && *session.Currency == *scope {
+		return nil
+	}
+	fromDetail := session.fromDetailView()
+	hadDrill := len(session.Drilldowns) > 0
+	hadSubGrouping := session.SubGrouping != nil
+	session.Currency = cloneCurrencyScope(scope)
+	session.leaveDrillPath()
+	switch {
+	case hadDrill:
+		session.Mode = domain.ResultModeAggregate
+		session.Sort = topLevelSort(session.Dimension, session.Sort, fromDetail)
+	case hadSubGrouping:
+		session.Sort = sortForDetailTransition(session.Dimension, session.Sort)
+	}
+	session.rebaseSearchAnchor()
+	return nil
+}
+
+// SetSort sorts by field. The active field reverses its direction. A new field starts with
+// its default direction: ascending for names and time periods, descending otherwise.
+func (session *Session) SetSort(field domain.SortField) error {
+	if !slices.Contains(session.sortCycle(), field) {
+		return fmt.Errorf("set sort: %q is not a sort field of this view", field)
+	}
+	if field == session.Sort.Field {
+		session.ReverseSort()
+		return nil
+	}
+	session.Sort = domain.SortSpec{Field: field, Direction: defaultSortDirection(field)}
+	return nil
+}
+
+// GroupingForKey returns the dimension that a view.set-grouping key selects. The keys
+// follow the order of the five top-level groupings.
+func GroupingForKey(key string) (domain.Dimension, bool) {
+	definition, ok := ActionByID(ActionSetGrouping)
+	if !ok {
+		return "", false
+	}
+	index := slices.Index(definition.Keys, key)
+	if index < 0 || index >= len(dimensionOrder) {
+		return "", false
+	}
+	return dimensionOrder[index], true
+}
+
+func defaultSortDirection(field domain.SortField) domain.SortDirection {
+	switch field {
+	case domain.SortFieldDate, domain.SortFieldCount, domain.SortFieldAmount:
+		return domain.SortDirectionDesc
+	default:
+		return domain.SortDirectionAsc
+	}
+}
+
+func (session *Session) fromDetailView() bool {
+	return session.Mode == domain.ResultModeDetail && session.SubGrouping == nil
+}
+
+func (session *Session) leaveDrillPath() {
+	session.Drilldowns = nil
+	session.SubGrouping = nil
+	session.history = nil
+	session.clearSelections()
+}
+
+// rebaseSearchAnchor makes a kept search belong to the level the session is now at, so
+// Back can clear it.
+func (session *Session) rebaseSearchAnchor() {
+	if session.Search == "" {
+		session.searchAnchor = nil
+		return
+	}
+	marker := session.marker()
+	session.searchAnchor = &marker
+}
+
+// topLevelSort picks the sort for a top-level aggregate. A detail sort field other than
+// amount has no aggregate meaning, so it starts from the amount default. An amount sort
+// keeps its direction.
+func topLevelSort(
+	dimension domain.Dimension,
+	current domain.SortSpec,
+	fromDetail bool,
+) domain.SortSpec {
+	if fromDetail && current.Field != domain.SortFieldAmount {
+		current = amountDescending()
+	}
+	return sortForTopLevelTransition(dimension, current)
+}
+
 // JumpToTime groups the current scope by time without discarding filters.
 // A scope already drilled into a time period cannot group by time again.
 func (session *Session) JumpToTime(position ViewPosition) bool {
@@ -103,24 +240,110 @@ func (session *Session) JumpToTime(position ViewPosition) bool {
 }
 
 // SetTimeRange replaces date constraints while retaining the current grouping,
-// search, and non-time drill-downs. Back retains the new range. A nil range
-// selects all time.
+// search, and non-time drill-downs. It clears the selection, and Back retains the new
+// range. A nil range selects all time.
 func (session *Session) SetTimeRange(dateRange *domain.DateRange) error {
-	if err := session.SetFilters(Filters{
-		DateRange: dateRange, ShowHidden: session.ShowHidden, ShowTransfers: session.ShowTransfers,
-	}); err != nil {
+	if err := validateDateRange(dateRange); err != nil {
 		return err
 	}
-	session.Drilldowns = removeTimeDrilldowns(session.Drilldowns, session.searchAnchor)
-	for index := range session.history {
-		snapshot := &session.history[index].snapshot
-		snapshot.dateRange = cloneDateRange(dateRange)
-		snapshot.drilldowns = removeTimeDrilldowns(snapshot.drilldowns, snapshot.searchAnchor)
-		clear(snapshot.selectedTransactionIDs)
-		clear(snapshot.selectedAggregateKeys)
-	}
-	session.clearSelections()
+	session.applyTimeRange(dateRange)
 	return nil
+}
+
+// ShiftPeriod moves the period by delta calendar days, months, or years. A range that
+// covers exactly one calendar day, month, or year shifts by that unit. Otherwise the last
+// time drill-down shifts and becomes the range. It reports false when neither applies or
+// the shifted period is outside years 1 through 9999.
+func (session *Session) ShiftPeriod(delta int) (bool, error) {
+	anchor, resolution, ok := CalendarPeriod(session.DateRange)
+	if !ok {
+		anchor, resolution, ok = lastTimeDrillPeriod(session.Drilldowns)
+	}
+	if !ok {
+		return false, nil
+	}
+	dateRange, err := CalendarPeriodRange(ShiftCalendarPeriod(anchor, resolution, delta), resolution)
+	if err != nil {
+		return false, nil
+	}
+	if err := session.SetTimeRange(&dateRange); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ClearPeriod selects all time and removes time drill-downs. It reports false when the
+// view already covers all time.
+func (session *Session) ClearPeriod() bool {
+	if session.DateRange == nil && !slices.ContainsFunc(session.Drilldowns, isTimeDrilldown) {
+		return false
+	}
+	session.applyTimeRange(nil)
+	return true
+}
+
+func (session *Session) applyTimeRange(dateRange *domain.DateRange) {
+	session.applyFilters(Filters{
+		DateRange: dateRange, ShowHidden: session.ShowHidden, ShowTransfers: session.ShowTransfers,
+	})
+	session.dropTimeDrilldowns()
+}
+
+// dropTimeDrilldowns removes time drill-downs from the view and its back history. A view
+// left with a sub-grouping and no drill path shows that sub-grouping as its top-level
+// grouping, and the history entry that undid the sub-grouping goes with it.
+func (session *Session) dropTimeDrilldowns() {
+	current := session.snapshot()
+	promoted := current.dropTimeDrilldowns()
+	session.restore(current)
+	kept := make([]historyEntry, 0, len(session.history))
+	for index := len(session.history) - 1; index >= 0; index-- {
+		entry := session.history[index]
+		if promoted && entry.kind == historySubGrouping {
+			promoted = false
+			continue
+		}
+		promoted = entry.snapshot.dropTimeDrilldowns()
+		kept = append(kept, entry)
+	}
+	slices.Reverse(kept)
+	session.history = kept
+}
+
+// dropTimeDrilldowns removes time drill-downs and reports whether that left a sub-grouping
+// without a drill path, which it promotes to the top-level grouping.
+func (snapshot *sessionSnapshot) dropTimeDrilldowns() bool {
+	drilled := len(snapshot.drilldowns) > 0
+	snapshot.drilldowns = removeTimeDrilldowns(snapshot.drilldowns, snapshot.searchAnchor)
+	if !drilled || len(snapshot.drilldowns) > 0 || snapshot.subGrouping == nil {
+		return false
+	}
+	snapshot.mode = domain.ResultModeAggregate
+	snapshot.dimension = *snapshot.subGrouping
+	snapshot.subGrouping = nil
+	snapshot.sort = sortForTopLevelTransition(snapshot.dimension, snapshot.sort)
+	if snapshot.searchAnchor != nil {
+		snapshot.searchAnchor = &navigationMarker{
+			mode: snapshot.mode, dimension: snapshot.dimension,
+		}
+	}
+	return true
+}
+
+func isTimeDrilldown(drilldown domain.Drilldown) bool {
+	return drilldown.Dimension == domain.DimensionTime
+}
+
+func lastTimeDrillPeriod(drilldowns []domain.Drilldown) (time.Time, domain.TimeGranularity, bool) {
+	for index := len(drilldowns) - 1; index >= 0; index-- {
+		period := drilldowns[index].Period
+		if !isTimeDrilldown(drilldowns[index]) || period == nil {
+			continue
+		}
+		month, day := time.Month(max(period.Month, 1)), max(period.Day, 1)
+		return time.Date(period.Year, month, day, 0, 0, 0, 0, time.UTC), period.Granularity, true
+	}
+	return time.Time{}, "", false
 }
 
 func removeTimeDrilldowns(drilldowns []domain.Drilldown, searchAnchor *navigationMarker) []domain.Drilldown {
@@ -136,11 +359,16 @@ func removeTimeDrilldowns(drilldowns []domain.Drilldown, searchAnchor *navigatio
 	return drilldowns
 }
 
-// Back applies search, subgroup, and navigation-history priority in that order.
+// Back clears the selection first, then the search applied at this drill level, then the
+// sub-grouping, then returns to the parent. It reports false at the top level with
+// nothing to undo.
 func (session *Session) Back() (ViewPosition, bool) {
-	if session.Search != "" && session.searchAnchor != nil && markersEqual(session.marker(), *session.searchAnchor) {
-		session.Search = ""
-		session.searchAnchor = nil
+	if session.hasSelection() {
+		session.clearSelections()
+		return ViewPosition{}, true
+	}
+	if session.Search != "" && session.searchAtThisLevel() {
+		session.clearSearchAtThisLevel()
 		return ViewPosition{}, true
 	}
 	if session.SubGrouping != nil {
@@ -157,33 +385,90 @@ func (session *Session) Back() (ViewPosition, bool) {
 	return ViewPosition{}, false
 }
 
-// NavigatePeriod shifts the active time drill-down by delta periods.
-func (session *Session) NavigatePeriod(delta int) bool {
-	for index := len(session.Drilldowns) - 1; index >= 0; index-- {
-		drilldown := &session.Drilldowns[index]
-		if drilldown.Dimension != domain.DimensionTime || drilldown.Period == nil {
-			continue
-		}
-		period, ok := shiftPeriod(*drilldown.Period, delta)
-		if !ok {
-			return false
-		}
-		drilldown.Period = &period
-		return true
-	}
-	return false
+var calendarResolutions = []domain.TimeGranularity{
+	domain.TimeGranularityYear, domain.TimeGranularityMonth, domain.TimeGranularityDay,
 }
 
-// ClearTimePeriod removes the active time drill-down without changing other filters.
-func (session *Session) ClearTimePeriod() bool {
-	for index := len(session.Drilldowns) - 1; index >= 0; index-- {
-		if session.Drilldowns[index].Dimension != domain.DimensionTime {
-			continue
+// CalendarPeriod reports the anchor and resolution of a range that covers exactly one
+// calendar day, month, or year.
+func CalendarPeriod(dateRange *domain.DateRange) (time.Time, domain.TimeGranularity, bool) {
+	if dateRange != nil {
+		start := dateRange.Start
+		anchor := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+		for _, resolution := range calendarResolutions {
+			fullPeriod, err := CalendarPeriodRange(anchor, resolution)
+			if err == nil && fullPeriod == *dateRange {
+				return anchor, resolution, true
+			}
 		}
-		session.Drilldowns = append(session.Drilldowns[:index], session.Drilldowns[index+1:]...)
-		return true
 	}
-	return false
+	return time.Time{}, "", false
+}
+
+// CalendarPeriodRange returns the calendar day, month, or year that contains anchor.
+func CalendarPeriodRange(
+	anchor time.Time,
+	resolution domain.TimeGranularity,
+) (domain.DateRange, error) {
+	year, month, day := anchor.Date()
+	endMonth, endDay := month, day
+	switch resolution {
+	case domain.TimeGranularityYear:
+		month, day, endMonth, endDay = time.January, 1, time.December, 31
+	case domain.TimeGranularityMonth:
+		day = 1
+		endDay = time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	}
+	start, err := domain.NewDate(year, month, day)
+	if err != nil {
+		return domain.DateRange{}, err
+	}
+	end, err := domain.NewDate(year, endMonth, endDay)
+	return domain.DateRange{Start: start, End: end}, err
+}
+
+// ShiftCalendarPeriod moves anchor by delta days, months, or years. It keeps the day when
+// possible and clamps it at month end. Anchors use UTC because a period holds calendar
+// dates, not instants.
+func ShiftCalendarPeriod(anchor time.Time, resolution domain.TimeGranularity, delta int) time.Time {
+	year, month, day := anchor.Date()
+	if resolution == domain.TimeGranularityDay {
+		return time.Date(year, month, day+delta, 0, 0, 0, 0, time.UTC)
+	}
+	if resolution == domain.TimeGranularityYear {
+		year += delta
+	} else {
+		month += time.Month(delta)
+	}
+	lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	return time.Date(year, month, min(day, lastDay), 0, 0, 0, 0, time.UTC)
+}
+
+// searchAtThisLevel matches a search anchor by drill depth and result mode, so a grouping
+// or sub-grouping change keeps the level. Mode keeps the all-transactions view separate
+// from the top-level grouping it was opened from.
+func (session *Session) searchAtThisLevel() bool {
+	anchor := session.searchAnchor
+	return anchor != nil && anchor.drilldownSize == len(session.Drilldowns) &&
+		anchor.mode == session.Mode
+}
+
+// clearSearchAtThisLevel also clears the search from back history at the same drill
+// level, so undoing a sub-grouping does not bring the cleared search back.
+func (session *Session) clearSearchAtThisLevel() {
+	depth := len(session.Drilldowns)
+	session.Search = ""
+	session.searchAnchor = nil
+	for index := len(session.history) - 1; index >= 0; index-- {
+		snapshot := &session.history[index].snapshot
+		if len(snapshot.drilldowns) != depth || snapshot.mode != session.Mode {
+			return
+		}
+		if snapshot.searchAnchor != nil && snapshot.searchAnchor.drilldownSize == depth {
+			snapshot.search = ""
+			snapshot.searchAnchor = nil
+		}
+	}
 }
 
 func (session *Session) availableSubGroupings() []domain.Dimension {
@@ -205,6 +490,7 @@ func (session *Session) popHistory() (ViewPosition, bool) {
 	entry := session.history[last]
 	session.history = session.history[:last]
 	session.restore(entry.snapshot)
+	session.clearSelections()
 	return entry.position, true
 }
 
@@ -221,45 +507,4 @@ func sortForDetailTransition(dimension domain.Dimension, current domain.SortSpec
 	default:
 		return amountDescending()
 	}
-}
-
-func shiftPeriod(period domain.Period, delta int) (domain.Period, bool) {
-	switch period.Granularity {
-	case domain.TimeGranularityYear:
-		period.Year += delta
-		return period, period.Year >= 1 && period.Year <= 9999
-	case domain.TimeGranularityMonth:
-		monthIndex := period.Year*12 + period.Month - 1 + delta
-		if monthIndex < 12 || monthIndex >= 10000*12 {
-			return domain.Period{}, false
-		}
-		period.Year = monthIndex / 12
-		period.Month = monthIndex%12 + 1
-		return period, period.Validate() == nil
-	case domain.TimeGranularityDay:
-		date, err := domain.NewDate(period.Year, time.Month(period.Month), period.Day)
-		if err != nil {
-			return domain.Period{}, false
-		}
-		date, err = date.AddDays(delta)
-		if err != nil {
-			return domain.Period{}, false
-		}
-		period.Year = date.Year()
-		period.Month = int(date.Month())
-		period.Day = date.Day()
-		return period, true
-	default:
-		return domain.Period{}, false
-	}
-}
-
-func markersEqual(left navigationMarker, right navigationMarker) bool {
-	if left.mode != right.mode || left.dimension != right.dimension || left.drilldownSize != right.drilldownSize {
-		return false
-	}
-	if left.subGrouping == nil || right.subGrouping == nil {
-		return left.subGrouping == nil && right.subGrouping == nil
-	}
-	return *left.subGrouping == *right.subGrouping
 }

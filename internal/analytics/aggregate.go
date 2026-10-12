@@ -211,16 +211,8 @@ func aggregateTime(
 		mapKey := aggregateKey{partition: partition, bucket: periodKey(period)}
 		value, exists := actual[mapKey]
 		if !exists {
-			periodCopy := period
-			value = &accumulator{row: domain.AggregateRow{
-				Dimension: domain.DimensionTime,
-				Key:       mapKey.bucket,
-				Label:     periodLabel(period),
-				Period:    &periodCopy,
-				In:        domain.Money{Currency: partition.currency, Scale: partition.scale},
-				Out:       domain.Money{Currency: partition.currency, Scale: partition.scale},
-				Total:     domain.Money{Currency: partition.currency, Scale: partition.scale},
-			}}
+			scope := domain.CurrencyScope{Currency: partition.currency, Scale: partition.scale}
+			value = &accumulator{row: EmptyTimeRow(period, scope)}
 			actual[mapKey] = value
 		}
 		value.countTransaction(transaction, includePending)
@@ -244,22 +236,24 @@ func aggregateTime(
 				rows = append(rows, value.finishedRow())
 				continue
 			}
-			periodCopy := period
-			rows = append(rows, domain.AggregateRow{
-				Dimension: domain.DimensionTime,
-				Key:       key.bucket,
-				Label:     periodLabel(period),
-				Period:    &periodCopy,
-				In:        domain.Money{Currency: partition.currency, Scale: partition.scale},
-				Out:       domain.Money{Currency: partition.currency, Scale: partition.scale},
-				Total:     domain.Money{Currency: partition.currency, Scale: partition.scale},
-			})
+			scope := domain.CurrencyScope{Currency: partition.currency, Scale: partition.scale}
+			rows = append(rows, EmptyTimeRow(period, scope))
 		}
 	}
 	if err := applyShares(rows); err != nil {
 		return nil, err
 	}
 	return rows, nil
+}
+
+// EmptyTimeRow returns the Time-grouping row of a period without transactions. Its key and
+// label match the row that Aggregate returns for the same period.
+func EmptyTimeRow(period domain.Period, scope domain.CurrencyScope) domain.AggregateRow {
+	zero := domain.Money{Currency: scope.Currency, Scale: scope.Scale}
+	return domain.AggregateRow{
+		Dimension: domain.DimensionTime, Key: periodKey(period), Label: periodLabel(period),
+		Period: &period, In: zero, Out: zero, Total: zero,
+	}
 }
 
 func periodForDate(date domain.Date, granularity domain.TimeGranularity) domain.Period {

@@ -1223,14 +1223,13 @@ func (service *Service) providerProjectionResult(
 	if err != nil {
 		return ProviderRefreshResult{}, newAppError(AppStoreCorrupt, service.Revision(), err)
 	}
+	currencies := service.currencies()
 	if len(selectionBefore.IDs) > 0 {
-		_, resolveErr := resolveSelectionTargets(
-			currentSnapshot.Effective,
-			transactions,
-			service,
-			request.State.Current,
-			selectionBefore,
-		)
+		source := targetSource{
+			profile: currentSnapshot.Effective, transactions: transactions,
+			service: service, currencies: currencies,
+		}
+		_, resolveErr := resolveSelectionTargets(source, request.State.Current, selectionBefore)
 		if resolveErr != nil {
 			selection = EmptySelection()
 			disposition = SelectionCleared
@@ -1242,6 +1241,7 @@ func (service *Service) providerProjectionResult(
 			selection,
 			selectionBefore.Kind,
 			selectionBefore.IDs,
+			currencies,
 		)
 		if err != nil {
 			return ProviderRefreshResult{}, newAppError(AppInvalidOperation, service.Revision(), err)
@@ -1251,7 +1251,7 @@ func (service *Service) providerProjectionResult(
 			return ProviderRefreshResult{}, newAppError(AppInvalidOperation, service.Revision(), err)
 		}
 	}
-	projection, err := service.projectViewLocked(request.State, selection, request.Window)
+	projection, err := service.projectViewWith(request.State, selection, request.Window, currencies)
 	if err != nil {
 		return ProviderRefreshResult{}, newAppError(AppInvalidOperation, service.Revision(), err)
 	}

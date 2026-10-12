@@ -28,6 +28,12 @@ const (
 	ActionCursorHome ActionID = "cursor.home"
 	// ActionCycleGrouping cycles the active aggregate grouping.
 	ActionCycleGrouping ActionID = "view.cycle-grouping"
+	// ActionSetGrouping shows one named top-level grouping.
+	ActionSetGrouping ActionID = "view.set-grouping"
+	// ActionSetSubGrouping breaks the drilled rows down by one named dimension.
+	ActionSetSubGrouping ActionID = "view.set-subgrouping"
+	// ActionSetCurrency restricts the view to one currency and scale.
+	ActionSetCurrency ActionID = "view.set-currency"
 	// ActionShowDetail opens the all-transactions detail view.
 	ActionShowDetail ActionID = "view.show-detail"
 	// ActionFindDuplicates opens duplicate discovery when available.
@@ -38,7 +44,9 @@ const (
 	ActionDrill ActionID = "view.drill"
 	// ActionBack returns to the analytical parent.
 	ActionBack ActionID = "view.back"
-	// ActionToggleTime cycles the active time granularity.
+	// ActionChooseTime opens the period chooser.
+	ActionChooseTime ActionID = "time.choose"
+	// ActionToggleTime cycles the active time granularity in the terminal.
 	ActionToggleTime ActionID = "time.toggle-granularity"
 	// ActionClearTime removes the active time period.
 	ActionClearTime ActionID = "time.clear-period"
@@ -46,10 +54,14 @@ const (
 	ActionPreviousPeriod ActionID = "time.previous-period"
 	// ActionNextPeriod moves the active time period forward.
 	ActionNextPeriod ActionID = "time.next-period"
+	// ActionSetPeriod sets the view's period to one range or to all time.
+	ActionSetPeriod ActionID = "time.set-period"
 	// ActionCycleSort advances the active sort field.
 	ActionCycleSort ActionID = "sort.cycle"
 	// ActionReverseSort reverses the active sort direction.
 	ActionReverseSort ActionID = "sort.reverse"
+	// ActionSetSort sorts by one named field.
+	ActionSetSort ActionID = "sort.set"
 	// ActionShowInfo opens transaction information when available.
 	ActionShowInfo ActionID = "transaction.show-info"
 	// ActionEditMerchant edits merchant values when available.
@@ -111,17 +123,23 @@ var readOnlyActions = []ActionDefinition{
 	{ActionCursorDown, []string{"down", "j"}, "↓/j", "Move cursor down", "", ScopeCursor, true, true},
 	{ActionCursorHome, []string{"home"}, "home", "Move to first row", "", ScopeCursor, true, true},
 	{ActionCycleGrouping, []string{"g"}, "g", "Cycle grouping (Merchant→Category→Group→Account→Time)", "Views", ScopeAnalytical, true, true},
+	{ActionSetGrouping, []string{"1", "2", "3", "4", "5"}, "1-5", "Group by Merchant, Category, Group, Account, or Time", "Views", ScopeAnalytical, true, true},
+	{ActionSetSubGrouping, nil, "", "Break down the drilled rows by a dimension", "", ScopeAnalytical, true, true},
+	{ActionSetCurrency, nil, "", "Show one currency", "", ScopeAnalytical, true, true},
 	{ActionShowDetail, []string{"d"}, "d", "View all transactions (detail view)", "Views", ScopeAnalytical, true, true},
 	{ActionFindDuplicates, []string{"D"}, "D", "Find duplicate transactions", "Views", ScopeAnalytical, true, true},
 	{ActionSwitchAccounts, []string{"A"}, "A", "View account aggregation (direct)", "Views", ScopeAnalytical, true, true},
 	{ActionDrill, []string{"enter"}, "enter", "Drill down into selected item", "Views", ScopeAnalytical, true, true},
 	{ActionBack, []string{"esc"}, "esc", "Go back (restores cursor and sort preferences)", "Views", ScopeAnalytical, true, true},
-	{ActionToggleTime, []string{"t"}, "t", "Toggle time granularity (Year→Month→Day)", "Time", ScopeAnalytical, true, true},
+	{ActionChooseTime, []string{"t"}, "t", "Choose a year, month, day, or all time", "Time", ScopeOverlay, true, false},
+	{ActionToggleTime, []string{"ctrl+t"}, "Ctrl+t", "Time view / cycle Year→Month→Day", "Time", ScopeAnalytical, true, false},
 	{ActionClearTime, []string{"a"}, "a", "Clear time period selection", "Time", ScopeAnalytical, true, true},
 	{ActionPreviousPeriod, []string{"left"}, "←", "Previous time period (when drilled into time)", "Time", ScopeAnalytical, true, true},
 	{ActionNextPeriod, []string{"right"}, "→", "Next time period (when drilled into time)", "Time", ScopeAnalytical, true, true},
+	{ActionSetPeriod, nil, "", "Set the time period", "", ScopeAnalytical, true, true},
 	{ActionCycleSort, []string{"s"}, "s", "Toggle sort field (count/amount/date)", "Sorting", ScopeAnalytical, true, true},
 	{ActionReverseSort, []string{"v"}, "v", "Reverse sort direction", "Sorting", ScopeAnalytical, true, true},
+	{ActionSetSort, nil, "", "Sort by a column", "", ScopeAnalytical, true, true},
 	{ActionShowInfo, []string{"i"}, "i", "Show transaction info/details", "Actions", ScopeOverlay, true, true},
 	{ActionEditMerchant, []string{"m"}, "m", "Edit merchant name (or bulk rename)", "Actions", ScopeAnalytical, false, true},
 	{ActionEditCategory, []string{"c"}, "c", "Change category (or bulk change)", "Actions", ScopeAnalytical, false, true},

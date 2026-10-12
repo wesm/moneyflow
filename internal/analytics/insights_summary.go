@@ -29,8 +29,8 @@ func buildKPIs(query domain.QuerySpec, ranges Ranges, crossTab CrossTab) (Insigh
 	var err error
 	if len(query.Drilldowns) > 0 {
 		kpis.AveragePerTransaction = averagePerTransaction(kpis.Scope)
-	} else if query.Search == "" && kpis.Scope.In > 0 {
-		kpis.SavingsRateTenths, err = savingsRate(kpis.Scope)
+	} else if query.Search == "" {
+		kpis.SavingsRateTenths, err = SavingsRateTenths(kpis.Scope.Net, kpis.Scope.In)
 	}
 	return kpis, err
 }
@@ -61,12 +61,17 @@ func insightsTotals(cell CrossTabCell) InsightsTotals {
 	}
 }
 
-func savingsRate(totals InsightsTotals) (*int, error) {
-	tenths, err := ratioHalfUp(absMinor(totals.Net), absMinor(totals.In), 1000)
+// SavingsRateTenths returns Net ÷ In in tenths of a percent, with the magnitude rounded half
+// up. It returns nil when In is not positive. The rate is negative when Net is.
+func SavingsRateTenths(net, income int64) (*int, error) {
+	if income <= 0 {
+		return nil, nil
+	}
+	tenths, err := ratioHalfUp(absMinor(net), absMinor(income), 1000)
 	if err != nil {
 		return nil, fmt.Errorf("savings rate: %w", err)
 	}
-	if totals.Net < 0 {
+	if net < 0 {
 		tenths = -tenths
 	}
 	return &tenths, nil

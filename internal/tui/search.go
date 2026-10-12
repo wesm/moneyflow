@@ -3,6 +3,8 @@ package tui
 import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/wesm/moneyflow/internal/app"
 )
 
 func (model *Model) openSearch() tea.Cmd {
@@ -13,7 +15,7 @@ func (model *Model) openSearch() tea.Cmd {
 	input.SetValue(model.session.Search)
 	input.CursorEnd()
 	model.search = searchState{
-		input: input, originalSession: model.session.Clone(),
+		input: input, originalSession: model.session.Clone(), originalSelection: model.selection,
 		originalCursor: model.cursor, originalScroll: model.scroll,
 	}
 	model.overlay = overlaySearch
@@ -31,6 +33,7 @@ func (model *Model) routeSearch(message tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "esc":
 		model.session = model.search.originalSession.Clone()
+		model.selection = model.search.originalSelection
 		model.refresh()
 		model.cursor, model.scroll = model.search.originalCursor, model.search.originalScroll
 		model.clampCursor()
@@ -49,6 +52,7 @@ func (model *Model) routeSearch(message tea.KeyPressMsg) tea.Cmd {
 
 func (model *Model) updateSearch() {
 	model.session.SetSearch(model.search.input.Value())
+	model.selection = app.EmptySelection()
 	result, err := model.service.QueryContext(model.ctx, model.session)
 	if err != nil {
 		model.search.err = "Invalid search expression"
