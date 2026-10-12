@@ -8,7 +8,7 @@ const modeKey = 'kit-ui-theme'
 
 function initWith(storage: Storage): void {
   vi.stubGlobal('localStorage', storage)
-  initMoneyflowTheme(storage)
+  initMoneyflowTheme()
 }
 
 describe('initMoneyflowTheme', () => {
@@ -51,6 +51,19 @@ describe('initMoneyflowTheme', () => {
     initWith(blocked)
 
     expect(getThemeMode()).toBe('dark')
+  })
+
+  it('starts dark when the browser refuses access to storage', () => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get: () => {
+        throw new DOMException('blocked', 'SecurityError')
+      },
+    })
+    initMoneyflowTheme()
+
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(document.documentElement.getAttribute('data-kit-theme')).toBe('moneyflow')
   })
 
   it('replaces a previously stored theme name', () => {
