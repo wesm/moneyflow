@@ -100,6 +100,28 @@ describe('provider controller', () => {
     })
   })
 
+  it('says so when the view changed during a refresh and cannot be reread', async () => {
+    const sent = testProjection({ canonical_query: 'v=1', capabilities: [capability(true)] })
+    const host = hostStub(sent)
+    host.reload.mockRejectedValue(new Error('offline'))
+    const transport = transportStub({
+      mutationResponse: Response.json(refreshResponse(sent, 'preserved')),
+    })
+    vi.mocked(transport.mutations.request).mockImplementation(async () => {
+      host.current.mockReturnValue(testProjection({ canonical_query: 'group=category&v=1' }))
+      return Response.json(refreshResponse(sent, 'preserved'))
+    })
+    const controller = createProviderController({ transport, host })
+    controller.sync(sent)
+
+    await expect(controller.refresh()).resolves.toBe(true)
+
+    expect(host.accept).not.toHaveBeenCalled()
+    expect(controller.state.announcement).toBe(
+      'Provider refresh complete. The current view could not be reread.',
+    )
+  })
+
   it('clears exact selection and parks reconnect without replay', async () => {
     const current = testProjection({ selection_count: 2, capabilities: [capability(true)] })
     const cleared = testProjection({
@@ -321,6 +343,7 @@ function hostStub(current = testProjection()) {
   return {
     current: vi.fn(() => current),
     accept: vi.fn(),
+    reload: vi.fn(async () => undefined),
   }
 }
 

@@ -41,6 +41,8 @@ export interface ProviderTransport {
 interface ProviderProjectionHost {
   current(): ViewProjection | undefined
   accept(projection: ViewProjection): void
+  /** Rereads the shown view at the newest revision. */
+  reload(): Promise<unknown>
 }
 
 interface ProviderControllerOptions {
@@ -172,11 +174,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       ...response.projection,
       selection: response.selection.value,
     } as ViewProjection
-    options.host.accept(projection)
-    const complete =
-      response.selection.kind === 'cleared'
-        ? 'Provider refresh complete. Selection cleared because selected rows changed.'
-        : 'Provider refresh complete.'
+    const complete = await show(projection, current, response.selection.kind === 'cleared')
     setState({
       phase: 'idle',
       capability: state.capability,
@@ -184,6 +182,31 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       announcement: [complete, response.status.warning].filter(Boolean).join(' '),
     })
     return true
+  }
+
+  // A view or selection change that finished while the refresh ran stays: reread that view at
+  // the refreshed revision rather than reinstall the view the refresh was sent with.
+  async function show(
+    projection: ViewProjection,
+    sent: ViewProjection,
+    selectionCleared: boolean,
+  ): Promise<string> {
+    const shown = options.host.current()
+    if (
+      !shown ||
+      (shown.canonical_query === sent.canonical_query && shown.selection === sent.selection)
+    ) {
+      options.host.accept(projection)
+      return selectionCleared
+        ? 'Provider refresh complete. Selection cleared because selected rows changed.'
+        : 'Provider refresh complete.'
+    }
+    try {
+      await options.host.reload()
+      return 'Provider refresh complete.'
+    } catch {
+      return 'Provider refresh complete. The current view could not be reread.'
+    }
   }
 
   async function fail(error: unknown, confirmation: boolean): Promise<boolean> {

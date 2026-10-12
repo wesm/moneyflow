@@ -1721,6 +1721,52 @@ describe('browser view controller', () => {
     expect(history.state.cursorIndex).toBe(controller.cursorIndex)
   })
 
+  it.each([
+    [{ action: 'view.set-grouping', dimension: 'category' }, 'group=category&v=1', 'mfsel1.example'],
+    [
+      { action: 'selection.toggle', target: { kind: 'transaction', identity: 'row-0' } },
+      'v=1',
+      'mfsel1.selected',
+    ],
+  ] as const)(
+    'keeps a view change made while a provider refresh runs (%o)',
+    async (action, query, selection) => {
+      const refreshCapability = {
+        id: 'provider.refresh',
+        key_display: 'r',
+        description: 'Refresh provider data',
+        category: 'System',
+        available: true,
+      }
+      let revision = '1'
+      const shown = (next: ViewProjection) => ({ ...next, capabilities: [refreshCapability] })
+      let finish: (response: Response) => void = () => undefined
+      const client = clientWith({
+        view: vi.fn(async (body) =>
+          shown(projection(body.query, body.window.offset, 3, revision, body.selection)),
+        ),
+        transition: vi.fn(async () => shown(projection(query, 0, 3, revision, selection))),
+        mutations: {
+          request: vi.fn(() => new Promise<Response>((resolve) => (finish = resolve))),
+        },
+      })
+      history.replaceState(null, '', '/moneyflow/?v=1')
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const refreshing = controller.provider.refresh()
+      await controller.apply(action)
+      revision = '2'
+      finish(Response.json(providerRefreshResponse(projection('v=1', 0, 3, '2'))))
+      await expect(refreshing).resolves.toBe(true)
+
+      expect(controller.projection?.canonical_query).toBe(query)
+      expect(controller.projection?.selection).toBe(selection)
+      expect(controller.projection?.revision).toBe('2')
+      expect((history.state as MoneyflowHistoryState).query).toBe(query)
+    },
+  )
+
   it('synchronizes editing state after an authoritative write reconciliation', async () => {
     const next = projection('v=1', 0, 3, '2')
     const client = clientWith({
