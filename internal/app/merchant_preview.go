@@ -6,6 +6,7 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/wesm/moneyflow/internal/analytics"
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
@@ -14,11 +15,19 @@ type MerchantEditPreview struct {
 	Revision             uint64
 	AffectedTransactions int
 	Transactions         []domain.Transaction
+	// OutsideView counts affected transactions whose committed values the opening view hides.
+	OutsideView int
+	// OutsideCurrencies lists, sorted by currency then scale and unique, the money partitions of
+	// those transactions.
+	OutsideCurrencies []domain.CurrencyScope
 }
 
 // PreviewMerchantEdit resolves the same targets as an edit without appending an operation.
+// It holds the interaction lock throughout, so the counts and the revision describe one state.
 func (service *Service) PreviewMerchantEdit(ctx context.Context, request MutationRequest) (MerchantEditPreview, error) {
-	snapshot, err := service.readSnapshot(ctx)
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
+	snapshot, err := service.readSnapshotLocked(ctx)
 	if err != nil {
 		return MerchantEditPreview{}, err
 	}
@@ -55,15 +64,81 @@ func (service *Service) PreviewMerchantEdit(ctx context.Context, request Mutatio
 		}
 	}
 	slices.SortFunc(preview, func(a, b domain.Transaction) int { return cmp.Compare(a.ID, b.ID) })
-	return MerchantEditPreview{
+	result := MerchantEditPreview{
 		Revision: snapshot.Revision, AffectedTransactions: len(ids),
 		Transactions: preview,
-	}, nil
+	}
+	if request.Input.Scope == EditScopeEntity {
+		state := request.State.Current
+		if err := service.countOutsideView(ctx, state, ids, transactions, &result); err != nil {
+			return MerchantEditPreview{}, err
+		}
+	}
+	return result, nil
 }
 
-func (service *Service) readSnapshot(ctx context.Context) (EffectiveSnapshot, error) {
-	service.interactions.Lock()
-	defer service.interactions.Unlock()
+// countOutsideView records which affected transactions the opening view hides, judged by
+// committed values as the table shows them. Currencies come from the effective transactions.
+func (service *Service) countOutsideView(
+	ctx context.Context, state AnalyticalState, ids []domain.EntityID,
+	effective []domain.Transaction, preview *MerchantEditPreview,
+) error {
+	inView, err := service.committedViewMembers(ctx, preview.Revision, state)
+	if err != nil {
+		return err
+	}
+	affected := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		affected[string(id)] = struct{}{}
+	}
+	for _, transaction := range effective {
+		if _, isAffected := affected[transaction.ID]; !isAffected {
+			continue
+		}
+		if _, visible := inView[transaction.ID]; visible {
+			continue
+		}
+		preview.OutsideView++
+		preview.OutsideCurrencies = append(preview.OutsideCurrencies, domain.CurrencyScope{
+			Currency: transaction.Amount.Currency, Scale: transaction.Amount.Scale,
+		})
+	}
+	slices.SortFunc(preview.OutsideCurrencies, func(a, b domain.CurrencyScope) int {
+		return cmp.Or(cmp.Compare(a.Currency, b.Currency), cmp.Compare(a.Scale, b.Scale))
+	})
+	preview.OutsideCurrencies = slices.Compact(preview.OutsideCurrencies)
+	return nil
+}
+
+// committedViewMembers returns the IDs of committed transactions that pass the view's filters.
+// For Amazon profiles a search also matches product names, as it does in the table.
+func (service *Service) committedViewMembers(
+	ctx context.Context, revision uint64, state AnalyticalState,
+) (map[string]struct{}, error) {
+	service.mu.RLock()
+	transactions := append([]domain.Transaction(nil), service.browseTransactionsLocked()...)
+	matcher := service.amazonMatcher
+	rawLabels := service.rawProviderMerchantLabelsLocked()
+	service.mu.RUnlock()
+	spec := analyticalQuerySpec(state)
+	var members []domain.Transaction
+	var err error
+	if matcher != nil && spec.Search != "" {
+		members, err = amazonProductSearch(ctx, transactions, spec, matcher, rawLabels)
+	} else {
+		members, err = analytics.Filter(transactions, spec)
+	}
+	if err != nil {
+		return nil, newAppError(AppInvalidOperation, revision, err)
+	}
+	inView := make(map[string]struct{}, len(members))
+	for _, transaction := range members {
+		inView[transaction.ID] = struct{}{}
+	}
+	return inView, nil
+}
+
+func (service *Service) readSnapshotLocked(ctx context.Context) (EffectiveSnapshot, error) {
 	if _, err := service.refreshLocked(ctx); err != nil {
 		return EffectiveSnapshot{}, err
 	}

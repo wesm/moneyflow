@@ -19,6 +19,24 @@ type aggregateKey struct {
 type accumulator struct {
 	row                domain.AggregateRow
 	categoryActivities map[string]uint64
+	hiddenCount        int
+}
+
+func (value *accumulator) countTransaction(transaction domain.Transaction, includePending bool) {
+	value.row.Count++
+	if transaction.Hidden {
+		value.hiddenCount++
+	}
+	if includePending {
+		value.row.Flags.Pending = value.row.Flags.Pending || transaction.Pending
+	}
+}
+
+// finishedRow returns the row with flags derived from every counted transaction.
+func (value *accumulator) finishedRow() domain.AggregateRow {
+	row := value.row
+	row.Flags.Hidden = row.Count > 0 && value.hiddenCount == row.Count
+	return row
 }
 
 func (value *accumulator) addAmount(amount domain.Money) error {
@@ -88,10 +106,7 @@ func aggregate(
 			// smallest label makes aggregation independent of transaction order.
 			value.row.Label = label
 		}
-		value.row.Count++
-		if includePending {
-			value.row.Flags.Pending = value.row.Flags.Pending || transaction.Pending
-		}
+		value.countTransaction(transaction, includePending)
 		if transaction.Hidden {
 			continue
 		}
@@ -115,7 +130,7 @@ func aggregate(
 				return nil, err
 			}
 		}
-		rows = append(rows, value.row)
+		rows = append(rows, value.finishedRow())
 	}
 	if err := applyShares(rows); err != nil {
 		return nil, err
@@ -208,10 +223,7 @@ func aggregateTime(
 			}}
 			actual[mapKey] = value
 		}
-		value.row.Count++
-		if includePending {
-			value.row.Flags.Pending = value.row.Flags.Pending || transaction.Pending
-		}
+		value.countTransaction(transaction, includePending)
 		if !transaction.Hidden {
 			if err := value.addAmount(transaction.Amount); err != nil {
 				return nil, fmt.Errorf("aggregate: time %s total: %w", mapKey.bucket, err)
@@ -229,7 +241,7 @@ func aggregateTime(
 		for _, partition := range partitionKeys {
 			key := aggregateKey{partition: partition, bucket: periodKey(period)}
 			if value, exists := actual[key]; exists {
-				rows = append(rows, value.row)
+				rows = append(rows, value.finishedRow())
 				continue
 			}
 			periodCopy := period

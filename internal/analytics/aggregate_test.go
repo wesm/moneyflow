@@ -92,6 +92,88 @@ func TestEditingAggregateMarksEveryAffectedDimensionAndTimeBucketPending(t *test
 	}
 }
 
+func TestAggregateFlagsRowsWhoseTransactionsAreAllHidden(t *testing.T) {
+	t.Parallel()
+	allHidden := testTransaction(
+		t, "txn-solo", "2024-01-01", "-10.00", "Solo Store", "Solo", "Solo Group",
+	)
+	allHidden.Hidden = true
+	allHidden.Account = domain.EntityRef{ID: "account-solo", Name: "Solo Account"}
+	mixedHidden := testTransaction(
+		t, "txn-mixed-hidden", "2024-03-01", "-20.00", "Mixed Store", "Mixed", "Mixed Group",
+	)
+	mixedHidden.Hidden = true
+	mixedVisible := testTransaction(
+		t, "txn-mixed-visible", "2024-03-02", "-30.00", "Mixed Store", "Mixed", "Mixed Group",
+	)
+	mixedVisible.Merchant = mixedHidden.Merchant
+	mixedVisible.Category = mixedHidden.Category
+	transactions := []domain.Transaction{allHidden, mixedHidden, mixedVisible}
+
+	tests := map[domain.Dimension]struct {
+		hiddenKey  string
+		visibleKey string
+	}{
+		domain.DimensionMerchant: {
+			hiddenKey: "merchant-txn-solo", visibleKey: "merchant-txn-mixed-hidden",
+		},
+		domain.DimensionCategory: {
+			hiddenKey: "category-txn-solo", visibleKey: "category-txn-mixed-hidden",
+		},
+		domain.DimensionGroup:   {hiddenKey: "group-solo-group", visibleKey: "group-mixed-group"},
+		domain.DimensionAccount: {hiddenKey: "account-solo", visibleKey: "account-card"},
+		domain.DimensionTime:    {hiddenKey: "2024-01", visibleKey: "2024-03"},
+	}
+	for dimension, test := range tests {
+		rows, err := Aggregate(transactions, dimension, domain.TimeGranularityMonth)
+		require.NoError(t, err)
+		hidden := make(map[string]bool, len(rows))
+		for _, row := range rows {
+			hidden[row.Key] = row.Flags.Hidden
+		}
+		assert.True(t, hidden[test.hiddenKey], dimension)
+		assert.False(t, hidden[test.visibleKey], dimension)
+	}
+}
+
+func TestAggregateFlagsRowsWithSeveralTransactionsAllHidden(t *testing.T) {
+	t.Parallel()
+	first := testTransaction(t, "txn-first", "2024-01-01", "-10.00", "Same Store", "Dining", "Living")
+	first.Hidden = true
+	second := testTransaction(
+		t, "txn-second", "2024-01-02", "-20.00", "Same Store", "Dining", "Living",
+	)
+	second.Hidden = true
+	second.Merchant = first.Merchant
+
+	rows, err := Aggregate(
+		[]domain.Transaction{first, second}, domain.DimensionMerchant, domain.TimeGranularityMonth,
+	)
+
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, 2, rows[0].Count)
+	assert.True(t, rows[0].Flags.Hidden)
+}
+
+func TestAggregateTimeGapRowsAreNotHidden(t *testing.T) {
+	t.Parallel()
+	january := testTransaction(t, "txn-jan", "2024-01-01", "-10.00", "Store", "Dining", "Living")
+	january.Hidden = true
+	march := testTransaction(t, "txn-mar", "2024-03-01", "-10.00", "Store", "Dining", "Living")
+	march.Hidden = true
+
+	rows, err := Aggregate(
+		[]domain.Transaction{january, march}, domain.DimensionTime, domain.TimeGranularityMonth,
+	)
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+	assert.True(t, rows[0].Flags.Hidden)
+	assert.Zero(t, rows[1].Count)
+	assert.False(t, rows[1].Flags.Hidden)
+	assert.True(t, rows[2].Flags.Hidden)
+}
+
 func TestAggregateSeparatesMoneyPartitions(t *testing.T) {
 	t.Parallel()
 
