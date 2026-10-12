@@ -136,4 +136,5 @@ come from the server.
 
 A double-click on a composition bar drills into its row. The performance spec times that
 drill and the cursor's move to a new cash-flow column; their limits are in
-`web/budgets.json`.
+`web/budgets.json`. That spec runs with Playwright tracing off, because tracing snapshots the
+page inside the timed window. Every other spec keeps the configured tracing.
