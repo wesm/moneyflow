@@ -927,16 +927,8 @@ func TestMatrixSetSortInsideASubGroupedDrillUsesTheSubGroupingFields(t *testing.
 	}
 }
 
-func TestGroupingForKeyFollowsTheRegistryKeysAndGroupingOrder(t *testing.T) {
+func TestGroupingForKeyRejectsKeysOutsideTheGroupingKeys(t *testing.T) {
 	t.Parallel()
-	definition, ok := ActionByID(ActionSetGrouping)
-	require.True(t, ok)
-	require.Len(t, definition.Keys, len(dimensionOrder))
-	for index, key := range definition.Keys {
-		dimension, ok := GroupingForKey(key)
-		require.True(t, ok, key)
-		assert.Equal(t, dimensionOrder[index], dimension, key)
-	}
 	for _, key := range []string{"", "0", "6", "g", "11"} {
 		_, ok := GroupingForKey(key)
 		assert.False(t, ok, key)

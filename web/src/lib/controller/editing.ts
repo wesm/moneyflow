@@ -229,7 +229,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
         canonical_query: body.query,
         selection,
       }
-      const viewWarning = await show(projection)
+      const viewWarning = await show(projection, body.selection)
       const auditWarning = projection.warnings?.find(
         (warning) => warning.code === 'audit_completion_failed',
       )?.detail
@@ -258,15 +258,19 @@ export function createEditingController(options: EditingControllerOptions): Edit
   }
 
   // A view change that finished while the request ran keeps its own query: reread that view at
-  // the new revision rather than reinstall the query the mutation was sent with.
-  async function show(projection: ViewProjection): Promise<string | undefined> {
+  // the new revision rather than reinstall the query the mutation was sent with. The reread
+  // takes the response's selection, such as a cleared one, unless the selection changed too.
+  async function show(
+    projection: ViewProjection,
+    sent: string | undefined,
+  ): Promise<string | undefined> {
     const shown = options.host.current()
     if (!shown || shown.canonical_query === projection.canonical_query) {
       options.host.accept(projection)
       return undefined
     }
     try {
-      await options.host.refresh(undefined, true)
+      await options.host.refresh(shown.selection === sent ? projection.selection : undefined, true)
       return undefined
     } catch {
       return 'The current view could not be refreshed.'

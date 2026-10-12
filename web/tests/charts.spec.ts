@@ -331,6 +331,30 @@ test('a drag across cash-flow columns sets a custom range', async ({ page, serve
   await expect(page).toHaveURL(/[?&]from=2026-07-01&to=2026-09-30/)
 })
 
+test('a touch drag from a column’s bars sets a custom range', async ({
+  page,
+  server,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', 'Touch input is sent through the Chromium protocol.')
+  await openMoneyflow(page, server)
+  // The press starts on the bars' drawing inside the column, not on the column's own padding.
+  const points = await Promise.all(
+    ['Jul 2026', 'Aug 2026', 'Sep 2026'].map(async (label) => {
+      const box = (await column(page, label).locator('svg').boundingBox())!
+      return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) }
+    }),
+  )
+  const touch = await page.context().newCDPSession(page)
+  const send = (type: string, at: { x: number; y: number }[]) =>
+    touch.send('Input.dispatchTouchEvent', { type, touchPoints: at })
+  await send('touchStart', [points[0]!])
+  await send('touchMove', [points[1]!])
+  await send('touchMove', [points[2]!])
+  await send('touchEnd', [])
+  await expect(periodControl(page)).toHaveText('Jul 1 – Sep 30, 2026')
+})
+
 test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', async ({
   page,
   server,
@@ -422,8 +446,8 @@ test('a composition bar click moves the cursor, and a double-click drills', asyn
   )
   await expect(whereItWent(page).getByText(/^\d+ others$/)).toBeVisible()
   await bar(page, 'Online Megastore').click()
-  await expect(await activeRow(page)).toContainText('Online Megastore')
   await expect(bar(page, 'Online Megastore')).toHaveClass(/mf-bar--cursor/)
+  await expect(await activeRow(page)).toContainText('Online Megastore')
 
   // The switch shows Income from the same insights, without asking the server again.
   let requests = 0
@@ -465,6 +489,45 @@ test('the composition list moves with arrows and drills with Enter', async ({ pa
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(
     'Online Megastore',
   )
+})
+
+test('a double-click drills a composition bar whose row is below the table’s edge', async ({
+  page,
+  server,
+}) => {
+  // Short enough that the last bar's row is below the visible table rows.
+  await page.setViewportSize({ width: 1440, height: 560 })
+  await openMoneyflow(page, server, september)
+  const target = whereItWent(page).getByRole('button').last()
+  const label = (await target.getAttribute('aria-label'))!.split(',')[0]!
+  const box = (await target.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  // A person's double-click: the second press comes a moment after the first click.
+  await page.mouse.down()
+  await page.mouse.up()
+  await page.waitForTimeout(150)
+  await page.mouse.down({ clickCount: 2 })
+  await page.mouse.up({ clickCount: 2 })
+  await expect(page).toHaveURL(/[?&]drill=merchant/)
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(label)
+})
+
+test('a composition click moves the cursor at once and scrolls to its row after a pause', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 560 })
+  await openMoneyflow(page, server, september)
+  const target = whereItWent(page).getByRole('button').last()
+  const label = (await target.getAttribute('aria-label'))!.split(',')[0]!
+  await target.click()
+  await expect(target).toHaveClass(/mf-bar--cursor/)
+  // The scroll waits out the double-click time, then shows the cursor row.
+  await expect
+    .poll(() => workspace(page).evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0)
+  await expect(await activeRow(page)).toContainText(label)
+  await expectCursorRowShown(page)
 })
 
 test('the Time grouping shows the cursor day’s groups as the cursor moves', async ({

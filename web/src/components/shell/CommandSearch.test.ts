@@ -5,6 +5,8 @@ import CommandSearch from './CommandSearch.svelte'
 import { SearchCarry } from '../../lib/shell/search-carry'
 import CommandSearchSwap from '../../test/CommandSearchSwap.svelte'
 import type { SearchPreview } from '../../lib/controller/search'
+import { createViewController } from '../../lib/controller/view-controller.svelte'
+import type { MoneyflowClient, TransitionBody } from '../../lib/api/client'
 import { testProjection } from '../../test/projection'
 
 function host(search = '', valid = true) {
@@ -24,6 +26,7 @@ function host(search = '', valid = true) {
       held(work)
       return work
     },
+    settled: async () => undefined,
   }
 }
 
@@ -296,6 +299,54 @@ describe('CommandSearch', () => {
     expect(field().disabled).toBe(true)
     await rerender({ controller: host() })
     expect(field().disabled).toBe(false)
+  })
+
+  it('searches from the view a change still loading returns, without aborting it', async () => {
+    history.replaceState(null, '', '/?v=1')
+    let release!: () => void
+    const transition = vi.fn(async (body: TransitionBody) => {
+      if (body.action === 'search.apply') {
+        return testProjection({ canonical_query: `${body.query}&q=${body.search}` })
+      }
+      await new Promise<void>((resolve) => (release = resolve))
+      return testProjection({ canonical_query: `${body.query}&group=category` })
+    })
+    const client = { view: vi.fn(async () => testProjection()), transition, mutations: {} }
+    const controller = createViewController({
+      basePath: '/',
+      client: client as unknown as MoneyflowClient,
+      prefetch: false,
+    })
+    await controller.hydrate()
+    render(CommandSearch, { controller, ondone: vi.fn() })
+
+    const grouping = controller.apply({ action: 'view.cycle-grouping' })
+    await fireEvent.input(field(), { target: { value: 'coffee' } })
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(transition.mock.calls.map(([body]) => body.action)).toEqual(['view.cycle-grouping'])
+    release()
+    await grouping
+
+    await waitFor(() =>
+      expect(controller.projection?.canonical_query).toBe('v=1&group=category&q=coffee'),
+    )
+  })
+
+  it('applies text entered while an earlier view change loads once it finishes', async () => {
+    let release!: () => void
+    const controller = {
+      ...host(),
+      settled: () => new Promise<void>((resolve) => (release = resolve)),
+    }
+    const ondone = vi.fn()
+    render(CommandSearch, { controller, ondone })
+    await fireEvent.input(field(), { target: { value: 'noodle' } })
+    await fireEvent.keyDown(field(), { key: 'Enter' })
+    expect(controller.beginSearch).not.toHaveBeenCalled()
+    release()
+    await waitFor(() => expect(controller.commitSearch).toHaveBeenCalledOnce())
+    expect(controller.previewSearch).toHaveBeenCalledWith('noodle')
+    expect(ondone).toHaveBeenCalledOnce()
   })
 
   it('focuses and selects the field for the / key', async () => {

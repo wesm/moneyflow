@@ -277,6 +277,84 @@ describe('ManagerDrawer', () => {
     expect(screen.getByRole('textbox', { name: 'Name' })).not.toBeNull()
   })
 
+  it('keeps the newer list when an earlier reload answers last', async () => {
+    let release: () => void = () => undefined
+    const firstReload = new Promise<void>((resolve) => (release = resolve))
+    const withCategories = (...labels: string[]) => ({
+      ...testCatalog,
+      categories: [
+        ...(testCatalog.categories ?? []),
+        ...labels.map((label) => ({
+          id: `category-${label}`,
+          label,
+          parent_id: 'group-a',
+          protected: false,
+          transaction_count: 0,
+          in_use: false,
+        })),
+      ],
+    })
+    const catalog = vi
+      .fn<EditingController['catalog']>()
+      .mockResolvedValueOnce(testCatalog)
+      .mockImplementationOnce(async () => {
+        await firstReload
+        return withCategories('First')
+      })
+      .mockResolvedValue(withCategories('First', 'Second'))
+    setup({ controller: testEditingController({ catalog }) })
+    const options = await list()
+    for (const label of ['First', 'Second']) {
+      await fireEvent.keyDown(options, { key: 'n' })
+      const name = screen.getByRole('textbox', { name: 'Name' })
+      await fireEvent.input(name, { target: { value: label } })
+      await fireEvent.keyDown(name, { key: 'Enter' })
+      if (label === 'First') {
+        await waitFor(() => expect(catalog).toHaveBeenCalledTimes(2))
+        await fireEvent.keyDown(name, { key: 'Escape' })
+      }
+    }
+    const second = 'Second, Example Group, 0 transactions'
+    await waitFor(() => expect(screen.queryByRole('option', { name: second })).not.toBeNull())
+
+    release()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await tick()
+    expect(screen.queryByRole('option', { name: second })).not.toBeNull()
+  })
+
+  it('reports no failure for an earlier reload that answers last', async () => {
+    let fail: () => void = () => undefined
+    const firstReload = new Promise<void>((resolve) => (fail = resolve))
+    const catalog = vi
+      .fn<EditingController['catalog']>()
+      .mockResolvedValueOnce(testCatalog)
+      .mockImplementationOnce(async () => {
+        await firstReload
+        throw new Error('offline')
+      })
+      .mockResolvedValue(testCatalog)
+    setup({ controller: testEditingController({ catalog }) })
+    const options = await list()
+    await fireEvent.keyDown(options, { key: 'n' })
+    const name = screen.getByRole('textbox', { name: 'Name' })
+    await fireEvent.input(name, { target: { value: 'First' } })
+    await fireEvent.keyDown(name, { key: 'Enter' })
+    await waitFor(() => expect(catalog).toHaveBeenCalledTimes(2))
+    await fireEvent.keyDown(name, { key: 'Escape' })
+    await fireEvent.keyDown(options, { key: 'n' })
+    const next = screen.getByRole('textbox', { name: 'Name' })
+    await fireEvent.input(next, { target: { value: 'Second' } })
+    await fireEvent.keyDown(next, { key: 'Enter' })
+    await waitFor(() => expect(catalog).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull())
+
+    fail()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await tick()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('says when the list could not reload after a staged change', async () => {
     const catalog = vi
       .fn<EditingController['catalog']>()

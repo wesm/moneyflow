@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import FinanceGrid from './FinanceGrid.svelte'
 import { status } from '../../lib/shell/status.svelte'
 import type { InsightsSeries, ViewProjection } from '../../lib/api/client'
+import { RevealHold, revealHoldKey } from '../../lib/table/reveal-hold.svelte'
 import type { RowInsights } from '../../lib/table/trend'
 import { testInsights, testSeries } from '../../test/insights'
 import { testAggregateRow, testMoney, testProjection } from '../../test/projection'
@@ -1258,6 +1259,35 @@ describe('FinanceGrid', () => {
       const grid = screen.getByRole('grid', { name: 'Financial results' })
       const active = grid.getAttribute('aria-activedescendant')!
       expect(document.getElementById(active)).not.toBeNull()
+    })
+
+    it('reveals a cursor move only when a held reveal ends, and not when it is dropped', async () => {
+      vi.useFakeTimers()
+      const hold = new RevealHold()
+      const scroller = scrollerAt(0)
+      const props = {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scroller,
+        scrollTop: 0,
+        viewport: 630,
+        ...callbacks(),
+      }
+      const view = render(FinanceGrid, { props, context: new Map([[revealHoldKey, hold]]) })
+
+      hold.start(400)
+      await view.rerender({ cursorIndex: 100 })
+      expect(scroller.scrollTop).toBe(0)
+      vi.advanceTimersByTime(400)
+      expect(scroller.scrollTop).toBeGreaterThan(0)
+
+      const revealed = scroller.scrollTop
+      hold.start(400)
+      await view.rerender({ cursorIndex: 0 })
+      hold.end(false)
+      vi.advanceTimersByTime(400)
+      expect(scroller.scrollTop).toBe(revealed)
     })
 
     it('reveals the cursor row on a key that cannot move it, such as Home on the first row', async () => {

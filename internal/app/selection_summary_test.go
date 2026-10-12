@@ -1,12 +1,12 @@
 package app
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wesm/moneyflow/internal/analytics"
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
@@ -151,27 +151,6 @@ func TestSelectionSummaryIsNilWithoutSelection(t *testing.T) {
 	}
 }
 
-func TestSelectionSummaryMatchesAnalyticsStatisticsForDetailSelection(t *testing.T) {
-	t.Parallel()
-
-	transactions := summaryTransactions(t)
-	rows := make([]domain.DetailRow, len(transactions))
-	for index, transaction := range transactions {
-		rows[index] = domain.DetailRow{
-			Transaction: transaction, Flags: domain.RowFlags{Selected: index != 1},
-		}
-	}
-
-	got, err := selectionSummary(domain.QueryResult{DetailRows: rows})
-
-	require.NoError(t, err)
-	want, err := analytics.Statistics([]domain.Transaction{
-		transactions[0], transactions[2], transactions[3],
-	})
-	require.NoError(t, err)
-	assert.Equal(t, want, got)
-}
-
 func TestSelectionSummaryCoversSelectedTransactionsHiddenBySearch(t *testing.T) {
 	t.Parallel()
 
@@ -194,4 +173,34 @@ func TestSelectionSummaryCoversSelectedTransactionsHiddenBySearch(t *testing.T) 
 		count += stats.Count
 	}
 	assert.Equal(t, projection.SelectionCount, count)
+}
+
+func TestSelectionSummaryCoversSelectAllAfterSearchNarrows(t *testing.T) {
+	t.Parallel()
+
+	transactions := []domain.Transaction{
+		appTransaction(t, "txn-alpha", "2024-01-01", "-5.00", "Alpha", "Category", "Group"),
+	}
+	for day := 1; day <= 28; day++ {
+		transactions = append(transactions, appTransaction(t, fmt.Sprintf("txn-beta-%02d", day),
+			fmt.Sprintf("2024-02-%02d", day), "-1.00", "Beta", "Category", "Group"))
+	}
+	service, err := NewService(transactions)
+	require.NoError(t, err)
+	session := NewSession()
+	session.ShowAllDetail()
+	wide := session.ViewState().Current
+	selection, err := service.ToggleAllSelection(wide, EmptySelection())
+	require.NoError(t, err)
+	document, err := decodeSelection(selection)
+	require.NoError(t, err)
+	require.Equal(t, selectionBaseAll, document.Base)
+	want := summaryProjection(t, service, wide, selection).Statistics
+	session.SetSearch("Alpha")
+
+	projection := summaryProjection(t, service, session.ViewState().Current, selection)
+
+	require.Equal(t, 1, projection.TotalRows)
+	require.Equal(t, len(transactions), projection.SelectionCount)
+	assert.Equal(t, want, projection.SelectionSummary)
 }

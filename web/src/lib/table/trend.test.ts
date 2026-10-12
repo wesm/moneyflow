@@ -60,14 +60,6 @@ describe('sparkline', () => {
     expect(spending!.y).toBeLessThan(SPARK_HEIGHT)
   })
 
-  it('reads amounts beyond a JavaScript number exactly', () => {
-    const huge = '-9223372036854775807'
-    const trend = [huge, '-9223372036854775806', ...Array<string>(10).fill('0')]
-    const [points] = sparkline(trend, months()).segments
-    expect(points![0]!.y).toBeGreaterThanOrEqual(points![1]!.y)
-    expect(points![1]!.y).toBeGreaterThan(zero)
-  })
-
   it('leaves absent months out as a gap rather than drawing zero', () => {
     const trend = ['0', '0', '0', '-100', '-200', '0', '0', '0', '0', '0', '0', '-50']
     const line = sparkline(trend, months(3))

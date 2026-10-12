@@ -4,6 +4,7 @@ import { untrack } from 'svelte'
 import type { ViewProjection } from '../api/client'
 import { cursorTarget, setPageRows, type CursorMove } from './cursor-keys'
 import { revealScrollTop, visibleRange } from './layout'
+import { revealHold, type RevealHold } from './reveal-hold.svelte'
 import { coveredCursor, followRow, loadedRow } from './virtual-rows'
 
 /**
@@ -35,6 +36,7 @@ export interface GridScrollSource {
  */
 export class GridScroll {
   readonly #source: GridScrollSource
+  readonly #hold: RevealHold | undefined = revealHold()
   /** The row last passed to `onshow`. The cursor moving there follows the scroll, so stays. */
   #shown: number | undefined
   /** The `scrollTop` the grid started at or last set to reveal the cursor row; not followed. */
@@ -140,7 +142,10 @@ export class GridScroll {
       const newView = this.#lastQuery !== undefined && this.#lastQuery !== query
       this.#lastQuery = query
       if (newView) this.#shown = undefined
-      if (index !== this.#shown) return this.#reveal(index)
+      if (index !== this.#shown) {
+        if (this.#hold?.held) return this.#hold.defer(() => this.#reveal(this.#cursor))
+        return this.#reveal(index)
+      }
       // A window that arrived after more scrolling moves the cursor on to the row now on screen.
       this.#shown = undefined
       this.#follow()

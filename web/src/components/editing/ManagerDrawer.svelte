@@ -59,13 +59,19 @@
   const problem = $derived(step ? stepProblem(step, choices) : '')
   const loadFailed = $derived(`${category ? 'Category' : 'Group'} choices could not be loaded.`)
 
+  let loads = 0
+
   onMount(() => void load())
 
+  /** Returns false only when the newest load fails; an older answer that arrives later is dropped. */
   async function load(): Promise<boolean> {
+    const request = ++loads
     try {
-      catalog = await controller.catalog()
+      const next = await controller.catalog()
+      if (request === loads) catalog = next
       return true
     } catch {
+      if (request !== loads) return true
       error = loadFailed
       return false
     }

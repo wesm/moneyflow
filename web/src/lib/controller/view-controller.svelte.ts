@@ -29,7 +29,8 @@ export interface TransitionAction {
   action: TransitionBody['action']
   target?: TransitionBody['target']
   search?: TransitionBody['search']
-  filters?: TransitionBody['filters']
+  /** The toggles to apply; the transition keeps the period of the view it starts from. */
+  filters?: Omit<NonNullable<TransitionBody['filters']>, 'date_range'>
   dimension?: TransitionBody['dimension']
   currency?: TransitionBody['currency']
   sort_field?: TransitionBody['sort_field']
@@ -101,6 +102,11 @@ export interface ViewController {
    * the charts can show them. Does nothing for an equal or older revision.
    */
   recheckNewer(revision: string): Promise<void>
+  /**
+   * Loads the view again after the server's day changed, after earlier transitions finish. Time
+   * rows end at today, so the rows can change while the revision stays the same.
+   */
+  reloadDay(): Promise<void>
   /** Sends one insights request for this profile; the charts' cache decides what to ask. */
   insights(body: InsightsBody, signal: AbortSignal): Promise<InsightsResponse>
   apply(action: TransitionAction): Promise<boolean>
@@ -109,6 +115,8 @@ export interface ViewController {
    * await `apply()` or another transition: that transition waits for `work`, so neither ends.
    */
   hold<T>(work: Promise<T>): Promise<T>
+  /** Settles once the transitions queued so far, and any Esc return or held work, finish. */
+  settled(): Promise<void>
   beginSearch(): SearchSnapshot
   previewSearch(search: string): Promise<SearchPreview>
   /** Keeps the preview as a history entry; does nothing once history dropped `snapshot`. */
@@ -230,7 +238,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       (next) => accept(next, 'replace', owned),
       hydrate,
     )
-    const busiest = loaded && projection ? busiestCurrency(projection) : undefined
+    if (loaded) await openInBusiestCurrency()
+  }
+
+  /** Scopes a view without a currency, such as an empty profile's after its first import. */
+  async function openInBusiestCurrency(): Promise<void> {
+    const busiest = projection && !opening ? busiestCurrency(projection) : undefined
     if (!busiest) return
     opening = true
     try {
@@ -247,6 +260,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     )
     barrier = Promise.all([barrier, released])
     return work
+  }
+
+  async function settled(): Promise<void> {
+    await Promise.all([applyTail, barrier])
   }
 
   async function recheck(selection?: SelectionValue): Promise<ViewProjection | undefined> {
@@ -290,17 +307,40 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function recheckNewer(revision: string): Promise<void> {
-    await barrier
-    if (!projection || BigInt(revision) <= BigInt(projection.revision)) return
-    await recheckInternal(undefined, true)
+    await serially(async () => {
+      if (!projection || BigInt(revision) <= BigInt(projection.revision)) return
+      await recheckInternal(undefined, true)
+    })
+  }
+
+  async function reloadDay(): Promise<void> {
+    await serially(async () => {
+      if (!projection) return
+      const current = projection
+      const body = viewBody(current.canonical_query, current.selection, alignedOffset(cursorIndex))
+      await requestProjection(
+        () => options.client.view(body, activeRequest?.signal),
+        (next) => {
+          // The windows read before hold the earlier day's rows under the same revision.
+          cache.clear()
+          acceptProfileProjection(next, true)
+        },
+        reloadDay,
+      )
+    })
+  }
+
+  async function apply(action: TransitionAction): Promise<boolean> {
+    return await serially(() => transitionNow(action))
   }
 
   // Each transition starts from the view the one before it returned, whichever control sent
-  // it, so rapid clicks step one at a time instead of aborting each other.
-  async function apply(action: TransitionAction): Promise<boolean> {
+  // it, so rapid clicks step one at a time instead of aborting each other. Chart moves and
+  // rechecks wait their turn too, so they cannot abort a transition still on its way.
+  async function serially<T>(work: () => Promise<T>): Promise<T> {
     const result = applyTail.then(async () => {
       await barrier
-      return await transitionNow(action)
+      return await work()
     })
     applyTail = result.then(
       () => undefined,
@@ -324,7 +364,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       window: { offset: fromTop ? 0 : alignedOffset(cursorIndex), limit: windowSize },
       ...(action.target === undefined ? {} : { target: action.target }),
       ...(action.search === undefined ? {} : { search: action.search }),
-      ...(action.filters === undefined ? {} : { filters: action.filters }),
+      ...(action.filters === undefined ? {} : { filters: withPeriod(action.filters, prior) }),
       ...(action.dimension === undefined ? {} : { dimension: action.dimension }),
       ...(action.currency === undefined ? {} : { currency: action.currency }),
       ...(action.sort_field === undefined ? {} : { sort_field: action.sort_field }),
@@ -390,11 +430,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     activeRequest?.abort()
     loading = false
     // Later transitions wait for this return and its cursor window, so a row key targets the
-    // restored cursor row. They must run even if installing it fails.
+    // restored cursor row. They must run even if installing it fails. The saved cursor can lie
+    // past the end once an edit shrank the parent, so the window follows the clamped cursor.
     try {
       accept(returned.projection, 'replace', owned)
-      if (alignedOffset(owned.cursorIndex) !== returned.projection.window.offset) {
-        await moveToIndex(owned.cursorIndex)
+      if (alignedOffset(cursorIndex) !== returned.projection.window.offset) {
+        await moveToIndex(cursorIndex)
       }
     } finally {
       returned.settle()
@@ -642,7 +683,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         request.abort.signal,
       )
       if (request.superseded()) return
-      problem = undefined
       showWindow(next, request.index)
     } catch (error) {
       if (isAbort(error) || request.superseded()) return
@@ -654,7 +694,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function showAnchor(identity: string): Promise<void> {
-    await barrier
+    await serially(() => anchorNow(identity))
+  }
+
+  async function anchorNow(identity: string): Promise<void> {
     if (!projection) return
     const current = projection
     // A cursor move in a cached window bumps no generation, but it is newer, so it wins.
@@ -679,6 +722,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   function showWindow(next: ViewProjection, index: number): void {
     const { offset, count } = next.window
     const holdsCursor = cursorIndex >= offset && cursorIndex < offset + count
+    problem = undefined
     setProjectionWindow(next, holdsCursor ? cursorIndex : index)
     deferOwnedHistory()
     schedulePrefetch(next)
@@ -775,6 +819,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     problem = undefined
     if (replaceHistory) replaceOwnedHistory()
     schedulePrefetch(next)
+    void openInBusiestCurrency()
     return true
   }
 
@@ -976,9 +1021,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     showIndex,
     showAnchor,
     recheckNewer,
+    reloadDay,
     insights: (body, signal) => options.client.insights(body, signal),
     apply,
     hold,
+    settled,
     beginSearch,
     previewSearch,
     commitSearch,
@@ -997,6 +1044,15 @@ function viewBody(query: string, selection: SelectionValue | undefined, offset: 
     ...(selection === undefined ? {} : { selection }),
     window: { offset, limit: windowSize },
   }
+}
+
+// filters.apply replaces the date range too, so it carries the period of the view it changes.
+function withPeriod(
+  filters: NonNullable<TransitionAction['filters']>,
+  prior: ViewProjection,
+): NonNullable<TransitionBody['filters']> {
+  const range = prior.filters.date_range
+  return { ...(range ? { date_range: { start: range.from, end: range.to } } : {}), ...filters }
 }
 
 function busiestCurrency(next: ViewProjection): TransitionAction['currency'] {

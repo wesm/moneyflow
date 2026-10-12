@@ -124,6 +124,39 @@ describe('browser view controller', () => {
 
       expect(client.transition).not.toHaveBeenCalled()
     })
+
+    it('sets the currency once an empty profile receives its first transactions', async () => {
+      let populated = false
+      const client = clientWith({
+        view: vi.fn(async (body) => ({
+          ...projection('v=1', body.window.offset, populated ? 3 : 0, populated ? '1' : '0'),
+          currencies: populated ? currencies([['USD', 3]]) : [],
+        })),
+        transition: vi.fn(async (body) => ({
+          ...projection('cur=USD%3A2&v=1', body.window.offset, 3, '1'),
+          view: { ...projection('v=1', 0, 3).view, currency: { currency: 'USD', scale: 2 } },
+          currencies: currencies([['USD', 3]]),
+        })),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      expect(client.transition).not.toHaveBeenCalled()
+
+      populated = true
+      await controller.recheck()
+
+      await vi.waitFor(() =>
+        expect(controller.projection?.view.currency).toEqual({ currency: 'USD', scale: 2 }),
+      )
+      expect(client.transition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'view.set-currency',
+          currency: { currency: 'USD', scale: 2 },
+        }),
+        expect.any(AbortSignal),
+      )
+      expect(window.location.search).toBe('?cur=USD%3A2&v=1')
+    })
   })
 
   it('pushes analytical transitions and replaces selection-only transitions', async () => {
@@ -200,6 +233,48 @@ describe('browser view controller', () => {
       expect.any(AbortSignal),
     )
     expect(controller.projection?.canonical_query).toBe('v=1&p&p')
+  })
+
+  it('sends a filter change with the period of the view it starts from', async () => {
+    let release!: () => void
+    const september = { from: '2026-09-01', to: '2026-09-30' }
+    const client = clientWith({
+      transition: vi.fn(async (body) => {
+        const next = projection(`${body.query}&${body.action}`, 0, 3)
+        if (body.action !== 'time.set-period') return next
+        await new Promise<void>((resolve) => (release = resolve))
+        return { ...next, filters: { ...next.filters, date_range: september } }
+      }),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await controller.apply({
+      action: 'filters.apply',
+      filters: { show_hidden: true, show_transfers: false },
+    })
+    const period = controller.apply({
+      action: 'time.set-period',
+      period: { start: september.from, end: september.to },
+    })
+    const filters = controller.apply({
+      action: 'filters.apply',
+      filters: { show_hidden: true, show_transfers: true },
+    })
+    await vi.waitFor(() => expect(release).toBeDefined(), { interval: 1 })
+    release()
+    await Promise.all([period, filters])
+
+    const sent = vi.mocked(client.transition).mock.calls.map(([body]) => body.filters)
+    expect(sent).toEqual([
+      { show_hidden: true, show_transfers: false },
+      undefined,
+      {
+        date_range: { start: '2026-09-01', end: '2026-09-30' },
+        show_hidden: true,
+        show_transfers: true,
+      },
+    ])
   })
 
   it('uses verified owned history for Esc and replaces with the server parent otherwise', async () => {
@@ -562,6 +637,39 @@ describe('browser view controller', () => {
     expect(controller.projection?.window.offset).toBe(200)
     expect(controller.cursorIndex).toBe(250)
     expect(controller.loading).toBe(false)
+  })
+
+  it('keeps the parent window when an edit shrinks it below the cursor before Esc', async () => {
+    vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    let revision = '0'
+    let parentRows = 201
+    const client = clientWith({
+      view: vi.fn(async (body) =>
+        body.query === 'v=1&drill=x'
+          ? projection(body.query, 0, 3, revision)
+          : projection('v=1', body.window.offset, parentRows, revision),
+      ),
+      transition: vi.fn(async (body) =>
+        body.action === 'view.back'
+          ? projection('v=1', body.window.offset, parentRows, revision)
+          : projection('v=1&drill=x', 0, 3, revision),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.moveCursorTo(200)
+    const parent = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill' })
+    revision = '1'
+    parentRows = 200
+    await controller.recheck()
+    expect(controller.projection?.revision).toBe('1')
+
+    await traverse(controller, { action: 'view.back' }, parent)
+
+    expect(controller.projection?.window).toEqual({ offset: 0, limit: 200, count: 200 })
+    expect(controller.cursorIndex).toBe(199)
+    expect(controller.cursorIdentity).toBe('row-199')
   })
 
   it('runs a row key pressed during an Esc return after the parent cursor window loads', async () => {
@@ -1064,6 +1172,31 @@ describe('browser view controller', () => {
       expect(controller.cursorIdentity).toBe('merchant:example')
     })
 
+    it('waits for a command-bar transition still on its way before asking for the row', async () => {
+      let answer!: (next: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn(async (body: ViewBody) => ({ ...anchored(body), canonical_query: body.query })),
+        transition: vi.fn(() => new Promise<ViewProjection>((resolve) => (answer = resolve))),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const showing = controller.showAnchor('merchant:example')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      answer({ ...merchants(0), canonical_query: 'v=2' })
+
+      await expect(applying).resolves.toBe(true)
+      await showing
+      expect(vi.mocked(client.view).mock.lastCall?.[0]).toMatchObject({
+        query: 'v=2',
+        anchor: 'merchant:example',
+      })
+      expect(controller.projection?.canonical_query).toBe('v=2')
+      expect(controller.cursorIdentity).toBe('merchant:example')
+    })
+
     it('keeps a cursor move made while the row loads', async () => {
       let answer!: (next: ViewProjection) => void
       const client = clientWith({
@@ -1135,6 +1268,75 @@ describe('browser view controller', () => {
       release()
       await rechecking
       expect(controller.projection?.revision).toBe('5')
+    })
+
+    it('waits for a command-bar transition still on its way before rechecking', async () => {
+      let answer!: (next: ViewProjection) => void
+      const client = clientWith({
+        view: vi
+          .fn()
+          .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+          .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '5')),
+        transition: vi.fn(() => new Promise<ViewProjection>((resolve) => (answer = resolve))),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const rechecking = controller.recheckNewer('5')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      answer(projection('v=2', 0, 3, '4'))
+
+      await expect(applying).resolves.toBe(true)
+      await rechecking
+      expect(controller.projection?.canonical_query).toBe('v=2')
+      expect(controller.projection?.revision).toBe('5')
+    })
+  })
+
+  describe('reloading for a new day', () => {
+    it('takes the same revision’s new rows and drops the windows read the day before', async () => {
+      let total = 450
+      const client = clientWith({
+        view: vi.fn(async (body: ViewBody) => projection('v=1', body.window.offset, total, '4')),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      await controller.moveCursorTo(250)
+      const calls = vi.mocked(client.view).mock.calls.length
+
+      // The Time rows end at today, so the new day adds a row at the same revision.
+      total = 451
+      await controller.reloadDay()
+      expect(client.view).toHaveBeenCalledTimes(calls + 1)
+      expect(controller.projection?.total_rows).toBe(451)
+      expect(controller.cursorIndex).toBe(250)
+
+      await controller.moveCursorTo(10)
+      expect(controller.projection?.window.offset).toBe(0)
+      expect(controller.projection?.total_rows).toBe(451)
+    })
+
+    it('waits for a command-bar transition still on its way', async () => {
+      let answer!: (next: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn(async (body: ViewBody) => projection(body.query, 0, 3, '4')),
+        transition: vi.fn(() => new Promise<ViewProjection>((resolve) => (answer = resolve))),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const reloading = controller.reloadDay()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      answer(projection('v=2', 0, 3, '4'))
+
+      await expect(applying).resolves.toBe(true)
+      await reloading
+      expect(vi.mocked(client.view).mock.lastCall?.[0]).toMatchObject({ query: 'v=2' })
+      expect(controller.projection?.canonical_query).toBe('v=2')
     })
   })
 
@@ -1315,6 +1517,34 @@ describe('browser view controller', () => {
       expect(controller.problem).toBeUndefined()
       expect(controller.projection?.window.offset).toBe(200)
       expect(controller.cursorIndex).toBe(250)
+    })
+
+    it('clears the load error when a retry finds the window a prefetch cached', async () => {
+      let prefetched!: (value: ViewProjection) => void
+      let requests = 0
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          if (body.window.offset !== 200) return projection('v=1', body.window.offset, 450)
+          requests += 1
+          if (requests === 1) return await new Promise<ViewProjection>((r) => (prefetched = r))
+          throw new TypeError('Failed to fetch')
+        }),
+      })
+      const controller = controllerFor(client)
+      await controller.hydrate()
+      await vi.waitFor(() => expect(requests).toBe(1))
+
+      await controller.showIndex(250)
+      expect(controller.problem).toEqual({ kind: 'request', code: 'network_error' })
+      prefetched(projection('v=1', 200, 450))
+      await vi.waitFor(() =>
+        expect(controller.neighbors.map((loaded) => loaded.window.offset)).toEqual([200]),
+      )
+
+      await controller.retry()
+      expect(controller.projection?.window.offset).toBe(200)
+      expect(controller.cursorIndex).toBe(250)
+      expect(controller.problem).toBeUndefined()
     })
 
     it('lets a transition already running finish', async () => {
