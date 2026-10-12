@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { tick } from 'svelte'
 import AppShell from './AppShell.svelte'
+import type { TransactionInformationResponse } from '../lib/api/client'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testAggregateRow, testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
@@ -550,6 +551,52 @@ describe('AppShell', () => {
     expect(hidden).toBeLessThan(vi.mocked(controller.editing[method]).mock.invocationCallOrder[0]!)
   })
 
+  it('shows the last Enter’s transaction when an earlier one’s details arrive later', async () => {
+    const first = testProjection().detail_rows![0]!
+    const rows = [0, 1].map((index) => ({
+      ...first,
+      index,
+      identity: `row-${index}`,
+      merchant: `Example Merchant ${index}`,
+    }))
+    const controller = stubController(
+      testProjection({
+        total_rows: 2,
+        window: { offset: 0, limit: 200, count: 2 },
+        detail_rows: rows,
+      }),
+    )
+    controller.projection!.capabilities!.push({
+      id: 'view.drill',
+      key_display: 'enter',
+      description: 'view.drill',
+      category: 'Views',
+      available: true,
+    })
+    const waiting = new Map<string, () => void>()
+    controller.transactionInformation = vi.fn(
+      (identity: string) =>
+        new Promise<TransactionInformationResponse>((resolve) => {
+          const row = rows.find((candidate) => candidate.identity === identity)!
+          waiting.set(identity, () => resolve(transactionInformation(row)))
+        }),
+    )
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: 'Enter' })
+    Object.assign(controller, { cursorIndex: 1, cursorIdentity: 'row-1' })
+    await fireEvent.keyDown(window, { key: 'Enter' })
+    await new Promise((resolve) => setTimeout(resolve))
+
+    waiting.get('row-1')?.()
+    waiting.get('row-0')!()
+    await vi.waitFor(() => expect(waiting.has('row-1')).toBe(true))
+    waiting.get('row-1')!()
+    const drawer = await screen.findByRole('dialog', { name: 'Transaction information' })
+    await vi.waitFor(() => expect(drawer.textContent).toContain('Example Merchant 1'))
+    await new Promise((resolve) => setTimeout(resolve))
+    expect(drawer.textContent).not.toContain('Example Merchant 0')
+  })
+
   it('opens duplicate review with D and confirms direct deletion with x', async () => {
     const controller = stubController()
     render(AppShell, { controller })
@@ -779,6 +826,23 @@ function captureFrames(): { flush: () => Promise<void> } {
       await vi.waitFor(() => expect(callbacks.length).toBeGreaterThan(0))
       for (const callback of callbacks.splice(0)) callback(0)
     },
+  }
+}
+
+function transactionInformation(
+  transaction: TransactionInformationResponse['transaction'],
+): TransactionInformationResponse {
+  const none = { offset: 0, limit: 0, count: 0 }
+  return {
+    version: '1',
+    revision: '1',
+    canonical_query: 'v=1',
+    amazon_qualified: false,
+    item_window: none,
+    match_window: none,
+    matches: [],
+    total_matches: 0,
+    transaction,
   }
 }
 

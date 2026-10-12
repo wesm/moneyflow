@@ -71,7 +71,7 @@
   async function apply(action: string, dimension?: Dimension, row = pressedRow(controller)) {
     const focused = action === 'view.drill' || action === 'selection.toggle' ? row() : undefined
     if (action === 'view.drill' && focused?.kind === 'transaction')
-      return void openTransactionInformation(actions, focused.identity)
+      return openTransactionInformation(actions, focused.identity)
     if (focused) return send({ action, target: focused })
     await send({ action, ...(dimension === undefined ? {} : { dimension }) })
   }
