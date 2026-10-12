@@ -3,8 +3,7 @@ import { initTheme, setThemeMode, setThemeName } from '@kenn-io/kit-ui'
 const MODE_KEY = 'kit-ui-theme'
 const STORED_MODES = ['light', 'dark', 'system']
 
-// Browsers can refuse storage (private windows, blocked site data), some by throwing from
-// getItem and some from the localStorage getter itself.
+// Browsers can refuse storage (private windows, blocked site data); see hideRefusedStorage.
 function hasStoredMode(): boolean {
   try {
     return STORED_MODES.includes(localStorage.getItem(MODE_KEY) ?? '')
@@ -13,25 +12,22 @@ function hasStoredMode(): boolean {
   }
 }
 
-/** Whether reading the localStorage global, which kit-ui's theme store does unguarded, throws. */
-function storageGetterThrows(): boolean {
+/**
+ * Some browsers that block site data throw from the localStorage getter itself. kit-ui's theme
+ * store reads that global outside its guard, so the app would stop before it mounts. Replacing
+ * the global with undefined lets kit-ui, and every other storage reader, treat storage as absent.
+ */
+function hideRefusedStorage(): void {
   try {
-    return localStorage === null
+    void localStorage
   } catch {
-    return true
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: undefined })
   }
 }
 
-/**
- * Applies the Moneyflow theme: dark on a first visit, the stored choice afterwards. Where kit-ui's
- * theme store cannot run, it starts dark without it.
- */
+/** Applies the Moneyflow theme: dark on a first visit, the stored choice afterwards. */
 export function initMoneyflowTheme(): void {
-  if (storageGetterThrows()) {
-    document.documentElement.classList.add('dark')
-    document.documentElement.setAttribute('data-kit-theme', 'moneyflow')
-    return
-  }
+  hideRefusedStorage()
   initTheme()
   setThemeName('moneyflow')
   if (!hasStoredMode()) setThemeMode('dark')

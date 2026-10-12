@@ -1,4 +1,4 @@
-import { getThemeMode, getThemeName } from '@kenn-io/kit-ui'
+import { getThemeMode, getThemeName, setThemeMode } from '@kenn-io/kit-ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { initMoneyflowTheme } from './theme'
@@ -62,8 +62,12 @@ describe('initMoneyflowTheme', () => {
     })
     initMoneyflowTheme()
 
+    expect(getThemeMode()).toBe('dark')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
     expect(document.documentElement.getAttribute('data-kit-theme')).toBe('moneyflow')
+    // The theme toggle still switches modes for the session.
+    setThemeMode('light')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
   })
 
   it('replaces a previously stored theme name', () => {
