@@ -64,6 +64,28 @@ describe('CompositionPanel', () => {
     expect(onrow).not.toHaveBeenCalled()
   })
 
+  it('moves the cursor after a pointer click only once it is not a double-click', async () => {
+    vi.useFakeTimers()
+    try {
+      const { list, onrow, ondrill } = setup()
+      const bar = within(list).getByRole('button', { name: /^Online Megastore,/ })
+      await fireEvent.click(bar, { detail: 1 })
+      expect(onrow).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(400)
+      expect(onrow).toHaveBeenCalledWith('merchant:mega')
+
+      onrow.mockClear()
+      await fireEvent.click(bar, { detail: 1 })
+      await fireEvent.click(bar, { detail: 2 })
+      await fireEvent.dblClick(bar, { detail: 2 })
+      vi.advanceTimersByTime(1000)
+      expect(ondrill).toHaveBeenCalledWith('merchant:mega')
+      expect(onrow).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps the others bar out of reach and draws it apart from the ranked rows', () => {
     const { list } = setup()
     expect(within(list).queryByRole('button', { name: /^5 others/ })).toBeNull()

@@ -65,6 +65,20 @@
     return () => element.removeEventListener('keydown', escape)
   })
 
+  // Moving the cursor can scroll the workspace and the chart with it, so a click waits to see
+  // whether it starts a double-click; otherwise the second click lands on whatever moved there.
+  const doubleClickMillis = 400
+  let pendingRow: ReturnType<typeof setTimeout> | undefined
+  $effect(() => () => clearTimeout(pendingRow))
+
+  function click(event: MouseEvent, identity: string): void {
+    clearTimeout(pendingRow)
+    pendingRow = undefined
+    // Space on the focused bar clicks with no count; it moves the cursor at once.
+    if (event.detail === 0) return onrow?.(identity)
+    if (event.detail === 1) pendingRow = setTimeout(() => onrow?.(identity), doubleClickMillis)
+  }
+
   function keydown(event: KeyboardEvent, bar: CompositionBar, identity: string): void {
     // Enter drills, as it does on a table row; Space moves the cursor, as a click does.
     if (event.key === 'Enter') {
@@ -104,7 +118,7 @@
               class={['mf-bar', identity === cursorIdentity && 'mf-bar--cursor']}
               aria-label={bar.name}
               tabindex={bar === active ? 0 : -1}
-              onclick={() => onrow(identity)}
+              onclick={(event) => click(event, identity)}
               ondblclick={() => ondrill?.(identity)}
               onkeydown={(event) => keydown(event, bar, identity)}
               onfocus={() => (chosen = identity)}

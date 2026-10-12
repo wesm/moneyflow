@@ -428,8 +428,9 @@ test('a composition bar click moves the cursor, and a double-click drills', asyn
   )
   await expect(whereItWent(page).getByText(/^\d+ others$/)).toBeVisible()
   await bar(page, 'Online Megastore').click()
-  await expect(await activeRow(page)).toContainText('Online Megastore')
+  // The click waits out the double-click time before it moves the cursor.
   await expect(bar(page, 'Online Megastore')).toHaveClass(/mf-bar--cursor/)
+  await expect(await activeRow(page)).toContainText('Online Megastore')
 
   // The switch shows Income from the same insights, without asking the server again.
   let requests = 0
@@ -455,6 +456,27 @@ test('a composition bar click moves the cursor, and a double-click drills', asyn
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(
     'Online Megastore',
   )
+})
+
+test('a double-click drills a composition bar whose row is below the table’s edge', async ({
+  page,
+  server,
+}) => {
+  // Short enough that the last bar's row is below the visible table rows.
+  await page.setViewportSize({ width: 1440, height: 560 })
+  await openMoneyflow(page, server, september)
+  const target = whereItWent(page).getByRole('button').last()
+  const label = (await target.getAttribute('aria-label'))!.split(',')[0]!
+  const box = (await target.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  // A person's double-click: the second press comes a moment after the first click.
+  await page.mouse.down()
+  await page.mouse.up()
+  await page.waitForTimeout(150)
+  await page.mouse.down({ clickCount: 2 })
+  await page.mouse.up({ clickCount: 2 })
+  await expect(page).toHaveURL(/[?&]drill=merchant/)
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(label)
 })
 
 test('the Time grouping shows the cursor day’s groups as the cursor moves', async ({
