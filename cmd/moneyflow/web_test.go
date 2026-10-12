@@ -180,7 +180,10 @@ func TestWebStartRemovesADemoRootLeftByACrashedServer(t *testing.T) {
 func TestWebSelectorDemoIsLazyTemporaryAndSeparateFromSavedProfiles(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	root := t.TempDir()
+	// The catalog stores its root in canonical form: no symlinks and, on
+	// Windows, long names instead of 8.3 short names.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	var openedOptions []ProfileOptions
 	dependencies, err := buildWebDependencies(ctx, ProfileOptions{ExplicitHome: root}, IOStreams{
 		OpenProfile: func(ctx context.Context, options ProfileOptions) (OpenedProfile, error) {
