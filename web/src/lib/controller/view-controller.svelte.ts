@@ -339,11 +339,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     activeRequest?.abort()
     loading = false
     // Later transitions wait for this return and its cursor window, so a row key targets the
-    // restored cursor row. They must run even if installing it fails.
+    // restored cursor row. They must run even if installing it fails. The saved cursor can lie
+    // past the end once an edit shrank the parent, so the window follows the clamped cursor.
     try {
       accept(returned.projection, 'replace', owned)
-      if (alignedOffset(owned.cursorIndex) !== returned.projection.window.offset) {
-        await moveToIndex(owned.cursorIndex)
+      if (alignedOffset(cursorIndex) !== returned.projection.window.offset) {
+        await moveToIndex(cursorIndex)
       }
     } finally {
       returned.settle()

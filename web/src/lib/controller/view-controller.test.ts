@@ -600,6 +600,39 @@ describe('browser view controller', () => {
     expect(controller.loading).toBe(false)
   })
 
+  it('keeps the parent window when an edit shrinks it below the cursor before Esc', async () => {
+    vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    let revision = '0'
+    let parentRows = 201
+    const client = clientWith({
+      view: vi.fn(async (body) =>
+        body.query === 'v=1&drill=x'
+          ? projection(body.query, 0, 3, revision)
+          : projection('v=1', body.window.offset, parentRows, revision),
+      ),
+      transition: vi.fn(async (body) =>
+        body.action === 'view.back'
+          ? projection('v=1', body.window.offset, parentRows, revision)
+          : projection('v=1&drill=x', 0, 3, revision),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.moveCursorTo(200)
+    const parent = history.state as MoneyflowHistoryState
+    await controller.apply({ action: 'view.drill' })
+    revision = '1'
+    parentRows = 200
+    await controller.recheck()
+    expect(controller.projection?.revision).toBe('1')
+
+    await traverse(controller, { action: 'view.back' }, parent)
+
+    expect(controller.projection?.window).toEqual({ offset: 0, limit: 200, count: 200 })
+    expect(controller.cursorIndex).toBe(199)
+    expect(controller.cursorIdentity).toBe('row-199')
+  })
+
   it('runs a row key pressed during an Esc return after the parent cursor window loads', async () => {
     vi.spyOn(history, 'go').mockImplementation(() => undefined)
     let release!: (value: ViewProjection) => void
