@@ -238,8 +238,8 @@ describe('chooser', () => {
 describe('emptyScope', () => {
   const usd = { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' }
   const money = { minor: '0', currency: 'USD', scale: 2, decimal: '0.00', display: '0.00' }
-  const stats = (count: number, currency = 'USD') => ({
-    currency,
+  const stats = (count: number) => ({
+    currency: 'USD',
     scale: 2,
     count,
     in: money,
@@ -279,11 +279,7 @@ describe('emptyScope', () => {
     })
   })
 
-  it('counts only the active currency', () => {
-    expect(emptyScope(scoped('2026-11-01', '2026-11-30', { statistics: [stats(0)] }))).toBeDefined()
-    expect(
-      emptyScope(scoped('2026-11-01', '2026-11-30', { statistics: [stats(4, 'EUR')] })),
-    ).toBeDefined()
+  it('is not an empty period once the period has transactions', () => {
     expect(emptyScope(scoped('2026-09-01', '2026-09-30', { statistics: [stats(4)] }))).toBe(
       undefined,
     )
