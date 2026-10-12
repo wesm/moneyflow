@@ -243,7 +243,7 @@ describe('ManagerDrawer', () => {
     const withCategories = (...labels: string[]) => ({
       ...testCatalog,
       categories: [
-        ...testCatalog.categories,
+        ...(testCatalog.categories ?? []),
         ...labels.map((label) => ({
           id: `category-${label}`,
           label,
