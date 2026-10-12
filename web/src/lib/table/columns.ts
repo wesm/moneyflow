@@ -1,8 +1,8 @@
 import type { ViewProjection } from '../api/client'
 import { drillFrames, type DrillFrame } from '../shell/drills'
 
-/** Column keys. Every gridcell carries its key as `data-column`; `trend` and `vs_prior` arrive
- * with the insights client in PR 6. `actions` is the trailing › or ⋯ button of a compact row. */
+/** Column keys. Every gridcell carries its key as `data-column`. `actions` is the trailing › or
+ * ⋯ button of a compact row. */
 export type ColumnKey =
   | 'select'
   | 'name'
@@ -36,24 +36,53 @@ export interface Column {
   width: string
   /** The column shows only at or above this viewport width. */
   minWidth?: 760
+  /** The track's minimum in rem from 760 px, which `columnsThatFit` adds up. */
+  min?: number
+  /** When the minimums overflow the workspace, columns drop in this order; others stay. */
+  dropOrder?: 1 | 2
 }
 
 /** Metric columns narrow below 760 px (app.css), so Net still fits at 641 px. */
 const METRIC_WIDTH = 'var(--mf-metric-width)'
+/** `--mf-metric-width` from 760 px, in rem. */
+const METRIC_MIN = 6.5
 const SELECT: Column = {
   key: 'select',
   label: 'Select all matching',
   align: 'start',
   width: '2rem',
+  min: 2,
 }
 const NARROWED_DIMENSIONS = ['merchant', 'category', 'account'] as const
 
 function metric(key: ColumnKey, label: string, sortField?: SortField): Column {
-  return { key, label, align: 'end', width: METRIC_WIDTH, ...(sortField ? { sortField } : {}) }
+  const sort = sortField ? { sortField } : {}
+  return { key, label, align: 'end', width: METRIC_WIDTH, min: METRIC_MIN, ...sort }
 }
 
 function capitalized(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/**
+ * Room in rem for the vs prior header, such as `vs Feb 7 – Mar 9`, so it is never cut off: 0.40
+ * rem per character of the small header font, which leaves a margin for wide glyphs, plus the
+ * cell's padding, in quarter rems, and never narrower than the cells' 5.5 rem.
+ */
+function labelRem(label: string): number {
+  return Math.max(5.5, Math.ceil(([...label].length * 0.4 + 1) * 4) / 4)
+}
+
+/**
+ * The insights columns of a grouped view: Trend, and vs prior unless the scope is All, which
+ * has no prior range. Neither is sortable.
+ */
+function insightColumns(compared: boolean, comparisonLabel: string): Column[] {
+  const shared = { align: 'end', minWidth: 760, dropOrder: 2 } as const
+  const trend: Column = { key: 'trend', label: 'Trend', width: '4.5rem', min: 4.5, ...shared }
+  if (!compared) return [trend]
+  const min = labelRem(comparisonLabel)
+  return [trend, { key: 'vs_prior', label: comparisonLabel, width: `${min}rem`, min, ...shared }]
 }
 
 function groupedColumns(dimension: string): Column[] {
@@ -63,6 +92,7 @@ function groupedColumns(dimension: string): Column[] {
     sortField: dimension as SortField,
     align: 'start',
     width: 'minmax(10rem, 2fr)',
+    min: 10,
   }
   const contextLabel = { merchant: 'Top category', category: 'Group' }[dimension]
   const context: Column[] = contextLabel
@@ -73,6 +103,8 @@ function groupedColumns(dimension: string): Column[] {
           align: 'start',
           width: 'minmax(7rem, 1fr)',
           minWidth: 760,
+          min: 7,
+          dropOrder: 1,
         },
       ]
     : []
@@ -84,7 +116,7 @@ function groupedColumns(dimension: string): Column[] {
     metric('in', 'In'),
     metric('out', 'Out'),
     metric('net', 'Net', 'amount'),
-    { key: 'share', label: 'Share', align: 'end', width: METRIC_WIDTH },
+    { key: 'share', label: 'Share', align: 'end', width: METRIC_WIDTH, min: METRIC_MIN },
   ]
 }
 
@@ -164,12 +196,41 @@ export function cellClass(column: Column): string {
   return column.align === 'end' ? 'mf-table__cell mf-table__cell--end' : 'mf-table__cell'
 }
 
-/** The media query that shows the columns with a `minWidth` of 760. */
-export const WIDE_COLUMNS_QUERY = '(min-width: 760px)'
+/**
+ * The window width in px that shows the columns with a `minWidth` of 760. The grid reads the
+ * window's width, not a media query: a resize updates it before any media query listener runs,
+ * so the columns are settled before the table leaves phone rows.
+ */
+export const WIDE_COLUMNS_WIDTH = 760
 
 /** The columns that fit: a column with a `minWidth` drops out unless the viewport is `wide`. */
 export function columnsAtWidth(columns: Column[], wide: boolean): Column[] {
   return columns.filter((column) => column.minWidth === undefined || wide)
+}
+
+/** The window width in px from which `columnsThatFit` drops columns instead of scrolling. */
+export const FIT_COLUMNS_WIDTH = 900
+
+function minimum(columns: readonly Column[]): number {
+  return columns.reduce((total, column) => total + (column.min ?? 0), 0)
+}
+
+/** Room the columns must leave, because the measured width rounds to whole pixels. */
+const FIT_TOLERANCE_REM = 0.25
+
+/**
+ * The columns whose minimum widths fit in `room` rem with `FIT_TOLERANCE_REM` to spare, so
+ * sub-pixel rounding never scrolls the table sideways: Context drops first, then Trend and vs
+ * prior together. Everything stays when `room` is unknown. Only grouped columns can drop.
+ */
+export function columnsThatFit(columns: Column[], room: number | undefined): Column[] {
+  if (room === undefined) return columns
+  let shown = columns
+  for (const order of [1, 2] as const) {
+    if (minimum(shown) + FIT_TOLERANCE_REM <= room) break
+    shown = shown.filter((column) => column.dropOrder !== order)
+  }
+  return shown
 }
 
 /** Phone rows' cells in reading order. A phone header shows two of them, so cells are numbered. */
@@ -199,14 +260,22 @@ export function compactColumnCount(layout: CompactLayout): number {
   return COMPACT_ORDERS[layout].length
 }
 
-/** The columns of the projection's view. Only the server's sort fields stay sortable. */
-export function columnsFor(projection: ViewProjection): Column[] {
+/**
+ * The columns of the projection's view. Only the server's sort fields stay sortable. The vs
+ * prior header is `comparisonLabel`, such as `vs Aug`, once the insights name it. A label also
+ * shows the scope has a comparison when the session has no date range, as in a Time drill.
+ */
+export function columnsFor(projection: ViewProjection, comparisonLabel?: string): Column[] {
   const view = projection.view
   const dimension = view.sub_grouping ?? view.grouping
   let columns: Column[]
   if (projection.detail_rows) columns = transactionColumns(projection)
   else if (dimension === 'time') columns = timeColumns()
-  else columns = groupedColumns(dimension)
+  else {
+    const compared = projection.filters.date_range !== undefined || !!comparisonLabel
+    const label = comparisonLabel || 'vs prior'
+    columns = [...groupedColumns(dimension), ...insightColumns(compared, label)]
+  }
   const sortable = new Set<string>(view.sort_fields)
   return columns.map(({ sortField, ...column }) =>
     sortField && sortable.has(sortField) ? { ...column, sortField } : column,

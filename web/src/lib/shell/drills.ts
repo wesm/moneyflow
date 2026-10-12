@@ -12,7 +12,11 @@ export interface DrillFrame {
  * inside a `return` frame belong to an earlier view.
  */
 export function drillFrames(projection: ViewProjection): DrillFrame[] {
-  const drills = new URLSearchParams(projection.canonical_query).getAll('drill')
-  if (drills.length === 0) return []
+  if (!drilled(projection.canonical_query)) return []
   return projection.breadcrumbs ?? []
+}
+
+/** Whether a canonical view query drills into a row, by its top-level `drill` keys. */
+export function drilled(query: string): boolean {
+  return new URLSearchParams(query).has('drill')
 }

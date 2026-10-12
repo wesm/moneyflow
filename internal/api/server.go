@@ -378,19 +378,15 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		if selection == "" {
 			selection = app.EmptySelection()
 		}
-		projection, err := service.ProjectView(
-			state,
-			selection,
-			app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit},
-		)
+		window := app.WindowRequest{
+			Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit,
+			Anchor: input.Body.Anchor,
+		}
+		projection, err := service.ProjectView(state, selection, window)
 		warnings := []Warning(nil)
 		if isInvalidHydrationSelection(err) {
 			selection = app.EmptySelection()
-			projection, err = service.ProjectView(
-				state,
-				selection,
-				app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit},
-			)
+			projection, err = service.ProjectView(state, selection, window)
 			warnings = selectionResetWarnings()
 		}
 		if err != nil {

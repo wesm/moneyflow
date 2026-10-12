@@ -100,7 +100,7 @@ test('pending warnings, empty bypass, and failures remain keyboard safe', async 
   try {
     await openMoneyflow(page, server)
     await page.keyboard.press('h')
-    await expect(page.getByText(/1 pending/)).toBeVisible()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await page.keyboard.press('Shift+E')
     const dialog = page.getByRole('dialog', { name: 'Export transactions' })
     await expect(dialog).toContainText('1 pending operation is excluded')

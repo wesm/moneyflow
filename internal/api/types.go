@@ -38,6 +38,8 @@ type ViewBody struct {
 	Query     string `json:"query" maxLength:"65536"`
 	Selection string `json:"selection,omitempty" maxLength:"1468006"`
 	Window    Window `json:"window"`
+	// Anchor is an aggregate row identity. The server returns the window that holds the row.
+	Anchor string `json:"anchor,omitempty" maxLength:"4096"`
 }
 
 // TransitionTarget identifies a projected row by its server-issued stable identity.
@@ -164,15 +166,6 @@ type Statistics struct {
 	Net      Money  `json:"net"`
 }
 
-// ChartMark contains the only numeric geometry value consumed by chart code.
-type ChartMark struct {
-	Index     int    `json:"index"`
-	Identity  string `json:"identity"`
-	Label     string `json:"label"`
-	Amount    Money  `json:"amount"`
-	PlotRatio int    `json:"plot_ratio" minimum:"-10000" maximum:"10000"`
-}
-
 // CurrencyScope names one currency and the scale of its minor units.
 type CurrencyScope struct {
 	Currency string `json:"currency"`
@@ -186,12 +179,6 @@ type CurrencyCount struct {
 	Count    int    `json:"count"`
 	First    string `json:"first" format:"date"`
 	Latest   string `json:"latest" format:"date"`
-}
-
-// Chart contains either aggregate marks or detail summaries.
-type Chart struct {
-	Marks   []ChartMark  `json:"marks,omitempty"`
-	Summary []Statistics `json:"summary,omitempty"`
 }
 
 // Breadcrumb contains one server-derived label.
@@ -222,6 +209,8 @@ type Capability struct {
 	Available   bool         `json:"available"`
 	Reason      string       `json:"reason,omitempty"`
 }
+
+const warningAnchorMissing = "anchor_missing"
 
 // Warning is a safe announced non-fatal condition.
 type Warning struct {
@@ -276,9 +265,10 @@ type Projection struct {
 	AggregateRows           []AggregateRow  `json:"aggregate_rows,omitempty"`
 	Statistics              []Statistics    `json:"statistics"`
 	Currencies              []CurrencyCount `json:"currencies" nullable:"false"`
-	Chart                   Chart           `json:"chart"`
 	Status                  string          `json:"status,omitempty"`
 	Warnings                []Warning       `json:"warnings,omitempty"`
+	// AnchorIndex is the global index of the requested anchor row; absent unless it was found.
+	AnchorIndex *int `json:"anchor_index,omitempty" minimum:"0"`
 }
 
 // AmazonSettings carries immutable money parsing settings for repeat imports.
@@ -306,7 +296,13 @@ func projectionToWire(
 			Count: projection.Window.Count,
 		},
 		Status: projection.Status, Warnings: append([]Warning(nil), warnings...),
-		AmazonMatchColumn: projection.AmazonMatchColumn,
+		AmazonMatchColumn: projection.AmazonMatchColumn, AnchorIndex: projection.AnchorIndex,
+	}
+	if projection.AnchorMissing {
+		wire.Warnings = append(wire.Warnings, Warning{
+			Code:   warningAnchorMissing,
+			Detail: "The requested row is not in this view.",
+		})
 	}
 	if projection.AuditWarning != "" {
 		wire.Warnings = append(wire.Warnings, Warning{Code: "audit_completion_failed", Detail: projection.AuditWarning})
@@ -339,15 +335,6 @@ func appendRowsToWire(wire *Projection, projection app.WebProjection) {
 	}
 	for _, stats := range projection.Statistics {
 		wire.Statistics = append(wire.Statistics, statisticsToWire(stats))
-	}
-	for _, mark := range projection.Chart.Marks {
-		wire.Chart.Marks = append(wire.Chart.Marks, ChartMark{
-			Index: mark.Index, Identity: mark.Identity, Label: mark.Label,
-			Amount: moneyToWire(mark.Amount), PlotRatio: mark.PlotRatio,
-		})
-	}
-	for _, stats := range projection.Chart.Summary {
-		wire.Chart.Summary = append(wire.Chart.Summary, statisticsToWire(stats))
 	}
 }
 

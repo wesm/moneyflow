@@ -99,6 +99,5 @@ function projection(
       flags: { selected: false, hidden: false, pending: false },
     })),
     statistics: [],
-    chart: {},
   }
 }

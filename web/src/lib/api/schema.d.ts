@@ -860,19 +860,6 @@ export interface components {
       key_display?: string
       reason?: string
     }
-    Chart: {
-      marks?: components['schemas']['ChartMark'][] | null
-      summary?: components['schemas']['Statistics'][] | null
-    }
-    ChartMark: {
-      amount: components['schemas']['Money']
-      identity: string
-      /** Format: int64 */
-      index: number
-      label: string
-      /** Format: int64 */
-      plot_ratio: number
-    }
     CommitBody: {
       expected_revision: string
       query: string
@@ -1405,12 +1392,13 @@ export interface components {
       all_rows_selected: boolean
       amazon_match_column: boolean
       amazon_settings?: components['schemas']['AmazonSettings']
+      /** Format: int64 */
+      anchor_index?: number
       api_schema_version: string
       breadcrumb_text: string
       breadcrumbs: components['schemas']['Breadcrumb'][] | null
       canonical_query: string
       capabilities: components['schemas']['Capability'][] | null
-      chart: components['schemas']['Chart']
       currencies: components['schemas']['CurrencyCount'][]
       detail_rows?: components['schemas']['DetailRow'][] | null
       filters: components['schemas']['ActiveFilters']
@@ -1768,6 +1756,7 @@ export interface components {
       kind: string
     }
     ViewBody: {
+      anchor?: string
       query: string
       selection?: string
       window: components['schemas']['Window']

@@ -1,43 +1,62 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ChartState } from './chart-state.svelte'
+import { memoryStorage } from '../../test/storage'
 
-function chartState(width: { full: boolean; compact: boolean }) {
+function chartState(width: { compact: boolean }) {
   const pop = vi.fn()
   const pushScope = vi.fn<(name: string) => () => void>(() => pop)
-  const charts = new ChartState({
-    fullSidebar: () => width.full,
-    compact: () => width.compact,
-    pushScope,
-  })
+  const charts = new ChartState({ compact: () => width.compact, pushScope })
   return { charts, pushScope, pop }
 }
 
 describe('ChartState', () => {
-  it('follows the width until the user flips the switch', () => {
-    const width = { full: true, compact: false }
-    const { charts } = chartState(width)
-    expect(charts.aside).toBe(true)
+  beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()))
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('starts the chart row on above phone width and hides it with the switch', () => {
+    const { charts } = chartState({ compact: false })
+    expect(charts.row).toBe(true)
     expect(charts.checked).toBe(true)
 
-    width.full = false
-    expect(charts.aside).toBe(false)
-    expect(charts.checked).toBe(false)
-
-    charts.toggle(true)
-    expect(charts.aside).toBe(true)
-    width.full = true
     charts.toggle(false)
-    expect(charts.aside).toBe(false)
-    width.full = false
+    expect(charts.row).toBe(false)
     expect(charts.checked).toBe(false)
+    charts.toggle(true)
+    expect(charts.row).toBe(true)
+  })
+
+  it('remembers the choice in this browser', () => {
+    chartState({ compact: false }).charts.toggle(false)
+    expect(chartState({ compact: false }).charts.row).toBe(false)
+
+    chartState({ compact: false }).charts.toggle(true)
+    expect(chartState({ compact: false }).charts.row).toBe(true)
+  })
+
+  it('works without browser storage', () => {
+    const broken = {
+      getItem: () => {
+        throw new Error('storage is disabled')
+      },
+      setItem: () => {
+        throw new Error('storage is disabled')
+      },
+    }
+    vi.stubGlobal('localStorage', broken)
+    const { charts } = chartState({ compact: false })
+    expect(charts.row).toBe(true)
+    charts.toggle(false)
+    expect(charts.row).toBe(false)
   })
 
   it('opens a dialog with its own shortcut scope at phone width', () => {
-    const width = { full: false, compact: true }
+    const width = { compact: true }
     const { charts, pushScope, pop } = chartState(width)
+    expect(charts.row).toBe(false)
+    expect(charts.checked).toBe(false)
     charts.toggle(true)
-    expect(charts.aside).toBe(false)
+    expect(charts.row).toBe(false)
     expect(charts.dialogOpen).toBe(true)
     expect(charts.checked).toBe(true)
     expect(pushScope).toHaveBeenCalledWith('charts')
@@ -48,17 +67,27 @@ describe('ChartState', () => {
     expect(pop).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the phone switch apart from the wider-width choice', () => {
-    const width = { full: false, compact: true }
+  it('leaves the chart row on after the phone dialog opens and closes', () => {
+    const width = { compact: true }
     const { charts } = chartState(width)
     charts.toggle(true)
+    charts.toggle(false)
     width.compact = false
-    expect(charts.aside).toBe(false)
-    expect(charts.checked).toBe(false)
+    expect(charts.row).toBe(true)
+  })
+
+  it('keeps the chart row off after the phone dialog opens', () => {
+    const width = { compact: false }
+    const { charts } = chartState(width)
+    charts.toggle(false)
+    width.compact = true
+    charts.toggle(true)
+    width.compact = false
+    expect(charts.row).toBe(false)
   })
 
   it('pushes the open dialog scope onto a rebuilt shortcut manager and pops it on destroy', () => {
-    const { charts, pushScope, pop } = chartState({ full: false, compact: true })
+    const { charts, pushScope, pop } = chartState({ compact: true })
     charts.rescope()
     expect(pushScope).not.toHaveBeenCalled()
     charts.setDialog(true)

@@ -5,13 +5,26 @@ import { resolve } from 'node:path'
 export type AssetKind = 'javascript' | 'css'
 export type CompressionMode = 'brotli' | 'gzip'
 
-export interface AssetBudget {
+interface AssetBudgetBase {
   name: string
-  manifest_entry: string
-  kind: AssetKind
   compression: CompressionMode
   max_bytes: number
 }
+
+/** Counts the files the named manifest entry loads on first paint. */
+export interface InitialAssetBudget extends AssetBudgetBase {
+  scope: 'initial'
+  manifest_entry: string
+  kind: AssetKind
+}
+
+/** Counts every JavaScript chunk in the build, loaded eagerly or not. */
+export interface TotalAssetBudget extends AssetBudgetBase {
+  scope: 'all'
+  kind: 'javascript'
+}
+
+export type AssetBudget = InitialAssetBudget | TotalAssetBudget
 
 export interface InteractionBudget {
   name: string
@@ -75,8 +88,8 @@ export function parseBudgetConfig(value: unknown): BudgetConfig {
       throw new Error(`asset budget ${index} must have a unique non-empty name`)
     }
     names.add(asset.name)
-    if (typeof asset.manifest_entry !== 'string' || asset.manifest_entry === '') {
-      throw new Error(`asset budget ${asset.name} must name a manifest entry`)
+    if (asset.scope !== 'initial' && asset.scope !== 'all') {
+      throw new Error(`asset budget ${asset.name} scope must be "initial" or "all"`)
     }
     if (asset.kind !== 'javascript' && asset.kind !== 'css') {
       throw new Error(`asset budget ${asset.name} has an unsupported kind`)
@@ -84,13 +97,21 @@ export function parseBudgetConfig(value: unknown): BudgetConfig {
     if (asset.compression !== 'brotli' && asset.compression !== 'gzip') {
       throw new Error(`asset budget ${asset.name} has an unsupported compression mode`)
     }
-    return {
+    const base: AssetBudgetBase = {
       name: asset.name,
-      manifest_entry: asset.manifest_entry,
-      kind: asset.kind,
       compression: asset.compression,
       max_bytes: positiveInteger(asset.max_bytes, `asset budget ${asset.name} max_bytes`),
     }
+    if (asset.scope === 'all') {
+      if (asset.kind !== 'javascript') {
+        throw new Error(`asset budget ${asset.name} can count every chunk only for javascript`)
+      }
+      return { ...base, scope: 'all', kind: 'javascript' }
+    }
+    if (typeof asset.manifest_entry !== 'string' || asset.manifest_entry === '') {
+      throw new Error(`asset budget ${asset.name} must name a manifest entry`)
+    }
+    return { ...base, scope: 'initial', manifest_entry: asset.manifest_entry, kind: asset.kind }
   })
 
   const interactions = raw.interactions.map((value, index): InteractionBudget => {
@@ -167,6 +188,17 @@ function initialAssetFiles(
   return [...files].sort()
 }
 
+function allJavaScriptFiles(manifest: Record<string, ManifestEntry>): string[] {
+  const files = new Set<string>()
+  for (const [name, entry] of Object.entries(manifest)) {
+    if (typeof entry.file !== 'string') {
+      throw new Error(`Vite manifest entry ${name} has no JavaScript file`)
+    }
+    if (entry.file.endsWith('.js')) files.add(entry.file)
+  }
+  return [...files].sort()
+}
+
 function compressedBytes(content: Buffer, mode: CompressionMode): number {
   if (mode === 'brotli') {
     return brotliCompressSync(content, {
@@ -181,7 +213,10 @@ async function measureAsset(
   manifest: Record<string, ManifestEntry>,
   budget: AssetBudget,
 ): Promise<number> {
-  const files = initialAssetFiles(manifest, budget.manifest_entry, budget.kind)
+  const files =
+    budget.scope === 'all'
+      ? allJavaScriptFiles(manifest)
+      : initialAssetFiles(manifest, budget.manifest_entry, budget.kind)
   let total = 0
   for (const file of files) {
     let content: Buffer

@@ -7,6 +7,9 @@ export type SelectionValue = string & { readonly [selectionBrand]: true }
 
 export type ViewBody = components['schemas']['ViewBody']
 export type TransitionBody = components['schemas']['TransitionBody']
+export type InsightsBody = components['schemas']['InsightsBody']
+export type InsightsResponse = components['schemas']['InsightsResponse']
+export type InsightsSeries = components['schemas']['InsightsSeries']
 export type ViewProjection = Omit<components['schemas']['Projection'], 'selection'> & {
   selection: SelectionValue
 }
@@ -51,6 +54,7 @@ export interface MoneyflowClient {
   readonly mutations: MutationFetch
   view(body: ViewBody, signal?: AbortSignal): Promise<ViewProjection>
   transition(body: TransitionBody, signal?: AbortSignal): Promise<ViewProjection>
+  insights(body: InsightsBody, signal?: AbortSignal): Promise<InsightsResponse>
   projectDuplicates(body: DuplicateBody, signal?: AbortSignal): Promise<DuplicateResponse>
   previewExport(body: ExportPreviewBody, signal?: AbortSignal): Promise<ExportPreviewResponse>
   downloadExport(body: ExportBody, signal?: AbortSignal): Promise<Response>
@@ -255,6 +259,15 @@ export function createMoneyflowClient(
       })
       return projectionOrThrow(result.data, result.error)
     },
+    async insights(body, signal) {
+      const result = await client.POST('/api/v1/profiles/{profile_id}/view/insights', {
+        ...requestOptions(body, signal),
+        params: { path: { profile_id: profileID } },
+      })
+      if (isInsightsResponse(result.data)) return result.data
+      if (isProblem(result.error)) throw new MoneyflowProblem(result.error)
+      throw new Error('The Moneyflow insights response is invalid.')
+    },
     async projectDuplicates(body, signal) {
       const result = await client.POST('/api/v1/profiles/{profile_id}/duplicates', {
         ...requestOptions(body, signal),
@@ -336,6 +349,21 @@ function isDuplicateResponse(value: unknown): value is DuplicateResponse {
     typeof value.total_groups === 'number' &&
     typeof value.total_transactions === 'number' &&
     Array.isArray(value.groups)
+  )
+}
+
+function isInsightsResponse(value: unknown): value is InsightsResponse {
+  if (!isRecord(value)) return false
+  return (
+    value.version === '1' &&
+    typeof value.revision === 'string' &&
+    /^\d+$/.test(value.revision) &&
+    typeof value.query === 'string' &&
+    typeof value.today === 'string' &&
+    typeof value.currency === 'string' &&
+    Number.isSafeInteger(value.scale) &&
+    isRecord(value.ranges) &&
+    Array.isArray(value.series)
   )
 }
 

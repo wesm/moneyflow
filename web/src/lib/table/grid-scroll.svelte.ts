@@ -3,6 +3,7 @@ import { untrack } from 'svelte'
 
 import type { ViewProjection } from '../api/client'
 import { revealScrollTop, visibleRange } from './layout'
+import { revealHold, type RevealHold } from './reveal-hold.svelte'
 import { coveredCursor, loadedRow, rowToShow } from './virtual-rows'
 
 /**
@@ -19,6 +20,8 @@ export interface GridScrollSource {
   readonly rowHeight: number
   /** The scroller's visible height. */
   readonly viewport: number
+  /** The measured height of the content above the grid in the scroller, such as the charts. */
+  readonly above: number
   /** The scroller's `scrollTop`. The model sets it, and the scroller, to reveal the cursor row. */
   scrollTop: number
   oncursor(index: number): void
@@ -31,6 +34,7 @@ export interface GridScrollSource {
  */
 export class GridScroll {
   readonly #source: GridScrollSource
+  readonly #hold: RevealHold | undefined = revealHold()
   /** The row last passed to `onshow`. The cursor moving there follows the scroll, so stays. */
   #shown: number | undefined
   #lastViewport: number | undefined
@@ -42,11 +46,10 @@ export class GridScroll {
   readonly #cursor = $derived.by(() => this.#source.cursorIndex)
   readonly #query = $derived.by(() => this.#projection.canonical_query)
   #lastQuery: string | undefined
-  // The scroller's top below the grid's top: the rows' offset under the sticky header. offsetTop
-  // is read, not tracked, so content above the grid that resizes does not rerun this.
-  readonly #listTop = $derived.by(
-    () => this.#source.scrollTop - (this.#source.grid?.offsetTop ?? 0),
-  )
+  /** The grid's top in the scroller, measured after layout whenever the content above resizes. */
+  #gridTop = $state(0)
+  // The scroller's top below the grid's top: the rows' offset under the sticky header.
+  readonly #listTop = $derived.by(() => this.#source.scrollTop - this.#gridTop)
   /** The first and last rows wholly visible below the sticky header. */
   readonly range = $derived.by(() => {
     const height = this.#source.rowHeight
@@ -84,6 +87,8 @@ export class GridScroll {
 
   constructor(source: GridScrollSource) {
     this.#source = source
+    // First, so the effects below reveal rows against the current grid top.
+    $effect(() => this.#measureGridTop())
     $effect(() => this.#followCursor())
     $effect(() => this.#keepCursorAboveCover())
     $effect(() => this.#keepCursorAcrossRowHeights())
@@ -99,6 +104,13 @@ export class GridScroll {
     this.#reveal(this.#cursor)
   }
 
+  // Effects run after the DOM updates, so the offset read here is current. `above` changes when
+  // the content above the grid resizes: the Charts switch, or skeletons giving way to charts.
+  #measureGridTop(): void {
+    void this.#source.above
+    this.#gridTop = this.#source.grid?.offsetTop ?? 0
+  }
+
   // The grid keeps focus while the cursor moves, so the browser never scrolls the active row
   // into view. Reveal it here, as a keyboard user expects. A new view, such as a sort, can keep
   // the cursor's index; its row is revealed too.
@@ -110,7 +122,10 @@ export class GridScroll {
       const newView = this.#lastQuery !== undefined && this.#lastQuery !== query
       this.#lastQuery = query
       if (newView) this.#shown = undefined
-      if (index !== this.#shown) return this.#reveal(index)
+      if (index !== this.#shown) {
+        if (this.#hold?.held) return this.#hold.defer(() => this.#reveal(this.#cursor))
+        return this.#reveal(index)
+      }
       // A window that arrived after more scrolling moves the cursor on to the row now on top,
       // once that row is loaded. Until then the next window is asked for instead.
       this.#shown = undefined
@@ -147,6 +162,8 @@ export class GridScroll {
   // One request per frame, for the latest first row, once scrolling leaves the cursor's window.
   // Scrolling back to the cursor asks for its own row, which withdraws a request on its way.
   #showScrolledRows(): (() => void) | undefined {
+    // A held reveal leaves the cursor off screen on purpose; it is not a scroll away from it.
+    if (this.#hold?.held) return undefined
     const { first, last } = this.range
     const cursor = this.#cursor
     const back = this.#shown !== undefined && cursor >= first && cursor <= last
@@ -162,6 +179,7 @@ export class GridScroll {
 
   #reveal(index: number): void {
     const source = this.#source
+    // Read now: a key can arrive before the observer reports content above that just resized.
     const gridTop = source.grid?.offsetTop ?? 0
     const port = { scrollTop: source.scrollTop, viewport: source.viewport, gridTop }
     const next = revealScrollTop(index, { ...port, rowHeight: source.rowHeight })

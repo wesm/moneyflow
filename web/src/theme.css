@@ -65,8 +65,13 @@
 
 :root {
   --mf-in: var(--accent-green);
+  --mf-in-muted: color-mix(in srgb, var(--accent-green) 35%, var(--bg-surface));
   --mf-out: color-mix(in srgb, var(--accent-red) 70%, var(--bg-surface));
   --mf-out-muted: color-mix(in srgb, var(--accent-red) 35%, var(--bg-surface));
+  /* Text tones: mixed toward the text color, so a change reads at 4.5:1 or better on the page,
+     the surface, and the cursor and selected row tints in both themes. Fills keep the above. */
+  --mf-in-text: color-mix(in srgb, var(--accent-green) 65%, var(--text-primary));
+  --mf-out-text: color-mix(in srgb, var(--accent-red) 65%, var(--text-primary));
   --mf-pending: var(--accent-amber);
   --mf-cursor: color-mix(in srgb, var(--accent-blue) 16%, transparent);
   --mf-selected: color-mix(in srgb, var(--accent-blue) 30%, transparent);

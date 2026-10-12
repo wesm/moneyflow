@@ -343,6 +343,7 @@ function duplicateClient(): MoneyflowClient {
     mutations: mutationTransport(),
     view: vi.fn(),
     transition: vi.fn(),
+    insights: vi.fn(),
     projectDuplicates: vi.fn(),
     previewExport: vi.fn(),
     downloadExport: vi.fn(),

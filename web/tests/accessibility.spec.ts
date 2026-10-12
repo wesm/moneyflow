@@ -30,6 +30,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await openMoneyflow(page, server)
+    // The Income tile shows once the insights entry has loaded, so the charts have drawn.
+    await expect(page.locator('.mf-kpis').getByText('Income', { exact: true })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Charts' })).toBeVisible()
     await expectNoAxeViolations(page)
 
     const grid = page.getByRole('grid', { name: 'Financial results' })
@@ -41,14 +44,33 @@ for (const colorScheme of ['light', 'dark'] as const) {
       'descending',
     )
     await expect(page.locator('[aria-live="polite"]')).not.toHaveCount(0)
+  })
+}
 
-    const row = await activeRow(page)
-    const merchant = await cell(row, 'name').innerText()
-    const total = await cell(row, 'net').innerText()
-    const mark = page
-      .getByRole('complementary', { name: 'Visualizations' })
-      .getByRole('button', { name: `${merchant}, ${total}`, exact: true })
-    await expect(mark).toHaveCount(1)
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} rising and falling changes pass axe on cursor and selected rows`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openMoneyflow(
+      page,
+      server,
+      'cur=USD%3A2&from=2026-09-01&group=category&to=2026-09-30&v=1',
+    )
+    await expect(page.locator('.mf-kpis__caption')).toHaveText('vs Aug')
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await expect(grid.locator('.mf-tone--favorable').first()).toBeVisible()
+    await expect(grid.locator('.mf-tone--unfavorable').first()).toBeVisible()
+    const falling = grid.getByRole('row').filter({ has: page.locator('.mf-tone--unfavorable') })
+    await cell(falling.first(), 'vs_prior').click()
+    await expect((await activeRow(page)).locator('.mf-tone--unfavorable')).toBeVisible()
+    await expectNoAxeViolations(page)
+
+    await page.keyboard.press('Space')
+    await expect(await activeRow(page)).toHaveAttribute('aria-selected', 'true')
+    await expectNoAxeViolations(page)
   })
 }
 
@@ -67,8 +89,6 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(bar).toContainText('1 merchant · ')
     await expectNoAxeViolations(page)
 
-    // The detail chart rail scrolls with no focusable content; PR 6 replaces it.
-    await page.getByRole('switch', { name: 'Charts' }).uncheck()
     await grid.focus()
     await page.keyboard.press('d')
     await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
@@ -115,8 +135,6 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await openMoneyflow(page, server)
-    // The drilled chart rail scrolls with no focusable content; PR 6 replaces it.
-    await page.getByRole('switch', { name: 'Charts' }).uncheck()
     await page.getByRole('grid', { name: 'Financial results' }).focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('radiogroup', { name: 'Break down by' })).toBeVisible()

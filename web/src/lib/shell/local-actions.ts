@@ -56,7 +56,10 @@ export async function moveCursor(
   await context.queue(move)
 }
 
-/** Queues `work` after view transitions, to run once the shell has drawn their result. */
+/**
+ * Queues `work` after view transitions, to run once the shell has drawn their result. It runs
+ * after a queued newer-insights recheck that failed, too.
+ */
 function whenSettled(context: LocalActionContext, work: () => unknown): void {
   void context.queue(async () => {
     await tick()

@@ -2,15 +2,16 @@ import type { Locator, Page, Route } from '@playwright/test'
 
 import { activeRow, cell, expect, openMoneyflow, test } from './fixtures'
 
-test('desktop and medium layouts preserve table primacy and chart linkage', async ({
+test('desktop and medium layouts put the charts above a full-width table', async ({
   page,
   server,
 }) => {
   await openMoneyflow(page, server)
   const grid = page.getByRole('grid', { name: 'Financial results' })
-  const visualizations = page.getByRole('complementary', { name: 'Visualizations' })
+  const charts = page.getByRole('region', { name: 'Charts' })
   await expect(grid).toBeVisible()
-  await expect(visualizations).toBeVisible()
+  await expect(charts).toBeVisible()
+  await expect(page.locator('.mf-kpis').getByText('Income', { exact: true })).toBeVisible()
   // The selection header holds only the "Select all matching" box.
   await expect(grid.getByRole('columnheader')).toHaveText([
     '',
@@ -21,6 +22,7 @@ test('desktop and medium layouts preserve table primacy and chart linkage', asyn
     'Out',
     'Net',
     'Share',
+    'Trend',
   ])
   const amountHeaders = await Promise.all(
     ['Count', 'In', 'Out', 'Net'].map((name) =>
@@ -31,43 +33,183 @@ test('desktop and medium layouts preserve table primacy and chart linkage', asyn
     expect(header!.width).toBe(amountHeaders[0]!.width)
   }
   expect(await page.evaluate(() => scrollY)).toBe(0)
-
-  const gridBox = await grid.boundingBox()
-  const chartBox = await visualizations.boundingBox()
-  expect(gridBox).not.toBeNull()
-  expect(chartBox).not.toBeNull()
-  expect(chartBox!.x).toBeGreaterThan(gridBox!.x)
-
-  const marks = visualizations.getByRole('button')
-  const secondMark = marks.nth(1)
-  const label = (await secondMark.getAttribute('aria-label'))!.split(',')[0]
-  await secondMark.click()
-  await expect(secondMark).toHaveAttribute('aria-pressed', 'true')
-  await expect(await activeRow(page)).toContainText(label)
-  await secondMark.dblclick()
-  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(label)
+  await expectChartsAbove(charts, grid)
+  await expectChartRow(charts, 'beside')
 
   await page.setViewportSize({ width: 1024, height: 768 })
-  await expect(grid).toBeVisible()
-  await expect(visualizations).toHaveCount(0)
-  const charts = page.getByRole('switch', { name: 'Charts' })
-  await expect(charts).not.toBeChecked()
+  const toggle = page.getByRole('switch', { name: 'Charts' })
+  await expect(toggle).toBeChecked()
+  await expect(charts).toBeVisible()
+  await expectChartRow(charts, 'beside')
   const lastHeader = (await grid.getByRole('columnheader').last().boundingBox())!
   const mediumGrid = (await grid.boundingBox())!
   expect(lastHeader.x).toBeGreaterThanOrEqual(mediumGrid.x)
   expect(lastHeader.x + lastHeader.width).toBeLessThanOrEqual(mediumGrid.x + mediumGrid.width + 1)
 
-  await charts.check()
-  await expect(visualizations).toBeVisible()
-  const mediumChart = await visualizations.boundingBox()
-  expect(mediumChart!.x).toBeGreaterThan((await grid.boundingBox())!.x)
+  await toggle.uncheck()
+  await expect(charts).toHaveCount(0)
+  await expect(page.locator('.mf-kpis').getByText('Income', { exact: true })).toBeVisible()
+  await toggle.check()
 
-  await page.setViewportSize({ width: 768, height: 700 })
-  const boundedChart = await visualizations.boundingBox()
-  expect(boundedChart).not.toBeNull()
-  expect(boundedChart!.x + boundedChart!.width).toBeLessThanOrEqual(768)
-  expect(boundedChart!.y + boundedChart!.height).toBeLessThanOrEqual(700)
-  await expect(grid).toBeVisible()
+  await page.setViewportSize({ width: 820, height: 700 })
+  await expect(charts).toBeVisible()
+  await expectChartRow(charts, 'stacked')
+  await expectChartsAbove(charts, grid)
+  const bounded = (await charts.boundingBox())!
+  expect(bounded.x + bounded.width).toBeLessThanOrEqual(820)
+})
+
+/** The chart row sits above the grid and inside the workspace's width. */
+async function expectChartsAbove(charts: Locator, grid: Locator): Promise<void> {
+  const chartBox = (await charts.boundingBox())!
+  const gridBox = (await grid.boundingBox())!
+  expect(chartBox.y + chartBox.height).toBeLessThanOrEqual(gridBox.y)
+  expect(chartBox.x).toBeGreaterThanOrEqual(gridBox.x - 1)
+  expect(chartBox.x + chartBox.width).toBeLessThanOrEqual(gridBox.x + gridBox.width + 1)
+}
+
+/**
+ * The cash-flow chart and the right panel: two-thirds and one-third side by side from 900 px,
+ * the panel below the cash-flow chart under that.
+ */
+async function expectChartRow(charts: Locator, layout: 'beside' | 'stacked'): Promise<void> {
+  const slots = charts.locator(':scope > *')
+  await expect(slots).toHaveCount(2)
+  const cashflow = (await slots.nth(0).boundingBox())!
+  const panel = (await slots.nth(1).boundingBox())!
+  if (layout === 'stacked') {
+    expect(panel.y).toBeGreaterThanOrEqual(cashflow.y + cashflow.height)
+    expect(Math.abs(panel.width - cashflow.width)).toBeLessThanOrEqual(1)
+    return
+  }
+  expect(Math.abs(panel.y - cashflow.y)).toBeLessThanOrEqual(1)
+  expect(cashflow.width / panel.width).toBeCloseTo(2, 0)
+}
+
+test('a grouped view at 960 px never draws the column it drops, on load or resize', async ({
+  page,
+  server,
+}) => {
+  await page.addInitScript(() => {
+    const seen = new Set<string>()
+    Object.assign(window, { droppedHeadersSeen: seen })
+    // Records every header added, even one a later microtask removes before the next frame.
+    const header = '.mf-table__header [data-column="context"]'
+    new MutationObserver((records) => {
+      for (const node of records.flatMap((record) => [...record.addedNodes])) {
+        if (node instanceof Element && (node.matches(header) || node.querySelector(header))) {
+          seen.add('context')
+        }
+      }
+    }).observe(document, { childList: true, subtree: true })
+  })
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const seen = () =>
+    page.evaluate(() => [
+      ...(window as unknown as { droppedHeadersSeen: Set<string> }).droppedHeadersSeen,
+    ])
+  await page.setViewportSize({ width: 960, height: 900 })
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-09-01&to=2026-09-30&v=1')
+  await expect(grid.locator('.mf-table__header [data-column="vs_prior"]')).toHaveText('vs Aug')
+  await expect(grid.locator('.mf-table__header [data-column="context"]')).toHaveCount(0)
+  expect(await seen()).toEqual([])
+
+  // The width last measured at 1440 px is stale by the time phone rows grow back to 960 px.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(grid.locator('.mf-table__header [data-column="context"]')).toHaveCount(1)
+  await page.evaluate(() =>
+    (window as unknown as { droppedHeadersSeen: Set<string> }).droppedHeadersSeen.clear(),
+  )
+  await page.setViewportSize({ width: 390, height: 900 })
+  await expect(page.locator('.mf-table--compact')).toHaveCount(1)
+  await page.setViewportSize({ width: 960, height: 900 })
+  await expect(grid.locator('.mf-table__header [data-column="vs_prior"]')).toHaveText('vs Aug')
+  await expect(grid.locator('.mf-table__header [data-column="context"]')).toHaveCount(0)
+  expect(await seen()).toEqual([])
+})
+
+test('Trend and vs prior fill grouped rows, and from 900 px columns drop instead of scrolling', async ({
+  page,
+  server,
+}) => {
+  const series: number[] = []
+  page.on('request', (request) => {
+    const rows = request.url().endsWith('/view/insights') && request.postDataJSON()?.rows
+    if (rows) series.push(rows.length)
+  })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-09-01&to=2026-09-30&v=1')
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const header = (key: string) => grid.locator(`.mf-table__header [data-column="${key}"]`)
+  await expect(header('trend')).toHaveText('Trend')
+  await expect(header('vs_prior')).toHaveText('vs Aug')
+  await expect(header('vs_prior')).not.toHaveAttribute('aria-sort')
+  const megastore = grid.getByRole('row').filter({ hasText: 'Online Megastore' })
+  await expect(cell(megastore, 'vs_prior')).toHaveText(/^▲ 15\.1%\s*up 15\.1% vs Aug$/)
+  await expect(cell(megastore, 'vs_prior').locator('.mf-tone--unfavorable')).toHaveCount(1)
+  const transit = grid.getByRole('row').filter({ hasText: 'Metro Transit' })
+  await expect(cell(transit, 'vs_prior').locator('.mf-tone--favorable')).toHaveText(/^▼ 20\.0%/)
+  const sparkline = cell(megastore, 'trend').locator('svg')
+  await expect(sparkline).toHaveAttribute('aria-hidden', 'true')
+  await expect(sparkline.locator('polyline')).toHaveCount(1)
+  const requested = series.length
+  expect(requested).toBeGreaterThan(0)
+
+  const workspace = page.locator('.mf-workspace')
+  const toggle = page.getByRole('switch', { name: 'Charts' })
+  const shownKeys = async () =>
+    grid
+      .locator('.mf-table__header [data-column]')
+      .evaluateAll((cells) => cells.map((node) => (node as HTMLElement).dataset['column']))
+  for (const width of [1440, 1280, 1024, 960, 900]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const charts of [true, false]) {
+      await toggle.setChecked(charts)
+      await expect(page.getByRole('region', { name: 'Charts' })).toHaveCount(charts ? 1 : 0)
+      const context = `${width} px, Charts ${charts ? 'on' : 'off'}`
+      await expect
+        .poll(() => workspace.evaluate((node) => node.scrollWidth - node.clientWidth), {
+          message: context,
+        })
+        .toBe(0)
+      const shown = (await workspace.boundingBox())!
+      const last = (await header('net').boundingBox())!
+      expect(last.x + last.width, context).toBeLessThanOrEqual(shown.x + shown.width)
+      // Every row has a cell under every header.
+      const keys = await shownKeys()
+      const cells = await megastore
+        .locator('[role="gridcell"]')
+        .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset['column']))
+      expect(cells, context).toEqual(keys)
+    }
+    const keys = await shownKeys()
+    if (width >= 1280) expect(keys).toContain('context')
+    if (width === 1024) {
+      expect(keys).not.toContain('context')
+      expect(keys.slice(-2)).toEqual(['trend', 'vs_prior'])
+    }
+    if (width === 900) expect(keys).not.toContain('trend')
+  }
+  // Trend comes back from the cached series, without asking the server again.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(header('context')).toHaveText('Top category')
+  await expect(sparkline.locator('polyline')).toHaveCount(1)
+  expect(series).toHaveLength(requested)
+
+  // The longest everyday label, the partial year's, fits its header.
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-01-01&to=2026-12-31&v=1')
+  await expect(header('vs_prior')).toHaveText('vs 2025 to date')
+  expect(await header('vs_prior').evaluate((node) => node.scrollWidth - node.clientWidth)).toBe(0)
+
+  // All has no prior range, so only Trend joins the grouped columns.
+  await openMoneyflow(page, server)
+  await expect(header('trend')).toHaveText('Trend')
+  await expect(header('vs_prior')).toHaveCount(0)
+  await expect(grid.locator('[data-column="trend"] svg').first()).toBeVisible()
+
+  await page.setViewportSize({ width: 700, height: 900 })
+  await expect(header('trend')).toHaveCount(0)
+  await expect(grid.locator('[data-column="trend"]')).toHaveCount(0)
 })
 
 test('narrow resize preserves analytical URL and moves charts into a drawer', async ({
@@ -82,7 +224,9 @@ test('narrow resize preserves analytical URL and moves charts into a drawer', as
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page).toHaveURL(analyticalURL)
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeVisible()
-  await expect(page.getByRole('complementary', { name: 'Visualizations' })).toHaveCount(0)
+  // Phones show no KPI strip inline; the Charts switch opens it in a drawer.
+  await expect(page.locator('.mf-kpis').getByText('Income', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Charts' })).toHaveCount(0)
   const rows = page.getByRole('grid', { name: 'Financial results' }).getByRole('row')
   expect(await rows.count()).toBeGreaterThan(1)
 
@@ -91,9 +235,15 @@ test('narrow resize preserves analytical URL and moves charts into a drawer', as
   const charts = page.getByRole('switch', { name: 'Charts' })
   await expect(charts).not.toBeChecked()
   await charts.check()
-  await expect(page.getByRole('dialog', { name: 'Moneyflow visualizations' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Visualizations' })).toBeVisible()
+  const drawer = page.getByRole('dialog', { name: 'Moneyflow visualizations' })
+  await expect(drawer).toBeVisible()
+  await expect(drawer.locator('.mf-kpis').getByText('Income', { exact: true })).toBeVisible()
+  await expectChartRow(drawer.getByRole('region', { name: 'Charts' }), 'stacked')
   await expect(page).toHaveURL(analyticalURL)
+
+  await page.setViewportSize({ width: 820, height: 844 })
+  await expect(drawer).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Charts' })).toBeVisible()
 })
 
 test('the sidebar groups by its entries and the rail names them in tooltips', async ({
@@ -200,7 +350,7 @@ test('the phone drawer holds the sidebar, traps focus, and closes on Esc', async
   await menu.click()
   const drawer = page.getByRole('dialog', { name: 'Navigation' })
   await expect(drawer.getByRole('navigation', { name: 'Workspace' })).toBeVisible()
-  await expect(page.getByText(/0 pending/)).toHaveCount(1)
+  await expect(page.getByText(/0 pending edit/)).toHaveCount(1)
   await expectTouchTargets(drawer)
   for (let press = 0; press < 20; press += 1) {
     await page.keyboard.press('Tab')
@@ -319,7 +469,9 @@ test('the phone search icon reveals the field, which stays while a search applie
   await expect(searchbox).toHaveValue('pizz')
   await page.setViewportSize(phone)
 
+  // The switch shows the chart row at 700 px; wait for it to become the phone's dialog switch.
   const charts = page.getByRole('switch', { name: 'Charts' })
+  await expect(charts).not.toBeChecked()
   await charts.check()
   await expect(page.getByRole('dialog', { name: 'Moneyflow visualizations' })).toBeVisible()
 })
@@ -478,7 +630,7 @@ test.describe('phone rows by touch', () => {
     await sheet.getByRole('button', { name: 'Hide' }).tap()
     await expect(sheet).toBeHidden()
     await expect(first).toContainText('Hidden')
-    await expect(page.getByText(/1 pending/)).toBeVisible()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await expect(more).toBeFocused()
   })
 })
@@ -622,8 +774,11 @@ test('641–899 px: Net fits, and a wide table scrolls under sticky ☐, Name, a
   expect(overflow).toBeGreaterThan(0)
   await workspace.evaluate((node) => (node.scrollLeft = node.scrollWidth))
   await expect.poll(async () => (await boxes()).context).toBeLessThan(before.context - overflow + 1)
+  // ☐ sticks at the scroller's edge, over its focus-ring padding, and Name sticks beside it.
   const after = await boxes()
-  expect(after).toMatchObject({ select: before.select, name: before.name, header: before.header })
+  expect(after.select).toBe((await workspace.boundingBox())!.x)
+  expect(after.name - after.select).toBe(before.name - before.select)
+  expect(after.header).toBe(after.name)
 
   // The selection bar stays put too, inside the workspace.
   await page.keyboard.press('Space')

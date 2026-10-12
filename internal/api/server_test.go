@@ -1014,3 +1014,101 @@ func TestOnlyAnInvalidSelectionIsResetOnATransition(t *testing.T) {
 		})
 	}
 }
+
+func anchorTestServer(t testing.TB, merchants int) *Server {
+	t.Helper()
+	transactions := make([]domain.Transaction, merchants)
+	for index := range transactions {
+		id := fmt.Sprintf("txn-%03d", index)
+		name := fmt.Sprintf("Merchant %03d", index)
+		transactions[index] = apiTransactionWith(t, id, func(transaction *domain.Transaction) {
+			transaction.Merchant = domain.EntityRef{ID: "merchant-" + id, Name: name}
+		})
+	}
+	service, err := app.NewService(transactions)
+	require.NoError(t, err)
+	return newTestServerWithConfig(t, Config{
+		Resolver: resolverForService(testProfileID, service), LegacyProfileID: testProfileID,
+	})
+}
+
+func projectWindow(t testing.TB, server *Server, body ViewBody) Projection {
+	t.Helper()
+	response := requestJSON(t, server, "/api/v1/view", body)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var projection Projection
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &projection))
+	return projection
+}
+
+func TestServerViewAnchorReturnsTheWindowHoldingTheRow(t *testing.T) {
+	t.Parallel()
+	server := anchorTestServer(t, 450)
+	third := projectWindow(t, server, ViewBody{Query: "v=1", Window: Window{Offset: 400, Limit: 200}})
+	require.NotEmpty(t, third.AggregateRows)
+	anchored := third.AggregateRows[len(third.AggregateRows)-1]
+
+	projection := projectWindow(t, server, ViewBody{
+		Query: "v=1", Window: Window{Limit: 200}, Anchor: anchored.Identity,
+	})
+	assert.Equal(t, 400, projection.Window.Offset)
+	require.NotNil(t, projection.AnchorIndex)
+	assert.Equal(t, anchored.Index, *projection.AnchorIndex)
+	assert.Empty(t, projection.Warnings)
+}
+
+func TestServerViewAnchorWithAnInvalidSelectionResetsItAndStillFindsTheRow(t *testing.T) {
+	t.Parallel()
+	server := anchorTestServer(t, 450)
+	third := projectWindow(t, server, ViewBody{Query: "v=1", Window: Window{Offset: 400, Limit: 200}})
+	require.NotEmpty(t, third.AggregateRows)
+	anchored := third.AggregateRows[len(third.AggregateRows)-1]
+
+	projection := projectWindow(t, server, ViewBody{
+		Query: "v=1", Selection: "invalid", Window: Window{Limit: 200}, Anchor: anchored.Identity,
+	})
+	require.Len(t, projection.Warnings, 1)
+	assert.Equal(t, string(app.SelectionReset), projection.Warnings[0].Code)
+	assert.Equal(t, string(app.EmptySelection()), projection.Selection)
+	assert.Equal(t, 400, projection.Window.Offset)
+	require.NotNil(t, projection.AnchorIndex)
+	assert.Equal(t, anchored.Index, *projection.AnchorIndex)
+}
+
+func TestServerViewWithoutAnchorOmitsAnchorIndex(t *testing.T) {
+	t.Parallel()
+	server := anchorTestServer(t, 3)
+	body := ViewBody{Query: "v=1", Window: Window{Limit: 200}}
+	response := requestJSON(t, server, "/api/v1/view", body)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.NotContains(t, response.Body.String(), "anchor_index")
+}
+
+func TestServerViewMissingAnchorWarnsAndKeepsTheRequestedWindow(t *testing.T) {
+	t.Parallel()
+	server := anchorTestServer(t, 450)
+	projection := projectWindow(t, server, ViewBody{
+		Query: "v=1", Window: Window{Offset: 200, Limit: 200}, Anchor: "merchant:7:Unknown:2:USD",
+	})
+	assert.Equal(t, 200, projection.Window.Offset)
+	assert.Nil(t, projection.AnchorIndex)
+	require.Len(t, projection.Warnings, 1)
+	assert.Equal(t, "anchor_missing", projection.Warnings[0].Code)
+}
+
+func TestServerViewTransactionViewIgnoresTheAnchor(t *testing.T) {
+	t.Parallel()
+	server := anchorTestServer(t, 450)
+	session := app.NewSession()
+	session.ShowAllDetail()
+	query, err := EncodeViewQuery(session.ViewState())
+	require.NoError(t, err)
+
+	projection := projectWindow(t, server, ViewBody{
+		Query: query, Window: Window{Offset: 200, Limit: 200}, Anchor: "txn-300",
+	})
+	assert.Equal(t, 200, projection.Window.Offset)
+	assert.Nil(t, projection.AnchorIndex)
+	require.Len(t, projection.Warnings, 1)
+	assert.Equal(t, "anchor_missing", projection.Warnings[0].Code)
+}

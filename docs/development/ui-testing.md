@@ -112,6 +112,34 @@ both themes, narrow layouts, keyboard focus, filtering, editing, review, recover
 and empty results. Remaining browser differences include the lack of the TUI time
 chooser and merchant autocomplete; the browser currently uses the date filter and
 a merchant-name field. These are product gaps, not behaviors the harness simulates.
-The current charts also expose normalized ratio ticks under currency headings,
-and the completed-write drawer loses its original progress counts. Both need a
+The completed-write drawer loses its original progress counts. This needs a
 follow-up usability change; data assertions use exact committed amounts and calls.
+
+## Chart contracts
+
+Browser tests find the charts by role and accessible name, not by class or position.
+Amounts in names come from the server's `display` strings or from `formatMinor`, so
+tests compare them with literal synthetic values.
+
+| Element | Role and name |
+| --- | --- |
+| Chart row | Region `Charts`; the `Charts` switch shows or hides it, and the KPI strip stays |
+| Phone drawer | Dialog `Moneyflow visualizations`, holding the KPI strip and the chart row |
+| KPI strip | Description list of terms such as `Income`, `Spending`, `Net`, `Savings rate`, `Avg per transaction`, and `Transactions` |
+| Cash flow | Group `Cash flow`; one button per period named `{label}, in {in}, out {out}, net {net}` |
+| Composition | List named by its panel title, such as `Where it went`; one button per bar named `{label}, {share}%, {net}` |
+| Heatmap | Group `Daily spending`; one cell per day named `{Mon D, YYYY}, out {out}`, with `, in {in}` added when In is not zero |
+
+Cash-flow labels for days are ISO dates in the response. The axis shows the day number
+and the button name shows the date, as `Sep 15, 2026, in …`. Month and year labels
+come from the server.
+
+A double-click on a composition bar drills into its row. The performance spec times that
+drill and the cursor's move to a new cash-flow column; their limits are in
+`web/budgets.json`. That spec runs with Playwright tracing off, because tracing snapshots the
+page inside the timed window. Every other spec keeps the configured tracing.
+
+The `chart_drill` limit is 70 ms. It is sized for GitHub's ubuntu runners. The earlier 30 ms
+limit was never met there: the chart this one replaced measured 31–37 ms. The drill now draws
+the transaction view's calendar heatmap in the same task. The limit comes from 4x
+CPU-throttled local runs, which measure a little above those runners, plus headroom.

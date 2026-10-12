@@ -1,8 +1,11 @@
 <script lang="ts">
   import RowName from './RowName.svelte'
+  import TrendCell from './TrendCell.svelte'
+  import VsPriorCell from './VsPriorCell.svelte'
   import type { components } from '../../lib/api/schema'
   import { contextCell, moneyCell, shareCell } from '../../lib/table/cells'
   import { cellClass, type Column } from '../../lib/table/columns'
+  import { rowSeries, type RowInsights } from '../../lib/table/trend'
 
   interface Props {
     row: components['schemas']['AggregateRow']
@@ -12,10 +15,15 @@
     divider?: 'Income' | 'Spending' | null
     /** The dimension the rows group by, which decides the Context cell. */
     dimension: string
+    /** The displayed view's insights, for Trend and vs prior; loading until they exist. */
+    insights?: RowInsights | undefined
   }
 
-  let { row, columns, dimension, divider = null }: Props = $props()
+  let { row, columns, dimension, divider = null, insights }: Props = $props()
   const share = $derived(shareCell(row))
+  const series = $derived(
+    insights ? rowSeries(insights, row.identity) : ({ state: 'loading' } as const),
+  )
   const spending = $derived(row.total.minor.startsWith('-'))
 </script>
 
@@ -43,6 +51,10 @@
           ></span>
         </span>
       </span>
+    {:else if column.key === 'trend'}
+      <TrendCell {series} />
+    {:else if column.key === 'vs_prior'}
+      <VsPriorCell {series} />
     {/if}
   </div>
 {/each}

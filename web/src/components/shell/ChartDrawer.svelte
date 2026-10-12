@@ -18,6 +18,8 @@
     width="min(560px, calc(100vw - 1px))"
     {onclose}
   >
-    {@render children()}
+    <div class="mf-chart-dialog">
+      {@render children()}
+    </div>
   </DetailDrawer>
 {/if}

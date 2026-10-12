@@ -31,6 +31,35 @@ export default tseslint.config(
     },
   },
   {
+    // Money stays exact: minor-unit strings and BigInt, never a JavaScript number.
+    files: [
+      'src/lib/money/**/*.ts',
+      'src/lib/charts/**/*.ts',
+      'src/lib/insights/**/*.ts',
+      'src/components/charts/**/*.svelte',
+      'src/lib/table/trend.ts',
+      'src/components/table/TrendCell.svelte',
+      'src/components/table/VsPriorCell.svelte',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'CallExpression[callee.name=/^(Number|parseFloat|parseInt)$/]',
+          message: 'Keep money exact: use parseMinor and BigInt, not a number conversion.',
+        },
+        {
+          selector: "CallExpression[callee.object.name='Number'][callee.property.name=/^parse/]",
+          message: 'Keep money exact: use parseMinor and BigInt, not a number conversion.',
+        },
+        {
+          selector: "UnaryExpression[operator='+']",
+          message: 'Keep money exact: use parseMinor and BigInt, not unary plus.',
+        },
+      ],
+    },
+  },
+  {
     ignores: ['dist/', 'node_modules/', 'coverage/', 'playwright-report/', 'test-results/'],
   },
 )

@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -38,8 +39,6 @@ func TestProjectViewDefaultsWindowAndDecoratesExactSelection(t *testing.T) {
 	assert.Equal(t, 1, projection.SelectionCount)
 	assert.Equal(t, 0, projection.DetailRows[0].Index)
 	assert.Equal(t, 199, projection.DetailRows[199].Index)
-	assert.Empty(t, projection.Chart.Marks)
-	assert.Equal(t, projection.Statistics, projection.Chart.Summary)
 	assert.Empty(t, projection.Status)
 
 	second, err := service.ProjectView(
@@ -102,45 +101,6 @@ func TestProjectViewAllRowsSelectedIgnoresSelectionOutsideTheResult(t *testing.T
 	)
 	require.NoError(t, err)
 	assert.False(t, none.AllRowsSelected)
-}
-
-func TestProjectViewAggregateWindowChartRatiosAndPartitions(t *testing.T) {
-	t.Parallel()
-
-	transactions := []domain.Transaction{
-		appTransaction(t, "usd-large", "2024-01-01", "-9.00", "Alpha", "Category", "Group"),
-		appTransaction(t, "usd-small", "2024-01-01", "3.00", "Beta", "Category", "Group"),
-	}
-	eur := appTransaction(t, "eur", "2024-01-01", "-2.00", "Gamma", "Category", "Group")
-	eur.Amount.Currency = "EUR"
-	transactions = append(transactions, eur)
-	service, err := NewService(transactions)
-	require.NoError(t, err)
-
-	projection, err := service.ProjectView(DefaultViewState(), EmptySelection(), WindowRequest{})
-	require.NoError(t, err)
-	require.Len(t, projection.AggregateRows, 3)
-	require.Len(t, projection.Chart.Marks, 3)
-
-	ratios := make(map[string]int, len(projection.Chart.Marks))
-	for _, mark := range projection.Chart.Marks {
-		ratios[mark.Identity] = mark.PlotRatio
-		assert.GreaterOrEqual(t, mark.Index, 0)
-		assert.NotEmpty(t, mark.Label)
-	}
-	for _, row := range projection.AggregateRows {
-		ratio := ratios[row.Identity]
-		switch row.Row.Total.Currency {
-		case "EUR":
-			assert.Equal(t, -PlotRatioScale, ratio)
-		case "USD":
-			if row.Row.Total.Minor == -900 {
-				assert.Equal(t, -PlotRatioScale, ratio)
-			} else {
-				assert.Equal(t, 3333, ratio)
-			}
-		}
-	}
 }
 
 func TestProjectViewResolvesDurableDrillLabelsForBreadcrumb(t *testing.T) {
@@ -1092,4 +1052,112 @@ func TestProjectViewOmitsNetRatioFromNonTimeRows(t *testing.T) {
 	for _, row := range projection.AggregateRows {
 		assert.Nil(t, row.NetRatio)
 	}
+}
+
+func TestProjectViewAnchorReturnsTheAlignedWindowHoldingTheRow(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 650)
+	state := DefaultViewState()
+	third, err := service.ProjectView(state, EmptySelection(), WindowRequest{Offset: 400})
+	require.NoError(t, err)
+	require.NotEmpty(t, third.AggregateRows)
+	anchored := third.AggregateRows[37]
+
+	projection, err := service.ProjectView(
+		state, EmptySelection(), WindowRequest{Anchor: anchored.Identity},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, Window{Offset: 400, Limit: DefaultWindowLimit, Count: 200}, projection.Window)
+	require.NotNil(t, projection.AnchorIndex)
+	assert.Equal(t, anchored.Index, *projection.AnchorIndex)
+	assert.False(t, projection.AnchorMissing)
+	assert.Equal(t, anchored.Identity, projection.AggregateRows[*projection.AnchorIndex-400].Identity)
+}
+
+func TestProjectViewAnchorKeepsTheLimitAlignmentOfTheRequest(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 650)
+	state := DefaultViewState()
+	all, err := service.ProjectView(state, EmptySelection(), WindowRequest{Offset: 400, Limit: 250})
+	require.NoError(t, err)
+	anchored := all.AggregateRows[10]
+
+	projection, err := service.ProjectView(
+		state, EmptySelection(), WindowRequest{Offset: 0, Limit: 250, Anchor: anchored.Identity},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 250, projection.Window.Limit)
+	assert.Equal(t, 0, projection.Window.Offset%250)
+	assert.LessOrEqual(t, projection.Window.Offset, *projection.AnchorIndex)
+	assert.Less(t, *projection.AnchorIndex, projection.Window.Offset+projection.Window.Limit)
+}
+
+func TestProjectViewAnchorFindsATimePeriodRow(t *testing.T) {
+	t.Parallel()
+
+	transactions := make([]domain.Transaction, 12)
+	for index := range transactions {
+		date := fmt.Sprintf("2024-%02d-10", index+1)
+		transactions[index] = appTransaction(
+			t, "txn-"+date, date, "-1.00", "Example", "Category", "Group",
+		)
+	}
+	service, err := NewService(transactions)
+	require.NoError(t, err)
+	state := timeRatioState()
+	all, err := service.ProjectView(state, EmptySelection(), WindowRequest{Limit: 12})
+	require.NoError(t, err)
+	require.Len(t, all.AggregateRows, 12)
+	anchored := all.AggregateRows[9]
+
+	projection, err := service.ProjectView(
+		state, EmptySelection(), WindowRequest{Limit: 4, Anchor: anchored.Identity},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, Window{Offset: 8, Limit: 4, Count: 4}, projection.Window)
+	require.NotNil(t, projection.AnchorIndex)
+	assert.Equal(t, 9, *projection.AnchorIndex)
+	assert.False(t, projection.AnchorMissing)
+	assert.Equal(t, anchored.Identity, projection.AggregateRows[1].Identity)
+	assert.Equal(t, "Oct 2024", projection.AggregateRows[1].Row.Label)
+}
+
+func TestProjectViewWithoutAnchorReportsNoAnchor(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 250)
+	projection, err := service.ProjectView(DefaultViewState(), EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	assert.Nil(t, projection.AnchorIndex)
+	assert.False(t, projection.AnchorMissing)
+}
+
+func TestProjectViewMissingAnchorKeepsTheRequestedWindow(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 450)
+	projection, err := service.ProjectView(
+		DefaultViewState(), EmptySelection(),
+		WindowRequest{Offset: 200, Anchor: "merchant:3:Nowhere:2:USD"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 200, projection.Window.Offset)
+	assert.Nil(t, projection.AnchorIndex)
+	assert.True(t, projection.AnchorMissing)
+}
+
+func TestProjectViewTransactionViewIgnoresTheAnchor(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 450)
+	state := ViewState{Version: ViewStateSchemaVersion, Current: selectionDetailState()}
+	projection, err := service.ProjectView(
+		state, EmptySelection(), WindowRequest{Offset: 200, Anchor: "txn-300"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 200, projection.Window.Offset)
+	assert.Nil(t, projection.AnchorIndex)
+	assert.True(t, projection.AnchorMissing)
 }

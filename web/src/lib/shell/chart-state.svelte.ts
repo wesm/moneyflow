@@ -1,10 +1,8 @@
 import { untrack } from 'svelte'
 
-import { RailLoader } from './rail-loader.svelte'
+const storageKey = 'moneyflow-charts'
 
 export interface ChartHost {
-  /** The full sidebar shows (1280 px and wider). */
-  fullSidebar(): boolean
   /** Phone width, where charts open in a dialog. */
   compact(): boolean
   /** Pushes a shortcut scope and returns the function that pops it. */
@@ -12,14 +10,13 @@ export interface ChartHost {
 }
 
 /**
- * Tracks the Charts switch. Beside the full sidebar, charts start on. At icon-rail widths they
- * start off so the table keeps its money columns; the switch opens the aside on demand. At phone
- * width the switch opens a dialog with its own shortcut scope.
+ * Tracks the Charts switch. Above phone width the switch shows or hides the chart row above the
+ * table; it starts on and the choice persists in this browser. At phone width the switch opens a
+ * dialog with its own shortcut scope.
  */
 export class ChartState {
-  readonly rail = new RailLoader()
   dialogOpen = $state(false)
-  #choice = $state<boolean | undefined>()
+  #row = $state(readRow())
   #host: ChartHost
   #popScope: (() => void) | undefined
 
@@ -27,19 +24,20 @@ export class ChartState {
     this.#host = host
   }
 
-  /** Whether the Visualizations aside shows beside the table. */
-  get aside(): boolean {
-    return !this.#host.compact() && (this.#choice ?? this.#host.fullSidebar())
+  /** Whether the chart row shows above the table. The KPI strip shows either way. */
+  get row(): boolean {
+    return !this.#host.compact() && this.#row
   }
 
   /** Whether the Charts switch is on. */
   get checked(): boolean {
-    return this.#host.compact() ? this.dialogOpen : this.aside
+    return this.#host.compact() ? this.dialogOpen : this.row
   }
 
   toggle(checked: boolean): void {
-    if (this.#host.compact()) this.setDialog(checked)
-    else this.#choice = checked
+    if (this.#host.compact()) return this.setDialog(checked)
+    this.#row = checked
+    writeRow(checked)
   }
 
   setDialog(open: boolean): void {
@@ -55,5 +53,23 @@ export class ChartState {
 
   destroy(): void {
     this.#popScope?.()
+  }
+}
+
+// Browsers can refuse storage (private windows, blocked site data); the switch then starts on
+// and forgets the choice on reload, which is all it can do.
+function readRow(): boolean {
+  try {
+    return localStorage.getItem(storageKey) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+function writeRow(shown: boolean): void {
+  try {
+    localStorage.setItem(storageKey, shown ? 'on' : 'off')
+  } catch {
+    // See readRow: the choice lasts until the page reloads.
   }
 }

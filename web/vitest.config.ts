@@ -7,7 +7,7 @@ export default defineConfig({
     conditions: ['browser'],
   },
   optimizeDeps: {
-    exclude: ['@kenn-io/kit-ui', 'layerchart'],
+    exclude: ['@kenn-io/kit-ui'],
   },
   test: {
     environment: 'jsdom',

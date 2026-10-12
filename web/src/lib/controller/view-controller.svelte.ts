@@ -1,5 +1,7 @@
 import {
   MoneyflowProblem,
+  type InsightsBody,
+  type InsightsResponse,
   type MoneyflowClient,
   type SelectionValue,
   type TransitionBody,
@@ -88,6 +90,23 @@ export interface ViewController {
    * loaded window withdraws a window still loading.
    */
   showIndex(index: number): Promise<void>
+  /**
+   * Loads the window holding the aggregate row `identity` and moves the cursor to it, without a
+   * history entry, after earlier transitions finish. Does nothing when the row is not in the view.
+   */
+  showAnchor(identity: string): Promise<void>
+  /**
+   * Refetches the view at once when insights report `revision`, newer than the projection's, so
+   * the charts can show them. Does nothing for an equal or older revision.
+   */
+  recheckNewer(revision: string): Promise<void>
+  /**
+   * Loads the view again after the server's day changed, after earlier transitions finish. Time
+   * rows end at today, so the rows can change while the revision stays the same.
+   */
+  reloadDay(): Promise<void>
+  /** Sends one insights request for this profile; the charts' cache decides what to ask. */
+  insights(body: InsightsBody, signal: AbortSignal): Promise<InsightsResponse>
   apply(action: TransitionAction): Promise<boolean>
   /**
    * Makes later transitions wait for `work`, as they wait for an Esc return. `work` must not
@@ -275,12 +294,41 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return await recheckRequest
   }
 
-  // Each transition starts from the view the one before it returned, whichever control sent
-  // it, so rapid clicks step one at a time instead of aborting each other.
+  async function recheckNewer(revision: string): Promise<void> {
+    await serially(async () => {
+      if (!projection || BigInt(revision) <= BigInt(projection.revision)) return
+      await recheckInternal(undefined, true)
+    })
+  }
+
+  async function reloadDay(): Promise<void> {
+    await serially(async () => {
+      if (!projection) return
+      const current = projection
+      const body = viewBody(current.canonical_query, current.selection, alignedOffset(cursorIndex))
+      await requestProjection(
+        () => options.client.view(body, activeRequest?.signal),
+        (next) => {
+          // The windows read before hold the earlier day's rows under the same revision.
+          cache.clear()
+          acceptProfileProjection(next, true)
+        },
+        reloadDay,
+      )
+    })
+  }
+
   async function apply(action: TransitionAction): Promise<boolean> {
+    return await serially(() => transitionNow(action))
+  }
+
+  // Each transition starts from the view the one before it returned, whichever control sent
+  // it, so rapid clicks step one at a time instead of aborting each other. Chart moves and
+  // rechecks wait their turn too, so they cannot abort a transition still on its way.
+  async function serially<T>(work: () => Promise<T>): Promise<T> {
     const result = applyTail.then(async () => {
       await barrier
-      return await transitionNow(action)
+      return await work()
     })
     applyTail = result.then(
       () => undefined,
@@ -623,6 +671,32 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     }
   }
 
+  async function showAnchor(identity: string): Promise<void> {
+    await serially(() => anchorNow(identity))
+  }
+
+  async function anchorNow(identity: string): Promise<void> {
+    if (!projection) return
+    const current = projection
+    // A cursor move in a cached window bumps no generation, but it is newer, so it wins.
+    const requestCursor = cursorIndex
+    const body = {
+      ...viewBody(current.canonical_query, current.selection, alignedOffset(requestCursor)),
+      anchor: identity,
+    }
+    await requestProjection(
+      () => options.client.view(body, activeRequest?.signal),
+      (next) => {
+        if (projection !== current || cursorIndex !== requestCursor) return
+        if (next.anchor_index === undefined) return
+        setProjectionWindow(next, next.anchor_index)
+        replaceOwnedHistory()
+        schedulePrefetch(next)
+      },
+      () => showAnchor(identity),
+    )
+  }
+
   function showWindow(next: ViewProjection, index: number): void {
     const { offset, count } = next.window
     const holdsCursor = cursorIndex >= offset && cursorIndex < offset + count
@@ -867,6 +941,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     moveCursorTo,
     moveHome,
     showIndex,
+    showAnchor,
+    recheckNewer,
+    reloadDay,
+    insights: (body, signal) => options.client.insights(body, signal),
     apply,
     hold,
     settled,

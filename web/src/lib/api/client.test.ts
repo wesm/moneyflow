@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createMoneyflowClient, createMutationFetch, MoneyflowProblem } from './client'
 import type { ViewProjection } from './client'
+import { testInsights, testSeries } from '../../test/insights'
 
 const profileID = 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa'
 
@@ -37,6 +38,71 @@ describe('Moneyflow generated client adapter', () => {
     const sent = upstream.mock.calls[0]?.[0]
     expect(sent instanceof Request ? sent.url : String(sent)).toContain(
       `/moneyflow/api/v1/profiles/${profileID}/duplicates`,
+    )
+  })
+
+  it('projects insights beneath the profile path without mutation transport', async () => {
+    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      expect(request.headers.get('X-Moneyflow-Mutation-Token')).toBeNull()
+      expect(await request.json()).toEqual({ query: 'v=1', rows: ['agg-1'], summary: true })
+      return Response.json(
+        testInsights({ revision: '5', series: [testSeries('agg-1', '-9223372036854775808')] }),
+      )
+    })
+    const client = createMoneyflowClient('/moneyflow/', profileID, upstream as typeof fetch)
+
+    const response = await client.insights({ query: 'v=1', rows: ['agg-1'], summary: true })
+
+    expect(response.revision).toBe('5')
+    expect(response.series[0]?.trend).toEqual(['-9223372036854775808'])
+    const sent = upstream.mock.calls[0]?.[0]
+    expect(sent instanceof Request ? sent.url : String(sent)).toContain(
+      `/moneyflow/api/v1/profiles/${profileID}/view/insights`,
+    )
+  })
+
+  it('rejects insights problems and malformed insights', async () => {
+    const problem = createMoneyflowClient(
+      '/',
+      profileID,
+      vi.fn(async () =>
+        Response.json(
+          {
+            type: 'about:blank',
+            title: 'Unprocessable Entity',
+            status: 422,
+            detail: 'A row does not belong to the view.',
+            code: 'invalid_insights_request',
+          },
+          { status: 422, headers: { 'Content-Type': 'application/problem+json' } },
+        ),
+      ) as typeof fetch,
+    )
+    await expect(problem.insights({ query: 'v=1' })).rejects.toMatchObject({
+      name: 'MoneyflowProblem',
+      problem: { code: 'invalid_insights_request' },
+    })
+
+    const malformed = createMoneyflowClient(
+      '/',
+      profileID,
+      vi.fn(async () => Response.json({ version: '1', revision: 5 })) as typeof fetch,
+    )
+    await expect(malformed.insights({ query: 'v=1' })).rejects.toThrow(
+      'The Moneyflow insights response is invalid.',
+    )
+  })
+
+  it.each(['', '-1', '1.0', 'v5'])('rejects the insights revision %j', async (revision) => {
+    const client = createMoneyflowClient(
+      '/',
+      profileID,
+      vi.fn(async () => Response.json(testInsights({ revision }))) as typeof fetch,
+    )
+
+    await expect(client.insights({ query: 'v=1' })).rejects.toThrow(
+      'The Moneyflow insights response is invalid.',
     )
   })
 
@@ -386,6 +452,5 @@ function projection(selection: string, minor: string): ViewProjection {
       },
     ],
     statistics: [],
-    chart: {},
   }
 }

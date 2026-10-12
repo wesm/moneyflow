@@ -1,8 +1,11 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import FinanceGrid from './FinanceGrid.svelte'
-import type { ViewProjection } from '../../lib/api/client'
+import type { InsightsSeries, ViewProjection } from '../../lib/api/client'
+import { RevealHold, revealHoldKey } from '../../lib/table/reveal-hold.svelte'
+import type { RowInsights } from '../../lib/table/trend'
+import { testInsights, testSeries } from '../../test/insights'
 import { testAggregateRow, testMoney, testProjection } from '../../test/projection'
 
 const callbacks = () => ({
@@ -27,6 +30,13 @@ const detailView: ViewProjection['view'] = {
   sort_fields: ['date', 'merchant', 'category', 'account', 'amount'],
 }
 
+/** A Sep 2026 scope, which has an August comparison. */
+const septemberFilters: ViewProjection['filters'] = {
+  show_hidden: false,
+  show_transfers: false,
+  date_range: { from: '2026-09-01', to: '2026-09-30' },
+}
+
 function grouped(overrides: Partial<ViewProjection> = {}): ViewProjection {
   return testProjection({
     view: {
@@ -43,28 +53,27 @@ function grouped(overrides: Partial<ViewProjection> = {}): ViewProjection {
   })
 }
 
+const september = grouped({ filters: septemberFilters })
+
 /** Header text; the selection header holds only the "Select all matching" box. */
 const headers = () =>
   screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())
 const cell = (row: HTMLElement, key: string) =>
   row.querySelector<HTMLElement>(`[role="gridcell"][data-column="${key}"]`)
 
-/** Matches `(min-width: 760px)` while `wide` is true, as the window would. */
+/** The window is 760 px wide while `wide` is true, 900 px while `roomy` is, else 700 px. */
 let wide = true
-const matchMedia = window.matchMedia
+let roomy = false
+const windowWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
 beforeEach(() => {
   wide = true
-  Object.defineProperty(window, 'matchMedia', {
+  roomy = false
+  Object.defineProperty(window, 'innerWidth', {
     configurable: true,
-    value: (query: string) => ({
-      ...matchMedia(query),
-      matches: query === '(min-width: 760px)' && wide,
-    }),
+    get: () => (roomy ? 900 : wide ? 760 : 700),
   })
 })
-afterEach(() =>
-  Object.defineProperty(window, 'matchMedia', { configurable: true, value: matchMedia }),
-)
+afterEach(() => Object.defineProperty(window, 'innerWidth', windowWidth))
 
 describe('FinanceGrid', () => {
   afterEach(cleanup)
@@ -227,7 +236,17 @@ describe('FinanceGrid', () => {
     const keys = within(row)
       .getAllByRole('gridcell')
       .map((gridcell) => gridcell.dataset['column'])
-    expect(keys).toEqual(['select', 'name', 'context', 'count', 'in', 'out', 'net', 'share'])
+    expect(keys).toEqual([
+      'select',
+      'name',
+      'context',
+      'count',
+      'in',
+      'out',
+      'net',
+      'share',
+      'trend',
+    ])
     const headerKeys = screen.getAllByRole('columnheader').map((header) => header.dataset['column'])
     expect(headerKeys).toEqual(keys)
   })
@@ -257,6 +276,7 @@ describe('FinanceGrid', () => {
       'Out',
       'Net',
       'Share',
+      'Trend',
     ])
     expect(screen.getByRole('columnheader', { name: 'Net' }).getAttribute('aria-sort')).toBe(
       'descending',
@@ -626,11 +646,92 @@ describe('FinanceGrid', () => {
     })
   })
 
-  it('drops Context below 760 px', () => {
+  it('draws Trend and vs prior from the row series and names the comparison', async () => {
+    const loaded = new Map<string, InsightsSeries>()
+    const base = testInsights()
+    const month = (number: number) => ({
+      start: `2026-0${number}-01`,
+      end: `2026-0${number}-28`,
+      period: { granularity: 'month' as const, year: 2026, month: number },
+      absent: false,
+      partial: false,
+    })
+    const response = { ...base, ranges: { ...base.ranges, trend: [7, 8, 9].map(month) } }
+    const insights = (): RowInsights => ({
+      response,
+      failed: false,
+      seriesFor: (identity) => loaded.get(identity),
+    })
+    const view = render(FinanceGrid, {
+      projection: september,
+      insights: insights(),
+      cursorIndex: 0,
+      compact: false,
+      ...callbacks(),
+    })
+    expect(headers().slice(-2)).toEqual(['Trend', 'vs Aug'])
+    const row = screen.getByRole('row', { name: /Example Merchant/ })
+    /** The row's accessible name, as a screen reader announces it. */
+    const spoken = () => {
+      let name = ''
+      screen.getByRole('row', {
+        name: (accessible, element) => (element === row ? ((name = accessible), true) : false),
+      })
+      return name
+    }
+    const before = spoken()
+    expect(cell(row, 'trend')?.querySelector('.mf-skeleton')).not.toBeNull()
+    expect(cell(row, 'vs_prior')?.querySelector('.mf-skeleton')).not.toBeNull()
+
+    loaded.set('agg-0', {
+      ...testSeries('agg-0', '-30000'),
+      trend: ['30000', '0', '-30000'],
+      vs_prior: { kind: 'percent', percent_tenths: 200, grew: true, favorable: false },
+    })
+    await view.rerender({ insights: insights() })
+    const trend = cell(row, 'trend')?.querySelector('svg')
+    expect(trend?.getAttribute('aria-hidden')).toBe('true')
+    // July's income above the zero line, August on it, September's spending below.
+    expect(trend?.querySelector('polyline')?.getAttribute('points')).toBe('2.5,2.5 28,12 53.5,21.5')
+    expect(cell(row, 'vs_prior')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      '▲ 20.0% up 20.0% vs Aug',
+    )
+    // The sparkline and the glyphs add nothing to what the row says; vs prior adds its words.
+    expect(spoken()).toBe(`${before} up 20.0% vs Aug`)
+  })
+
+  const columnKeys = () =>
+    screen.getAllByRole('columnheader').map((header) => header.dataset['column'])
+
+  it('drops Context, Trend, and vs prior below 760 px', () => {
+    render(FinanceGrid, { projection: september, cursorIndex: 0, compact: false, ...callbacks() })
+    expect(columnKeys()).toContain('vs_prior')
+    cleanup()
     wide = false
-    render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: false, ...callbacks() })
-    const keys = screen.getAllByRole('columnheader').map((header) => header.dataset['column'])
-    expect(keys).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
+    render(FinanceGrid, { projection: september, cursorIndex: 0, compact: false, ...callbacks() })
+    expect(columnKeys()).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
+  })
+
+  it('from 900 px drops the columns that overflow the scroller instead of scrolling', () => {
+    roomy = true
+    const scroller = document.createElement('div')
+    // 56 rem at a 16 px root: Context drops, Trend and vs prior still fit.
+    Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: 56 * 16 })
+    const rootFontSize = document.documentElement.style.fontSize
+    onTestFinished(() => {
+      document.documentElement.style.fontSize = rootFontSize
+    })
+    document.documentElement.style.fontSize = '16px'
+    const props = { projection: september, cursorIndex: 0, compact: false, scroller }
+    render(FinanceGrid, { ...props, ...callbacks() })
+    const keys = ['select', 'name', 'count', 'in', 'out', 'net', 'share']
+    expect(columnKeys()).toEqual([...keys, 'trend', 'vs_prior'])
+    const row = screen.getByRole('row', { name: /Example Merchant/ })
+    expect(cell(row, 'context')).toBeNull()
+    cleanup()
+    Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: 50 * 16 })
+    render(FinanceGrid, { ...props, ...callbacks() })
+    expect(columnKeys()).toEqual(keys)
   })
 
   describe('scrolling through every row of the result', () => {
@@ -952,6 +1053,35 @@ describe('FinanceGrid', () => {
       const grid = screen.getByRole('grid', { name: 'Financial results' })
       const active = grid.getAttribute('aria-activedescendant')!
       expect(document.getElementById(active)).not.toBeNull()
+    })
+
+    it('reveals a cursor move only when a held reveal ends, and not when it is dropped', async () => {
+      vi.useFakeTimers()
+      const hold = new RevealHold()
+      const scroller = { scrollTop: 0 } as HTMLElement
+      const props = {
+        projection: loaded(0),
+        cursorIndex: 0,
+        compact: false,
+        scroller,
+        scrollTop: 0,
+        viewport: 630,
+        ...callbacks(),
+      }
+      const view = render(FinanceGrid, { props, context: new Map([[revealHoldKey, hold]]) })
+
+      hold.start(400)
+      await view.rerender({ cursorIndex: 100 })
+      expect(scroller.scrollTop).toBe(0)
+      vi.advanceTimersByTime(400)
+      expect(scroller.scrollTop).toBeGreaterThan(0)
+
+      const revealed = scroller.scrollTop
+      hold.start(400)
+      await view.rerender({ cursorIndex: 0 })
+      hold.end(false)
+      vi.advanceTimersByTime(400)
+      expect(scroller.scrollTop).toBe(revealed)
     })
 
     it('reveals the cursor row on a key that cannot move it, such as Home on the first row', async () => {

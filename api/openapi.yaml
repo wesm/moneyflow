@@ -323,46 +323,6 @@ components:
         - category
         - available
       type: object
-    Chart:
-      additionalProperties: false
-      properties:
-        marks:
-          items:
-            $ref: "#/components/schemas/ChartMark"
-          type:
-            - array
-            - "null"
-        summary:
-          items:
-            $ref: "#/components/schemas/Statistics"
-          type:
-            - array
-            - "null"
-      type: object
-    ChartMark:
-      additionalProperties: false
-      properties:
-        amount:
-          $ref: "#/components/schemas/Money"
-        identity:
-          type: string
-        index:
-          format: int64
-          type: integer
-        label:
-          type: string
-        plot_ratio:
-          format: int64
-          maximum: 10000
-          minimum: -10000
-          type: integer
-      required:
-        - index
-        - identity
-        - label
-        - amount
-        - plot_ratio
-      type: object
     CommitBody:
       additionalProperties: false
       properties:
@@ -1783,6 +1743,10 @@ components:
           type: boolean
         amazon_settings:
           $ref: "#/components/schemas/AmazonSettings"
+        anchor_index:
+          format: int64
+          minimum: 0
+          type: integer
         api_schema_version:
           type: string
         breadcrumb_text:
@@ -1801,8 +1765,6 @@ components:
           type:
             - array
             - "null"
-        chart:
-          $ref: "#/components/schemas/Chart"
         currencies:
           items:
             $ref: "#/components/schemas/CurrencyCount"
@@ -1881,7 +1843,6 @@ components:
         - amazon_match_column
         - statistics
         - currencies
-        - chart
       type: object
     ProviderConfirmationBody:
       additionalProperties: false
@@ -2781,6 +2742,9 @@ components:
     ViewBody:
       additionalProperties: false
       properties:
+        anchor:
+          maxLength: 4096
+          type: string
         query:
           maxLength: 65536
           type: string

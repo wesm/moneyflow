@@ -1,18 +1,20 @@
 <script lang="ts">
   import { EmptyState } from '@kenn-io/kit-ui'
-  import { MediaQuery } from 'svelte/reactivity'
+  import { innerWidth } from 'svelte/reactivity/window'
 
   import GridHeader from './GridHeader.svelte'
   import GridRow from './GridRow.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import type { components } from '../../lib/api/schema'
   import { incomeDivider } from '../../lib/table/cells'
+  import { ColumnRoom } from '../../lib/table/column-room.svelte'
   import {
     columnsAtWidth,
     columnsFor,
+    columnsThatFit,
     compactColumnCount,
     compactLayout,
-    WIDE_COLUMNS_QUERY,
+    WIDE_COLUMNS_WIDTH,
     type SortField,
   } from '../../lib/table/columns'
   import { GridScroll } from '../../lib/table/grid-scroll.svelte'
@@ -24,6 +26,7 @@
     type CompactTapAction,
     type RowKind,
   } from '../../lib/table/pointer'
+  import type { RowInsights } from '../../lib/table/trend'
   import { loadedRow, type TableRow } from '../../lib/table/virtual-rows'
 
   interface Props {
@@ -31,6 +34,8 @@
     projection: ViewProjection
     /** Cached windows next to it; their rows draw instead of placeholders. */
     neighbors?: readonly ViewProjection[]
+    /** The displayed view's insights, for grouped rows' Trend and vs prior. */
+    insights?: RowInsights | undefined
     cursorIndex: number
     /** Two-line phone rows at 640 px and narrower. */
     compact: boolean
@@ -40,6 +45,8 @@
     scrollTop?: number
     /** The scroller's visible height. */
     viewport?: number
+    /** The measured height of the content above the grid in the scroller. */
+    above?: number
     onmove: (delta: -1 | 1) => void
     onhome: () => void
     /** A row click moves the cursor; the grid keeps focus. Settles once the cursor moved. */
@@ -61,11 +68,13 @@
   let {
     projection,
     neighbors = [],
+    insights,
     cursorIndex,
     compact,
     scroller,
     scrollTop = $bindable(0),
     viewport = 520,
+    above = 0,
     onmove,
     onhome,
     oncursor,
@@ -81,8 +90,11 @@
   let grid = $state<HTMLDivElement>()
   const NO_ROWS_HINT = 'Change the current refinements to see results.'
   const height = $derived(rowHeight(compact))
-  const wide = new MediaQuery(WIDE_COLUMNS_QUERY)
-  const columns = $derived(columnsAtWidth(columnsFor(projection), wide.current))
+  const wide = $derived((innerWidth.current ?? 0) >= WIDE_COLUMNS_WIDTH)
+  const comparison = $derived(insights?.response?.ranges.comparison_label)
+  const room = new ColumnRoom(() => scroller)
+  const all = $derived(columnsAtWidth(columnsFor(projection, comparison), wide))
+  const columns = $derived(columnsThatFit(all, room.rem))
   const layout = $derived(compact ? compactLayout(projection) : undefined)
   const cellColumns = $derived(columns.filter((column) => column.key !== 'select'))
   const trackSizes = $derived(columns.map((column) => column.width).join(' '))
@@ -108,6 +120,9 @@
     },
     get viewport() {
       return viewport
+    },
+    get above() {
+      return above
     },
     get scrollTop() {
       return scrollTop
@@ -215,6 +230,7 @@
           {layout}
           columns={cellColumns}
           {dimension}
+          {insights}
           {oninformation}
           {onedit}
         />

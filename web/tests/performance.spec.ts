@@ -1,11 +1,18 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
+import type { Locator } from '@playwright/test'
+
 import type { BudgetConfig, InteractionMeasurements } from '../scripts/check-budgets'
 import { checkBudgets } from '../scripts/check-budgets'
+
 import { expect, openMoneyflow, test } from './fixtures'
 
 const sampleCount = 100
+
+// Tracing snapshots the page after each action, on the page's main thread, inside the timed
+// window: about 20 ms of a 4x-throttled drill. The timings here measure Moneyflow, not that.
+test.use({ trace: 'off' })
 
 interface PerformanceWindow extends Window {
   moneyflowCursorSamples: number[]
@@ -17,12 +24,22 @@ function p95(samples: number[]): number {
   return ordered[Math.ceil(ordered.length * 0.95) - 1]!
 }
 
+/** The identity of the grid's cursor row, from its row element's id. */
+async function cursorIdentity(grid: Locator): Promise<string> {
+  const id = await grid.getAttribute('aria-activedescendant')
+  expect(id).toMatch(/^moneyflow-row-/)
+  return id!.slice('moneyflow-row-'.length)
+}
+
+// chart_cursor times a cursor key to the cash-flow chart drawing the new row's columns solid.
+// chart_drill times a double-click on a composition bar to the drilled URL.
 test('chart cursor and drill p95 stay within measured budgets', async ({ page, server }) => {
   test.setTimeout(120_000)
   await openMoneyflow(page, server)
-  const visualizations = page.getByRole('complementary', { name: 'Visualizations' })
-  const marks = visualizations.getByRole('button')
-  expect(await marks.count()).toBeGreaterThanOrEqual(2)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const chart = page.locator('.mf-cashflow')
+  await expect(page.getByRole('region', { name: 'Charts' })).toBeVisible()
+  await expect(chart).toHaveAttribute('data-cursor', await cursorIdentity(grid))
   await page.evaluate(() => {
     const performanceWindow = window as unknown as PerformanceWindow
     performanceWindow.moneyflowCursorSamples = []
@@ -30,36 +47,42 @@ test('chart cursor and drill p95 stay within measured budgets', async ({ page, s
   })
 
   for (let index = 0; index < sampleCount; index += 1) {
-    const mark = marks.nth((index + 1) % 2)
-    await mark.evaluate((element) => {
-      element.addEventListener(
-        'click',
+    await chart.evaluate((element) => {
+      const before = element.getAttribute('data-cursor')
+      window.addEventListener(
+        'keydown',
         () => {
           const started = performance.now()
           const observer = new MutationObserver(() => {
-            if (element.getAttribute('aria-pressed') !== 'true') return
+            const drawn = element.getAttribute('data-cursor')
+            if (drawn === null || drawn === before) return
             observer.disconnect()
             const performanceWindow = window as unknown as PerformanceWindow
             performanceWindow.moneyflowCursorSamples.push(performance.now() - started)
           })
-          observer.observe(element, { attributes: true, attributeFilter: ['aria-pressed'] })
+          observer.observe(element, { attributes: true, attributeFilter: ['data-cursor'] })
         },
         { capture: true, once: true },
       )
     })
-    await mark.dispatchEvent('click')
-    await expect(mark).toHaveAttribute('aria-pressed', 'true')
+    await page.keyboard.press('j')
     await page.waitForFunction(
       (count) => (window as unknown as PerformanceWindow).moneyflowCursorSamples.length === count,
       index + 1,
     )
+    // The solid columns belong to the row the cursor moved to.
+    const moved = await cursorIdentity(grid)
+    await expect(chart).toHaveAttribute('data-cursor', moved)
+    // Back up untimed, so the cursor never runs out of rows.
+    await page.keyboard.press('k')
+    await expect(chart).not.toHaveAttribute('data-cursor', moved)
   }
 
   const initialURL = page.url()
-  const drillMark = marks.nth(1)
-  const drillLabel = (await drillMark.getAttribute('aria-label'))!.split(',')[0]!
+  const drillTarget = page.getByRole('list', { name: 'Where it went' }).getByRole('button').nth(1)
+  const drillLabel = (await drillTarget.getAttribute('aria-label'))!.split(',')[0]!
   for (let index = 0; index < sampleCount; index += 1) {
-    await drillMark.evaluate((element) => {
+    await drillTarget.evaluate((element) => {
       element.addEventListener(
         'dblclick',
         () => {
@@ -78,7 +101,7 @@ test('chart cursor and drill p95 stay within measured budgets', async ({ page, s
         { capture: true, once: true },
       )
     })
-    await drillMark.dispatchEvent('dblclick')
+    await drillTarget.dblclick()
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(drillLabel)
     await page.waitForFunction(
       (count) => (window as unknown as PerformanceWindow).moneyflowDrillSamples.length === count,
@@ -86,7 +109,7 @@ test('chart cursor and drill p95 stay within measured budgets', async ({ page, s
     )
     await page.goBack()
     await expect(page).toHaveURL(initialURL)
-    await expect(drillMark).toBeVisible()
+    await expect(drillTarget).toBeVisible()
   }
 
   const { cursorSamples, drillSamples } = await page.evaluate(() => {
