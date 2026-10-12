@@ -208,6 +208,30 @@ describe('provider controller', () => {
     expect(transport.mutations.request).not.toHaveBeenCalled()
   })
 
+  it('retries a failed refresh once the server reports a refresh as due', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({
+      status: providerStatus({
+        provider_kind: 'monarch',
+        code: 'provider_unavailable',
+        code_detail: 'The provider is temporarily unavailable.',
+        last_success: '2026-10-03T12:00:00Z',
+        refresh_due: 'recent',
+      }),
+      mutationResponse: Response.json(refreshResponse(current, 'preserved')),
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+
+    await controller.poll()
+
+    expect(transport.mutations.request).toHaveBeenCalledOnce()
+    expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(
+      false,
+    )
+    expect(controller.state.phase).toBe('idle')
+  })
+
   it('names the Monarch refresh kind it starts', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     let finish: (response: Response) => void = () => undefined

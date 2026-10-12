@@ -253,10 +253,12 @@ export function createProviderController(options: ProviderControllerOptions): Pr
         kind: phase === 'refreshing' ? state.kind : undefined,
         announcement: pollAnnouncement(status, phase, state),
       })
+      // The server's refresh_due already waits out a failure's retry delay and stops for one
+      // that needs the user, so a failed last attempt does not block it.
       if (
         inFlight ||
-        status.code !== undefined ||
-        phase !== 'idle' ||
+        phase === 'refreshing' ||
+        phase === 'reconnect' ||
         !status.capability.available ||
         status.refresh_due === 'none'
       )
