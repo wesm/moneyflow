@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import CompositionPanel from './CompositionPanel.svelte'
 import type { Composition } from '../../lib/charts/composition'
+import { RevealHold, revealHoldKey } from '../../lib/table/reveal-hold.svelte'
 
 const composition: Composition = {
   spending: [
@@ -62,6 +63,45 @@ describe('CompositionPanel', () => {
     await fireEvent.keyDown(bar, { key: 'Enter' })
     expect(ondrill).toHaveBeenCalledWith('merchant:mega')
     expect(onrow).not.toHaveBeenCalled()
+  })
+
+  it('moves the cursor at once on a pointer click and holds only the scroll to its row', async () => {
+    vi.useFakeTimers()
+    try {
+      const hold = new RevealHold()
+      const onrow = vi.fn()
+      const ondrill = vi.fn()
+      render(CompositionPanel, {
+        props: { title: 'Where it went', composition, scale: 2, onrow, ondrill },
+        context: new Map([[revealHoldKey, hold]]),
+      })
+      const bar = screen.getByRole('button', { name: /^Online Megastore,/ })
+      const reveal = vi.fn()
+
+      await fireEvent.click(bar, { detail: 1 })
+      expect(onrow).toHaveBeenCalledWith('merchant:mega')
+      expect(hold.held).toBe(true)
+      hold.defer(reveal)
+      vi.advanceTimersByTime(400)
+      expect(hold.held).toBe(false)
+      expect(reveal).toHaveBeenCalledTimes(1)
+
+      // The second click of a double-click drops the held scroll; the double-click drills.
+      reveal.mockClear()
+      await fireEvent.click(bar, { detail: 1 })
+      hold.defer(reveal)
+      await fireEvent.click(bar, { detail: 2 })
+      await fireEvent.dblClick(bar, { detail: 2 })
+      vi.advanceTimersByTime(1000)
+      expect(ondrill).toHaveBeenCalledWith('merchant:mega')
+      expect(reveal).not.toHaveBeenCalled()
+
+      // Space clicks with no count, so its row is revealed at once.
+      await fireEvent.click(bar, { detail: 0 })
+      expect(hold.held).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps the others bar out of reach and draws it apart from the ranked rows', () => {

@@ -21,7 +21,8 @@ func TestQueryCurrencyScopeValidation(t *testing.T) {
 
 	lowercase := query.Clone()
 	lowercase.Currency.Currency = "usd"
-	require.Error(t, lowercase.Validate())
+	lowercase.Drilldowns = nil
+	require.ErrorContains(t, lowercase.Validate(), "three-letter uppercase code")
 
 	mismatched := query.Clone()
 	mismatched.Drilldowns[0].Currency = "EUR"

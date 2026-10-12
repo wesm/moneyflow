@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { tick } from 'svelte'
 import AppShell from './AppShell.svelte'
+import type { TransactionInformationResponse } from '../lib/api/client'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testAggregateRow, testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
@@ -63,6 +64,70 @@ describe('AppShell', () => {
     await fireEvent.keyDown(search, { key: 'Enter' })
     await vi.waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' })),
+    )
+  })
+
+  it('leaves focus in search when a breadcrumb return finishes', async () => {
+    const controller = stubController(
+      testProjection({
+        canonical_query: 'v=1&mode=detail&drill=merchant%3AUSD%3A2%3Aexample-key',
+        breadcrumbs: [{ dimension: 'merchant', label: 'Corner Grocery' }],
+      }),
+    )
+    let finish!: (applied: boolean) => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (finish = resolve)),
+    )
+    render(AppShell, { controller })
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+
+    const trail = within(screen.getByRole('navigation', { name: 'Breadcrumb' }))
+    await fireEvent.click(trail.getByRole('button', { name: 'Merchants' }))
+    expect(controller.apply).toHaveBeenCalledWith({ action: 'view.back-to', depth: 0 })
+    await fireEvent.keyDown(window, { key: '/' })
+    expect(document.activeElement).toBe(search)
+    finish(true)
+    await tick()
+    await tick()
+    expect(document.activeElement).toBe(search)
+  })
+
+  it('runs a command-bar period change after the table toggles queued before it', async () => {
+    const controller = heldFirstApply(stubController(periodProjection()))
+    render(AppShell, { controller })
+
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous period' }))
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(3))
+    expect(vi.mocked(controller.apply).mock.calls.map(([action]) => action.action)).toEqual([
+      'selection.toggle',
+      'selection.toggle',
+      'time.previous-period',
+    ])
+  })
+
+  it('starts a search typed behind queued view changes from their result', async () => {
+    const controller = heldFirstApply(stubController(periodProjection()))
+    render(AppShell, { controller })
+
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous period' }))
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+    search.focus()
+    await fireEvent.input(search, { target: { value: 'coffee' } })
+    await tick()
+    expect(controller.beginSearch).not.toHaveBeenCalled()
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.beginSearch).toHaveBeenCalled())
+    const [lastApply] = vi.mocked(controller.apply).mock.invocationCallOrder.slice(-1)
+    expect(vi.mocked(controller.apply)).toHaveBeenCalledTimes(3)
+    expect(vi.mocked(controller.beginSearch).mock.invocationCallOrder[0]).toBeGreaterThan(
+      lastApply!,
     )
   })
 
@@ -492,6 +557,81 @@ describe('AppShell', () => {
     expect(screen.getByRole('dialog', { name: 'Review pending changes' })).not.toBeNull()
   })
 
+  it.each([
+    ['u', 'undo', false],
+    ['U', 'redo', true],
+  ] as const)('runs %s after a hide queued behind a slow toggle', async (key, method, shiftKey) => {
+    const controller = stubController()
+    controller.projection!.capabilities!.push({
+      id: 'selection.toggle',
+      key_display: 'space',
+      description: 'selection.toggle',
+      category: 'Views',
+      available: true,
+    })
+    let toggled!: () => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (toggled = () => resolve(true))),
+    )
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: 'h' })
+    await fireEvent.keyDown(window, { key, shiftKey })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(1))
+    expect(controller.editing[method]).not.toHaveBeenCalled()
+
+    toggled()
+    await vi.waitFor(() => expect(controller.editing[method]).toHaveBeenCalledTimes(1))
+    const [hidden] = vi.mocked(controller.editing.submit).mock.invocationCallOrder
+    expect(hidden).toBeLessThan(vi.mocked(controller.editing[method]).mock.invocationCallOrder[0]!)
+  })
+
+  it('shows the last Enter’s transaction when an earlier one’s details arrive later', async () => {
+    const first = testProjection().detail_rows![0]!
+    const rows = [0, 1].map((index) => ({
+      ...first,
+      index,
+      identity: `row-${index}`,
+      merchant: `Example Merchant ${index}`,
+    }))
+    const controller = stubController(
+      testProjection({
+        total_rows: 2,
+        window: { offset: 0, limit: 200, count: 2 },
+        detail_rows: rows,
+      }),
+    )
+    controller.projection!.capabilities!.push({
+      id: 'view.drill',
+      key_display: 'enter',
+      description: 'view.drill',
+      category: 'Views',
+      available: true,
+    })
+    const waiting = new Map<string, () => void>()
+    controller.transactionInformation = vi.fn(
+      (identity: string) =>
+        new Promise<TransactionInformationResponse>((resolve) => {
+          const row = rows.find((candidate) => candidate.identity === identity)!
+          waiting.set(identity, () => resolve(transactionInformation(row)))
+        }),
+    )
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: 'Enter' })
+    Object.assign(controller, { cursorIndex: 1, cursorIdentity: 'row-1' })
+    await fireEvent.keyDown(window, { key: 'Enter' })
+    await new Promise((resolve) => setTimeout(resolve))
+
+    waiting.get('row-1')?.()
+    waiting.get('row-0')!()
+    await vi.waitFor(() => expect(waiting.has('row-1')).toBe(true))
+    waiting.get('row-1')!()
+    const drawer = await screen.findByRole('dialog', { name: 'Transaction information' })
+    await vi.waitFor(() => expect(drawer.textContent).toContain('Example Merchant 1'))
+    await new Promise((resolve) => setTimeout(resolve))
+    expect(drawer.textContent).not.toContain('Example Merchant 0')
+  })
+
   it('opens duplicate review with D and confirms direct deletion with x', async () => {
     const controller = stubController()
     render(AppShell, { controller })
@@ -712,6 +852,27 @@ describe('AppShell', () => {
   })
 })
 
+/** A view with a year period and a currency, so the period arrows are enabled. */
+function periodProjection(): ReturnType<typeof testProjection> {
+  const base = testProjection()
+  return testProjection({
+    currencies: [
+      { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' },
+    ],
+    view: { ...base.view, currency: { currency: 'USD', scale: 2 } },
+    filters: { ...base.filters, date_range: { from: '2026-01-01', to: '2026-12-31' } },
+  })
+}
+
+/** Holds the first transition until `finish`, as a slow request would. */
+function heldFirstApply(controller: ViewController): ViewController & { finish: () => void } {
+  let release: ((applied: boolean) => void) | undefined
+  vi.mocked(controller.apply).mockImplementationOnce(
+    () => new Promise<boolean>((resolve) => (release = resolve)),
+  )
+  return Object.assign(controller, { finish: () => release?.(true) })
+}
+
 /** Holds animation frames until `flush`, so a test can check focus after the restore frame. */
 function captureFrames(): { flush: () => Promise<void> } {
   const callbacks: FrameRequestCallback[] = []
@@ -762,6 +923,23 @@ function charted() {
   return testProjection({ view: { ...base.view, currency: { currency: 'USD', scale: 2 } } })
 }
 
+function transactionInformation(
+  transaction: TransactionInformationResponse['transaction'],
+): TransactionInformationResponse {
+  const none = { offset: 0, limit: 0, count: 0 }
+  return {
+    version: '1',
+    revision: '1',
+    canonical_query: 'v=1',
+    amazon_qualified: false,
+    item_window: none,
+    match_window: none,
+    matches: [],
+    total_matches: 0,
+    transaction,
+  }
+}
+
 function stubMedia(matches: (query: string) => boolean): () => void {
   const original = window.matchMedia
   Object.defineProperty(window, 'matchMedia', {
@@ -794,6 +972,7 @@ function stubController(projection = testProjection()): ViewController {
         },
         ...[
           ['view.set-grouping', '1-5'],
+          ['selection.toggle', 'space'],
           ['overlay.help', '?'],
           ['overlay.search', '/'],
           ['overlay.filters', 'f'],
@@ -920,6 +1099,7 @@ function stubController(projection = testProjection()): ViewController {
     showIndex: vi.fn(),
     showAnchor: vi.fn(),
     recheckNewer: vi.fn(),
+    reloadDay: vi.fn(),
     insights: vi.fn(async (body) => testInsights({ query: body.query, revision: '0' })),
     apply: vi.fn(),
     beginSearch: vi.fn(),
@@ -927,6 +1107,7 @@ function stubController(projection = testProjection()): ViewController {
     commitSearch: vi.fn(),
     restoreSearch: vi.fn(),
     hold: <T>(work: Promise<T>) => work,
+    settled: async () => undefined,
     restore: vi.fn(),
     retry: vi.fn(),
     reset: vi.fn(),

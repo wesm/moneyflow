@@ -81,7 +81,7 @@ test-export:
 test-store:
 	go test ./internal/store/sqlite -run 'Test(FailureAtomicity|StoreFull|StoreBusy|StoreError|ColdProfilePerformance|BulkEditingPerformance|ProviderRefresh100KPerformance|AmazonImport100KPerformance|OpenInstallsOnlyCurrentSchema|OpenRejectsIncompatibleSchema)' -count=1
 	go test ./internal/importer/amazon -run '^TestAmazonParse100KPerformance$$' -count=1
-	go test ./internal/app -run '^Test(BulkEditingPerformance|Amazon(Planning|Matching|Search)100KPerformance)' -count=1
+	go test ./internal/app -run '^Test(BulkEditingPerformance|EditTargetsEmptyTimeRowsPerformance|Amazon(Planning|Matching|Search)100KPerformance)' -count=1
 
 test-provider: web-embed
 	go test ./internal/provider/... -count=1

@@ -108,8 +108,9 @@
     if (event.button !== 0) return
     pressedFrom = active
     if (event.shiftKey) return
-    // A touch captures the pointer; releasing it lets the drag reach the other columns.
-    const target = event.currentTarget
+    // A touch captures the pointer to the element it pressed, such as the column's bars;
+    // releasing it lets the drag reach the other columns.
+    const target = event.target
     if (target instanceof Element && target.hasPointerCapture?.(event.pointerId)) {
       target.releasePointerCapture(event.pointerId)
     }

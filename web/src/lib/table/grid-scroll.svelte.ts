@@ -3,6 +3,7 @@ import { untrack } from 'svelte'
 
 import type { ViewProjection } from '../api/client'
 import { revealScrollTop, visibleRange } from './layout'
+import { revealHold, type RevealHold } from './reveal-hold.svelte'
 import { coveredCursor, loadedRow, rowToShow } from './virtual-rows'
 
 /**
@@ -33,6 +34,7 @@ export interface GridScrollSource {
  */
 export class GridScroll {
   readonly #source: GridScrollSource
+  readonly #hold: RevealHold | undefined = revealHold()
   /** The row last passed to `onshow`. The cursor moving there follows the scroll, so stays. */
   #shown: number | undefined
   #lastViewport: number | undefined
@@ -120,7 +122,10 @@ export class GridScroll {
       const newView = this.#lastQuery !== undefined && this.#lastQuery !== query
       this.#lastQuery = query
       if (newView) this.#shown = undefined
-      if (index !== this.#shown) return this.#reveal(index)
+      if (index !== this.#shown) {
+        if (this.#hold?.held) return this.#hold.defer(() => this.#reveal(this.#cursor))
+        return this.#reveal(index)
+      }
       // A window that arrived after more scrolling moves the cursor on to the row now on top,
       // once that row is loaded. Until then the next window is asked for instead.
       this.#shown = undefined
@@ -157,6 +162,8 @@ export class GridScroll {
   // One request per frame, for the latest first row, once scrolling leaves the cursor's window.
   // Scrolling back to the cursor asks for its own row, which withdraws a request on its way.
   #showScrolledRows(): (() => void) | undefined {
+    // A held reveal leaves the cursor off screen on purpose; it is not a scroll away from it.
+    if (this.#hold?.held) return undefined
     const { first, last } = this.range
     const cursor = this.#cursor
     const back = this.#shown !== undefined && cursor >= first && cursor <= last
