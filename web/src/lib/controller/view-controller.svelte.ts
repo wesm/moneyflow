@@ -562,6 +562,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     if (cached) {
       setProjectionWindow(cached, nextIndex)
       replaceOwnedHistory()
+      schedulePrefetch(cached)
       return
     }
     const query = projection.canonical_query
