@@ -88,6 +88,9 @@ func TestSessionTimeDrillSortsByAmount(t *testing.T) {
 	session := NewSession()
 	session.Dimension = domain.DimensionTime
 	session.TimeGranularity = domain.TimeGranularityMonth
+	session.Sort = domain.SortSpec{
+		Field: domain.SortFieldAmount, Direction: domain.SortDirectionAsc,
+	}
 	period := domain.Period{Granularity: domain.TimeGranularityMonth, Year: 2024, Month: 12}
 	require.NoError(t, session.Drill(domain.AggregateRow{
 		Dimension: domain.DimensionTime, Key: "2024-12", Label: "Dec 2024", Period: &period,

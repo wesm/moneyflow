@@ -66,12 +66,15 @@ function renameOperation(affected: number) {
   }
 }
 
-/** Transactions `offset + 1` onward, at most `limit` of `affected`, named by row number. */
-function affectedRows(affected: number, offset: number, limit: number) {
+/**
+ * Transactions `offset + 1` onward, at most `limit` of `affected`, each with an amount from its
+ * row number. They share `merchant` when given, and are otherwise named by row number.
+ */
+function affectedRows(affected: number, offset: number, limit: number, merchant?: string) {
   const count = Math.max(0, Math.min(limit, affected - offset))
   return Array.from({ length: count }, (_, index) => ({
     date: '2024-01-01',
-    merchant: `Example Merchant ${offset + index + 1}`,
+    merchant: merchant ?? `Example Merchant ${offset + index + 1}`,
     category: 'Example Category',
     amount: {
       minor: `-${offset + index + 1}05`,
@@ -87,8 +90,9 @@ function affectedRows(affected: number, offset: number, limit: number) {
 /**
  * A review server whose one operation affects `affected` transactions. As the server does,
  * the review carries the operation's first 20 rows. Each target request waits for `wait`,
- * when given. The server stages a hide toggle only over rows in one state, so a toggle's rows
- * all start in its before state.
+ * when given. A rename applies to one merchant, so its rows all carry its before label. The
+ * server stages a hide toggle only over rows in one state, so a toggle's rows all start in its
+ * before state.
  */
 function reviewServer(
   affected: number,
@@ -96,7 +100,8 @@ function reviewServer(
   wait?: () => Promise<void>,
 ): MutationFetch {
   const rows = (offset: number, limit: number) => {
-    const page = affectedRows(affected, offset, limit)
+    const renamed = operation.type === 'merchant.label' ? operation.before : undefined
+    const page = affectedRows(affected, offset, limit, renamed)
     if (operation.type !== 'transaction.hide-toggle') return page
     return page.map((row) => ({ ...row, hidden: operation.before === 'Hidden' }))
   }
@@ -193,16 +198,16 @@ describe('ReviewDrawer in review mode', () => {
     expect(operation.getAttribute('aria-expanded')).toBe('true')
     // A header row and the first 20 transactions.
     await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(21))
-    expect(screen.getByText('Example Merchant 20')).toBeTruthy()
-    expect(screen.queryByText('Example Merchant 21')).toBeNull()
+    expect(screen.getByText('-20.05 USD')).toBeTruthy()
+    expect(screen.queryByText('-21.05 USD')).toBeNull()
     expect(screen.getByText('425 transactions not shown')).toBeTruthy()
 
     await fireEvent.click(screen.getByRole('button', { name: 'Show 400 more' }))
-    await screen.findByText('Example Merchant 420')
+    await screen.findByText('-420.05 USD')
     expect(screen.getAllByRole('row')).toHaveLength(421)
     expect(screen.getByText('25 transactions not shown')).toBeTruthy()
     await fireEvent.click(screen.getByRole('button', { name: 'Show 25 more' }))
-    await screen.findByText('Example Merchant 445')
+    await screen.findByText('-445.05 USD')
     expect(screen.getAllByRole('row')).toHaveLength(446)
     expect(screen.queryByRole('button', { name: /^Show \d+ more/ })).toBeNull()
     expect(screen.queryByText(/not shown/)).toBeNull()
@@ -219,7 +224,7 @@ describe('ReviewDrawer in review mode', () => {
       ...renameOperation(2),
       operation_id: id,
       before: `Old Merchant ${index + 1}`,
-      targets: affectedRows(2, 0, 20),
+      targets: affectedRows(2, 0, 20, `Old Merchant ${index + 1}`),
     }))
     const transport: MutationFetch = {
       request: vi.fn(
@@ -252,16 +257,16 @@ describe('ReviewDrawer in review mode', () => {
     const review = createReviewController({ transport, revision: () => 1n })
     setup({ review })
     await loaded()
-    await screen.findByText('Example Merchant 2')
+    await screen.findByText('-2.05 USD')
     expect(screen.queryByRole('button', { name: /^Show \d+ more/ })).toBeNull()
     const operation = screen.getByRole('button', { name: /^Rename merchant/ })
 
     await fireEvent.click(operation)
     expect(operation.getAttribute('aria-expanded')).toBe('false')
-    expect(screen.queryByText('Example Merchant 2')).toBeNull()
+    expect(screen.queryByText('-2.05 USD')).toBeNull()
     await fireEvent.click(operation)
     expect(operation.getAttribute('aria-expanded')).toBe('true')
-    expect(screen.getByText('Example Merchant 2')).toBeTruthy()
+    expect(screen.getByText('-2.05 USD')).toBeTruthy()
     expect(transport.request).toHaveBeenCalledTimes(1)
   })
 
@@ -279,7 +284,7 @@ describe('ReviewDrawer in review mode', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Show 2 more' }))
     expect(await screen.findByText('Loading transactions…')).toBeTruthy()
     release()
-    await screen.findByText('Example Merchant 22')
+    await screen.findByText('-22.05 USD')
     expect(screen.queryByText('Loading transactions…')).toBeNull()
   })
 
@@ -296,13 +301,13 @@ describe('ReviewDrawer in review mode', () => {
     expect(texts(header, 'columnheader')).toEqual(['Date', 'Merchant', 'Category', 'Amount'])
     expect(texts(first, 'cell')).toEqual([
       '2024-01-01',
-      'Example Merchant 1 → New Merchant Hidden',
+      'Old Merchant → New Merchant Hidden',
       'Example Category',
       '-1.05 USD',
     ])
     expect(texts(second, 'cell')).toEqual([
       '2024-01-01',
-      'Example Merchant 2 → New Merchant',
+      'Old Merchant → New Merchant',
       'Example Category',
       '-2.05 USD',
     ])

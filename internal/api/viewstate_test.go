@@ -165,7 +165,6 @@ func TestViewQueryRejectsMalformedInput(t *testing.T) {
 		{"version", "v=2", "unsupported schema version"},
 		{"duplicate scalar", "v=1&v=1", `field "v" must appear once`},
 		{"invalid percent", "q=%zz", "parse query"},
-		{"missing version", "group=category", "schema version is required"},
 		{"invalid mode", "v=1&mode=missing", "invalid result mode"},
 		{"invalid boolean", "v=1&hidden=true", "parse hidden flag"},
 		{"one date bound", "v=1&from=2024-01-01", "date range requires both bounds"},
@@ -235,6 +234,9 @@ func TestViewQueryRequiresVersionOnNonemptyInput(t *testing.T) {
 	_, _, err := DecodeViewQuery("group=category")
 	require.Error(t, err)
 	assertSafeCode(t, err, CodeInvalidViewState)
+	var safe *SafeError
+	require.ErrorAs(t, err, &safe)
+	assert.ErrorContains(t, safe.Unwrap(), "schema version is required")
 
 	state, canonical, err := DecodeViewQuery("")
 	require.NoError(t, err)
