@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import CalendarHeatmap from './CalendarHeatmap.svelte'
@@ -78,6 +78,65 @@ describe('CalendarHeatmap', () => {
     expect(tip.textContent).toContain('Oct 3, 2026')
     expect(tip.textContent).toContain('—')
     expect(tip.textContent).not.toContain('+0.00')
+  })
+
+  it('mounts one tooltip, for the day under the pointer or with focus', async () => {
+    const { group, day } = setup()
+    const triggers = () => group.querySelectorAll('.kit-tooltip-trigger')
+    // At rest only the Tab stop carries one, so Tab lands on a day that is not redrawn.
+    expect(triggers()).toHaveLength(1)
+    expect(triggers()[0]!.contains(day('Oct 5, 2026'))).toBe(true)
+
+    await fireEvent.pointerOver(day('Oct 2, 2026'))
+    await waitFor(() => expect(triggers()[0]!.contains(day('Oct 2, 2026'))).toBe(true))
+    expect(triggers()).toHaveLength(1)
+    await fireEvent.mouseEnter(triggers()[0]!)
+    const hovered = await screen.findByRole('tooltip')
+    expect(hovered.textContent).toContain('Oct 2, 2026')
+    expect(hovered.textContent).toContain('-300.00')
+
+    day('Oct 4, 2026').focus()
+    expect(document.activeElement).toBe(day('Oct 4, 2026'))
+    expect(triggers()).toHaveLength(1)
+    expect(triggers()[0]!.contains(day('Oct 4, 2026'))).toBe(true)
+    const focused = await screen.findByRole('tooltip')
+    expect(focused.textContent).toContain('Oct 4, 2026')
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1)
+  })
+
+  it('keeps focus on a keyboard-focused day when the pointer moves to another', async () => {
+    const { group, day } = setup()
+    day('Oct 4, 2026').focus()
+    await fireEvent.pointerOver(day('Oct 2, 2026'))
+    await waitFor(() =>
+      expect(group.querySelector('.kit-tooltip-trigger')!.contains(day('Oct 2, 2026'))).toBe(true),
+    )
+    expect(document.activeElement).toBe(day('Oct 4, 2026'))
+  })
+
+  it('keeps a pressed day’s button until its click, then gives it the tooltip', async () => {
+    const { onperiod, group, day } = setup()
+    const pressed = day('Oct 2, 2026')
+    await fireEvent.pointerOver(pressed)
+    await fireEvent.pointerDown(pressed)
+    pressed.focus()
+    await new Promise((resolve) => setTimeout(resolve))
+    expect(day('Oct 2, 2026')).toBe(pressed)
+    await fireEvent.pointerUp(pressed)
+    await fireEvent.click(pressed)
+    expect(onperiod).toHaveBeenCalledWith({ start: '2026-10-02', end: '2026-10-02' })
+    await waitFor(() =>
+      expect(group.querySelector('.kit-tooltip-trigger')!.contains(day('Oct 2, 2026'))).toBe(true),
+    )
+    expect(document.activeElement).toBe(day('Oct 2, 2026'))
+  })
+
+  it('names every day without a tooltip mounted', () => {
+    const { group } = setup()
+    const named = [...group.querySelectorAll('button.mf-day')].filter((button) =>
+      /^Oct \d+, 2026, out /.test(button.getAttribute('aria-label') ?? ''),
+    )
+    expect(named).toHaveLength(7)
   })
 
   it('outlines the scoped day of a Day scope', () => {
