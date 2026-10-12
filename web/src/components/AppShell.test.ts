@@ -521,6 +521,35 @@ describe('AppShell', () => {
     expect(screen.getByRole('dialog', { name: 'Review pending changes' })).not.toBeNull()
   })
 
+  it.each([
+    ['u', 'undo', false],
+    ['U', 'redo', true],
+  ] as const)('runs %s after a hide queued behind a slow toggle', async (key, method, shiftKey) => {
+    const controller = stubController()
+    controller.projection!.capabilities!.push({
+      id: 'selection.toggle',
+      key_display: 'space',
+      description: 'selection.toggle',
+      category: 'Views',
+      available: true,
+    })
+    let toggled!: () => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (toggled = () => resolve(true))),
+    )
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: 'h' })
+    await fireEvent.keyDown(window, { key, shiftKey })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(1))
+    expect(controller.editing[method]).not.toHaveBeenCalled()
+
+    toggled()
+    await vi.waitFor(() => expect(controller.editing[method]).toHaveBeenCalledTimes(1))
+    const [hidden] = vi.mocked(controller.editing.submit).mock.invocationCallOrder
+    expect(hidden).toBeLessThan(vi.mocked(controller.editing[method]).mock.invocationCallOrder[0]!)
+  })
+
   it('opens duplicate review with D and confirms direct deletion with x', async () => {
     const controller = stubController()
     render(AppShell, { controller })

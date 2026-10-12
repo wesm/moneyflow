@@ -133,8 +133,8 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
       const projection = controller.projection
       if (projection && activeCurrency(projection)) overlays.open('period')
     },
-    'edit.undo': () => void controller.editing.undo(),
-    'edit.redo': () => void controller.editing.redo(),
+    'edit.undo': later(() => controller.editing.undo()),
+    'edit.redo': later(() => controller.editing.redo()),
     'edit.hide': later(() => hideRow(context, row())),
     'edit.delete': later(() => confirmDelete(context, row())),
     'transaction.info': later(async () => {
