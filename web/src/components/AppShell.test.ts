@@ -919,6 +919,31 @@ describe('AppShell', () => {
     ])
   })
 
+  it.each([
+    ['h', 'transaction.toggle-hidden'],
+    ['x', 'transaction.delete'],
+  ])('acts on the row j moved to when %s waits behind a slow toggle', async (key, action) => {
+    const controller = heldFirstApply(lateInformation().controller)
+    vi.mocked(controller.moveCursor).mockImplementation(async (delta) => {
+      Object.assign(controller, { cursorIndex: controller.cursorIndex + delta })
+    })
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: 'j' })
+    await fireEvent.keyDown(window, { key })
+    controller.finish()
+
+    if (key === 'x') {
+      await screen.findByRole('alertdialog', { name: 'Confirm deletion' })
+      await fireEvent.keyDown(document.activeElement!, { key: 'Enter' })
+    }
+    await vi.waitFor(() =>
+      expect(controller.editing.submit).toHaveBeenCalledWith(
+        expect.objectContaining({ action, target: { identity: 'row-1', kind: 'transaction' } }),
+      ),
+    )
+  })
+
   it('does not trap shortcuts when an editor has no focused row', async () => {
     const controller = stubController(testProjection({ total_rows: 0, detail_rows: [] }))
     render(AppShell, { controller })
