@@ -47,6 +47,21 @@ describe('OverlayState', () => {
     expect(host.focusGrid).not.toHaveBeenCalled()
   })
 
+  it("returns focus to the grid, not the opener, with 'grid'", async () => {
+    const { overlays, host, elsewhere } = setup()
+    const actions = document.createElement('button')
+    host.grid().append(actions)
+    actions.focus()
+    overlays.open('actions', actions)
+    overlays.open('merchant')
+    elsewhere.focus()
+    overlays.close('grid')
+    expect(overlays.current).toBeUndefined()
+    await afterRestore()
+    expect(host.focusGrid).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(elsewhere)
+  })
+
   it("leaves focus where it is with 'keep'", async () => {
     const { overlays, host, opener, elsewhere, popScope } = setup()
     opener.focus()
@@ -87,5 +102,113 @@ describe('OverlayState', () => {
     expect(runs).toBe(1)
     expect(overlays.current).toBeUndefined()
     stop()
+  })
+
+  it('returns focus to the same control in the row now at the opener index', async () => {
+    const { overlays, host } = setup()
+    const row = (index: number, label: string) => {
+      const element = document.createElement('div')
+      element.setAttribute('role', 'row')
+      element.dataset['index'] = String(index)
+      element.innerHTML = `<div data-column="actions"><button>${label}</button></div>`
+      host.grid().append(element)
+      return element
+    }
+    const first = row(0, 'first')
+    const second = row(1, 'second')
+    first.querySelector('button')!.focus()
+    overlays.open('merchant', first.querySelector('button')!)
+    // The edit removed the opener's row; the next row moved up to its index.
+    first.remove()
+    second.dataset['index'] = '0'
+    overlays.close()
+    await afterRestore()
+    expect(document.activeElement?.textContent).toBe('second')
+    expect(host.focusGrid).not.toHaveBeenCalled()
+  })
+
+  it('clears the anchor on close', () => {
+    const { overlays, opener } = setup()
+    overlays.anchor = { element: opener, above: false }
+    overlays.open('merchant')
+    overlays.close()
+    expect(overlays.anchor).toBeUndefined()
+  })
+})
+
+describe('OverlayState escape layers', () => {
+  afterEach(() => document.body.replaceChildren())
+
+  /** A panel holding a button, with an escape layer attached. */
+  function layer(overlays: OverlayState, onescape: () => void) {
+    const panel = document.createElement('div')
+    const button = document.createElement('button')
+    panel.append(button)
+    document.body.append(panel)
+    const detach = overlays.escapeLayer(onescape)(panel)
+    return { button, detach: () => detach?.() }
+  }
+
+  function escape(target: HTMLElement): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    target.dispatchEvent(event)
+    return event
+  }
+
+  it('lets only the innermost layer take Escape', () => {
+    const { overlays } = setup()
+    const outer = vi.fn()
+    const inner = vi.fn()
+    const outerLayer = layer(overlays, outer)
+    const innerLayer = layer(overlays, inner)
+
+    expect(escape(outerLayer.button).defaultPrevented).toBe(false)
+    expect(outer).not.toHaveBeenCalled()
+    expect(escape(innerLayer.button).defaultPrevented).toBe(true)
+    expect(inner).toHaveBeenCalledTimes(1)
+
+    innerLayer.detach()
+    escape(outerLayer.button)
+    expect(outer).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves Escape to a claimed key or an open popup inside the panel', () => {
+    const { overlays } = setup()
+    const onescape = vi.fn()
+    const { button } = layer(overlays, onescape)
+    button.addEventListener('keydown', (event) => event.preventDefault())
+    escape(button)
+    const other = layer(overlays, onescape)
+    other.button.setAttribute('aria-expanded', 'true')
+    escape(other.button)
+    expect(onescape).not.toHaveBeenCalled()
+  })
+
+  it('leaves Escape to an open kit popup in the panel, wherever focus is', () => {
+    const { overlays } = setup()
+    const onescape = vi.fn()
+    const { button } = layer(overlays, onescape)
+    const popup = document.createElement('div')
+    popup.className = 'kit-filter-dropdown__panel kit-popover-card'
+    const item = document.createElement('button')
+    popup.append(item)
+    button.after(popup)
+    // kit's `dismissable` takes the Escape on the document, after the panel.
+    expect(escape(item).defaultPrevented).toBe(false)
+    expect(escape(button).defaultPrevented).toBe(false)
+    expect(onescape).not.toHaveBeenCalled()
+    popup.hidden = true
+    escape(item)
+    expect(onescape).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops a taken Escape before window listeners see it', () => {
+    const { overlays } = setup()
+    const windowListener = vi.fn()
+    window.addEventListener('keydown', windowListener)
+    const { button } = layer(overlays, vi.fn())
+    escape(button)
+    window.removeEventListener('keydown', windowListener)
+    expect(windowListener).not.toHaveBeenCalled()
   })
 })

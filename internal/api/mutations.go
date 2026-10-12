@@ -70,6 +70,28 @@ type SelectionDisposition struct {
 	Value string `json:"value"`
 }
 
+// OperationKind is the feedback category of a staged operation.
+type OperationKind string
+
+// Schema lists the kinds the application layer can report.
+func (OperationKind) Schema(huma.Registry) *huma.Schema {
+	kinds := app.AllOperationKinds()
+	values := make([]any, len(kinds))
+	for index, kind := range kinds {
+		values[index] = string(kind)
+	}
+	return &huma.Schema{Type: huma.TypeString, Enum: values}
+}
+
+// OperationSummary names the staged operation a mutation, undo, or redo applied.
+// Undoable is false when the edit rewrote the journal, so one undo reverts an earlier edit.
+type OperationSummary struct {
+	Kind     OperationKind `json:"kind"`
+	Label    string        `json:"label"`
+	Affected int           `json:"affected"`
+	Undoable bool          `json:"undoable"`
+}
+
 // MutationResponse returns committed rows and pending markers after an accepted mutation.
 type MutationResponse struct {
 	Version        string                       `json:"version"`
@@ -79,6 +101,7 @@ type MutationResponse struct {
 	Pending        PendingSummary               `json:"pending"`
 	Selection      SelectionDisposition         `json:"selection"`
 	ProviderWrite  *ProviderWriteStatusResponse `json:"provider_write,omitempty"`
+	Operation      *OperationSummary            `json:"operation,omitempty"`
 }
 
 type mutationInput struct {
@@ -191,7 +214,9 @@ func (server *Server) registerMutationEndpoints(_ Config) {
 	})
 }
 
-func mutationToApp(body MutationBody) (app.MutationRequest, app.ViewState, app.SelectionValue, error) {
+func mutationToApp(
+	body MutationBody,
+) (app.MutationRequest, app.ViewState, app.SelectionValue, error) {
 	state, _, selection, expected, err := mutationContext(
 		body.Version, body.ExpectedRevision, body.Query, body.Selection,
 	)
@@ -222,7 +247,8 @@ func mutationContext(
 	selectionText string,
 ) (app.ViewState, string, app.SelectionValue, uint64, error) {
 	if version != MutationSchemaVersion {
-		return app.ViewState{}, "", "", 0, invalidMutationRequest(errors.New("unsupported mutation version"))
+		unsupported := invalidMutationRequest(errors.New("unsupported mutation version"))
+		return app.ViewState{}, "", "", 0, unsupported
 	}
 	expected, err := parseRevision(revision)
 	if err != nil {
@@ -260,7 +286,18 @@ func mutationOutputFor(
 		Selection: SelectionDisposition{
 			Kind: string(result.SelectionDisposition), Value: string(selection),
 		},
+		Operation: operationToWire(result),
 	}}, nil
+}
+
+func operationToWire(result app.MutationResult) *OperationSummary {
+	if result.OperationKind == "" {
+		return nil
+	}
+	return &OperationSummary{
+		Kind: OperationKind(result.OperationKind), Label: result.OperationLabel,
+		Affected: result.Affected, Undoable: result.Undoable,
+	}
 }
 
 func invalidMutationRequest(cause error) error {

@@ -538,7 +538,8 @@ func reviewTargetDocuments(values []app.ReviewTarget) []ReviewTargetDocument {
 	for _, value := range values {
 		result = append(result, ReviewTargetDocument{
 			TransactionID: string(value.TransactionID), Date: value.Date.String(),
-			Merchant: value.Merchant, Category: value.Category, Hidden: value.Hidden,
+			Merchant: value.Merchant, Category: value.Category, Money: MoneyDocument(value.Amount),
+			Hidden: value.Hidden,
 		})
 	}
 	return result

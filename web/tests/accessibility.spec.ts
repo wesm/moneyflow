@@ -104,6 +104,26 @@ for (const colorScheme of ['light', 'dark'] as const) {
 }
 
 for (const colorScheme of ['light', 'dark'] as const) {
+  test(`the ${colorScheme} merchant editor with its list open passes axe`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openMoneyflow(page, server)
+    await page.keyboard.press('m')
+    const editor = page.getByRole('dialog', { name: 'Edit merchant' })
+    await expect(editor.getByRole('button', { name: /^Stage change to / })).toBeVisible()
+    await editor.getByRole('combobox', { name: 'Merchant' }).pressSequentially('Co')
+    const list = editor.getByRole('listbox', { name: 'Merchant' })
+    await page.keyboard.press('ArrowDown')
+    await expect(list.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true')
+    await list.getByRole('option').nth(3).hover()
+    await expectNoAxeViolations(page)
+  })
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
   test(`the ${colorScheme} icon rail view has no automated accessibility violations`, async ({
     page,
     server,
@@ -204,6 +224,32 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} inline delete confirmation passes axe as a popover and a sheet`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    const confirmation = page.getByRole('alertdialog', { name: 'Confirm deletion' })
+    await page.keyboard.press('x')
+    await expect(confirmation).toHaveClass(/kit-popover-card/)
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
+    await expect(confirmation).toBeHidden()
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.keyboard.press('x')
+    await expect(confirmation).toHaveClass(/mf-sheet__panel/)
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
+    await expect(confirmation).toBeHidden()
+  })
+}
+
 test('duplicate review and deletion confirmation pass axe and trap focus', async ({ page }) => {
   const server = await startE2EServer({
     fixturePath: 'testdata/fixtures/duplicate_transactions.json',
@@ -227,3 +273,125 @@ test('duplicate review and deletion confirmation pass axe and trap focus', async
     await server.stop()
   }
 })
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} edit lock banner and toast pass axe`, async ({ page }) => {
+    const server = await startE2EServer()
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.route('**/provider/write-status', (route) =>
+      route.fulfill({
+        json: {
+          version: '1',
+          revision: '1',
+          generation: '1',
+          phase: 'writing',
+          total: 4,
+          completed: 1,
+          failed: 0,
+          remaining: 3,
+          overrides: 0,
+          actions: ['pause'],
+        },
+      }),
+    )
+    try {
+      await openMoneyflow(page, server)
+      await expect(page.getByText(/Editing is locked until the write finishes/)).toBeVisible()
+      await page.keyboard.press('Enter')
+      await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+      await page.keyboard.press('h')
+      await expect(page.getByRole('status').filter({ hasText: /^Hidden / })).toBeVisible()
+      await expectNoAxeViolations(page)
+    } finally {
+      await server.stop()
+    }
+  })
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} review and write status drawer passes axe in both modes`, async ({
+    page,
+  }) => {
+    const server = await startE2EServer()
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    let writing = false
+    await page.route('**/provider/write-status', async (route) => {
+      if (!writing) return route.continue()
+      await route.fulfill({
+        json: {
+          version: '1',
+          revision: '1',
+          generation: '1',
+          batch_version: '1',
+          phase: 'rate_limited',
+          next_eligible: '2026-10-07T13:00:00Z',
+          total: 4,
+          completed: 1,
+          failed: 1,
+          remaining: 2,
+          overrides: 1,
+          actions: ['pause', 'reconcile'],
+        },
+      })
+    })
+    try {
+      await openMoneyflow(page, server)
+      await page.keyboard.press('h')
+      await expect(page.getByText(/1 pending edit/)).toBeVisible()
+      await page.keyboard.press('w')
+      const review = page.getByRole('dialog', { name: 'Review pending changes' })
+      await review.getByRole('button', { expanded: false }).first().click()
+      await expect(review.getByRole('row').nth(1)).toBeVisible()
+      await expectNoAxeViolations(page)
+      await page.keyboard.press('Escape')
+      await expect(review).toBeHidden()
+
+      writing = true
+      await expect(page.getByText(/Editing is locked/)).toBeVisible()
+      await page.keyboard.press('w')
+      const write = page.getByRole('dialog', { name: 'Monarch write status' })
+      await expect(write.getByRole('button', { name: 'Stop and reconcile' })).toBeVisible()
+      await expectNoAxeViolations(page)
+    } finally {
+      await server.stop()
+    }
+  })
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} category and group managers pass axe with a step open`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Shift+C')
+    const categories = page.getByRole('dialog', { name: 'Manage categories' })
+    const list = categories.getByRole('listbox', { name: 'Categories' })
+    await expect(list.getByRole('option').first()).toBeVisible()
+    // Past the two protected categories to one a merge can change.
+    for (let index = 0; index < 3; index += 1) await page.keyboard.press('ArrowDown')
+    await expectNoAxeViolations(page)
+
+    await page.keyboard.press('m')
+    await categories.getByRole('combobox', { name: 'Destination' }).pressSequentially('o')
+    await expect(categories.getByRole('listbox', { name: 'Destination' })).toBeVisible()
+    await page.keyboard.press('ArrowDown')
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await expect(categories).toBeHidden()
+
+    await page.keyboard.press('Shift+G')
+    const groups = page.getByRole('dialog', { name: 'Manage category groups' })
+    await expect(groups.getByRole('option').first()).toBeVisible()
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('n')
+    await expect(groups.getByRole('button', { name: 'Create' })).toBeVisible()
+    await expectNoAxeViolations(page)
+  })
+}

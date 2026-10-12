@@ -38,9 +38,19 @@ category, and account. Touch works this way:
 - The header keeps the select-all box and the current sort field. Tap the field to reverse the
   order.
 
-The keys work the same at every width. On wider screens, a table wider than the window scrolls
-sideways while the boxes, the name column, and the selection bar stay in place. Below 760 px,
-merchant and category tables leave out Top category and Group, and the amount columns narrow.
+The keys work the same at every width, and the browser table never scrolls sideways at any
+width. On phones it uses the two-line rows above. On wider screens, when the columns do not
+fit, it leaves out the least important ones until they do. The boxes, the name column, and Net
+or Amount always stay. Columns leave in this order:
+
+| Table | Order |
+| --- | --- |
+| Grouped | Top category or Group, then Trend and vs prior, Share, Count, and In and Out |
+| Time | Net bar, then Savings rate, Count, and In and Out |
+| Transactions | Account, then Flags, Date, and Category |
+
+Below 760 px, every grouped table leaves out Trend and vs prior, along with Top category or
+Group where the table has one.
 
 The browser table scrolls through every row of the result. It loads rows 200 at a time, and
 rows still loading show as blank bars. When scrolling reaches rows outside the loaded 200, the

@@ -25,27 +25,91 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
 
     await page.keyboard.press('Shift+U')
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    const commits: string[] = []
+    page.on('request', (request) => {
+      if (request.url().endsWith('/commit')) commits.push(request.url())
+    })
     await page.keyboard.press('w')
     await expect(review).toBeVisible()
-    const operation = review.locator('.review-list button').first()
+    const commit = review.getByRole('button', { name: 'Commit reviewed changes' })
+    await expect(commit).toBeFocused()
+
+    // Enter on a control with its own Enter does that action and does not commit.
+    const operation = review.getByRole('button', { name: /^Toggle report visibility/ })
     await operation.focus()
-    await expect(operation).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(review.locator('.review-paging')).toContainText(
-      `Showing 1–${Math.min(affected, pageSize)} of ${affected}`,
-    )
+    await expect(operation).toHaveAttribute('aria-expanded', 'true')
+    await expect(review.getByRole('row')).toHaveCount(Math.min(affected, pageSize) + 1)
+    await expect(
+      review.getByText(`Showing 1–${Math.min(affected, pageSize)} of ${affected}`),
+    ).toBeVisible()
     const next = review.getByRole('button', { name: 'Next' })
     if (affected <= pageSize) await expect(next).toBeDisabled()
     else await expect(next).toBeEnabled()
-    await expect(operation).toHaveAttribute('aria-expanded', 'true')
+    await review.getByRole('button', { name: 'Close' }).focus()
+    await page.keyboard.press('Enter')
+    await expect(review).toBeHidden()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    expect(commits).toEqual([])
 
-    const commit = review.getByRole('button', { name: 'Commit reviewed changes' })
-    await expect(commit).toBeEnabled()
-    await commit.focus()
+    // Enter on the focused Commit commits once: the browser does not also click it.
+    await page.keyboard.press('w')
+    await expect(commit).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(review).toBeHidden()
     await expect(page.getByText(/0 pending edit/)).toBeVisible()
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+    expect(commits).toHaveLength(1)
+  } finally {
+    await server.stop()
+  }
+})
+
+test('an expanded operation shows each amount with its currency, right-aligned, at 390 px too', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 844 })
+      await openMoneyflow(page, server)
+      if (width === 1440) await page.keyboard.press('h')
+      await expect(page.getByText(/1 pending edit/).first()).toBeAttached()
+      await page.keyboard.press('w')
+      const review = page.getByRole('dialog', { name: 'Review pending changes' })
+      await review.getByRole('button', { name: /^Toggle report visibility/ }).click()
+      const table = review.getByRole('table', { name: 'Affected transactions' })
+      await expect(table.getByRole('columnheader')).toHaveText([
+        'Date',
+        'Merchant',
+        'Category',
+        'Amount',
+      ])
+      const amount = table.getByRole('row').nth(1).getByRole('cell').last()
+      await expect(amount).toHaveText('-2,150.00 USD')
+      await expect(amount).toHaveCSS('text-align', 'right')
+      // The date and the amount each keep to one line.
+      const lines = (cell: typeof amount) =>
+        cell.evaluate((node) => {
+          const range = document.createRange()
+          range.selectNodeContents(node)
+          return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size
+        })
+      const date = table.getByRole('row').nth(1).getByRole('cell').first()
+      expect(await lines(date), `${width} px`).toBe(1)
+      expect(await lines(amount), `${width} px`).toBe(1)
+      // The table and its rows fit the drawer without scrolling sideways.
+      const overflow = await table.evaluate((node) => {
+        const box = node.parentElement!.getBoundingClientRect()
+        return Math.max(
+          ...[node, ...node.querySelectorAll('tr')].map(
+            (element) => element.getBoundingClientRect().right - box.right,
+          ),
+        )
+      })
+      expect(overflow, `${width} px`).toBeLessThanOrEqual(0)
+      await page.keyboard.press('Escape')
+    }
   } finally {
     await server.stop()
   }

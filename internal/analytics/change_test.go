@@ -41,6 +41,15 @@ func TestNetChangeFollowsVsPriorRules(t *testing.T) {
 			want: Change{Kind: ChangeAmount, Amount: -46000, Favorable: false}},
 		{name: "half rounds up", current: -1001, prior: -2000,
 			want: Change{Kind: ChangePercent, PercentTenths: 500, Favorable: true}},
+		// The web shows a change that rounds to 0.0% in neutral grey, so the boundary matters.
+		{name: "spending grew 0.04%", current: -10004, prior: -10000,
+			want: Change{Kind: ChangePercent, Grew: true, Favorable: false}},
+		{name: "spending grew 0.05%", current: -10005, prior: -10000,
+			want: Change{Kind: ChangePercent, PercentTenths: 1, Grew: true, Favorable: false}},
+		{name: "income shrank 0.04%", current: 9996, prior: 10000,
+			want: Change{Kind: ChangePercent, Favorable: false}},
+		{name: "income shrank 0.05%", current: 9995, prior: 10000,
+			want: Change{Kind: ChangePercent, PercentTenths: 1, Favorable: false}},
 	}
 	for _, test := range tests {
 		got, err := NetChange(test.current, test.prior)

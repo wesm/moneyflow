@@ -11,6 +11,7 @@ import {
   type ProviderWriteStatus,
   type ViewProjection,
 } from '../api/client'
+import { providerName } from '../provider-name'
 
 export type ProviderWritePhase =
   | 'idle'
@@ -88,10 +89,7 @@ export function createProviderWriteController(
     setState({
       status,
       phase: phaseFor(status),
-      announcement: announcementFor(
-        status,
-        options.host.current()?.profile_kind === 'ynab' ? 'YNAB' : 'Monarch',
-      ),
+      announcement: announcementFor(status, providerName(options.host.current()?.profile_kind)),
     })
   }
 

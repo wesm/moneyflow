@@ -6,12 +6,35 @@ import type { ReviewController } from '../lib/controller/review'
 export const testCatalog: EditorCatalog = {
   version: '1',
   revision: '1',
-  merchants: [{ id: 'merchant-a', label: 'Example Merchant', protected: false }],
-  categories: [
-    { id: 'category-uncategorized', label: 'Uncategorized', protected: true },
-    { id: 'category-a', label: 'Example Category', parent_id: 'group-a', protected: false },
+  merchants: [
+    {
+      id: 'merchant-a',
+      label: 'Example Merchant',
+      protected: false,
+      transaction_count: 4,
+      in_use: true,
+    },
   ],
-  groups: [{ id: 'group-a', label: 'Example Group', protected: false }],
+  categories: [
+    {
+      id: 'category-uncategorized',
+      label: 'Uncategorized',
+      protected: true,
+      transaction_count: 0,
+      in_use: false,
+    },
+    {
+      id: 'category-a',
+      label: 'Example Category',
+      parent_id: 'group-a',
+      protected: false,
+      transaction_count: 4,
+      in_use: true,
+    },
+  ],
+  groups: [
+    { id: 'group-a', label: 'Example Group', protected: false, transaction_count: 4, in_use: true },
+  ],
 }
 
 export function testEditingController(
@@ -87,6 +110,13 @@ export function testReviewController(overrides: Partial<ReviewController> = {}):
         date: '2024-01-01',
         merchant: 'Example Merchant',
         category: 'Example Category',
+        amount: {
+          minor: '-1234',
+          currency: 'USD',
+          scale: 2,
+          decimal: '-12.34',
+          display: '-12.34',
+        },
         hidden: false,
       },
     ]),

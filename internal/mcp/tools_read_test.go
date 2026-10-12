@@ -164,6 +164,7 @@ func TestReviewDocumentsUseStableSnakeCaseWireTypes(t *testing.T) {
 		}}),
 		Targets: reviewTargetDocuments([]app.ReviewTarget{{
 			TransactionID: "transaction-a", Date: date, Merchant: "Merchant", Category: "Category",
+			Amount: domain.Money{Minor: -123456, Currency: "EUR", Scale: 2},
 		}}),
 	}
 	encoded, err := json.Marshal(document)
@@ -172,6 +173,8 @@ func TestReviewDocumentsUseStableSnakeCaseWireTypes(t *testing.T) {
 	assert.Contains(t, text, `"operation_id":"operation-a"`)
 	assert.Contains(t, text, `"affected_count":2`)
 	assert.Contains(t, text, `"transaction_id":"transaction-a"`)
+	assert.Contains(t, text,
+		`"money":{"amount":"-1234.56","amount_minor":"-123456","currency":"EUR","scale":2}`)
 	assert.NotContains(t, text, "OperationID")
 	assert.NotContains(t, text, "Sequence")
 }

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import WorkspaceBody from './WorkspaceBody.svelte'
@@ -11,13 +11,13 @@ import { testEditingController } from '../../test/editing'
 import { testInsights } from '../../test/insights'
 import { testProjection } from '../../test/projection'
 
-type Insights = (body: InsightsBody, signal: AbortSignal) => Promise<InsightsResponse>
-
-function renderBody(insights: Insights) {
-  const base = testProjection()
-  const projection = testProjection({
-    view: { ...base.view, currency: { currency: 'USD', scale: 2 } },
-  })
+function bodyActions(
+  projection: ReturnType<typeof testProjection>,
+  providerPhase?: string,
+  insights: ViewController['insights'] = vi.fn(
+    () => new Promise<InsightsResponse>(() => undefined),
+  ),
+): { actions: LocalActionContext; charts: ChartState } {
   const controller = {
     projection,
     loading: false,
@@ -25,6 +25,7 @@ function renderBody(insights: Insights) {
     cursorIdentity: undefined,
     neighbors: [],
     editing: testEditingController(),
+    providerWrite: { state: { status: providerPhase ? { phase: providerPhase } : undefined } },
     insights,
     recheckNewer: vi.fn(async () => undefined),
     reloadDay: vi.fn(async () => undefined),
@@ -39,9 +40,30 @@ function renderBody(insights: Insights) {
     focusSearch: () => undefined,
     openFilters: () => undefined,
   }
-  const charts = new ChartState({ ...host, compact: () => false })
-  const rendered = render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
-  return { ...rendered, controller }
+  return { actions, charts: new ChartState({ ...host, compact: () => false }) }
+}
+
+function usdProjection(): ReturnType<typeof testProjection> {
+  const base = testProjection()
+  return testProjection({ view: { ...base.view, currency: { currency: 'USD', scale: 2 } } })
+}
+
+function stubPhoneWidth(): () => void {
+  const original = window.matchMedia
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: (query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }),
+  })
+  return () => Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
 }
 
 describe('WorkspaceBody', () => {
@@ -52,14 +74,16 @@ describe('WorkspaceBody', () => {
 
   it('aborts the insights request in flight when it unmounts', () => {
     const signals: AbortSignal[] = []
-    const insights = vi.fn<Insights>(
-      (_body, signal) =>
+    const insights = vi.fn(
+      (_body: InsightsBody, signal: AbortSignal) =>
         new Promise<InsightsResponse>(() => {
           signals.push(signal)
         }),
     )
+    const projection = usdProjection()
+    const { actions, charts } = bodyActions(projection, undefined, insights)
 
-    const { unmount } = renderBody(insights)
+    const { unmount } = render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
     expect(insights).toHaveBeenCalledTimes(1)
     expect(signals[0]?.aborted).toBe(false)
 
@@ -67,12 +91,62 @@ describe('WorkspaceBody', () => {
     expect(signals[0]?.aborted).toBe(true)
   })
 
+  it('shows the edit lock banner while a provider write runs and opens write status', async () => {
+    const projection = testProjection({ profile_kind: 'ynab' })
+    const { actions, charts } = bodyActions(projection, 'writing')
+
+    render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
+
+    expect(
+      screen.getByText('Writing to YNAB · Editing is locked until the write finishes'),
+    ).toBeTruthy()
+    await fireEvent.click(screen.getByRole('button', { name: /^Status\s*w$/ }))
+    expect(actions.overlays.current).toBe('write')
+  })
+
+  it('words the banner by the write phase', () => {
+    const projection = testProjection({ profile_kind: 'ynab' })
+    const { actions, charts } = bodyActions(projection, 'paused')
+
+    render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
+
+    expect(
+      screen.getByText('YNAB write paused · Editing is locked until it resumes or is reconciled'),
+    ).toBeTruthy()
+  })
+
+  it('shows no banner when no provider write is active', () => {
+    const projection = testProjection()
+    const { actions, charts } = bodyActions(projection)
+
+    render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
+
+    expect(screen.queryByText(/Editing is locked/)).toBeNull()
+  })
+
+  it('shows the banner at phone width, where the KPI strip lives in the chart drawer', () => {
+    const restore = stubPhoneWidth()
+    try {
+      const projection = usdProjection()
+      const { actions, charts } = bodyActions(projection, 'writing')
+
+      render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
+
+      expect(screen.getByText(/Editing is locked until the write finishes/)).toBeTruthy()
+      expect(document.querySelector('.mf-workspace > .mf-chart-area')).toBeNull()
+    } finally {
+      restore()
+    }
+  })
+
   it('checks old insights again when the window comes back to the foreground', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
-    const insights = vi.fn<Insights>(async (body) =>
+    const insights = vi.fn<ViewController['insights']>(async (body) =>
       testInsights({ query: body.query, revision: '0' }),
     )
-    renderBody(insights)
+    const projection = usdProjection()
+    const { actions, charts } = bodyActions(projection, undefined, insights)
+    render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
     await vi.waitFor(() => expect(insights).toHaveBeenCalledTimes(1))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -85,10 +159,13 @@ describe('WorkspaceBody', () => {
   it('reloads the table when the insights come back from a new day', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
     let today = '2026-10-07'
-    const insights = vi.fn<Insights>(async (body) =>
+    const insights = vi.fn<ViewController['insights']>(async (body) =>
       testInsights({ query: body.query, revision: '0', today }),
     )
-    const { controller } = renderBody(insights)
+    const projection = usdProjection()
+    const { actions, charts } = bodyActions(projection, undefined, insights)
+    const { controller } = actions
+    render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
     await vi.waitFor(() => expect(insights).toHaveBeenCalledTimes(1))
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(controller.reloadDay).not.toHaveBeenCalled()

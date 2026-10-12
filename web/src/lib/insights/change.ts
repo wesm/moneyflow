@@ -32,8 +32,10 @@ export function priorChange(change: Change, scale: number, label: string): Prior
     }
     case 'percent': {
       const percent = tenthsPercent(change.percent_tenths)
-      // A change that rounds to 0.0% has no direction worth an arrow.
-      if (change.percent_tenths === 0) return { text: percent, spoken: `${percent} ${label}`, tone }
+      // A change that rounds to 0.0% carries no signal: neutral, with no arrow.
+      if (change.percent_tenths === 0) {
+        return { text: percent, spoken: `${percent} ${label}`, tone: 'neutral' }
+      }
       const [arrow, direction] = change.grew ? ['▲', 'up'] : ['▼', 'down']
       return { text: `${arrow} ${percent}`, spoken: `${direction} ${percent} ${label}`, tone }
     }

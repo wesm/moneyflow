@@ -252,7 +252,7 @@ test('x in a grouped view explains why it cannot delete', async ({ page, server 
   const notice = page.getByRole('status', { name: 'Notice' })
   await page.keyboard.press('x')
   await expect(notice).toHaveText('Open the group to delete its transactions.')
-  await expect(page.getByRole('dialog', { name: 'Confirm deletion' })).toHaveCount(0)
+  await expect(page.getByRole('alertdialog', { name: 'Confirm deletion' })).toHaveCount(0)
   // Well under the notice's 4 s, so only the next action can have cleared it.
   const cleared = { timeout: 1000 }
   await page.keyboard.press('j')

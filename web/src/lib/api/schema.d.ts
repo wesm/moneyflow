@@ -961,9 +961,12 @@ export interface components {
     }
     EditorChoice: {
       id: string
+      in_use: boolean
       label: string
       parent_id?: string
       protected: boolean
+      /** Format: int64 */
+      transaction_count: number
     }
     ErrorDetail: {
       /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -1212,6 +1215,7 @@ export interface components {
     }
     MutationResponse: {
       canonical_query: string
+      operation?: components['schemas']['OperationSummary']
       pending: components['schemas']['PendingSummary']
       projection: components['schemas']['Projection']
       provider_write?: components['schemas']['ProviderWriteStatusResponse']
@@ -1301,6 +1305,21 @@ export interface components {
       access_token: string
       account_password: string
       confirmation: string
+    }
+    OperationSummary: {
+      /** Format: int64 */
+      affected: number
+      /** @enum {string} */
+      kind:
+        | 'rename'
+        | 'recategorize'
+        | 'hide'
+        | 'show'
+        | 'delete'
+        | 'manage_category'
+        | 'manage_group'
+      label: string
+      undoable: boolean
     }
     PendingSummary: {
       /** Format: int64 */
@@ -1593,6 +1612,7 @@ export interface components {
       window: components['schemas']['ReturnedWindow']
     }
     ReviewTarget: {
+      amount: components['schemas']['Money']
       category: string
       date: string
       hidden: boolean

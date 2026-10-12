@@ -128,7 +128,7 @@ test('a grouped view at 960 px never draws the column it drops, on load or resiz
   expect(await seen()).toEqual([])
 })
 
-test('Trend and vs prior fill grouped rows, and from 900 px columns drop instead of scrolling', async ({
+test('Trend and vs prior fill grouped rows, and columns drop instead of scrolling', async ({
   page,
   server,
 }) => {
@@ -322,7 +322,8 @@ async function expectNoHorizontalScroll(page: Page): Promise<void> {
 /** Every visible control inside `container` is at least 44 px tall and, if square, wide. */
 async function expectTouchTargets(container: Locator): Promise<void> {
   const small = await container.evaluate((root) => {
-    const selector = 'button, [role="radio"], [role="combobox"], label.kit-toggle, .kit-text-input'
+    const selector =
+      'button, [role="radio"], [role="combobox"], [role="option"], label.kit-toggle, .kit-text-input'
     return Array.from(root.querySelectorAll<HTMLElement>(selector))
       .filter((element) => element.getClientRects().length > 0)
       .map((element) => ({
@@ -611,14 +612,14 @@ test.describe('phone rows by touch', () => {
     // Esc closed only the sheet; it did not also go back a level.
     await expect(cell(first, 'merchant')).toHaveText('Corner Grocery')
 
-    for (const [item, editor] of [
-      ['Merchant', 'Edit merchant'],
-      ['Category', 'Change category'],
-      ['Delete', 'Confirm deletion'],
-    ]) {
+    for (const [item, role, editor] of [
+      ['Merchant', 'dialog', 'Edit merchant'],
+      ['Category', 'dialog', 'Change category'],
+      ['Delete', 'alertdialog', 'Confirm deletion'],
+    ] as const) {
       await more.tap()
       await sheet.getByRole('button', { name: item }).tap()
-      const dialog = page.getByRole('dialog', { name: editor, exact: true })
+      const dialog = page.getByRole(role, { name: editor, exact: true })
       await expect(dialog).toBeVisible()
       await expect(sheet).toBeHidden()
       await page.keyboard.press('Escape')
@@ -706,8 +707,127 @@ test.describe('phone rows: drilling, keys, and the sheet', () => {
     await expect(mark).toBeVisible()
     await expect(mark).toHaveAttribute('tabindex', '-1')
     await expectCompactRows(page)
+    // The whole 44 px target sits inside its row: a tap just above the row's bottom edge hits
+    // the mark, and a tap just below it lands in the next row.
+    const edge = await mark.evaluate((button) => {
+      const own = button.closest('[role="row"]')!
+      const box = button.getBoundingClientRect()
+      const row = own.getBoundingClientRect()
+      const x = box.left + box.width / 2
+      const rowAt = (y: number) => document.elementFromPoint(x, y)?.closest('[role="row"]')
+      return {
+        height: box.height,
+        inside: box.top >= row.top && box.bottom <= row.bottom,
+        above: document.elementFromPoint(x, row.bottom - 1)?.closest('button') === button,
+        below: rowAt(row.bottom + 1) === own.nextElementSibling,
+      }
+    })
+    expect(edge).toEqual({ height: 44, inside: true, above: true, below: true })
     await mark.tap()
     await expect(page.getByRole('dialog', { name: 'Transaction information' })).toBeVisible()
+  })
+
+  test('⋯ edits the merchant in a bottom sheet with the editor keys', async ({ page, server }) => {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const second = grid.locator('[role="row"][aria-rowindex="3"]')
+    const merchant = await cell(second, 'merchant').innerText()
+    const more = cell(second, 'actions').getByRole('button')
+    const actions = page.getByRole('dialog', { name: merchant })
+    const editor = page.getByRole('dialog', { name: 'Edit merchant', exact: true })
+    const name = editor.getByRole('combobox', { name: 'Merchant' })
+
+    await more.tap()
+    await actions.getByRole('button', { name: 'Merchant' }).tap()
+    await expect(name).toBeFocused()
+    await expect(actions).toBeHidden()
+    await expect(editor).toHaveAccessibleDescription('· 1 transaction')
+    // A bottom sheet across the phone's width, on its bottom edge.
+    const box = (await editor.boundingBox())!
+    expect([box.x, box.width, box.y + box.height].map(Math.round)).toEqual([
+      0,
+      phone.width,
+      phone.height,
+    ])
+    await expectTouchTargets(editor)
+    await editor.getByRole('button', { name: 'Cancel' }).tap()
+    await expect(editor).toBeHidden()
+    await expect(more).toBeFocused()
+
+    await more.tap()
+    await actions.getByRole('button', { name: 'Merchant' }).tap()
+    // A long suggestion list: 44 px options that scroll, with Stage and Cancel still in reach.
+    await name.fill('a')
+    const list = editor.getByRole('listbox', { name: 'Merchant' })
+    await expect(list.getByRole('option').nth(5)).toBeAttached()
+    await expectTouchTargets(editor)
+    expect(await list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+    for (const label of [/^Stage change/, /^Cancel$/]) {
+      const button = editor.getByRole('button', { name: label })
+      await expect(button).toBeInViewport({ ratio: 1 })
+      const reachable = await button.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+        return element.contains(hit)
+      })
+      expect(reachable).toBe(true)
+    }
+    await name.fill('Renamed Example')
+    await name.press('Enter')
+    await expect(
+      editor.getByRole('button', { name: 'Stage change to 1 transaction' }),
+    ).toBeEnabled()
+    await name.press('Enter')
+    await expect(editor).toBeHidden()
+    await expect(cell(second, 'merchant')).toHaveText(`${merchant} → Renamed Example`)
+    await expect(grid).toBeFocused()
+    await expect(await activeRow(page)).toHaveAttribute('aria-rowindex', '3')
+    // The server outlives this test; undo leaves the row as the later tests expect it.
+    await page.keyboard.press('u')
+    await expect(cell(second, 'merchant')).toHaveText(merchant)
+  })
+
+  test('⋯ confirms a delete in a bottom sheet', async ({ page, server }) => {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const second = grid.locator('[role="row"][aria-rowindex="3"]')
+    const merchant = await cell(second, 'merchant').innerText()
+    const more = cell(second, 'actions').getByRole('button')
+    const actions = page.getByRole('dialog', { name: merchant })
+    const confirmation = page.getByRole('alertdialog', { name: 'Confirm deletion' })
+
+    await more.tap()
+    await actions.getByRole('button', { name: 'Delete' }).tap()
+    await expect(actions).toBeHidden()
+    await expect(confirmation).toHaveAccessibleDescription('Delete 1 transaction?')
+    expect(await focusInside(confirmation)).toBe(true)
+    // A bottom sheet across the phone's width, on its bottom edge.
+    const box = (await confirmation.boundingBox())!
+    expect([box.x, box.width, box.y + box.height].map(Math.round)).toEqual([
+      0,
+      phone.width,
+      phone.height,
+    ])
+    await expectTouchTargets(confirmation)
+    await confirmation.getByRole('button', { name: 'Cancel' }).tap()
+    await expect(confirmation).toBeHidden()
+    await expect(more).toBeFocused()
+    await expect(second).not.toHaveClass(/mf-table__row--deleted/)
+
+    await more.tap()
+    await actions.getByRole('button', { name: 'Delete' }).tap()
+    await confirmation.getByRole('button', { name: 'Delete' }).tap()
+    await expect(confirmation).toBeHidden()
+    await expect(page.getByRole('status').filter({ hasText: /^Deleted / })).toHaveText(
+      'Deleted 1 transaction · Undo u',
+    )
+    await expect(second).toHaveClass(/mf-table__row--deleted/)
+    await expect(more).toBeFocused()
+    // The server outlives this test; undo leaves the row as the later tests expect it.
+    await page.keyboard.press('u')
+    await expect(second).not.toHaveClass(/mf-table__row--deleted/)
   })
 })
 
@@ -746,57 +866,72 @@ test.describe('phone row actions with a selection', () => {
   })
 })
 
-test('641–899 px: Net fits, and a wide table scrolls under sticky ☐, Name, and the bar', async ({
+/** The views whose columns differ: grouped with Context, Trend, and vs prior, Time, and detail. */
+const FIT_VIEWS = [
+  { view: 'merchants', query: 'cur=USD%3A2&from=2026-09-01&to=2026-09-30&v=1', name: 'name' },
+  { view: 'categories', query: 'cur=USD%3A2&group=category&v=1', name: 'name' },
+  { view: 'time', query: 'cur=USD%3A2&group=time&v=1', name: 'period' },
+  { view: 'transactions', query: 'cur=USD%3A2&mode=detail&v=1', name: 'merchant' },
+] as const
+
+test('the table drops columns instead of scrolling sideways, at every width', async ({
   page,
   server,
 }) => {
-  await page.setViewportSize({ width: 641, height: 800 })
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const workspace = page.locator('.mf-workspace')
+  const headerKeys = () =>
+    grid
+      .locator('.mf-table__header [data-column]')
+      .evaluateAll((cells) => cells.map((node) => (node as HTMLElement).dataset['column']))
+  for (const { view, query, name } of FIT_VIEWS) {
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await openMoneyflow(page, server, query)
+    let fewest = 0
+    for (const width of [641, 700, 759, 760, 820, 900, 1010, 1280]) {
+      await page.setViewportSize({ width, height: 800 })
+      const context = `${view} at ${width} px`
+      await expect
+        .poll(() => workspace.evaluate((node) => node.scrollWidth - node.clientWidth), {
+          message: context,
+        })
+        .toBeLessThanOrEqual(0)
+      const keys = await headerKeys()
+      expect(keys, context).toContain(name)
+      const shown = (await workspace.boundingBox())!
+      const last = (await grid.locator('.mf-table__header [data-column]').last().boundingBox())!
+      expect(last.x + last.width, context).toBeLessThanOrEqual(shown.x + shown.width)
+      // A wider window never shows fewer columns than a narrower one.
+      expect(keys.length, context).toBeGreaterThanOrEqual(fewest)
+      fewest = keys.length
+    }
+  }
+})
+
+test('641–899 px: the selection bar and header stay inside the workspace', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 820, height: 800 })
   await openMoneyflow(page, server)
   const grid = page.getByRole('grid', { name: 'Financial results' })
   const workspace = page.locator('.mf-workspace')
   const header = (key: string) => grid.locator(`.mf-table__header [data-column="${key}"]`)
-  await expect(header('context')).toHaveCount(0)
   const shown = (await workspace.boundingBox())!
-  const net = (await header('net').boundingBox())!
-  expect(net.x + net.width).toBeLessThanOrEqual(shown.x + shown.width)
 
-  await page.setViewportSize({ width: 820, height: 800 })
-  await expect(header('context')).toHaveText('Top category')
-  const row = grid.locator('[role="row"][aria-rowindex="2"]')
-  const boxes = async () => ({
-    select: (await cell(row, 'select').boundingBox())!.x,
-    name: (await cell(row, 'name').boundingBox())!.x,
-    header: (await header('name').boundingBox())!.x,
-    context: (await cell(row, 'context').boundingBox())!.x,
-  })
-  const before = await boxes()
-  const overflow = await workspace.evaluate((node) => node.scrollWidth - node.clientWidth)
-  expect(overflow).toBeGreaterThan(0)
-  await workspace.evaluate((node) => (node.scrollLeft = node.scrollWidth))
-  await expect.poll(async () => (await boxes()).context).toBeLessThan(before.context - overflow + 1)
-  // ☐ sticks at the scroller's edge, over its focus-ring padding, and Name sticks beside it.
-  const after = await boxes()
-  expect(after.select).toBe((await workspace.boundingBox())!.x)
-  expect(after.name - after.select).toBe(before.name - before.select)
-  expect(after.header).toBe(after.name)
-
-  // The selection bar stays put too, inside the workspace.
   await page.keyboard.press('Space')
   const bar = page.getByRole('region', { name: 'Selection' })
   await expect(bar).toBeVisible()
   const pinned = (await bar.boundingBox())!
-  await workspace.evaluate((node) => (node.scrollLeft = 0))
-  await expect.poll(async () => (await bar.boundingBox())!.x).toBe(pinned.x)
   expect(pinned.x).toBeGreaterThanOrEqual(shown.x - 1)
-  expect(pinned.x + pinned.width).toBeLessThanOrEqual(
-    (await workspace.boundingBox())!.x + (await workspace.boundingBox())!.width + 1,
-  )
+  expect(pinned.x + pinned.width).toBeLessThanOrEqual(shown.x + shown.width + 1)
   await page.keyboard.press('Escape')
 
   // The header stays on top of the rows while the table scrolls down.
   const scrollport = (await workspace.boundingBox())!
-  await workspace.evaluate((node) => (node.scrollTop = 600))
-  await expect.poll(async () => (await header('name').boundingBox())!.y).toBe(scrollport.y)
+  await workspace.evaluate((node) => (node.scrollTop = node.scrollHeight))
+  const headerRow = grid.locator('.mf-table__header')
+  await expect.poll(async () => (await headerRow.boundingBox())!.y).toBe(scrollport.y)
   const covering = await header('name').evaluate((node) => {
     const box = node.getBoundingClientRect()
     return document.elementFromPoint(box.x + 4, box.y + box.height / 2)?.closest('[role]')?.role

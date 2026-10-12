@@ -1,3 +1,4 @@
+import { showFlash } from '@kenn-io/kit-ui'
 import { createSubscriber } from 'svelte/reactivity'
 
 import {
@@ -16,6 +17,7 @@ import {
   type SelectionValue,
   type ViewProjection,
 } from '../api/client'
+import { toastMessage, type ToastAction } from '../editing/toasts'
 
 export type MutationPhase = 'idle' | 'submitting' | 'conflict' | 'failed'
 
@@ -66,6 +68,9 @@ const emptyPending: PendingSummary = {
   affected_transactions: 0,
 }
 
+/** What an editing request that failed without a server answer reports. */
+export const REQUEST_FAILED = 'The profile request failed.'
+
 export function createEditingController(options: EditingControllerOptions): EditingController {
   const initial = options.host.current()
   let state: EditingState = {
@@ -109,7 +114,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
       window: { offset: current.window.offset, limit: current.window.limit },
       ...(intent.target === undefined ? {} : { target: intent.target }),
     }
-    return await mutate('api/v1/mutations', body, 'Change saved as pending.')
+    return await mutate('api/v1/mutations', body, 'Change saved as pending.', 'mutate')
   }
 
   async function undo(): Promise<boolean> {
@@ -131,10 +136,12 @@ export function createEditingController(options: EditingControllerOptions): Edit
       selection: current.selection,
       window: { offset: current.window.offset, limit: current.window.limit },
     }
+    const undoing = path.endsWith('/undo')
     return await mutate(
       path,
       body,
-      path.endsWith('/undo') ? 'Pending change undone.' : 'Pending change redone.',
+      undoing ? 'Pending change undone.' : 'Pending change redone.',
+      undoing ? 'undo' : 'redo',
     )
   }
 
@@ -203,6 +210,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
     path: string,
     body: MutationBody | RevisionBody | CommitBody,
     successMessage: string,
+    toast?: ToastAction,
   ) {
     if (state.phase === 'submitting') return false
     setState({ ...state, phase: 'submitting', announcement: '' })
@@ -211,7 +219,6 @@ export function createEditingController(options: EditingControllerOptions): Edit
       if (response.canonical_query !== body.query) {
         throw new Error('The mutation changed analytical browser state.')
       }
-      const revision = parseRevision(response.revision)
       const selection = response.selection.value as SelectionValue
       const projection: ViewProjection = {
         ...response.projection,
@@ -220,15 +227,22 @@ export function createEditingController(options: EditingControllerOptions): Edit
         canonical_query: body.query,
         selection,
       }
-      options.host.accept(projection)
+      const viewWarning = await show(projection, body.selection)
       const auditWarning = projection.warnings?.find(
         (warning) => warning.code === 'audit_completion_failed',
       )?.detail
+      // The toast's status region is inserted with its text, which screen readers may skip, so
+      // the persistent announcement repeats it.
+      const toasted = toast && toastMessage(response.operation, toast)
+      if (toasted) showFlash(toasted)
       setState({
-        revision,
+        ...newestRevision(response),
         phase: 'idle',
-        pending: response.pending,
-        announcement: [mutationAnnouncement(successMessage, response.selection.kind), auditWarning]
+        announcement: [
+          toasted || mutationAnnouncement(successMessage, response.selection.kind),
+          auditWarning,
+          viewWarning,
+        ]
           .filter(Boolean)
           .join(' '),
         ...(response.provider_write ? { providerWrite: response.provider_write } : {}),
@@ -239,6 +253,37 @@ export function createEditingController(options: EditingControllerOptions): Edit
       await handleFailure(error)
       return false
     }
+  }
+
+  // A view change that finished while the request ran keeps its own query: reread that view at
+  // the new revision rather than reinstall the query the mutation was sent with. The reread
+  // takes the response's selection, such as a cleared one, unless the selection changed too.
+  async function show(
+    projection: ViewProjection,
+    sent: string | undefined,
+  ): Promise<string | undefined> {
+    const shown = options.host.current()
+    if (!shown || shown.canonical_query === projection.canonical_query) {
+      options.host.accept(projection)
+      return undefined
+    }
+    try {
+      await options.host.refresh(shown.selection === sent ? projection.selection : undefined, true)
+      return undefined
+    } catch {
+      return 'The current view could not be refreshed.'
+    }
+  }
+
+  // A reread of a moved-on view can install a revision newer than the response, such as after
+  // another session's change. Keep it, so the next edit expects the revision on screen.
+  function newestRevision(response: MutationResponse): Pick<EditingState, 'revision' | 'pending'> {
+    const revision = parseRevision(response.revision)
+    const shown = options.host.current()
+    if (shown && parseRevision(shown.revision) > revision) {
+      return { revision: parseRevision(shown.revision), pending: shown.pending }
+    }
+    return { revision, pending: response.pending }
   }
 
   function projectionRevisionIsCurrent(current: ViewProjection): boolean {
@@ -254,7 +299,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
 
   async function handleFailure(error: unknown): Promise<void> {
     if (!(error instanceof MoneyflowProblem)) {
-      setState({ ...state, phase: 'failed', announcement: 'The profile request failed.' })
+      setState({ ...state, phase: 'failed', announcement: REQUEST_FAILED })
       return
     }
     const code = error.problem.code

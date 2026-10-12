@@ -110,29 +110,24 @@ input {
 }
 
 .moneyflow-loading,
-.moneyflow-loaded,
 .moneyflow-message {
   max-width: 32rem;
 }
 
 .moneyflow-loading h1,
 .moneyflow-loading p,
-.moneyflow-loaded h1,
-.moneyflow-loaded p,
 .moneyflow-message h1,
 .moneyflow-message p {
   margin: 0;
 }
 
 .moneyflow-loading h1,
-.moneyflow-loaded h1,
 .moneyflow-message h1 {
   margin-block: var(--space-2);
   font-size: var(--font-size-xl);
 }
 
 .moneyflow-loading p:last-child,
-.moneyflow-loaded p:last-child,
 .moneyflow-message p,
 .moneyflow-eyebrow {
   color: var(--text-muted);
@@ -727,8 +722,19 @@ input {
 .mf-sheet .mf-sheet__body .kit-select-dropdown__trigger,
 .mf-sheet .mf-sheet__body .kit-filter-dropdown__btn,
 .mf-sheet .mf-sheet__body .kit-filter-dropdown__item,
-.mf-sheet .mf-sheet__body .kit-select-dropdown__option {
+.mf-sheet .mf-sheet__body .kit-select-dropdown__option,
+.mf-sheet .mf-sheet__body .kit-button,
+.mf-sheet .mf-sheet__body .kit-text-input,
+.mf-sheet .mf-sheet__body .kit-text-input__control,
+.mf-sheet .mf-sheet__body [role='option'] {
   min-height: 44px;
+}
+.mf-sheet .mf-sheet__body [role='option'] {
+  align-items: center;
+}
+/* In a sheet the editor's list takes room in the flow, so it never covers Stage and Cancel. */
+.mf-sheet .mf-combobox-list {
+  position: static;
 }
 /* First in the Tab order, so it comes before the sidebar in the DOM and paints above it. */
 .mf-nav-drawer__close {
@@ -837,21 +843,12 @@ input {
   overflow: auto;
 }
 .mf-table {
-  /* Narrower below 760 px, so Net still fits beside the icon rail at 641 px. */
-  --mf-metric-width: 5.75rem;
-  /* As wide as its columns' minimums, so the focus ring and rows span a table that scrolls. */
-  min-width: min-content;
   margin-top: var(--space-2);
   outline: none;
   display: grid;
   grid-template-columns: var(--mf-columns);
   align-content: start;
   font-size: var(--font-size-sm);
-}
-@media (min-width: 760px) {
-  .mf-table {
-    --mf-metric-width: 6.5rem;
-  }
 }
 .mf-table:focus-visible {
   /* Neutral and outside the rows, so the blue left rule still marks only the cursor row. */
@@ -874,7 +871,7 @@ input {
 .mf-table__header {
   position: sticky;
   top: 0;
-  /* Above the rows' sticky cells, which scroll up beneath it. */
+  /* Above the positioned rows, which scroll up beneath it. */
   z-index: 2;
   background: var(--bg-surface);
   border-bottom-color: var(--border-default);
@@ -898,7 +895,6 @@ input {
 }
 .mf-table__row {
   --mf-row-tint: transparent;
-  --mf-row-rule: linear-gradient(transparent, transparent);
   position: relative;
   background-color: var(--mf-row-tint);
 }
@@ -921,58 +917,12 @@ input {
 .mf-table__row--selected {
   --mf-row-tint: var(--mf-selected);
 }
-/* A table wider than the workspace scrolls sideways under ☐ and the name column, which stay
-   put. Opaque cells hide what scrolls beneath them and repeat the row's tint and rules. They
-   stick over the scroller's focus-ring padding too, so nothing shows through left of ☐. */
-.mf-table:not(.mf-table--compact)
-  > :is(.mf-table__header, .mf-table__row)
-  > :is(
-    [data-column='select'],
-    [data-column='name'],
-    [data-column='period'],
-    [data-column='merchant']
-  ) {
-  position: sticky;
-  left: calc(2rem - var(--space-2));
-  z-index: 1;
-  /* Full row height, so nothing shows above or below the opaque cell. */
-  align-self: stretch;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-content: center;
-  background:
-    var(--mf-row-rule) top / 100% 1px no-repeat,
-    linear-gradient(var(--mf-row-tint), var(--mf-row-tint)),
-    var(--bg-primary);
-}
-.mf-table:not(.mf-table--compact)
-  > :is(.mf-table__header, .mf-table__row)
-  > [data-column='select'] {
-  left: calc(-1 * var(--space-2));
-}
-.mf-table:not(.mf-table--compact) > .mf-table__header > [data-column] {
-  background: var(--bg-surface);
-}
-.mf-table__row--active > [data-column='select'] {
-  box-shadow: inset 3px 0 var(--mf-focus);
-}
-/* A sticky cell stays opaque, so its content dims instead. */
-.mf-table__row--hidden
-  > .mf-table__cell:not(
-    [data-column='flags'],
-    [data-column='select'],
-    [data-column='name'],
-    [data-column='period'],
-    [data-column='merchant']
-  ),
-.mf-table__row--hidden
-  > :is([data-column='name'], [data-column='period'], [data-column='merchant'])
-  > * {
+/* A hidden row dims its values; its selection box and flags stay legible. */
+.mf-table__row--hidden > .mf-table__cell:not([data-column='flags'], [data-column='select']) {
   opacity: var(--opacity-disabled);
 }
 .mf-table__row--divided {
-  --mf-row-rule: linear-gradient(var(--text-muted), var(--text-muted));
-  background-image: var(--mf-row-rule);
+  background-image: linear-gradient(var(--text-muted), var(--text-muted));
   background-size: 100% 1px;
   background-repeat: no-repeat;
 }
@@ -1237,11 +1187,17 @@ input {
 .mf-table__row--hidden .mf-compact [role='gridcell']:not([data-column='flags']) {
   opacity: var(--opacity-disabled);
 }
-/* A 44 px tap target that keeps the meta line's height; the line clips only sideways. */
+/* A 44 px tap target that keeps the meta line's height; the line clips only sideways. It reaches
+   further up than down, so it stays inside the row's 7.5 px bottom padding and off the next row;
+   the top padding keeps the mark on the text line. A hover background would cover the amount
+   above it, so hover only darkens the mark. */
 .mf-table--compact .mf-flags__match .kit-icon-button {
+  --bg-surface-hover: transparent;
+  box-sizing: border-box;
   min-width: 44px;
   min-height: 44px;
-  margin-block: -14px;
+  margin-block: -21px -7px;
+  padding-top: 14px;
 }
 .mf-table__row--deleted .mf-compact [role='gridcell']:not([data-column='flags']) {
   text-decoration: line-through;
@@ -1273,12 +1229,10 @@ input {
   font-size: var(--font-size-xs);
 }
 /* In the scroll flow after the table, so the last row scrolls clear of it. The negative bottom
-   reaches past the workspace's focus-ring padding to its edge. As wide as the workspace and
-   pinned to its left, so it stays put while a wide table scrolls sideways at 641–899 px. */
+   reaches past the workspace's focus-ring padding to its edge. */
 .mf-selection-bar {
   position: sticky;
   bottom: calc(-1 * var(--space-2));
-  left: 0;
   z-index: 2;
   display: flex;
   flex-wrap: wrap;
@@ -1306,20 +1260,6 @@ input {
   pointer-events: none;
 }
 
-.editing-form {
-  display: grid;
-  gap: var(--space-3);
-  min-width: min(420px, calc(100vw - 64px));
-}
-
-.editing-form select {
-  min-height: 30px;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-}
-
 .editing-actions {
   display: flex;
   justify-content: flex-end;
@@ -1331,44 +1271,11 @@ input {
   color: var(--text-primary);
   font-weight: 600;
 }
-
-.review-list button {
-  width: 100%;
-  padding: var(--space-2);
-  text-align: left;
-  color: var(--text-primary);
-  background: var(--bg-inset);
-  border: 1px solid var(--border-default);
-}
-
-.review-list button span {
-  display: block;
+.mf-quiet {
+  margin: 0;
   color: var(--text-secondary);
 }
 
-.review-redo {
-  margin-top: var(--space-5);
-  padding: var(--space-3);
-  border: 1px dashed var(--border-default);
-}
-
-.review-paging {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--kit-space-2);
-  justify-content: space-between;
-  margin-block: var(--kit-space-2);
-}
-.overlay-status {
-  min-height: 1.25rem;
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
-}
-.overlay-status--error {
-  color: var(--accent-red);
-}
 .help-groups {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1400,16 +1307,30 @@ input {
   color: var(--text-muted);
   text-decoration: line-through;
 }
+.mf-lock-banner {
+  padding-bottom: var(--space-4);
+}
+.mf-lock-banner__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.mf-lock-banner__text {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+}
 /* Charts: the KPI strip and the chart row, above the table in its scroller. */
 .mf-chart-area {
-  /* Pinned while the table scrolls sideways; a block child already spans the scroller. */
-  position: sticky;
-  left: 0;
+  /* Positioned, so a tooltip can raise the area above the table's sticky header. */
+  position: relative;
   display: grid;
   gap: var(--space-4);
   padding-bottom: var(--space-5);
 }
-/* A chart tooltip covers the table's sticky header; the sticky area otherwise paints below it. */
+/* A chart tooltip covers the table's sticky header, which otherwise paints above the area. */
 .mf-chart-area:has([role='tooltip']) {
   z-index: 3;
 }
@@ -1471,6 +1392,9 @@ input {
 }
 .mf-tone--unfavorable {
   color: var(--mf-out-text);
+}
+.mf-tone--neutral {
+  color: var(--text-secondary);
 }
 .mf-kpis__caption {
   /* Always one line under the tiles, so a comparison arriving or leaving shifts nothing. */

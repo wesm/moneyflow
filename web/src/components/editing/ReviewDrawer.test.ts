@@ -1,48 +1,108 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
 import ReviewDrawer from './ReviewDrawer.svelte'
+import type { MutationFetch } from '../../lib/api/client'
+import type { EditingController } from '../../lib/controller/editing'
+import {
+  createProviderWriteController,
+  type ProviderWriteController,
+} from '../../lib/controller/provider-write'
+import { createReviewController, type ReviewController } from '../../lib/controller/review'
 import { testEditingController, testReviewController } from '../../test/editing'
+import { testProviderWriteController } from '../../test/provider-write'
 
-describe('ReviewDrawer', () => {
-  afterEach(cleanup)
-  it('retains one fast Enter during initial review loading, but never after closing', async () => {
-    for (const closeBeforeReady of [false, true]) {
-      let finish!: (accepted: boolean) => void
-      const ready = new Promise<boolean>((resolve) => {
-        finish = resolve
-      })
-      const editing = testEditingController()
-      const review = testReviewController({ load: vi.fn(() => ready) })
-      const view = render(ReviewDrawer, { editing, review, onclose: vi.fn() })
-      screen.getByRole('dialog', { name: 'Review pending changes' }).focus()
-      await fireEvent.keyDown(window, { key: 'Enter' })
-      await fireEvent.keyDown(window, { key: 'Enter', repeat: true })
-      expect(editing.commit).not.toHaveBeenCalled()
-      if (closeBeforeReady) view.unmount()
-      finish(true)
-      if (closeBeforeReady) {
-        await ready
-        expect(editing.commit).not.toHaveBeenCalled()
-      } else {
-        await waitFor(() => expect(editing.commit).toHaveBeenCalledTimes(1))
-        view.unmount()
+interface Setup {
+  mode?: 'review' | 'write'
+  editing?: EditingController
+  review?: ReviewController
+  providerWrite?: ProviderWriteController
+  providerName?: string
+  onreconnect?: () => void
+}
+
+function setup(options: Setup = {}) {
+  const editing = options.editing ?? testEditingController()
+  const onclose = vi.fn()
+  const onwrite = vi.fn()
+  const view = render(ReviewDrawer, {
+    mode: options.mode ?? 'review',
+    editing,
+    review: options.review ?? testReviewController(),
+    providerWrite: options.providerWrite ?? testProviderWriteController(),
+    providerName: options.providerName ?? 'Monarch',
+    onclose,
+    onwrite,
+    onreconnect: options.onreconnect,
+  })
+  return { editing, onclose, onwrite, view }
+}
+
+/** Waits until the review has loaded and Commit has focus, as after `w`. */
+async function loaded(): Promise<HTMLElement> {
+  const commit = screen.getByRole('button', { name: 'Commit reviewed changes' })
+  await waitFor(() => expect(document.activeElement).toBe(commit))
+  return commit
+}
+
+/** A promise the test settles, standing in for a commit request in flight. */
+function deferred() {
+  let settle: (accepted: boolean) => void = () => undefined
+  const promise = new Promise<boolean>((resolve) => (settle = resolve))
+  return { promise, settle }
+}
+
+/** A review server whose one operation affects `affected` transactions, named by row number. */
+function reviewServer(affected: number): MutationFetch {
+  const operation = {
+    operation_id: 'operation-a',
+    type: 'merchant.label',
+    label: 'Rename merchant',
+    active: true,
+    affected_count: affected,
+    before: 'Old Merchant',
+    after: 'New Merchant',
+  }
+  return {
+    request: vi.fn(async (_path: string, body: string) => {
+      const window = (JSON.parse(body) as { window?: { offset: number; limit: number } }).window
+      const offset = window?.offset ?? 0
+      const count = window ? Math.max(0, Math.min(window.limit, affected - offset)) : 0
+      const targets = Array.from({ length: count }, (_, index) => ({
+        date: '2024-01-01',
+        merchant: `Example Merchant ${offset + index + 1}`,
+        category: 'Example Category',
+        amount: {
+          minor: `-${offset + index + 1}05`,
+          currency: 'USD',
+          scale: 2,
+          decimal: `-${offset + index + 1}.05`,
+          display: `-${offset + index + 1}.05`,
+        },
+        hidden: offset + index === 0,
+      }))
+      const response = {
+        version: '1',
+        revision: '1',
+        pending: { active_operations: 1, inactive_operations: 0, affected_transactions: affected },
+        active_operations: [operation],
+        inactive_operations: [],
+        window: { offset, limit: window?.limit ?? 0, count },
+        targets,
       }
-    }
-  })
-  it('separates redo history, expands targets on demand, and commits the captured revision', async () => {
-    const editing = testEditingController()
-    const review = testReviewController()
-    render(ReviewDrawer, { editing, review, onclose: vi.fn() })
-    expect(screen.getByRole('heading', { name: 'Active operations' })).not.toBeNull()
-    expect(screen.getByRole('heading', { name: 'Inactive redo operations' })).not.toBeNull()
-    await fireEvent.click(screen.getByRole('button', { name: /Rename merchant/ }))
-    expect(review.loadTargets).toHaveBeenCalledWith('operation-a', 0)
-    await fireEvent.click(screen.getByRole('button', { name: 'Commit reviewed changes' }))
-    expect(editing.commit).toHaveBeenCalledWith(1n)
-  })
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }),
+  }
+}
 
-  it('loads affected transactions in bounded pages', async () => {
-    const editing = testEditingController()
+describe('ReviewDrawer in review mode', () => {
+  afterEach(cleanup)
+
+  it('shows each operation as old → new with its affected count, and the redo section', () => {
     const review = testReviewController({
       state: {
         ...testReviewController().state,
@@ -52,102 +112,369 @@ describe('ReviewDrawer', () => {
             type: 'merchant.label',
             label: 'Rename merchant',
             active: true,
-            affected_count: 201,
+            affected_count: 2,
+            before: 'Old Merchant',
+            after: 'New Merchant',
+          },
+          {
+            operation_id: 'operation-c',
+            type: 'category.assign',
+            label: 'Change category',
+            active: true,
+            affected_count: 1,
+            after: 'Example Category',
           },
         ],
       },
     })
-    render(ReviewDrawer, { editing, review, onclose: vi.fn() })
-    await fireEvent.click(screen.getByRole('button', { name: /Rename merchant/ }))
-    await fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    expect(review.loadTargets).toHaveBeenLastCalledWith('operation-a', 100)
-    expect(screen.getByText('Showing 101–200 of 201')).not.toBeNull()
+    setup({ review })
+    const drawer = screen.getByRole('dialog', { name: 'Review pending changes' })
+    const rename = within(drawer).getByRole('button', { name: /^Rename merchant/ })
+    expect(rename.textContent).toMatch(/Old Merchant\s*→\s*New Merchant/)
+    expect(rename.textContent).toContain('2 transactions')
+    const category = within(drawer).getByRole('button', { name: /^Change category/ })
+    expect(category.textContent).toMatch(/→\s*Example Category/)
+    expect(category.textContent).toContain('1 transaction')
+    expect(within(drawer).getByRole('heading', { name: 'Inactive redo operations' })).toBeTruthy()
+    expect(drawer.textContent).toContain('Toggle report visibility')
   })
 
-  it('annotates zero-transaction structural operations without provider item language', () => {
+  it('counts a structural operation that affects no transactions', () => {
     const review = testReviewController({
       state: {
         ...testReviewController().state,
         activeOperations: [
           {
             operation_id: 'operation-empty',
-            type: 'merchant.label',
-            label: 'Rename merchant',
+            type: 'category.create',
+            label: 'Create category',
             active: true,
             affected_count: 0,
           },
         ],
       },
     })
-    render(ReviewDrawer, { editing: testEditingController(), review, onclose: vi.fn() })
-    expect(screen.getByRole('button', { name: /affects 0 transactions/ })).not.toBeNull()
+    setup({ review })
+    expect(screen.getByRole('button', { name: /^Create category/ }).textContent).toContain(
+      '0 transactions',
+    )
     expect(screen.queryByText(/provider item/i)).toBeNull()
   })
 
-  it('renders the presentation label supplied for a deletion', () => {
-    const review = testReviewController({
-      state: {
-        ...testReviewController().state,
-        activeOperations: [
-          {
-            operation_id: 'delete-one',
-            type: 'transaction.delete',
-            label: 'Delete transaction',
-            active: true,
-            affected_count: 1,
-          },
-        ],
-      },
-    })
-    render(ReviewDrawer, { editing: testEditingController(), review, onclose: vi.fn() })
+  it('expands an operation to its transactions, 100 rows a page', async () => {
+    const transport = reviewServer(201)
+    const review = createReviewController({ transport, revision: () => 1n })
+    setup({ review })
+    await loaded()
+    const operation = screen.getByRole('button', { name: /^Rename merchant/ })
+    await fireEvent.click(operation)
+    expect(operation.getAttribute('aria-expanded')).toBe('true')
+    // A header row and the first page of transactions.
+    await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(101))
+    expect(screen.getByText('Example Merchant 1')).toBeTruthy()
+    expect(screen.getByText('Hidden')).toBeTruthy()
+    expect(screen.getByText('Showing 1–100 of 201')).toBeTruthy()
+    const previous = screen.getByRole('button', { name: 'Previous' }) as HTMLButtonElement
+    expect(previous.disabled).toBe(true)
 
-    expect(screen.getByRole('dialog', { name: 'Review pending changes' }).textContent).toContain(
-      'Delete transaction',
-    )
+    await fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Example Merchant 101')
+    expect(screen.getByText('Showing 101–200 of 201')).toBeTruthy()
+    await fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Example Merchant 201')
+    expect(screen.getAllByRole('row')).toHaveLength(2)
+    expect(screen.getByText('Showing 201–201 of 201')).toBeTruthy()
+    const next = screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement
+    expect(next.disabled).toBe(true)
+    const bodies = vi.mocked(transport.request).mock.calls.map(([, body]) => JSON.parse(body))
+    expect(bodies.map((body: { window?: { offset: number } }) => body.window?.offset)).toEqual([
+      undefined,
+      0,
+      100,
+      200,
+    ])
+
+    await fireEvent.click(operation)
+    expect(operation.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('Example Merchant 201')).toBeNull()
   })
 
-  it('commits with Enter from the drawer and opens provider write status without extra ceremony', async () => {
+  it('shows each transaction’s date, merchant, category, and amount with its currency', async () => {
+    const review = createReviewController({ transport: reviewServer(2), revision: () => 1n })
+    setup({ review })
+    await loaded()
+    await fireEvent.click(screen.getByRole('button', { name: /^Rename merchant/ }))
+    await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(3))
+    const [header, first, second] = screen.getAllByRole('row')
+    const texts = (row: HTMLElement | undefined, role: 'columnheader' | 'cell') =>
+      within(row!)
+        .getAllByRole(role)
+        .map((cell) => cell.textContent?.replace(/\s+/g, ' ').trim())
+    expect(texts(header, 'columnheader')).toEqual(['Date', 'Merchant', 'Category', 'Amount'])
+    expect(texts(first, 'cell')).toEqual([
+      '2024-01-01',
+      'Example Merchant 1 Hidden',
+      'Example Category',
+      '-1.05 USD',
+    ])
+    expect(texts(second, 'cell')).toEqual([
+      '2024-01-01',
+      'Example Merchant 2',
+      'Example Category',
+      '-2.05 USD',
+    ])
+  })
+
+  it('puts Commit with its Enter hint in the footer and focuses it after loading', async () => {
+    setup()
+    const commit = await loaded()
+    expect(commit.closest('.kit-detail-drawer__footer')).not.toBeNull()
+    expect(commit.querySelector('kbd')?.getAttribute('aria-label')).toBe('Enter')
+  })
+
+  it('commits the captured revision with Enter from the drawer or Commit, once', async () => {
+    for (const target of ['drawer', 'commit'] as const) {
+      const { editing, onclose } = setup()
+      const commit = await loaded()
+      const element =
+        target === 'drawer'
+          ? screen.getByRole('dialog', { name: 'Review pending changes' })
+          : commit
+      element.focus()
+      await fireEvent.keyDown(element, { key: 'Enter' })
+      await waitFor(() => expect(onclose).toHaveBeenCalledTimes(1))
+      expect(editing.commit).toHaveBeenCalledTimes(1)
+      expect(editing.commit).toHaveBeenCalledWith(1n)
+      cleanup()
+    }
+  })
+
+  it('leaves Enter to controls with their own Enter action', async () => {
+    const { editing } = setup()
+    await loaded()
+    const drawer = screen.getByRole('dialog', { name: 'Review pending changes' })
+    const operation = screen.getByRole('button', { name: /^Rename merchant/ })
+    await fireEvent.click(operation)
+    for (const name of [/^Rename merchant/, 'Close', 'Cancel', 'Previous', 'Next']) {
+      const control = within(drawer).getByRole('button', { name })
+      control.focus()
+      const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+      control.dispatchEvent(event)
+      expect(event.defaultPrevented, String(name)).toBe(false)
+    }
+    expect(editing.commit).not.toHaveBeenCalled()
+  })
+
+  it('ignores a held Enter, a modified Enter, and Enter while a commit is in flight', async () => {
+    const request = deferred()
+    const editing = testEditingController({ commit: vi.fn(() => request.promise) })
+    setup({ editing })
+    await loaded()
+    const drawer = screen.getByRole('dialog', { name: 'Review pending changes' })
+    drawer.focus()
+    await fireEvent.keyDown(drawer, { key: 'Enter', repeat: true })
+    for (const modifier of ['shiftKey', 'ctrlKey', 'altKey', 'metaKey']) {
+      await fireEvent.keyDown(drawer, { key: 'Enter', [modifier]: true })
+    }
+    expect(editing.commit).not.toHaveBeenCalled()
+
+    await fireEvent.keyDown(drawer, { key: 'Enter' })
+    await fireEvent.keyDown(drawer, { key: 'Enter' })
+    await fireEvent.click(screen.getByRole('button', { name: 'Commit reviewed changes' }))
+    expect(editing.commit).toHaveBeenCalledTimes(1)
+    request.settle(false)
+    await request.promise
+    await tick()
+
+    // A rejected commit can be tried again.
+    await fireEvent.keyDown(drawer, { key: 'Enter' })
+    expect(editing.commit).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows why the server refused a commit and keeps the drawer open', async () => {
+    const editing = testEditingController({ commit: vi.fn(async () => false) })
+    editing.state.announcement =
+      'The profile changed in another session. Review the current data and try again.'
+    const { onclose } = setup({ editing })
+    const button = await loaded()
+    await fireEvent.keyDown(button, { key: 'Enter' })
+    const drawer = screen.getByRole('dialog', { name: 'Review pending changes' })
+    expect((await within(drawer).findByRole('alert')).textContent).toBe(
+      'The profile changed in another session. Review the current data and try again.',
+    )
+    expect(onclose).not.toHaveBeenCalled()
+  })
+
+  it('reports a refused commit and lets Enter try again', async () => {
+    const commit = vi
+      .fn<EditingController['commit']>()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+    const { onclose } = setup({ editing: testEditingController({ commit }) })
+    const button = await loaded()
+    await fireEvent.keyDown(button, { key: 'Enter' })
+    const drawer = screen.getByRole('dialog', { name: 'Review pending changes' })
+    expect((await within(drawer).findByRole('alert')).textContent).toBe(
+      'The profile request failed.',
+    )
+    expect(onclose).not.toHaveBeenCalled()
+
+    await fireEvent.keyDown(button, { key: 'Enter' })
+    await waitFor(() => expect(onclose).toHaveBeenCalledTimes(1))
+    expect(commit).toHaveBeenCalledTimes(2)
+  })
+
+  it('retains one fast Enter during initial review loading, but never after closing', async () => {
+    for (const closeBeforeReady of [false, true]) {
+      const ready = deferred()
+      const review = testReviewController({ load: vi.fn(() => ready.promise) })
+      const { editing, view } = setup({ review })
+      const drawer = screen.getByRole('dialog', { name: 'Review pending changes' })
+      drawer.focus()
+      await fireEvent.keyDown(drawer, { key: 'Enter' })
+      await fireEvent.keyDown(drawer, { key: 'Enter', repeat: true })
+      expect(editing.commit).not.toHaveBeenCalled()
+      if (closeBeforeReady) view.unmount()
+      ready.settle(true)
+      if (closeBeforeReady) {
+        await ready.promise
+        expect(editing.commit).not.toHaveBeenCalled()
+      } else {
+        await waitFor(() => expect(editing.commit).toHaveBeenCalledTimes(1))
+        view.unmount()
+      }
+    }
+  })
+
+  it('asks to switch to write mode when the commit starts a provider write', async () => {
     const editing = testEditingController({
       state: {
         ...testEditingController().state,
-        providerWrite: {
-          version: '1',
-          revision: '2',
-          generation: '1',
-          batch_version: '1',
-          phase: 'writing',
-          total: 1,
-          completed: 0,
-          failed: 0,
-          remaining: 1,
-          overrides: 0,
-          actions: ['pause'],
+        providerWrite: testProviderWriteController().state.status!,
+      },
+    })
+    const { onclose, onwrite } = setup({ editing })
+    const commit = await loaded()
+    await fireEvent.keyDown(commit, { key: 'Enter' })
+    await waitFor(() => expect(onwrite).toHaveBeenCalledTimes(1))
+    expect(onclose).not.toHaveBeenCalled()
+  })
+
+  it('turns the same drawer into write status and keeps focus inside it', async () => {
+    const { view } = setup()
+    const commit = await loaded()
+    const drawer = screen.getByRole('dialog', { name: 'Review pending changes' })
+    await view.rerender({ mode: 'write' })
+    expect(screen.getByRole('dialog', { name: 'Monarch write status' })).toBe(drawer)
+    expect(commit.isConnected).toBe(false)
+    await waitFor(() => expect(drawer.contains(document.activeElement)).toBe(true))
+  })
+})
+
+describe('ReviewDrawer in write mode', () => {
+  afterEach(cleanup)
+
+  it('shows counts-only progress and pauses without treating close as cancel', async () => {
+    const providerWrite = testProviderWriteController()
+    const { onclose, editing } = setup({ mode: 'write', providerWrite })
+    const drawer = screen.getByRole('dialog', { name: 'Monarch write status' })
+    expect(within(drawer).getByText('2 of 5 complete')).toBeTruthy()
+    expect(within(drawer).getByRole('status').textContent).toBe(
+      'Writing pending changes to Monarch.',
+    )
+    expect(within(drawer).queryByRole('button', { name: 'Commit reviewed changes' })).toBeNull()
+    await fireEvent.click(within(drawer).getByRole('button', { name: 'Pause' }))
+    expect(providerWrite.pause).toHaveBeenCalledTimes(1)
+    expect(onclose).not.toHaveBeenCalled()
+
+    drawer.focus()
+    await fireEvent.keyDown(drawer, { key: 'Enter' })
+    expect(editing.commit).not.toHaveBeenCalled()
+  })
+
+  it('replaces Pause with recovery controls when a write is rejected', async () => {
+    const initial = testProviderWriteController().state.status!
+    const providerWrite = createProviderWriteController({
+      transport: { mutations: { request: vi.fn() }, status: vi.fn() },
+      host: { current: () => undefined, accept: vi.fn(), reload: vi.fn() },
+    })
+    providerWrite.install(initial)
+    setup({ mode: 'write', providerWrite })
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy()
+    providerWrite.install({ ...initial, phase: 'attention_required', actions: ['reconcile'] })
+    expect(await screen.findByRole('button', { name: 'Stop and reconcile' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull()
+  })
+
+  it('offers Check and resume for an uncertain write', async () => {
+    const providerWrite = testProviderWriteController({
+      state: {
+        phase: 'attention',
+        announcement: 'A provider request may have succeeded.',
+        status: {
+          ...testProviderWriteController().state.status!,
+          phase: 'attention_required',
+          reason: 'provider_write_outcome_unknown',
+          actions: ['resume', 'reconcile'],
+        },
+      },
+      can: vi.fn((action: string) => action === 'resume' || action === 'reconcile'),
+    })
+    setup({ mode: 'write', providerWrite })
+    await fireEvent.click(screen.getByRole('button', { name: 'Check and resume' }))
+    expect(providerWrite.resume).toHaveBeenCalledTimes(1)
+    await fireEvent.click(screen.getByRole('button', { name: 'Stop and reconcile' }))
+    expect(providerWrite.reconcile).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides retry for reconcile-only attention and confirms removals explicitly', async () => {
+    const providerWrite = testProviderWriteController({
+      state: {
+        phase: 'confirmation',
+        announcement: 'Confirm provider removals.',
+        status: {
+          ...testProviderWriteController().state.status!,
+          phase: 'reconcile_confirmation_required',
+          actions: ['confirm'],
+        },
+      },
+      can: vi.fn((action: string) => action === 'confirm'),
+    })
+    setup({ mode: 'write', providerWrite, providerName: 'YNAB', onreconnect: vi.fn() })
+    expect(screen.queryByRole('button', { name: /Resume/ })).toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Confirm reconciliation' }))
+    expect(providerWrite.confirm).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers Reconnect when the provider needs it', async () => {
+    const onreconnect = vi.fn()
+    const providerWrite = testProviderWriteController({
+      can: vi.fn((action: string) => action === 'reconnect'),
+    })
+    setup({ mode: 'write', providerWrite, onreconnect })
+    await fireEvent.click(screen.getByRole('button', { name: 'Reconnect Monarch' }))
+    expect(onreconnect).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the YNAB rate-limit time in the local format without inventing an estimate', () => {
+    const nextEligible = '2026-09-07T13:00:00Z'
+    const providerWrite = testProviderWriteController({
+      state: {
+        phase: 'active',
+        announcement: 'YNAB asked Moneyflow to wait.',
+        status: {
+          ...testProviderWriteController().state.status!,
+          phase: 'rate_limited',
+          next_eligible: nextEligible,
         },
       },
     })
-    const onwrite = vi.fn()
-    render(ReviewDrawer, {
-      editing,
-      review: testReviewController(),
-      onclose: vi.fn(),
-      onwrite,
-    })
-
-    screen.getByRole('dialog', { name: 'Review pending changes' }).focus()
-    await fireEvent.keyDown(window, { key: 'Enter' })
-
-    expect(editing.commit).toHaveBeenCalledTimes(1)
-    await waitFor(() => expect(onwrite).toHaveBeenCalledTimes(1))
-  })
-
-  it('focuses the commit action after review loading so w then Enter is deterministic', async () => {
-    render(ReviewDrawer, {
-      editing: testEditingController(),
-      review: testReviewController(),
-      onclose: vi.fn(),
-    })
-
-    const commit = screen.getByRole('button', { name: 'Commit reviewed changes' })
-    await waitFor(() => expect(document.activeElement).toBe(commit))
+    setup({ mode: 'write', providerWrite, providerName: 'YNAB' })
+    const drawer = screen.getByRole('dialog', { name: 'YNAB write status' })
+    const time = drawer.querySelector('time')
+    expect(time?.getAttribute('datetime')).toBe(nextEligible)
+    expect(time?.textContent).toBe(new Date(nextEligible).toLocaleString())
+    expect(time?.textContent).not.toBe(nextEligible)
+    expect(drawer.textContent).not.toMatch(/Monarch/)
   })
 })

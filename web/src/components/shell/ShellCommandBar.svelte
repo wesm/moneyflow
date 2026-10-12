@@ -170,7 +170,7 @@
         ariaLabel="Open navigation"
         ariaHaspopup="dialog"
         ariaExpanded={overlays.current === 'navigation'}
-        onclick={() => overlays.open('navigation')}
+        onclick={(event) => overlays.open('navigation', event.currentTarget as HTMLElement)}
       >
         <MenuIcon size={18} aria-hidden="true" />
       </IconButton>
@@ -183,7 +183,7 @@
         <Button
           class="mf-view-button"
           ariaExpanded={overlays.current === 'view'}
-          onclick={() => overlays.open('view')}
+          onclick={(event) => overlays.open('view', event.currentTarget as HTMLElement)}
         >
           <SlidersHorizontalIcon size={14} aria-hidden="true" />View
         </Button>
@@ -213,8 +213,7 @@
     {/snippet}
   </CommandBar>
   <ViewSheet
-    open={overlays.current === 'view'}
-    onclose={() => overlays.close()}
+    {overlays}
     {projection}
     period={segments}
     {currency}

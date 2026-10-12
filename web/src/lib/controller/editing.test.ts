@@ -1,6 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { MoneyflowProblem, type MutationFetch, type SelectionValue } from '../api/client'
+import {
+  MoneyflowProblem,
+  type MutationFetch,
+  type OperationSummary,
+  type SelectionValue,
+} from '../api/client'
 import { testProjection } from '../../test/projection'
 import { createEditingController, type EditingProjectionHost } from './editing'
 
@@ -63,6 +69,130 @@ describe('browser editing controller', () => {
     expect(replacements).not.toHaveBeenCalled()
   })
 
+  describe('toasts', () => {
+    afterEach(() => dismissFlash())
+
+    async function respondWith(
+      operation: OperationSummary,
+      run: (controller: ReturnType<typeof createEditingController>) => Promise<boolean>,
+    ) {
+      const response = { ...mutationResponse('8', 'mfsel1.x' as SelectionValue), operation }
+      const controller = createEditingController({
+        transport: mutationTransport(response),
+        host: editingHost(
+          testProjection({ revision: '7', canonical_query: response.canonical_query }),
+        ),
+      })
+      await run(controller)
+      return controller
+    }
+
+    const hide: OperationSummary = {
+      kind: 'hide',
+      label: 'Hide transactions',
+      affected: 2,
+      undoable: true,
+    }
+    const target = { kind: 'transaction', identity: 'transaction-1' }
+
+    it('shows one toast for a hide and announces the same text', async () => {
+      const controller = await respondWith(hide, (c) =>
+        c.submit({ action: 'transaction.toggle-hidden', input: {}, target }),
+      )
+
+      expect(getFlashes().map((flash) => flash.message)).toEqual(['Hidden 2 transactions · Undo u'])
+      expect(controller.state.announcement).toBe('Hidden 2 transactions · Undo u')
+    })
+
+    it('announces a show and a delete with their toast text', async () => {
+      const shown = await respondWith({ ...hide, kind: 'show', label: 'Show transactions' }, (c) =>
+        c.submit({ action: 'transaction.toggle-hidden', input: {}, target }),
+      )
+      expect(shown.state.announcement).toBe('Shown 2 transactions · Undo u')
+      const deleted = await respondWith(
+        { ...hide, kind: 'delete', label: 'Delete transaction', affected: 1 },
+        (c) => c.submit({ action: 'transaction.delete', input: {}, target }),
+      )
+      expect(deleted.state.announcement).toBe('Deleted 1 transaction · Undo u')
+    })
+
+    it('toasts an undo by the kind of the undone edit', async () => {
+      const controller = await respondWith(
+        { ...hide, kind: 'delete', label: 'Delete transaction', affected: 1 },
+        (c) => c.undo(),
+      )
+
+      expect(getFlashes().map((flash) => flash.message)).toEqual([
+        'Undid delete · 1 transaction · Redo U',
+      ])
+      expect(controller.state.announcement).toBe('Undid delete · 1 transaction · Redo U')
+    })
+
+    it('toasts and announces a redo', async () => {
+      const controller = await respondWith(hide, (c) => c.redo())
+
+      expect(getFlashes().map((flash) => flash.message)).toEqual([
+        'Redid hide · 2 transactions · Undo u',
+      ])
+      expect(controller.state.announcement).toBe('Redid hide · 2 transactions · Undo u')
+    })
+
+    it('shows no toast and announces the failure when the mutation is rejected', async () => {
+      const controller = createEditingController({
+        transport: problemTransport('store_error', '7'),
+        host: editingHost(testProjection({ revision: '7' })),
+      })
+
+      await expect(
+        controller.submit({ action: 'transaction.toggle-hidden', input: {}, target }),
+      ).resolves.toBe(false)
+
+      expect(getFlashes()).toEqual([])
+      expect(controller.state.announcement).toBe('The profile could not save that action.')
+    })
+
+    it('keeps the commit announcement and shows no toast', async () => {
+      const response = mutationResponse('8', 'mfsel1.x' as SelectionValue)
+      const controller = createEditingController({
+        transport: mutationTransport(response),
+        host: editingHost(
+          testProjection({ revision: '7', canonical_query: response.canonical_query }),
+        ),
+      })
+
+      await expect(controller.commit(7n)).resolves.toBe(true)
+
+      expect(getFlashes()).toEqual([])
+      expect(controller.state.announcement).toContain('Changes saved in Moneyflow.')
+    })
+
+    it('keeps the announcement and shows no toast for a staged rename', async () => {
+      const rename: OperationSummary = { ...hide, kind: 'rename', label: 'Rename merchant' }
+      const controller = await respondWith(rename, (c) =>
+        c.submit({ action: 'transaction.edit-merchant', input: { scope: 'selection' }, target }),
+      )
+
+      expect(getFlashes()).toEqual([])
+      expect(controller.state.announcement).toBe('Change saved as pending. Selection cleared.')
+    })
+
+    it('keeps an audit warning in the announcement beside a toast', async () => {
+      const response = { ...mutationResponse('8', 'mfsel1.x' as SelectionValue), operation: hide }
+      const warning = 'The audit log could not record completion.'
+      response.projection.warnings = [{ code: 'audit_completion_failed', detail: warning }]
+      const controller = createEditingController({
+        transport: mutationTransport(response),
+        host: editingHost(
+          testProjection({ revision: '7', canonical_query: response.canonical_query }),
+        ),
+      })
+
+      await controller.submit({ action: 'transaction.toggle-hidden', input: {}, target })
+
+      expect(controller.state.announcement).toBe(`Hidden 2 transactions · Undo u ${warning}`)
+    })
+  })
+
   it('suppresses duplicate submissions while one request is in flight', async () => {
     let release!: (response: Response) => void
     const response = new Promise<Response>((resolve) => (release = resolve))
@@ -77,6 +207,111 @@ describe('browser editing controller', () => {
     expect(transport.request).toHaveBeenCalledTimes(1)
     release(jsonResponse(mutationResponse('1', 'mfsel1.example' as SelectionValue)))
     await expect(first).resolves.toBe(true)
+  })
+
+  it('rereads a view that moved on during the request instead of reinstalling the old query', async () => {
+    let release!: (response: Response) => void
+    const response = new Promise<Response>((resolve) => (release = resolve))
+    const host = editingHost(
+      testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' }),
+    )
+    const accept = vi.spyOn(host, 'accept')
+    const controller = createEditingController({
+      transport: { request: vi.fn(async () => await response) },
+      host,
+    })
+
+    const staged = controller.submit({ action: 'transaction.toggle-hidden', input: {} })
+    host.install(testProjection({ revision: '7', canonical_query: 'v=1&period=2026-09' }))
+    release(jsonResponse(mutationResponse('8', 'mfsel1.x' as SelectionValue)))
+
+    await expect(staged).resolves.toBe(true)
+    expect(accept).not.toHaveBeenCalled()
+    // The selection did not change with the view, so the reread takes the response's.
+    expect(host.refresh).toHaveBeenCalledWith('mfsel1.x', true)
+    expect(host.current()?.canonical_query).toBe('v=1&period=2026-09')
+    expect(controller.state.revision).toBe(8n)
+  })
+
+  it('keeps a selection made while the request ran when rereading a moved-on view', async () => {
+    let release!: (response: Response) => void
+    const response = new Promise<Response>((resolve) => (release = resolve))
+    const host = editingHost(
+      testProjection({
+        revision: '7',
+        canonical_query: 'v=1&group=merchant',
+        selection: 'mfsel1.sent' as SelectionValue,
+      }),
+    )
+    const controller = createEditingController({
+      transport: { request: vi.fn(async () => await response) },
+      host,
+    })
+
+    const staged = controller.submit({ action: 'transaction.toggle-hidden', input: {} })
+    host.install(
+      testProjection({
+        revision: '7',
+        canonical_query: 'v=1&period=2026-09',
+        selection: 'mfsel1.newer' as SelectionValue,
+      }),
+    )
+    release(jsonResponse(mutationResponse('8', 'mfsel1.cleared' as SelectionValue)))
+
+    await expect(staged).resolves.toBe(true)
+    expect(host.refresh).toHaveBeenCalledWith(undefined, true)
+  })
+
+  it('keeps the newer revision a reread of a moved-on view installed', async () => {
+    const host = editingHost(
+      testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' }),
+    )
+    const newer = testProjection({
+      revision: '9',
+      canonical_query: 'v=1&period=2026-09',
+      pending: { active_operations: 2, inactive_operations: 0, affected_transactions: 3 },
+    })
+    // As the shell does, the reread installs the view and syncs the editing controller with it.
+    host.refresh = vi.fn(async () => {
+      host.install(newer)
+      controller.sync(newer)
+      return newer
+    })
+    const transport: MutationFetch = {
+      request: vi.fn(async () => {
+        host.install(testProjection({ revision: '7', canonical_query: 'v=1&period=2026-09' }))
+        return jsonResponse(mutationResponse('8', 'mfsel1.x' as SelectionValue))
+      }),
+    }
+    const controller = createEditingController({ transport, host })
+
+    await expect(
+      controller.submit({ action: 'transaction.toggle-hidden', input: {} }),
+    ).resolves.toBe(true)
+    expect(controller.state.revision).toBe(9n)
+    expect(controller.state.pending.active_operations).toBe(2)
+  })
+
+  it('reports a staged change whose moved-on view could not be reread', async () => {
+    const host = editingHost(
+      testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' }),
+    )
+    host.refresh = vi.fn(async () => {
+      throw new Error('offline')
+    })
+    const transport: MutationFetch = {
+      request: vi.fn(async () => {
+        host.install(testProjection({ revision: '7', canonical_query: 'v=1&period=2026-09' }))
+        return jsonResponse(mutationResponse('8', 'mfsel1.x' as SelectionValue))
+      }),
+    }
+    const controller = createEditingController({ transport, host })
+
+    await expect(
+      controller.submit({ action: 'transaction.toggle-hidden', input: {} }),
+    ).resolves.toBe(true)
+    expect(controller.state.phase).toBe('idle')
+    expect(controller.state.announcement).toContain('The current view could not be refreshed.')
   })
 
   it('rejects a mutation when the displayed projection and editing revision differ', async () => {

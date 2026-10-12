@@ -44,6 +44,25 @@ for quick paths to this month, last month, and other periods.
 | `r` | Refresh provider data or choose another Amazon import |
 
 Read [editing](editing.md) before bulk changes. Grouped edits may affect many transactions.
+The browser editor has its own [key table](editing.md#editor-keys).
+
+## Manage categories and groups
+
+After `C` or `G`, type to filter the list. Press Down to move from the filter into the list.
+These keys act on the highlighted entry when focus is outside the filter:
+
+| Key | Action |
+| --- | --- |
+| `n` | New category or group |
+| `r` | Rename |
+| `g` | Move a category to another group |
+| `m` | Merge into another entry |
+| `d` | Delete, moving any contents to a replacement |
+| Enter | Confirm the open step |
+| Esc | Leave the open step, then clear the filter, then close |
+
+In the browser, these keys do not reach the table while the manager is open. See
+[Manage categories and groups](editing.md#manage-categories-and-groups).
 
 ## Leave or dismiss
 

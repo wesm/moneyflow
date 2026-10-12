@@ -1,161 +1,180 @@
 <script lang="ts">
-  import { Button, DetailDrawer } from '@kenn-io/kit-ui'
-  import { onMount } from 'svelte'
-  import { tick } from 'svelte'
-  import type { EditingController } from '../../lib/controller/editing'
+  import { Button, DetailDrawer, KbdBadge } from '@kenn-io/kit-ui'
+  import { onMount, tick, untrack } from 'svelte'
+
+  import ReviewOperation from './ReviewOperation.svelte'
+  import WriteStatus from './WriteStatus.svelte'
+  import { REQUEST_FAILED, type EditingController } from '../../lib/controller/editing'
+  import type { ProviderWriteController } from '../../lib/controller/provider-write'
   import type { ReviewController } from '../../lib/controller/review'
+  import { transactionCount } from '../../lib/editing/toasts'
+  import { reviewEnter } from '../../lib/editing/review-keys'
 
   interface Props {
+    /** Review lists the pending edits to commit; write tracks the provider write it starts. */
+    mode: 'review' | 'write'
     editing: EditingController
     review: ReviewController
+    providerWrite: ProviderWriteController
+    providerName: string
     onclose: () => void
-    onwrite?: (() => void) | undefined
+    /** Switches the drawer to write mode once a commit starts a provider write. */
+    onwrite: () => void
+    onreconnect?: (() => void) | undefined
   }
-  let { editing, review, onclose, onwrite }: Props = $props()
+
+  let { mode, editing, review, providerWrite, providerName, onclose, onwrite, onreconnect }: Props =
+    $props()
+  const title = $derived(
+    mode === 'review' ? 'Review pending changes' : `${providerName} write status`,
+  )
+  let body = $state<HTMLElement>()
   let expanded = $state('')
-  let targetOffset = $state(0)
-  let commitContainer: HTMLDivElement | undefined
+  /** True until the first review loads. An Enter before then commits once it has. */
   let initialLoad = true
   let commitRequested = false
+  /** True while a commit runs, and for good once one is accepted, so Enter commits once. */
+  let committing = false
+  /** Why the last commit request failed or the server refused it. */
+  let error = $state('')
   let mounted = true
-  onMount(() => {
-    void loadAndFocusCommit()
-    return () => {
-      mounted = false
-      commitRequested = false
-    }
+  const surface = () => body?.closest<HTMLElement>('[role="dialog"]') ?? undefined
+  const commitButton = () =>
+    surface()?.querySelector<HTMLButtonElement>('.mf-review__commit') ?? undefined
+
+  onMount(() => () => {
+    mounted = false
+    commitRequested = false
   })
+  $effect(() => {
+    if (mode === 'review') untrack(() => void loadAndFocusCommit())
+    else void tick().then(focusSurface)
+  })
+
+  /** Keeps focus in the drawer when Commit leaves it for write status. */
+  function focusSurface(): void {
+    const panel = surface()
+    if (panel && !panel.contains(document.activeElement)) panel.focus()
+  }
+
   async function loadAndFocusCommit(): Promise<void> {
     const accepted = await review.load()
     await tick()
     initialLoad = false
     if (!mounted) return
-    const commitButton = commitContainer?.querySelectorAll('button').item(1)
-    if (commitButton && !commitButton.disabled) commitButton.focus()
+    const button = commitButton()
+    if (button && !button.disabled) button.focus()
     if (accepted && commitRequested) {
       commitRequested = false
       await commit()
     }
   }
-  async function expand(operationID: string): Promise<void> {
-    expanded = expanded === operationID ? '' : operationID
-    targetOffset = 0
-    if (expanded) await review.loadTargets(expanded, targetOffset)
-  }
-  async function pageTargets(offset: number): Promise<void> {
-    if (!expanded || offset < 0) return
-    if (await review.loadTargets(expanded, offset)) targetOffset = offset
-  }
+
   async function commit(): Promise<void> {
     const revision = review.state.reviewedRevision
-    if (revision === undefined) return
-    if (await editing.commit(revision)) {
-      review.clear()
-      if (editing.state.providerWrite) onwrite?.()
-      else onclose()
+    if (revision === undefined || committing) return
+    committing = true
+    let accepted = false
+    error = ''
+    try {
+      accepted = await editing.commit(revision)
+      if (!accepted) error = editing.state.announcement || REQUEST_FAILED
+    } catch {
+      error = REQUEST_FAILED
+    } finally {
+      committing = accepted
     }
+    if (!accepted) return
+    review.clear()
+    if (!mounted) return
+    if (editing.state.providerWrite) onwrite()
+    else onclose()
   }
-  function handleKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' || event.repeat || event.altKey || event.ctrlKey || event.metaKey) {
-      return
-    }
-    const active = document.activeElement
-    const dialog = commitContainer?.closest('[role="dialog"]')
-    const commitButton = commitContainer?.querySelectorAll('button').item(1)
-    if (
-      active !== dialog &&
-      active !== commitButton &&
-      !(
-        initialLoad &&
-        (active === document.body ||
-          (active instanceof HTMLElement && active.closest('[role="grid"]')))
-      ) &&
-      !(active instanceof HTMLElement && active.getAttribute('aria-label') === 'Close')
-    ) {
-      return
-    }
+
+  function keydown(event: KeyboardEvent): void {
+    if (mode !== 'review') return
+    const decision = reviewEnter(event, surface(), commitButton(), initialLoad)
+    if (decision === 'pass') return
     event.preventDefault()
-    if (initialLoad) {
-      commitRequested = true
-      return
-    }
-    void commit()
+    if (decision === 'swallow') return
+    if (initialLoad) commitRequested = true
+    else void commit()
   }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window onkeydown={keydown} />
 
-<DetailDrawer
-  title="Review pending changes"
-  ariaLabel="Review pending changes"
-  {onclose}
-  width="min(680px, 100vw)"
->
-  {#if review.state.phase === 'loading' && review.state.reviewedRevision === undefined}<p>
-      Loading pending changes…
-    </p>{/if}
-  {#if review.state.announcement}<p role="alert">{review.state.announcement}</p>{/if}
-  <section aria-labelledby="active-review-heading">
-    <h2 id="active-review-heading">Active operations</h2>
-    <ol class="review-list">
-      {#each review.state.activeOperations as operation (operation.operation_id)}
-        <li>
-          <button
-            type="button"
-            aria-expanded={expanded === operation.operation_id}
-            onclick={() => void expand(operation.operation_id)}
-            ><strong>{operation.label}</strong> · {operation.affected_count === 0
-              ? 'affects 0 transactions'
-              : `${operation.affected_count} affected`}{#if operation.before || operation.after}<span
-                >{operation.before ?? '—'} → {operation.after ?? '—'}</span
-              >{/if}</button
-          >
-          {#if expanded === operation.operation_id}<ul>
-              {#each review.targets(operation.operation_id, targetOffset) as target, index (`${targetOffset}-${index}`)}<li
-                >
-                  {target.date} · {target.merchant} · {target.category}{target.hidden
-                    ? ' · hidden'
-                    : ''}
-                </li>{/each}
-            </ul>
-            <div class="review-paging" aria-label="Affected transaction pages">
-              <Button
-                size="sm"
-                disabled={targetOffset === 0 || review.state.phase === 'loading'}
-                onclick={() => void pageTargets(Math.max(0, targetOffset - 100))}>Previous</Button
-              ><span
-                >Showing {targetOffset + 1}–{Math.min(targetOffset + 100, operation.affected_count)} of
-                {operation.affected_count}</span
-              ><Button
-                size="sm"
-                disabled={review.state.phase === 'loading' ||
-                  targetOffset + 100 >= operation.affected_count}
-                onclick={() => void pageTargets(targetOffset + 100)}>Next</Button
-              >
-            </div>{/if}
-        </li>{/each}
-    </ol>
-  </section>
-  {#if review.state.inactiveOperations.length}<section
-      class="review-redo"
-      aria-labelledby="redo-review-heading"
-    >
-      <h2 id="redo-review-heading">Inactive redo operations</h2>
-      <p>Commit permanently discards this redo history.</p>
-      <ol>
-        {#each review.state.inactiveOperations as operation (operation.operation_id)}<li>
-            {operation.label} · {operation.affected_count === 0
-              ? 'affects 0 transactions'
-              : `${operation.affected_count} affected`}
-          </li>{/each}
-      </ol>
-    </section>{/if}
-  <div class="editing-actions" bind:this={commitContainer}>
-    <Button onclick={onclose}>Cancel</Button><Button
-      tone="success"
-      surface="solid"
-      disabled={review.state.phase === 'loading' || review.state.reviewedRevision === undefined}
-      onclick={() => void commit()}>Commit reviewed changes</Button
-    >
+<DetailDrawer {title} ariaLabel={title} {onclose} width="min(960px, 100vw)">
+  <div class="mf-review" bind:this={body}>
+    {#if mode === 'write'}
+      <WriteStatus controller={providerWrite} {providerName} {onreconnect} />
+    {:else}
+      {#if review.state.phase === 'loading' && review.state.reviewedRevision === undefined}
+        <p class="mf-quiet">Loading pending changes…</p>
+      {/if}
+      {#if review.state.announcement}<p role="alert">{review.state.announcement}</p>{/if}
+      {#if error}<p class="editing-error" role="alert">{error}</p>{/if}
+      <section aria-labelledby="mf-review-active">
+        <h2 class="mf-review__heading" id="mf-review-active">Active operations</h2>
+        <ol class="mf-review__list">
+          {#each review.state.activeOperations as operation (operation.operation_id)}
+            <ReviewOperation
+              {operation}
+              {review}
+              expanded={expanded === operation.operation_id}
+              ontoggle={() =>
+                (expanded = expanded === operation.operation_id ? '' : operation.operation_id)}
+            />
+          {/each}
+        </ol>
+      </section>
+      {#if review.state.inactiveOperations.length}
+        <section aria-labelledby="mf-review-redo">
+          <h2 class="mf-review__heading" id="mf-review-redo">Inactive redo operations</h2>
+          <p class="mf-quiet">Commit permanently discards this redo history.</p>
+          <ol class="mf-review__list mf-quiet">
+            {#each review.state.inactiveOperations as operation (operation.operation_id)}
+              <li>{operation.label} · {transactionCount(operation.affected_count)}</li>
+            {/each}
+          </ol>
+        </section>
+      {/if}
+    {/if}
   </div>
+  {#snippet footer()}
+    {#if mode === 'review'}
+      <Button onclick={onclose}>Cancel</Button>
+      <Button
+        class="mf-review__commit"
+        tone="success"
+        surface="solid"
+        ariaLabel="Commit reviewed changes"
+        disabled={review.state.reviewedRevision === undefined}
+        onclick={() => void commit()}
+        >Commit reviewed changes{#snippet trailing()}<KbdBadge keys={['Enter']} />{/snippet}</Button
+      >
+    {:else}
+      <Button onclick={onclose}>Close</Button>
+    {/if}
+  {/snippet}
 </DetailDrawer>
+
+<style>
+  .mf-review {
+    display: grid;
+    gap: var(--space-6);
+    padding: var(--space-6);
+    font-size: var(--font-size-md);
+  }
+  .mf-review__heading {
+    margin: 0 0 var(--space-4);
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+  }
+  .mf-review__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+</style>

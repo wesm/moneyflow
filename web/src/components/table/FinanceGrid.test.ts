@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import FinanceGrid from './FinanceGrid.svelte'
+import { status } from '../../lib/shell/status.svelte'
 import type { InsightsSeries, ViewProjection } from '../../lib/api/client'
 import { RevealHold, revealHoldKey } from '../../lib/table/reveal-hold.svelte'
 import type { RowInsights } from '../../lib/table/trend'
@@ -61,16 +62,14 @@ const headers = () =>
 const cell = (row: HTMLElement, key: string) =>
   row.querySelector<HTMLElement>(`[role="gridcell"][data-column="${key}"]`)
 
-/** The window is 760 px wide while `wide` is true, 900 px while `roomy` is, else 700 px. */
+/** The window is 760 px wide while `wide` is true, else 700 px. */
 let wide = true
-let roomy = false
 const windowWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
 beforeEach(() => {
   wide = true
-  roomy = false
   Object.defineProperty(window, 'innerWidth', {
     configurable: true,
-    get: () => (roomy ? 900 : wide ? 760 : 700),
+    get: () => (wide ? 760 : 700),
   })
 })
 afterEach(() => Object.defineProperty(window, 'innerWidth', windowWidth))
@@ -629,6 +628,19 @@ describe('FinanceGrid', () => {
       expect(moved).toBeLessThan(drilled!)
     })
 
+    it('reports a tap whose cursor move failed, and does not drill', async () => {
+      onTestFinished(() => status.clear())
+      const events = callbacks()
+      events.oncursor.mockImplementation(() => Promise.reject(new Error('offline')))
+      render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: true, ...events })
+      const row = document.querySelector<HTMLElement>('[role="row"][aria-rowindex="2"]')!
+      await fireEvent.click(cell(row, 'net')!)
+      await vi.waitFor(() =>
+        expect(status.notice).toBe('The cursor could not move to that row. Try again.'),
+      )
+      expect(events.onactivate).not.toHaveBeenCalled()
+    })
+
     it('takes focus back from a row button before a grid key moves the cursor', async () => {
       const events = callbacks()
       render(FinanceGrid, {
@@ -712,8 +724,7 @@ describe('FinanceGrid', () => {
     expect(columnKeys()).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
   })
 
-  it('from 900 px drops the columns that overflow the scroller instead of scrolling', () => {
-    roomy = true
+  it('drops the columns that overflow the scroller instead of scrolling, below 900 px too', () => {
     const scroller = document.createElement('div')
     // 56 rem at a 16 px root: Context drops, Trend and vs prior still fit.
     Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: 56 * 16 })
@@ -736,6 +747,13 @@ describe('FinanceGrid', () => {
 
   describe('scrolling through every row of the result', () => {
     afterEach(() => vi.useRealTimers())
+
+    /** A scroller element whose `scrollTop` keeps what the grid writes, as jsdom's does not. */
+    function scrollerAt(scrollTop: number): HTMLElement {
+      const scroller = document.createElement('div')
+      Object.defineProperty(scroller, 'scrollTop', { value: scrollTop, writable: true })
+      return scroller
+    }
 
     /** One loaded window of the 450-row result, as the server sends it. */
     function loaded(offset: number): ViewProjection {
@@ -913,7 +931,7 @@ describe('FinanceGrid', () => {
     it('still follows a scroll when a key the grid ignores is pressed meanwhile', async () => {
       vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
       const events = { ...callbacks(), onshow: vi.fn() }
-      const scroller = { scrollTop: 0 } as HTMLElement
+      const scroller = scrollerAt(0)
       const view = render(FinanceGrid, {
         projection: loaded(0),
         cursorIndex: 0,
@@ -938,7 +956,7 @@ describe('FinanceGrid', () => {
     it('stays in the window k moved the cursor into at its top edge', async () => {
       vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
       const events = { ...callbacks(), onshow: vi.fn() }
-      const scroller = { scrollTop: 200 * 30 } as HTMLElement
+      const scroller = scrollerAt(200 * 30)
       // Rows 200 to 219 show, with the cursor on the first of them.
       const view = render(FinanceGrid, {
         projection: loaded(200),
@@ -985,7 +1003,7 @@ describe('FinanceGrid', () => {
     })
 
     it('reveals the cursor row again when the viewport shrinks under it', async () => {
-      const scroller = { scrollTop: 0 } as HTMLElement
+      const scroller = scrollerAt(0)
       // Rows 0 to 19 show, with the cursor on the last of them.
       const view = render(FinanceGrid, {
         projection: loaded(0),
@@ -1001,7 +1019,7 @@ describe('FinanceGrid', () => {
     })
 
     it('keeps the cursor row on screen when rows change height at 640 px', async () => {
-      const scroller = { scrollTop: 0 } as HTMLElement
+      const scroller = scrollerAt(0)
       // Rows 0 to 19 show at 30 px, with the cursor on the last of them.
       const view = render(FinanceGrid, {
         projection: loaded(0),
@@ -1018,7 +1036,7 @@ describe('FinanceGrid', () => {
     })
 
     it('leaves a scrolled-away cursor alone when the viewport shrinks', async () => {
-      const scroller = { scrollTop: 0 } as HTMLElement
+      const scroller = scrollerAt(0)
       const view = render(FinanceGrid, {
         projection: loaded(0),
         cursorIndex: 19,
@@ -1035,7 +1053,7 @@ describe('FinanceGrid', () => {
     })
 
     it('reveals the cursor row after a view change that keeps its index', async () => {
-      const scroller = { scrollTop: 0 } as HTMLElement
+      const scroller = scrollerAt(0)
       const view = render(FinanceGrid, {
         projection: loaded(0),
         cursorIndex: 0,
@@ -1058,7 +1076,7 @@ describe('FinanceGrid', () => {
     it('reveals a cursor move only when a held reveal ends, and not when it is dropped', async () => {
       vi.useFakeTimers()
       const hold = new RevealHold()
-      const scroller = { scrollTop: 0 } as HTMLElement
+      const scroller = scrollerAt(0)
       const props = {
         projection: loaded(0),
         cursorIndex: 0,
@@ -1085,7 +1103,7 @@ describe('FinanceGrid', () => {
     })
 
     it('reveals the cursor row on a key that cannot move it, such as Home on the first row', async () => {
-      const scroller = { scrollTop: 0 } as HTMLElement
+      const scroller = scrollerAt(0)
       const view = render(FinanceGrid, {
         projection: loaded(0),
         cursorIndex: 0,

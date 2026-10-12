@@ -181,6 +181,20 @@ describe('Moneyflow browser shortcuts', () => {
     shortcuts.destroy()
   })
 
+  it('ignores a held Enter but keeps other keys repeating', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    expect(handleMoneyflowKeydown(shortcuts.manager, keyboard('Enter', { repeat: true }))).toBe(
+      false,
+    )
+    expect(handlers.apply).not.toHaveBeenCalled()
+    expect(handleMoneyflowKeydown(shortcuts.manager, keyboard('j', { repeat: true }))).toBe(true)
+    expect(handlers.local).toHaveBeenCalledWith('cursor.down')
+    expect(handleMoneyflowKeydown(shortcuts.manager, keyboard('Enter'))).toBe(true)
+    expect(handlers.apply).toHaveBeenCalledWith('view.drill')
+    shortcuts.destroy()
+  })
+
   it('dispatches editing keys only when the server capability is available', () => {
     const handlers = { local: vi.fn(), apply: vi.fn() }
     const shortcuts = createMoneyflowShortcuts(

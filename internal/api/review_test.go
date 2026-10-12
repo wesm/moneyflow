@@ -89,6 +89,10 @@ func TestReviewEndpointsReturnSeparateSummariesAndBoundedTargets(t *testing.T) {
 	assert.LessOrEqual(t, len(targets.Targets), app.MaxReviewTargetLimit)
 	require.Len(t, targets.Targets, 1)
 	assert.Equal(t, "Example Merchant", targets.Targets[0].Merchant)
+	// Exact minor units with the currency, displayed as the table displays the row's amount.
+	assert.Equal(t, Money{
+		Minor: "-1234", Currency: "USD", Scale: 2, Decimal: "-12.34", Display: "-12.34",
+	}, targets.Targets[0].Amount)
 	assert.NotContains(t, targetResponse.Body.String(), "transaction_id")
 
 	oversized := requestProtectedJSON(t, server, "/api/v1/review/targets", ReviewTargetsBody{

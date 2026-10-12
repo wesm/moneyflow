@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   confirmDelete,
+  confirmDirectDelete,
   hideRow,
   localActions,
   moveCursor,
@@ -119,6 +120,32 @@ describe('editor actions', () => {
     expect(overlays.editTarget).toEqual({ identity: 'row-7', kind: 'transaction' })
   })
 
+  it('hangs the editor below the edited row, or above the selection bar while rows are selected', () => {
+    const { context, overlays } = setup(1)
+    const row = document.createElement('div')
+    row.id = 'moneyflow-row-row-7'
+    const bar = document.createElement('section')
+    bar.className = 'mf-selection-bar'
+    document.body.append(row, bar)
+    openEditor(context, 'merchant', { identity: 'row-7', kind: 'transaction' })
+    expect(overlays.anchor).toEqual({ element: row, above: false })
+    overlays.close('keep')
+
+    context.controller.projection!.selection_count = 2
+    openEditor(context, 'category', { identity: 'row-7', kind: 'transaction' })
+    expect(overlays.anchor).toEqual({ element: bar, above: true })
+  })
+
+  it('hangs the editor below the row while the selection bar has not rendered', () => {
+    const { context, overlays } = setup(1)
+    const row = document.createElement('div')
+    row.id = 'moneyflow-row-row-7'
+    document.body.append(row)
+    context.controller.projection!.selection_count = 2
+    openEditor(context, 'category', { identity: 'row-7', kind: 'transaction' })
+    expect(overlays.anchor).toEqual({ element: row, above: false })
+  })
+
   it('opens a pointed row’s editor after queued transitions, as m and c do', async () => {
     const { context, overlays } = setup(1)
     const settle = holdTransitions(context)
@@ -172,6 +199,54 @@ describe('row actions', () => {
     expect(overlays.deleteCount).toBe(1)
   })
 
+  it('hangs the delete confirmation below the row, or above the selection bar', () => {
+    const { context, overlays } = setup(1)
+    const element = document.createElement('div')
+    element.id = 'moneyflow-row-row-7'
+    const bar = document.createElement('section')
+    bar.className = 'mf-selection-bar'
+    document.body.append(element, bar)
+    confirmDelete(context, row)
+    expect(overlays.anchor).toEqual({ element, above: false })
+    overlays.close('keep')
+
+    context.controller.projection!.selection_count = 2
+    confirmDelete(context, row)
+    expect(overlays.anchor).toEqual({ element: bar, above: true })
+    expect(overlays.deleteCount).toBe(2)
+  })
+
+  it('stages the confirmed delete and closes only once the server accepts it', async () => {
+    const { context, overlays } = setup(1)
+    const submit = vi.mocked(context.controller.editing.submit)
+    submit.mockResolvedValueOnce(false)
+    confirmDelete(context, row)
+    expect(await confirmDirectDelete(context)).toBe(false)
+    expect(overlays.current).toBe('delete')
+    expect(await confirmDirectDelete(context)).toBe(true)
+    expect(submit).toHaveBeenLastCalledWith({
+      action: 'transaction.delete',
+      input: {},
+      target: row,
+    })
+    expect(overlays.current).toBeUndefined()
+  })
+
+  it('leaves an editor opened after the confirmation was dismissed mid-delete', async () => {
+    const { context, overlays } = setup(1)
+    let settle: (accepted: boolean) => void = () => undefined
+    vi.mocked(context.controller.editing.submit).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => (settle = resolve)),
+    )
+    confirmDelete(context, row)
+    const deleting = confirmDirectDelete(context)
+    overlays.close()
+    openEditor(context, 'merchant', row)
+    settle(true)
+    expect(await deleting).toBe(true)
+    expect(overlays.current).toBe('merchant')
+  })
+
   it('h holds later view transitions until the hide is staged', async () => {
     const { context } = setup(1)
     let staged!: (accepted: boolean) => void
@@ -188,6 +263,24 @@ describe('row actions', () => {
     staged(true)
     await after
     expect(marker).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('w', () => {
+  afterEach(() => document.body.replaceChildren())
+
+  it('opens write status while a provider write has a phase, and review otherwise', () => {
+    for (const [phase, expected] of [
+      ['writing', 'write'],
+      ['paused', 'write'],
+      [undefined, 'review'],
+    ] as const) {
+      const { context, overlays } = setup(0)
+      const status = phase === undefined ? undefined : { phase }
+      Object.assign(context.controller, { providerWrite: { state: { status } } })
+      localActions(context)['edit.review']()
+      expect(overlays.current, String(phase)).toBe(expected)
+    }
   })
 })
 

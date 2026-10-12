@@ -174,9 +174,10 @@ try {
     await expect(page.getByRole("row", { selected: true })).toHaveCount(2);
     await page.keyboard.press("c");
     await page.getByRole("dialog", { name: "Change category" }).waitFor();
-    await page.getByRole("combobox", { name: /^Category:/ }).click();
-    await page.getByRole("option", { name: "Books", exact: true }).click();
-    await page.getByRole("button", { name: "Save pending change" }).click();
+    const category = page.getByRole("combobox", { name: "Category", exact: true });
+    await category.fill("Books");
+    await category.press("Enter");
+    await page.getByRole("button", { name: /^Stage change to / }).click();
     await page
       .getByRole("dialog", { name: "Change category" })
       .waitFor({ state: "hidden", timeout: 5_000 })

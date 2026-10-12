@@ -57,6 +57,7 @@ export function createReviewController(options: ReviewControllerOptions): Review
     announcement: '',
   }
   const targetWindows = new Map<string, Map<number, ReviewTarget[]>>()
+  let targetRequest = 0
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
     notify = update
@@ -109,12 +110,15 @@ export function createReviewController(options: ReviewControllerOptions): Review
       window: { offset: aligned, limit: targetWindowSize },
     }
     setState({ ...state, phase: 'loading', announcement: '' })
+    // Each answer evicts other operations' windows, so only the newest request may install one.
+    const request = ++targetRequest
     try {
       const response = await requestProfileJSON<ReviewResponse>(
         options.transport,
         'api/v1/review/targets',
         body,
       )
+      if (request !== targetRequest) return false
       let windows = targetWindows.get(operationID)
       if (!windows) {
         windows = new Map()
@@ -131,7 +135,7 @@ export function createReviewController(options: ReviewControllerOptions): Review
       setState({ ...state, phase: 'idle' })
       return true
     } catch (error) {
-      fail(error)
+      if (request === targetRequest) fail(error)
       return false
     }
   }
@@ -166,7 +170,10 @@ export function createReviewController(options: ReviewControllerOptions): Review
     },
     load,
     loadTargets,
-    targets: (operationID, offset) => targetWindows.get(operationID)?.get(offset) ?? [],
+    targets: (operationID, offset) => {
+      subscribe()
+      return targetWindows.get(operationID)?.get(offset) ?? []
+    },
     targetOffsets: (operationID) =>
       [...(targetWindows.get(operationID)?.keys() ?? [])].sort((a, b) => a - b),
     isStale: () =>

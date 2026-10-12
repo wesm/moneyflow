@@ -33,10 +33,16 @@ test('w then Enter prepares, writes, and finalizes Monarch edits without extra c
     await page.keyboard.press('w')
     const review = page.getByRole('dialog', { name: 'Review pending changes' })
     await expect(review).toBeVisible()
+    const drawer = await review.elementHandle()
     await page.keyboard.press('Enter')
 
+    // The same drawer turns into write status, with focus still inside it.
     const write = page.getByRole('dialog', { name: 'Monarch write status' })
     await expect(write).toBeVisible()
+    await expect(review).toHaveCount(0)
+    expect(await drawer?.evaluate((node) => node.isConnected)).toBe(true)
+    expect(await write.evaluate((node) => node.contains(document.activeElement))).toBe(true)
+    await expect(write.getByRole('button', { name: 'Commit reviewed changes' })).toHaveCount(0)
     await expect(write.getByRole('status')).toContainText(/Provider write|Writing pending/)
     await expect(page.getByText(/0 pending edit/)).toBeVisible({ timeout: 10_000 })
     await expect(write.getByRole('status')).toContainText('Provider write complete')

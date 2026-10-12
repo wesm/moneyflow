@@ -101,6 +101,8 @@ type MutationPlan struct {
 	CancelHideTargets    []domain.EntityID
 	SelectionDisposition SelectionDisposition
 	State                ViewState
+	// Hides is true when a hide-toggle plan hides its targets and false when it restores them.
+	Hides bool
 }
 
 // MutationErrorCode is a stable renderer-neutral mutation failure classification.

@@ -539,7 +539,8 @@ describe('AppShell', () => {
     expect(within(sheet).getByRole('combobox', { name: /^Currency/ })).not.toBeNull()
     expect(within(sheet).getByRole('button', { name: 'Filters' })).not.toBeNull()
 
-    await fireEvent.keyDown(window, { key: 'Escape' })
+    expect(sheet.contains(document.activeElement)).toBe(true)
+    await fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
     await frames.flush()
     expect(screen.queryByRole('dialog', { name: 'View' })).toBeNull()
     expect(document.activeElement).toBe(view)
@@ -725,13 +726,13 @@ describe('AppShell', () => {
     )
 
     await fireEvent.keyDown(window, { key: 'x' })
-    expect(screen.getByRole('dialog', { name: 'Confirm deletion' }).textContent).toContain(
-      'Delete 1 transaction?',
-    )
+    const confirmation = await screen.findByRole('alertdialog', { name: 'Confirm deletion' })
+    expect(confirmation.textContent).toContain('Delete 1 transaction?')
     expect(controller.editing.submit).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: 'transaction.delete' }),
     )
-    await fireEvent.keyDown(window, { key: 'Enter' })
+    expect(confirmation.contains(document.activeElement)).toBe(true)
+    await fireEvent.keyDown(document.activeElement!, { key: 'Enter' })
     expect(controller.editing.submit).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'transaction.delete',
@@ -786,8 +787,11 @@ describe('AppShell', () => {
     const grid = screen.getByRole('grid', { name: 'Financial results' })
     await fireEvent.keyDown(window, { key: 'm' })
     expect(screen.getByRole('dialog', { name: 'Edit merchant' })).not.toBeNull()
-    await fireEvent.keyDown(window, { key: 'Escape' })
+    const field = screen.getByRole('combobox', { name: 'Merchant' })
+    await vi.waitFor(() => expect(document.activeElement).toBe(field))
+    await fireEvent.keyDown(field, { key: 'Escape' })
     await vi.waitFor(() => expect(document.activeElement).toBe(grid))
+    expect(screen.queryByRole('dialog', { name: 'Edit merchant' })).toBeNull()
   })
 
   it('uses the profile-wide selection count when choosing merchant edit scope', async () => {
@@ -795,8 +799,12 @@ describe('AppShell', () => {
     render(AppShell, { controller })
     await fireEvent.keyDown(window, { key: 'm' })
     await vi.waitFor(() =>
-      expect(screen.getByRole('combobox', { name: /Selected transactions/ })).not.toBeNull(),
+      expect(screen.getByRole('radio', { name: /selected transactions/ })).not.toBeNull(),
     )
+    expect(screen.getByRole('radio', { name: 'Whole merchant' }).hasAttribute('disabled')).toBe(
+      true,
+    )
+    expect(screen.getByText('Clear the selection to rename the whole merchant')).not.toBeNull()
   })
 
   it('clears the selection without going back once a queued toggle empties it', async () => {
@@ -926,7 +934,9 @@ describe('AppShell', () => {
       render(AppShell, { controller })
       const grid = screen.getByRole('grid', { name: 'Financial results' })
       await fireEvent.keyDown(window, { key: 'm' })
-      await fireEvent.keyDown(window, { key: 'Escape' })
+      await fireEvent.keyDown(screen.getByRole('combobox', { name: 'Merchant' }), {
+        key: 'Escape',
+      })
       await vi.waitFor(() => expect(callbacks.length).toBe(1))
       await vi.waitFor(() =>
         expect(screen.queryByRole('dialog', { name: 'Edit merchant' })).toBeNull(),

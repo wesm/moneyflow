@@ -9,6 +9,7 @@
   import BottomSheet from '../shell/BottomSheet.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import type { components } from '../../lib/api/schema'
+  import type { OverlayState } from '../../lib/shell/overlay-state.svelte'
   import { rowActionButtons, type RowActionButton } from '../../lib/table/actions'
 
   interface Props {
@@ -16,12 +17,13 @@
     /** The transaction row whose ⋯ button opened the sheet. */
     row: components['schemas']['DetailRow']
     projection: ViewProjection
+    overlays: OverlayState
     /** Runs an item on the row, as its key runs on the cursor row. */
     onaction: (action: RowActionButton['action']) => void
     onclose: () => void
   }
 
-  let { open, row, projection, onaction, onclose }: Props = $props()
+  let { open, row, projection, overlays, onaction, onclose }: Props = $props()
   const uid = $props.id()
   const buttons = $derived(rowActionButtons(projection))
   const icons: Record<RowActionButton['action'], typeof StoreIcon> = {
@@ -33,7 +35,7 @@
   }
 </script>
 
-<BottomSheet {open} title={row.merchant} {onclose}>
+<BottomSheet {open} title={row.merchant} {overlays} {onclose}>
   <p class="mf-row-actions__summary">{row.date} · {row.amount.display}</p>
   <ul class="mf-row-actions">
     {#each buttons as button (button.action)}

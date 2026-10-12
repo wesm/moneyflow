@@ -75,6 +75,7 @@ type ReviewTarget struct {
 	Date          domain.Date
 	Merchant      string
 	Category      string
+	Amount        domain.Money
 	Hidden        bool
 }
 
@@ -345,7 +346,8 @@ func reviewTargets(
 		result = append(result, ReviewTarget{
 			TransactionID: transaction.ID, Date: transaction.Date,
 			Merchant: merchants[transaction.MerchantID],
-			Category: categories[transaction.CategoryID], Hidden: transaction.Hidden,
+			Category: categories[transaction.CategoryID], Amount: transaction.Amount,
+			Hidden: transaction.Hidden,
 		})
 	}
 	return result

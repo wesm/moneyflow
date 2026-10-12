@@ -83,7 +83,10 @@ Write-enabled tools follow this workflow:
 1. Call an editing tool below with `dry_run: true` to validate
    targets and inspect the bounded preview without changing the journal.
 2. Call the same tool without `dry_run` to stage one ordinary revision-checked journal operation.
-3. Use `review_changes`, `undo_changes`, or `redo_changes` as needed.
+3. Use `review_changes`, `undo_changes`, or `redo_changes` as needed. With an `operation_id`,
+   `review_changes` lists that operation's transactions with their date, merchant, category,
+   hidden state, and exact `money`: an object with `amount`, `amount_minor`, `currency`, and
+   `scale`.
 4. Call `commit_changes` with the exact reviewed revision.
 
 Use the current `expected_revision` for staging/undo/redo. Commit takes both `expected_revision`
@@ -98,7 +101,7 @@ conflict, read the current state and review again instead of automatically resen
 | `batch_update_category` | `transaction_ids`, with a category ID or name. |
 | `reassign_transactions_merchant` | `transaction_ids`, with exactly one of existing `merchant_id` or `new_merchant_label`. |
 | `rename_merchant` | Whole `merchant_id` and `new_label`; a collision requires the explicit `merge_destination_id`. |
-| `toggle_transactions_hidden` | `transaction_ids`; toggle hidden state or cancel their pending hide toggles, matching the TUI. |
+| `toggle_transactions_hidden` | `transaction_ids`; flip hidden state, matching the TUI. **Unreleased:** Pending hide toggles are cancelled only when they changed every target. |
 | `delete_transactions` | `transaction_ids`; stage undoable deletion, without sending a provider request. |
 | `manage_category` | Create, rename, move, merge, or delete a category on a local, Amazon, or SimpleFIN profile. |
 | `manage_category_group` | Create, rename, merge, or delete a category group on a local, Amazon, or SimpleFIN profile. |

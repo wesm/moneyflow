@@ -1,16 +1,19 @@
 <script lang="ts">
+  import { MEDIA } from '@kenn-io/kit-ui'
+  import { MediaQuery } from 'svelte/reactivity'
+
+  import BottomSheet from './BottomSheet.svelte'
   import HelpDialog from '../HelpDialog.svelte'
   import TransactionInformationDrawer from '../TransactionInformationDrawer.svelte'
-  import CategoryDialog from '../editing/CategoryDialog.svelte'
-  import CategoryManager from '../editing/CategoryManager.svelte'
-  import DeleteConfirmation from '../editing/DeleteConfirmation.svelte'
+  import AnchoredEditor from '../editing/AnchoredEditor.svelte'
+  import DeleteConfirm from '../editing/DeleteConfirm.svelte'
   import DuplicateReview from '../editing/DuplicateReview.svelte'
   import ExportDialog from '../editing/ExportDialog.svelte'
-  import GroupManager from '../editing/GroupManager.svelte'
-  import MerchantDialog from '../editing/MerchantDialog.svelte'
+  import EditorBody from '../editing/EditorBody.svelte'
+  import ManagerDrawer from '../editing/ManagerDrawer.svelte'
   import ReviewDrawer from '../editing/ReviewDrawer.svelte'
-  import WriteStatusDrawer from '../editing/WriteStatusDrawer.svelte'
   import type { ViewProjection } from '../../lib/api/client'
+  import { providerName } from '../../lib/provider-name'
   import type { ViewController } from '../../lib/controller/view-controller.svelte'
   import type { OverlayState } from '../../lib/shell/overlay-state.svelte'
 
@@ -18,7 +21,8 @@
     controller: ViewController
     projection: ViewProjection
     overlays: OverlayState
-    onconfirmdelete: () => void
+    /** Stages the confirmed delete. Resolves whether the server accepted it. */
+    onconfirmdelete: () => Promise<boolean>
     onreconnect?: (() => void) | undefined
   }
 
@@ -28,40 +32,76 @@
   const target = $derived(overlays.editTarget)
   const onclose = () => overlays.close()
   const onwrite = () => overlays.open('write')
+  // On phones the editor and the delete confirmation are bottom sheets. Staging an edit returns
+  // focus to the edited row, not the ⋯.
+  const compact = new MediaQuery(MEDIA.compact)
 </script>
+
+{#snippet editor(kind: 'merchant' | 'category', onstage: () => void)}
+  {#if target}
+    <EditorBody
+      {kind}
+      {target}
+      controller={controller.editing}
+      {projection}
+      cursorIndex={controller.cursorIndex}
+      id="mf-editor"
+      {onstage}
+      oncancel={onclose}
+    />
+  {/if}
+{/snippet}
 
 {#if overlay === 'help'}
   <HelpDialog capabilities={projection.capabilities ?? []} {onclose} />
-{:else if overlay === 'merchant' && target}
-  <MerchantDialog
-    controller={controller.editing}
-    {target}
-    hasSelection={projection.selection_count > 0}
+{:else if (overlay === 'merchant' || overlay === 'category') && target && compact.current}
+  <BottomSheet open labelledby="mf-editor-title" describedby="mf-editor-count" {overlays} {onclose}>
+    {@render editor(overlay, () => overlays.close('grid'))}
+  </BottomSheet>
+{:else if (overlay === 'merchant' || overlay === 'category') && target}
+  <AnchoredEditor
+    anchor={overlays.anchor?.element}
+    above={overlays.anchor?.above ?? false}
+    field={overlay}
+    id="mf-editor"
+    {overlays}
+    oncancel={onclose}
+    ondismiss={() => overlays.close('keep')}
+  >
+    {@render editor(overlay, onclose)}
+  </AnchoredEditor>
+{:else if overlay === 'categories' || overlay === 'groups'}
+  {#key overlay}
+    <ManagerDrawer
+      kind={overlay === 'categories' ? 'category' : 'group'}
+      controller={controller.editing}
+      {overlays}
+      {onclose}
+    />
+  {/key}
+{:else if overlay === 'review' || overlay === 'write'}
+  <ReviewDrawer
+    mode={overlay}
+    editing={controller.editing}
+    review={controller.review}
+    providerWrite={controller.providerWrite}
+    providerName={providerName(projection.profile_kind)}
     {onclose}
-  />
-{:else if overlay === 'category' && target}
-  <CategoryDialog controller={controller.editing} {target} {onclose} />
-{:else if overlay === 'categories'}
-  <CategoryManager controller={controller.editing} {onclose} />
-{:else if overlay === 'groups'}
-  <GroupManager controller={controller.editing} {onclose} />
-{:else if overlay === 'review'}
-  <ReviewDrawer editing={controller.editing} review={controller.review} {onclose} {onwrite} />
-{:else if overlay === 'write'}
-  <WriteStatusDrawer
-    controller={controller.providerWrite}
-    providerName={projection.profile_kind === 'ynab' ? 'YNAB' : 'Monarch'}
-    {onclose}
+    {onwrite}
     {onreconnect}
   />
 {:else if overlay === 'duplicates'}
   <DuplicateReview controller={controller.duplicates} {onclose} />
 {:else if overlay === 'delete' && overlays.deleteTarget}
-  <DeleteConfirmation
+  <DeleteConfirm
     count={overlays.deleteCount}
-    submitting={controller.editing.state.phase === 'submitting'}
+    compact={compact.current}
+    anchor={overlays.anchor}
+    {overlays}
+    editing={controller.editing}
     onconfirm={onconfirmdelete}
     oncancel={onclose}
+    ondismiss={() => overlays.close('keep')}
   />
 {:else if overlay === 'export'}
   <ExportDialog controller={controller.export} {onclose} />

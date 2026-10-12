@@ -126,6 +126,14 @@ func TestCategoryToolDryRunStagesOneOperationAndUndoRedo(t *testing.T) {
 	require.Len(t, operations, 1)
 	assert.Equal(t, "category.assign", operations[0].(map[string]any)["type"])
 	assert.Equal(t, float64(1), operations[0].(map[string]any)["affected_count"])
+	expanded := callWriteTool(t, client, "review_changes", map[string]any{
+		"expected_revision": "2", "operation_id": operations[0].(map[string]any)["operation_id"],
+	})
+	targets := expanded.StructuredContent.(map[string]any)["targets"].([]any)
+	require.Len(t, targets, 1)
+	assert.Equal(t, map[string]any{
+		"amount": "-1.00", "amount_minor": "-100", "currency": "USD", "scale": float64(2),
+	}, targets[0].(map[string]any)["money"])
 
 	undone := callWriteTool(t, client, "undo_changes", map[string]any{"expected_revision": "2"})
 	assert.False(t, undone.IsError)

@@ -4,11 +4,12 @@
   import BottomSheet from './BottomSheet.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import { breakDownOptions } from '../../lib/shell/breadcrumbs'
+  import type { OverlayState } from '../../lib/shell/overlay-state.svelte'
   import { currencyChoices } from '../../lib/shell/period'
 
+  /** The 'view' overlay. */
   interface Props {
-    open: boolean
-    onclose: () => void
+    overlays: OverlayState
     projection: ViewProjection
     /** The command bar's own controls, rendered here at phone width. */
     period: Snippet
@@ -17,7 +18,7 @@
     breakdown: Snippet
   }
 
-  let { open, onclose, projection, period, currency, filters, breakdown }: Props = $props()
+  let { overlays, projection, period, currency, filters, breakdown }: Props = $props()
   const multiCurrency = $derived(currencyChoices(projection).length > 1)
   const drilled = $derived(breakDownOptions(projection).length > 0)
 </script>
@@ -29,7 +30,12 @@
   </div>
 {/snippet}
 
-<BottomSheet {open} title="View" {onclose}>
+<BottomSheet
+  open={overlays.current === 'view'}
+  title="View"
+  {overlays}
+  onclose={() => overlays.close()}
+>
   <div class="mf-view-sheet">
     {@render row('Period', period)}
     {#if multiCurrency}{@render row('Currency', currency)}{/if}

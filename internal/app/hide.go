@@ -42,6 +42,7 @@ func BuildHideMutation(
 			visible = append(visible, id)
 		}
 	}
+	hides := len(visible) > 0
 	if len(visible) > 0 && len(visible) < len(targets.TransactionIDs) {
 		// Mixed scopes always hide their visible members, including when other hides are pending.
 		targets.TransactionIDs = visible
@@ -49,6 +50,7 @@ func BuildHideMutation(
 		return MutationPlan{
 			Mode:                 MutationCancelHide,
 			CancelHideTargets:    append([]domain.EntityID(nil), targets.TransactionIDs...),
+			Hides:                hides,
 			SelectionDisposition: selectionDisposition(targets),
 			State:                request.State.Clone(),
 		}, nil
@@ -60,7 +62,9 @@ func BuildHideMutation(
 	if err = operation.ValidateDraft(); err != nil {
 		return MutationPlan{}, mutationError(MutationInvalidOperation, err)
 	}
-	return mutationPlan(request, targets, operation), nil
+	plan := mutationPlan(request, targets, operation)
+	plan.Hides = hides
+	return plan, nil
 }
 
 func canCancelHide(
@@ -77,9 +81,9 @@ func canCancelHide(
 		}
 	}
 	for _, target := range targets {
-		flipped, exists := flips[target]
-		// Cancelling a group must reverse every member, not restore a mixed committed state.
-		if !exists || len(targets) > 1 && !flipped {
+		// Cancelling must reverse every target. A target with an even number of pending
+		// toggles already shows its committed state, so cancelling those would change nothing.
+		if !flips[target] {
 			return false
 		}
 	}

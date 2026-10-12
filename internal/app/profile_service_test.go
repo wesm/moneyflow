@@ -206,8 +206,10 @@ func TestUndoCreationKeepsCommittedViewAndRemovesPendingCategoryChoice(t *testin
 	assert.Equal(t, "category_a", detailTransactionByID(t, created.Projection.DetailRows, "transaction_a").Category.ID)
 	catalog, err := service.EditorCatalog()
 	require.NoError(t, err)
-	choice := app.EditorChoice{ID: "category_new", Label: "New Category", ParentID: "group_a"}
-	assert.Contains(t, catalog.Categories, choice)
+	choice := app.EditorChoice{
+		ID: "category_new", Label: "New Category", ParentID: "group_a", InUse: true,
+	}
+	assert.Contains(t, catalog.Categories, choice, "the pending edit uses the new category")
 
 	undone, err := service.UndoInteraction(
 		ctx, created.Revision, detailViewState(), app.EmptySelection(), app.WindowRequest{},
@@ -218,7 +220,9 @@ func TestUndoCreationKeepsCommittedViewAndRemovesPendingCategoryChoice(t *testin
 	assert.Equal(t, "category_a", detailTransactionByID(t, undone.Projection.DetailRows, "transaction_a").Category.ID)
 	catalog, err = service.EditorCatalog()
 	require.NoError(t, err)
-	assert.NotContains(t, catalog.Categories, choice)
+	for _, category := range catalog.Categories {
+		assert.NotEqual(t, choice.ID, category.ID, "undo removes the pending category")
+	}
 	loaded, err := profile.Load(ctx)
 	require.NoError(t, err)
 	assert.Zero(t, loaded.Cursor)

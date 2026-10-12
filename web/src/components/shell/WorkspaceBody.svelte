@@ -4,6 +4,7 @@
   import { MediaQuery } from 'svelte/reactivity'
 
   import ChartArea from '../charts/ChartArea.svelte'
+  import EditLockBanner from '../editing/EditLockBanner.svelte'
   import FinanceGrid from '../table/FinanceGrid.svelte'
   import RowActionsSheet from '../table/RowActionsSheet.svelte'
   import SelectionBar from '../table/SelectionBar.svelte'
@@ -16,6 +17,7 @@
     TransitionAction,
     ViewController,
   } from '../../lib/controller/view-controller.svelte'
+  import { providerName } from '../../lib/provider-name'
   import { InsightsCache } from '../../lib/insights/cache.svelte'
   import { seriesRows } from '../../lib/insights/requests'
   import type { ChartState } from '../../lib/shell/chart-state.svelte'
@@ -55,11 +57,13 @@
   /** The bar covers the scroller's bottom, so the table counts only the rows above it. */
   const covered = $derived(selecting ? barHeight : 0)
   const local = $derived(localActions(actions))
+  const writePhase = $derived(controller.providerWrite.state.status?.phase)
   /** A Clear is queued; another click must not queue a second one. */
   let clearing = false
   const compact = new MediaQuery(MEDIA.compact)
-  /** The measured height of the charts above the table. */
+  /** The measured heights of the charts and the write banner above the table. */
   let above = $state(0)
+  let bannerHeight = $state(0)
   // The KPI strip shows above phone width; on phones only the chart drawer reads insights.
   const charting = $derived(!compact.current || charts.dialogOpen)
   provideRevealHold(new RevealHold())
@@ -147,6 +151,16 @@
   bind:clientHeight={viewport}
   onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
 >
+  <!-- Always present, so the table learns when the banner above it comes or goes. -->
+  <div bind:offsetHeight={bannerHeight}>
+    {#if writePhase}
+      <EditLockBanner
+        providerName={providerName(projection.profile_kind)}
+        phase={writePhase}
+        onstatus={() => actions.overlays.open('write')}
+      />
+    {/if}
+  </div>
   {#if !compact.current}
     <ChartArea
       {projection}
@@ -174,7 +188,7 @@
       {scroller}
       bind:scrollTop
       viewport={viewport - covered}
-      {above}
+      above={above + bannerHeight}
       compact={compact.current}
       onmove={(delta) => moveCursor(actions, () => controller.moveCursor(delta))}
       onhome={() => moveCursor(actions, () => controller.moveHome())}
@@ -205,6 +219,7 @@
     open={actions.overlays.current === 'actions'}
     row={sheetRow}
     {projection}
+    overlays={actions.overlays}
     onaction={(action) => {
       status.clear()
       runRowAction(actions, action, target)

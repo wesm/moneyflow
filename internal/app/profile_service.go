@@ -24,6 +24,9 @@ type PendingSummary struct {
 type MutationResult struct {
 	Revision             uint64
 	Affected             int
+	OperationKind        OperationKind
+	OperationLabel       string
+	Undoable             bool
 	State                ViewState
 	Selection            SelectionValue
 	SelectionDisposition SelectionDisposition
@@ -247,6 +250,7 @@ func (service *Service) Mutate(
 	if err != nil {
 		return MutationResult{}, mapAppError(err, snapshot.Revision)
 	}
+	summary := summarizePlan(snapshot.Effective, plan)
 	var next uint64
 	if plan.Mode == MutationCancelHide {
 		next, err = service.profile.CancelHide(
@@ -282,9 +286,12 @@ func (service *Service) Mutate(
 			Revision: next, State: plan.State.Clone(), Selection: selection,
 			SelectionDisposition: plan.SelectionDisposition,
 			Pending:              pendingSummary(current),
-		}, nil
+		}.withSummary(summary), nil
 	}
-	return service.mutationResult(plan.State, selection, plan.SelectionDisposition, request.Window)
+	result, err := service.mutationResult(
+		plan.State, selection, plan.SelectionDisposition, request.Window,
+	)
+	return result.withSummaryUnlessError(summary, err)
 }
 
 func (service *Service) planMutationLocked(
@@ -507,7 +514,7 @@ func (service *Service) moveCursor(
 			return MutationResult{}, mapAppError(err, current)
 		}
 	}
-	affected := len(affectedByOperation(before, snapshot.Journal[operationIndex]))
+	summary := summarizeCursorOperation(before, snapshot.Journal[operationIndex])
 	next, err := service.profile.MoveCursor(ctx, expected, direction)
 	if err != nil {
 		return MutationResult{}, service.refreshAfterFailure(ctx, err, current)
@@ -516,8 +523,7 @@ func (service *Service) moveCursor(
 		return MutationResult{}, err
 	}
 	result, err := service.cursorMutationResult(state, selection, window)
-	result.Affected = affected
-	return result, err
+	return result.withSummaryUnlessError(summary, err)
 }
 
 func (service *Service) cursorMutationResult(

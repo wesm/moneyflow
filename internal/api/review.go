@@ -45,6 +45,7 @@ type ReviewTarget struct {
 	Date     string `json:"date"`
 	Merchant string `json:"merchant"`
 	Category string `json:"category"`
+	Amount   Money  `json:"amount"`
 	Hidden   bool   `json:"hidden"`
 }
 
@@ -135,7 +136,7 @@ func reviewToWire(projection app.ReviewProjection) ReviewResponse {
 	for _, target := range projection.Targets {
 		response.Targets = append(response.Targets, ReviewTarget{
 			Date: target.Date.String(), Merchant: target.Merchant,
-			Category: target.Category, Hidden: target.Hidden,
+			Category: target.Category, Amount: moneyToWire(target.Amount), Hidden: target.Hidden,
 		})
 	}
 	return response

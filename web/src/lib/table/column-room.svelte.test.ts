@@ -15,7 +15,7 @@ describe('ColumnRoom', () => {
     resizeTo(700)
   })
 
-  it('keeps one observer while resizes stay on one side of 900 px', () => {
+  it('measures the scroller at every width and keeps one observer while the window resizes', () => {
     const observe = vi.fn()
     vi.stubGlobal(
       'ResizeObserver',
@@ -25,22 +25,24 @@ describe('ColumnRoom', () => {
         disconnect(): void {}
       },
     )
-    resizeTo(1000)
+    resizeTo(700)
     const scroller = document.createElement('div')
+    Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: 640 })
+    scroller.style.padding = '0px'
+    document.documentElement.style.fontSize = '16px'
+    let room: ColumnRoom | undefined
     const stop = $effect.root(() => {
-      const room = new ColumnRoom(() => scroller)
-      $effect(() => void room.rem)
+      room = new ColumnRoom(() => scroller)
+      $effect(() => void room?.rem)
     })
     flushSync()
+    // 640 px at a 16 px root font size, at a window narrower than 900 px.
+    expect(room?.rem).toBe(40)
     expect(observe).toHaveBeenCalledTimes(1)
 
-    resizeTo(1100)
-    resizeTo(950)
+    for (const width of [1100, 820, 641, 1000]) resizeTo(width)
     expect(observe).toHaveBeenCalledTimes(1)
-
-    resizeTo(800)
-    resizeTo(1000)
-    expect(observe).toHaveBeenCalledTimes(2)
     stop()
+    document.documentElement.style.fontSize = ''
   })
 })

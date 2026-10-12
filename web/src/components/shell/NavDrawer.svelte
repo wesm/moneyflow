@@ -1,9 +1,10 @@
 <script lang="ts">
   import { IconButton } from '@kenn-io/kit-ui'
-  import { trapFocus } from '@kenn-io/kit-ui/utils/focus-trap'
   import { backdropCloses, escapeCloses } from '@kenn-io/kit-ui/utils/overlay'
   import XIcon from '@lucide/svelte/icons/x'
   import type { Snippet } from 'svelte'
+
+  import { trapEveryTab } from '../../lib/shell/focus'
 
   interface Props {
     open: boolean
@@ -28,7 +29,7 @@
       aria-modal="true"
       aria-label="Navigation"
       tabindex="-1"
-      {@attach trapFocus}
+      {@attach trapEveryTab}
     >
       <IconButton
         ariaLabel="Close navigation"

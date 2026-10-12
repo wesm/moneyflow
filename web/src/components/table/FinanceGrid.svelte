@@ -23,6 +23,7 @@
     compactTapAction,
     doubleClickAction,
     pointerHit,
+    tapMoved,
     type CompactTapAction,
     type RowKind,
   } from '../../lib/table/pointer'
@@ -94,7 +95,7 @@
   const comparison = $derived(insights?.response?.ranges.comparison_label)
   const room = new ColumnRoom(() => scroller)
   const all = $derived(columnsAtWidth(columnsFor(projection, comparison), wide))
-  const columns = $derived(columnsThatFit(all, room.rem))
+  const columns = $derived(columnsThatFit(all, compact ? undefined : room.rem))
   const layout = $derived(compact ? compactLayout(projection) : undefined)
   const cellColumns = $derived(columns.filter((column) => column.key !== 'select'))
   const trackSizes = $derived(columns.map((column) => column.width).join(' '))
@@ -167,9 +168,8 @@
   function tap(row: TableRow, action: CompactTapAction, event: MouseEvent) {
     if (action === 'toggle') return ontoggle(row.identity, kind)
     // On the tapped row first, so Back returns there.
-    if (action === 'drill')
-      return void oncursor(row.index).then(() => onactivate(row.identity, kind))
-    void oncursor(row.index)
+    const moved = tapMoved(oncursor(row.index))
+    if (action === 'drill') return void moved.then((ok) => ok && onactivate(row.identity, kind))
     const opener = event.target instanceof Element && event.target.closest('button')
     if (action === 'information') oninformation(row.identity)
     else if ('merchant' in row && opener) onactions(row, opener)

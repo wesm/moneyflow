@@ -4,7 +4,7 @@ import type { ViewProjection } from '../api/client'
 import type { ViewController } from '../controller/view-controller.svelte'
 import type { LocalAction } from '../shortcuts'
 import { rowActionButtons, type RowActionButton } from '../table/actions'
-import type { OverlayState } from './overlay-state.svelte'
+import type { EditorAnchor, OverlayState } from './overlay-state.svelte'
 import { activeCurrency } from './period'
 import { status } from './status.svelte'
 
@@ -78,6 +78,20 @@ export async function openTransactionInformation(
   context.overlays.open('information')
 }
 
+/**
+ * Where an editor or the delete confirmation for `target` hangs: above the selection bar while
+ * rows are selected, or else below the row. A selection bar that has not rendered yet leaves it
+ * below the row.
+ */
+function anchorFor(context: LocalActionContext, target: FocusedRow): EditorAnchor | undefined {
+  const bar = context.controller.projection?.selection_count
+    ? document.querySelector<HTMLElement>('.mf-selection-bar')
+    : null
+  const row = document.getElementById(`moneyflow-row-${target.identity}`)
+  if (bar) return { element: bar, above: true }
+  return row ? { element: row, above: false } : undefined
+}
+
 /** Opens the merchant or category editor for `target`, such as the cursor or a pointed row. */
 export function openEditor(
   context: LocalActionContext,
@@ -85,6 +99,7 @@ export function openEditor(
   target: FocusedRow | undefined,
 ): void {
   if (!target) return
+  context.overlays.anchor = anchorFor(context, target)
   context.overlays.editTarget = target
   context.overlays.open(field)
 }
@@ -163,17 +178,24 @@ export function runRowAction(
   })
 }
 
-/** Deletes the transaction the delete confirmation names, closing it once the edit is staged. */
-export async function confirmDirectDelete(context: LocalActionContext): Promise<void> {
+/**
+ * Deletes the transactions the delete confirmation names, closing it once the edit is staged.
+ * Resolves whether the server accepted the delete.
+ */
+export async function confirmDirectDelete(context: LocalActionContext): Promise<boolean> {
   const { controller, overlays } = context
   const target = overlays.deleteTarget
-  if (!target) return
+  if (!target) return false
   const accepted = await controller.editing.submit({
     action: 'transaction.delete',
     input: {},
     target,
   })
-  if (accepted) overlays.close()
+  // The confirmation may have been dismissed, and another overlay opened, while this staged.
+  if (accepted && overlays.current === 'delete' && overlays.deleteTarget === target) {
+    overlays.close()
+  }
+  return accepted
 }
 
 /** Stages hiding or showing `target`'s transactions, such as the cursor or a pointed row. */
@@ -189,10 +211,14 @@ export async function hideRow(
   })
 }
 
-/** Asks to confirm deleting the transaction `row`, or the selection when there is one. */
+/**
+ * Asks to confirm deleting the transaction `row`, or the selection when there is one. The
+ * confirmation hangs where the editor would.
+ */
 export function confirmDelete(context: LocalActionContext, row: FocusedRow | undefined): void {
   if (row?.kind !== 'transaction') return
   const selected = context.controller.projection?.selection_count
+  context.overlays.anchor = anchorFor(context, row)
   context.overlays.deleteTarget = { identity: row.identity, kind: 'transaction' }
   context.overlays.deleteCount = selected ? selected : 1
   context.overlays.open('delete')

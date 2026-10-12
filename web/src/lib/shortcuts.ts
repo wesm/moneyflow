@@ -210,5 +210,7 @@ export function handleMoneyflowKeydown(manager: ShortcutManager, event: Keyboard
   // A control that handled the key claims it: the Period segments move with the arrows, and a
   // popover closes on Escape. The same key must not also shift the period or go back.
   if (event.defaultPrevented) return false
+  // A held Enter that confirmed or committed in an overlay must not drill once focus returns.
+  if (event.key === 'Enter' && event.repeat) return false
   return manager.handleKeydown(event)
 }
