@@ -46,6 +46,20 @@ export function focusedRow(
 }
 
 /**
+ * The row a key acts on when its queued turn comes: the cursor row when it was pressed, so later
+ * cursor moves do not change it. A view change queued before it leaves that row behind, so the
+ * key then acts on the cursor row of the new view.
+ */
+export function pressedRow(controller: ViewController): () => FocusedRow | undefined {
+  const query = controller.projection?.canonical_query
+  const pressed = focusedRow(controller.projection, controller.cursorIndex)
+  return () =>
+    controller.projection?.canonical_query === query
+      ? pressed
+      : focusedRow(controller.projection, controller.cursorIndex)
+}
+
+/**
  * Moves the cursor from a pointer or a grid key. These never pass through the shortcut manager,
  * so the move clears the status notice here, as every next action does.
  */

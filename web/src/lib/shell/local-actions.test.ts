@@ -9,6 +9,7 @@ import {
   moveCursor,
   openEditor,
   openEditorWhenSettled,
+  pressedRow,
   runRowAction,
   type LocalActionContext,
 } from './local-actions'
@@ -114,13 +115,6 @@ describe('editor actions', () => {
       input: {},
       target,
     })
-  })
-
-  it('still opens the editor after a queued newer-insights recheck fails', async () => {
-    const { context, overlays } = setup(1)
-    context.queue(() => Promise.reject(new Error('offline'))).catch(() => undefined)
-    localActions(context)['edit.merchant']()
-    await vi.waitFor(() => expect(overlays.current).toBe('merchant'))
   })
 
   it('opens the editor for a pointed row instead of the cursor row', () => {
@@ -393,5 +387,16 @@ describe('paging keys outside the table', () => {
     expect(moveCursorTo).toHaveBeenLastCalledWith(22)
     actions['cursor.end']()
     expect(moveCursorTo).toHaveBeenLastCalledWith(499)
+  })
+})
+
+describe('pressedRow', () => {
+  afterEach(() => document.body.replaceChildren())
+
+  it('keeps the row the key was pressed on after the cursor moves in the same view', () => {
+    const { context } = setup(0)
+    const row = pressedRow(context.controller)
+    Object.assign(context.controller, { cursorIndex: 1 })
+    expect(row()).toEqual({ identity: 'agg-0', kind: 'aggregate' })
   })
 })

@@ -5,6 +5,7 @@
   import type { ViewProjection } from '../../lib/api/client'
   import { breakDownOptions } from '../../lib/shell/breadcrumbs'
   import type { OverlayState } from '../../lib/shell/overlay-state.svelte'
+  import { currencyChoices } from '../../lib/shell/period'
 
   /** The 'view' overlay. */
   interface Props {
@@ -18,7 +19,7 @@
   }
 
   let { overlays, projection, period, currency, filters, breakdown }: Props = $props()
-  const multiCurrency = $derived(projection.currencies.length > 1)
+  const multiCurrency = $derived(currencyChoices(projection).length > 1)
   const drilled = $derived(breakDownOptions(projection).length > 0)
 </script>
 

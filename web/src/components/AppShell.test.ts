@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { tick } from 'svelte'
 import AppShell from './AppShell.svelte'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
 import type { ViewProjection } from '../lib/api/client'
@@ -41,6 +42,30 @@ describe('AppShell', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Filters' }))
     expect(await screen.findByRole('button', { name: 'Show hidden transactions' })).not.toBeNull()
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('leaves focus in search when a grouping finishes, until Enter returns it', async () => {
+    const controller = stubController()
+    let finish!: (applied: boolean) => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (finish = resolve)),
+    )
+    render(AppShell, { controller })
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+
+    await fireEvent.keyDown(window, { key: '2' })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalled())
+    await fireEvent.keyDown(window, { key: '/' })
+    expect(document.activeElement).toBe(search)
+    finish(true)
+    await tick()
+    await tick()
+    expect(document.activeElement).toBe(search)
+
+    await fireEvent.keyDown(search, { key: 'Enter' })
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' })),
+    )
   })
 
   it('starts charts on and hides only the chart row with the switch', async () => {
@@ -354,6 +379,21 @@ describe('AppShell', () => {
     expect(document.activeElement).toBe(view)
   })
 
+  it('keeps the currency row in the View sheet when the view currency has no rows left', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const usd = { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' }
+    const controller = stubController(
+      testProjection({
+        currencies: [usd],
+        view: { ...testProjection().view, currency: { currency: 'EUR', scale: 2 } },
+      }),
+    )
+    render(AppShell, { controller })
+    await fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'View' }))
+    const sheet = screen.getByRole('dialog', { name: 'View' })
+    expect(within(sheet).getByRole('combobox', { name: 'Currency: EUR' })).not.toBeNull()
+  })
+
   it('opens the Filters menu inside the View sheet on f below 640 px', async () => {
     onTestFinished(stubMedia((query) => query.includes('640px')))
     render(AppShell, { controller: stubController() })
@@ -575,6 +615,50 @@ describe('AppShell', () => {
     await new Promise((resolve) => setTimeout(resolve))
     expect(controller.apply).toHaveBeenCalledTimes(1)
     expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' }))
+  })
+
+  it('toggles the cursor row of the new view when Space follows a queued view change', async () => {
+    const grouped = testProjection({
+      view: { ...testProjection().view, mode: 'aggregate' },
+      detail_rows: null,
+      aggregate_rows: [testAggregateRow()],
+    })
+    const controller = stubController(grouped)
+    controller.projection!.capabilities!.push(
+      ...[
+        ['view.show-detail', 'd'],
+        ['selection.toggle', 'space'],
+      ].map(([id, key_display]) => ({
+        id: id!,
+        key_display: key_display!,
+        description: id!,
+        category: 'Views',
+        available: true,
+      })),
+    )
+    let showDetail!: () => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          showDetail = () => {
+            Object.assign(controller, {
+              projection: testProjection({ canonical_query: 'v=1&mode=detail' }),
+            })
+            resolve(true)
+          }
+        }),
+    )
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: 'd' })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(1))
+
+    showDetail()
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(controller.apply).toHaveBeenLastCalledWith({
+      action: 'selection.toggle',
+      target: { identity: 'row-0', kind: 'transaction' },
+    })
   })
 
   it('does not trap shortcuts when an editor has no focused row', async () => {

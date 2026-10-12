@@ -12,6 +12,7 @@ export function testProjection(overrides: Partial<ViewProjection> = {}): ViewPro
     canonical_query: 'v=1',
     selection: 'mfsel1.example' as ViewProjection['selection'],
     selection_count: 0,
+    all_rows_selected: false,
     view: {
       mode: 'detail',
       grouping: 'merchant',

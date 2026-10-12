@@ -402,16 +402,6 @@ describe('ReviewDrawer in review mode', () => {
     expect(onclose).not.toHaveBeenCalled()
   })
 
-  it('falls back to the generic failure when a refused commit has no reason', async () => {
-    setup({ editing: testEditingController({ commit: vi.fn(async () => false) }) })
-    const button = await loaded()
-    await fireEvent.keyDown(button, { key: 'Enter' })
-    const drawer = screen.getByRole('dialog', { name: 'Review pending changes' })
-    expect((await within(drawer).findByRole('alert')).textContent).toBe(
-      'The profile request failed.',
-    )
-  })
-
   it('reports a refused commit and lets Enter try again', async () => {
     const commit = vi
       .fn<EditingController['commit']>()

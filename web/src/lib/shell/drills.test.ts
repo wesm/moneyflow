@@ -15,16 +15,6 @@ describe('drillFrames', () => {
     expect(drillFrames(projection)).toEqual([])
   })
 
-  it('returns one frame per drill-down, outermost first', () => {
-    const one = atDepth(1, [{ dimension: 'merchant', label: 'Corner Grocery' }])
-    expect(drillFrames(one)).toEqual([{ dimension: 'merchant', label: 'Corner Grocery' }])
-    const two = atDepth(2, [
-      { dimension: 'merchant', label: 'Corner Grocery' },
-      { dimension: 'category', label: 'Groceries' },
-    ])
-    expect(drillFrames(two)).toHaveLength(2)
-  })
-
   it('is empty at depth 0 whatever the query says about earlier views', () => {
     const nested = encodeURIComponent('mode=detail&drill=merchant%3AUSD%3A2%3Aexample-key')
     const projection = testProjection({

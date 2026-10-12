@@ -6,9 +6,10 @@ import {
   type ViewBody,
   type ViewProjection,
 } from '../api/client'
-import { createViewController } from './view-controller.svelte'
+import { createViewController, type ViewController } from './view-controller.svelte'
 import type { SelectionValue } from '../api/client'
 import type { MoneyflowHistoryState } from './history'
+import { testAggregateRow } from '../../test/projection'
 
 describe('browser view controller', () => {
   beforeEach(() => history.replaceState(null, '', '/moneyflow/?hidden=1&v=1'))
@@ -168,6 +169,37 @@ describe('browser view controller', () => {
         expect.any(AbortSignal),
       )
     }
+  })
+
+  it('runs each transition from the view the one before it returned', async () => {
+    const releases: Array<() => void> = []
+    const client = clientWith({
+      transition: vi.fn(
+        (body) =>
+          new Promise<ViewProjection>((resolve) =>
+            releases.push(() => resolve(projection(`${body.query}&p`, 0, 3))),
+          ),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    const first = controller.apply({ action: 'time.previous-period' })
+    const second = controller.apply({ action: 'time.previous-period' })
+    await vi.waitFor(() => expect(releases).toHaveLength(1), { interval: 1 })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(client.transition).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(client.transition).mock.calls[0]?.[1]?.aborted).toBe(false)
+    releases[0]?.()
+    await vi.waitFor(() => expect(releases).toHaveLength(2), { interval: 1 })
+    releases[1]?.()
+    await Promise.all([first, second])
+
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: 'v=1&p', action: 'time.previous-period' }),
+      expect.any(AbortSignal),
+    )
+    expect(controller.projection?.canonical_query).toBe('v=1&p&p')
   })
 
   it('uses verified owned history for Esc and replaces with the server parent otherwise', async () => {
@@ -371,11 +403,15 @@ describe('browser view controller', () => {
   })
 
   describe('an edit that lands between Esc and its history traversal', () => {
+    const cleared = 'mfsel1.cleared' as SelectionValue
+
     async function editDuringReturn() {
       const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
       const client = clientWith({
         transition: vi.fn(async (body) =>
-          projection(body.action === 'view.back' ? 'v=1' : 'v=1&drill=x', 0, 3),
+          body.action === 'view.back'
+            ? projection('v=1', 0, 3, '0', cleared)
+            : projection('v=1&drill=x', 0, 3),
         ),
       })
       const controller = controllerFor(client, false)
@@ -406,6 +442,41 @@ describe('browser view controller', () => {
       )
       expect(controller.projection?.canonical_query).toBe('v=1')
       expect(controller.projection?.revision).toBe('1')
+    })
+
+    it('fetches the parent with the selection Esc left, not the one history saved', async () => {
+      const { client, controller, parent, back } = await editDuringReturn()
+      expect(parent.selection).not.toBe(cleared)
+
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+      await back
+
+      expect(client.view).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'v=1', selection: cleared }),
+        expect.any(AbortSignal),
+      )
+    })
+
+    it('holds a key pressed during the parent fetch until the parent loads', async () => {
+      const { client, controller, parent, back } = await editDuringReturn()
+      let release!: (value: ViewProjection) => void
+      vi.mocked(client.view).mockImplementationOnce(
+        () => new Promise<ViewProjection>((resolve) => (release = resolve)),
+      )
+      vi.mocked(client.transition).mockClear()
+
+      const restoring = controller.restore(new PopStateEvent('popstate', { state: parent }))
+      const key = controller.apply({ action: 'view.drill' })
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      expect(client.transition).not.toHaveBeenCalled()
+      expect(vi.mocked(client.view).mock.calls.at(-1)?.[1]?.aborted).toBe(false)
+      release(projection('v=1', 0, 3, '1'))
+      await Promise.all([restoring, back, key])
+      expect(client.transition).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'v=1', action: 'view.drill' }),
+        expect.any(AbortSignal),
+      )
     })
 
     it('keeps the edited view when the traversal times out', async () => {
@@ -857,10 +928,25 @@ describe('browser view controller', () => {
   })
 
   describe('showing an anchored row', () => {
-    const anchored = (body: ViewBody) => {
-      if (body.anchor !== 'merchant:example') return projection('v=1', body.window.offset, 450)
-      return { ...projection('v=1', 400, 450), anchor_index: 420 }
+    /** A window of a 450-merchant view whose row 420 is `merchant:example`. */
+    const merchants = (offset: number): ViewProjection => {
+      const window = projection('v=1', offset, 450)
+      return {
+        ...window,
+        view: { ...window.view, mode: 'aggregate', sort_field: 'amount' },
+        detail_rows: null,
+        aggregate_rows: (window.detail_rows ?? []).map(({ index }) =>
+          testAggregateRow({
+            index,
+            identity: index === 420 ? 'merchant:example' : `merchant:${index}`,
+          }),
+        ),
+      }
     }
+    const anchored = (body: ViewBody) =>
+      body.anchor === 'merchant:example'
+        ? { ...merchants(400), anchor_index: 420 }
+        : merchants(body.window.offset)
 
     it('loads the window holding the row and moves the cursor there without a history entry', async () => {
       const client = clientWith({ view: vi.fn(async (body) => anchored(body)) })
@@ -879,7 +965,7 @@ describe('browser view controller', () => {
       })
       expect(controller.projection?.window.offset).toBe(400)
       expect(controller.cursorIndex).toBe(420)
-      expect(controller.cursorIdentity).toBe('row-420')
+      expect(controller.cursorIdentity).toBe('merchant:example')
       expect((history.state as MoneyflowHistoryState).cursorIndex).toBe(420)
       expect(pushes).not.toHaveBeenCalled()
     })
@@ -926,6 +1012,7 @@ describe('browser view controller', () => {
       release()
       await showing
       expect(controller.cursorIndex).toBe(420)
+      expect(controller.cursorIdentity).toBe('merchant:example')
     })
 
     it('keeps a cursor move made while the row loads', async () => {
@@ -933,7 +1020,7 @@ describe('browser view controller', () => {
       const client = clientWith({
         view: vi.fn((body: ViewBody) =>
           body.anchor === undefined
-            ? Promise.resolve(projection('v=1', body.window.offset, 450))
+            ? Promise.resolve(merchants(body.window.offset))
             : new Promise<ViewProjection>((resolve) => (answer = resolve)),
         ),
       })
@@ -944,10 +1031,11 @@ describe('browser view controller', () => {
       const showing = controller.showAnchor('merchant:example')
       await new Promise((resolve) => setTimeout(resolve, 0))
       await controller.moveCursor(1)
-      answer({ ...projection('v=1', 400, 450), anchor_index: 420 })
+      answer({ ...merchants(400), anchor_index: 420 })
       await showing
 
       expect(controller.cursorIndex).toBe(1)
+      expect(controller.cursorIdentity).toBe('merchant:1')
       expect(controller.projection).toBe(loaded)
     })
   })
@@ -1110,7 +1198,10 @@ describe('browser view controller', () => {
       expect(controller.cursorIndex).toBe(0)
     })
 
-    it('drops a scrolled-to window when Home is pressed on the first row', async () => {
+    it.each([
+      ['Home', (controller: ViewController) => controller.moveHome()],
+      ['Up', (controller: ViewController) => controller.moveCursor(-1)],
+    ])('drops a scrolled-to window when %s keeps the cursor on the first row', async (_, key) => {
       let release!: (value: ViewProjection) => void
       const client = clientWith({
         view: vi.fn(async (body) => {
@@ -1122,7 +1213,7 @@ describe('browser view controller', () => {
       await controller.hydrate()
 
       const shown = controller.showIndex(250)
-      await controller.moveHome()
+      await key(controller)
       release(projection('v=1', 200, 450))
       await shown
 
@@ -1778,6 +1869,7 @@ function projection(
     },
     selection: selection as ViewProjection['selection'],
     selection_count: 0,
+    all_rows_selected: false,
     breadcrumbs: [],
     breadcrumb_text: 'All transactions',
     filters: { show_hidden: false, show_transfers: false },

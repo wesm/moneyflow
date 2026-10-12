@@ -3,7 +3,8 @@
  * the key and the editor's state. The combobox and the editor host act on the result.
  */
 
-export type EditorFocus = 'combobox' | 'scope' | 'stage' | 'cancel'
+/** Where focus is: the combobox, a scope radio, or a button such as Stage or Cancel. */
+export type EditorFocus = 'combobox' | 'scope' | 'stage'
 
 export type EditorKeyAction =
   | 'open'

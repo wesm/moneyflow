@@ -105,8 +105,8 @@ describe('InsightsCache', () => {
     expect(cache.seriesFor('a')?.identity).toBe('a')
   })
 
-  it('reports newer insights once and drops older ones', async () => {
-    const { cache, calls, onNewer } = harness()
+  it('reports newer insights once while the view rechecks and drops older ones', async () => {
+    const { cache, calls, onNewer } = harness(vi.fn(() => new Promise<void>(() => undefined)))
     cache.sync(view('v=1', '3'), ['a'])
     cache.sync(view('v=1', '3'), ['a', 'b'])
     await answer(calls[0], '4')
@@ -232,6 +232,63 @@ describe('InsightsCache', () => {
     cache.retry()
     await answer(calls[1], '2')
     expect(onNewer).toHaveBeenCalledTimes(2)
+  })
+
+  it('rechecks the same newer revision again when a recheck left the view behind', async () => {
+    // The recheck succeeds, but a move between cached table windows discarded its newer view.
+    const { cache, calls, onNewer } = harness(vi.fn(async () => undefined))
+    cache.sync(view('v=1', '1'), [])
+    await answer(calls[0], '2')
+    expect(cache.status).toBe('failed')
+
+    cache.retry()
+    await answer(calls[1], '2')
+    expect(onNewer).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails the missing series when a recheck leaves a loaded view behind', async () => {
+    const { cache, calls, onNewer } = harness(vi.fn(() => Promise.reject(new Error('offline'))))
+    cache.sync(view('v=1', '3'), ['a'])
+    await answer(calls[0], '3')
+    cache.sync(view('v=1', '3'), ['a', 'b'])
+    await answer(calls[1], '4')
+
+    expect(onNewer).toHaveBeenCalledWith('4')
+    expect(cache.status).toBe('ready')
+    expect(cache.seriesFailed).toBe(true)
+    cache.retry()
+    expect(calls[2]?.body).toEqual({ query: 'v=1', rows: ['b'], summary: false })
+  })
+
+  it('asks again for a cached summary once its answer is old, for a new day', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    try {
+      const { cache, calls } = harness()
+      cache.sync(view('v=1'), ['a'])
+      await answer(calls[0], '1', '2026-10-07')
+      const shown = cache.entry
+
+      now.mockReturnValue(1_000_000 + 4 * 60_000)
+      cache.sync(view('v=1'), ['a'])
+      expect(calls).toHaveLength(1)
+
+      now.mockReturnValue(1_000_000 + 5 * 60_000)
+      cache.sync(view('v=1'), ['a'])
+      cache.sync(view('v=1'), ['a'])
+      expect(calls).toHaveLength(2)
+      expect(calls[1]?.body).toEqual({ query: 'v=1', summary: true })
+      await answer(calls[1], '1', '2026-10-07')
+      expect(cache.entry).toBe(shown)
+      expect(calls).toHaveLength(2)
+
+      now.mockReturnValue(1_000_000 + 10 * 60_000)
+      cache.sync(view('v=1'), ['a'])
+      await answer(calls[2], '1', '2026-10-08')
+      expect(cache.entry?.response.today).toBe('2026-10-08')
+      expect(calls[3]?.body).toEqual({ query: 'v=1', rows: ['a'], summary: false })
+    } finally {
+      now.mockRestore()
+    }
   })
 
   it('fails without retrying on its own and retry requests again', async () => {

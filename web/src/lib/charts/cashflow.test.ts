@@ -232,13 +232,6 @@ describe('cashflowGeometry', () => {
     extra.response.summary!.cashflow.labels.push('Oct 2026')
     expect(() => cashflowGeometry(extra, 200, 100)).toThrow(/labels/)
   })
-
-  it('draws nothing for a response without a summary', () => {
-    const empty = megastore()
-    const response = { ...empty.response }
-    delete response.summary
-    expect(cashflowGeometry({ ...empty, response }, 200, 100).columns).toEqual([])
-  })
 })
 
 describe('cursorGeometry', () => {

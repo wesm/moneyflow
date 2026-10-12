@@ -50,7 +50,9 @@ of the selected transactions per currency, and `staged` values on rows with pend
 rows carry `savings_rate_tenths` and `net_ratio` on Time rows, and `group` on category rows.
 `net_ratio` is the row's net over the largest absolute net of the whole result, in basis points
 (−10000 to 10000). It does not change when the row window moves. `view.sort_fields` lists the fields
-the current view can sort by, in the order the sort key cycles.
+the current view can sort by, in the order the sort key cycles. `all_rows_selected` is true when the
+result has rows and the selection holds all of them; selected rows outside the result, such as after
+a provider refresh, do not count.
 
 **Unreleased:** `view.drill_depth` counts the drill frames in the current view. `view.root` names
 the view that `view.back-to` with depth 0 reaches, as its `mode`, `grouping`, and
