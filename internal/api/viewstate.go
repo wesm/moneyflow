@@ -487,22 +487,15 @@ func formatPeriod(period domain.Period) string {
 }
 
 func parseNavigationScope(value string) (app.NavigationScope, error) {
-	parts := strings.Split(value, ":")
-	if len(parts) != 4 {
+	modeText, depthText, ok := strings.Cut(value, ":")
+	if !ok {
 		return app.NavigationScope{}, errors.New("search anchor is malformed")
 	}
-	scope := app.NavigationScope{
-		Mode: domain.ResultMode(parts[0]), Dimension: domain.Dimension(parts[1]),
-	}
-	if parts[2] != "_" {
-		dimension := domain.Dimension(parts[2])
-		scope.SubGrouping = &dimension
-	}
-	depth, err := strconv.Atoi(parts[3])
+	depth, err := strconv.Atoi(depthText)
 	if err != nil {
 		return app.NavigationScope{}, errors.New("search anchor depth is malformed")
 	}
-	scope.DrilldownSize = depth
+	scope := app.NavigationScope{Mode: domain.ResultMode(modeText), DrilldownSize: depth}
 	if formatNavigationScope(scope) != value {
 		return app.NavigationScope{}, errors.New("search anchor is not canonical")
 	}
@@ -510,17 +503,7 @@ func parseNavigationScope(value string) (app.NavigationScope, error) {
 }
 
 func formatNavigationScope(scope app.NavigationScope) string {
-	subgroup := "_"
-	if scope.SubGrouping != nil {
-		subgroup = string(*scope.SubGrouping)
-	}
-	return fmt.Sprintf(
-		"%s:%s:%s:%d",
-		scope.Mode,
-		scope.Dimension,
-		subgroup,
-		scope.DrilldownSize,
-	)
+	return fmt.Sprintf("%s:%d", scope.Mode, scope.DrilldownSize)
 }
 
 func invalidView(cause error) *SafeError {

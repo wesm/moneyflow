@@ -25,6 +25,10 @@ func registerReadTools(server *Server, dependencies Dependencies) {
 		func(ctx context.Context, input SpendingSummaryInput) (any, error) {
 			return spendingDocument(ctx, dependencies.Service, dependencies.Clock, input)
 		})
+	registerTool(server, "get_insights", insightsDescription, true,
+		func(ctx context.Context, input GetInsightsInput) (any, error) {
+			return insightsDocument(ctx, dependencies.Service, input)
+		})
 	registerTool(server, "get_categories", "List active category groups and categories.", true,
 		func(ctx context.Context, input CategoriesInput) (any, error) {
 			return categoriesDocument(ctx, dependencies.Service, input)

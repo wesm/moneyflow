@@ -42,8 +42,6 @@ type historyEntry struct {
 
 type navigationMarker struct {
 	mode          domain.ResultMode
-	dimension     domain.Dimension
-	subGrouping   *domain.Dimension
 	drilldownSize int
 }
 
@@ -362,8 +360,6 @@ func (session *Session) pushHistory(kind historyKind, position ViewPosition) {
 func (session *Session) marker() navigationMarker {
 	return navigationMarker{
 		mode:          session.Mode,
-		dimension:     session.Dimension,
-		subGrouping:   cloneDimension(session.SubGrouping),
 		drilldownSize: len(session.Drilldowns),
 	}
 }
@@ -492,7 +488,6 @@ func cloneNavigationMarker(marker *navigationMarker) *navigationMarker {
 		return nil
 	}
 	cloned := *marker
-	cloned.subGrouping = cloneDimension(marker.subGrouping)
 	return &cloned
 }
 

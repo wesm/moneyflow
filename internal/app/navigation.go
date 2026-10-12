@@ -323,9 +323,7 @@ func (snapshot *sessionSnapshot) dropTimeDrilldowns() bool {
 	snapshot.subGrouping = nil
 	snapshot.sort = sortForTopLevelTransition(snapshot.dimension, snapshot.sort)
 	if snapshot.searchAnchor != nil {
-		snapshot.searchAnchor = &navigationMarker{
-			mode: snapshot.mode, dimension: snapshot.dimension,
-		}
+		snapshot.searchAnchor = &navigationMarker{mode: snapshot.mode}
 	}
 	return true
 }

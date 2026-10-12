@@ -86,7 +86,7 @@ func resolveProfileRequests(
 ) http.Handler {
 	prefix := basePath + "api/v1/profiles/"
 	resolvedEndpoints := map[string]struct{}{
-		"bootstrap": {}, "health": {}, "view": {}, "view/transition": {},
+		"bootstrap": {}, "health": {}, "view": {}, "view/transition": {}, "view/insights": {},
 		"mutations": {}, "undo": {}, "redo": {}, "commit": {}, "review": {},
 		"review/targets": {}, "duplicates": {}, "editor-catalog": {}, "merchant-preview": {}, "provider/status": {},
 		"export/preview": {}, "export": {},
@@ -146,7 +146,7 @@ func legacyProfileRoutes(next http.Handler, basePath string, profileID string) h
 		return next
 	}
 	endpoints := map[string]struct{}{
-		"health": {}, "view": {}, "view/transition": {}, "mutations": {},
+		"health": {}, "view": {}, "view/transition": {}, "view/insights": {}, "mutations": {},
 		"undo": {}, "redo": {}, "commit": {}, "review": {}, "review/targets": {},
 		"duplicates": {}, "editor-catalog": {}, "merchant-preview": {}, "provider/status": {}, "provider/refresh": {},
 		"export/preview": {}, "export": {},

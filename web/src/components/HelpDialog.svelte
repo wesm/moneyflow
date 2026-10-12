@@ -9,11 +9,12 @@
     onclose: () => void
   }
   let { capabilities, onclose }: Props = $props()
+  const keyed = $derived(capabilities.filter((capability) => capability.key_display))
   const categories = $derived(
-    [...new Set(capabilities.map((capability) => capability.category || 'Navigation'))].map(
+    [...new Set(keyed.map((capability) => capability.category || 'Navigation'))].map(
       (category) => ({
         category,
-        capabilities: capabilities.filter(
+        capabilities: keyed.filter(
           (capability) => (capability.category || 'Navigation') === category,
         ),
       }),

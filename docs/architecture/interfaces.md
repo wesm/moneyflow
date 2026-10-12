@@ -45,6 +45,13 @@ onboarding flow, not a hidden import during recovery.
 application transitions as the TUI. One SPA serves the configured base path; profile application
 URLs and API routes use `/p/<profile-id>/`. Shared assets remain at the base path.
 
+Each view response is a projection with the rows, `currencies`, a `selection_summary` of the
+selected transactions per currency, and `staged` values on rows with pending edits. Aggregate rows
+carry `savings_rate_tenths`. A whole-merchant preview reports how many affected transactions
+the view hides, with `outside_view` and `outside_currencies`. Charts read from a separate
+operation, `POST /api/v1/profiles/{profile_id}/view/insights`. It takes the view's query and
+optional row identities and returns committed chart data from `Service.Insights`.
+
 The analytical URL is durable state: versioned view parameters, search, filters, drills, and return
 frames. Cursor/scroll and transient selection are not financial profile data. The server owns
 canonical transitions and validation; the browser history ledger is a navigation convenience,
@@ -86,6 +93,15 @@ Read-only is the default. `--allow-write` adds staging tools, explicit commit, u
 controls; it does not permit direct provider mutations. Dry run validates without appending.
 Read tools return exact money strings/minor units, not JSON floats. Literal search includes notes,
 preserving Python MCP's search behavior without altering the TUI's regex search.
+
+`get_insights` returns the same chart data as the web insights operation, from the same
+`Service.Insights` primitive over **committed** values. The transaction reads apply pending edits;
+insights do not. The adapter turns its inputs into an analytical state by navigating a shared
+`app.Session`: ID filters become drill-downs in the order merchant, category, group, account;
+`group_by` is the top-level grouping without filters and the sub-grouping below them; omitting it
+requests a transaction view. Keys become aggregate row identities of that grouping and currency.
+Invalid views return `invalid_operation`; unlike other tools, its `detail` gives the reason.
+The document mirrors the HTTP response's sections but carries every amount as an MCP money object.
 
 Category and merchant assignment, whole-merchant rename/explicit merge, hide cancellation, and
 transaction deletion reuse the application mutation planner and provider checks. Transaction batches

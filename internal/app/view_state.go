@@ -30,8 +30,6 @@ const (
 // NavigationScope identifies the scope where a committed search was opened.
 type NavigationScope struct {
 	Mode          domain.ResultMode `json:"mode"`
-	Dimension     domain.Dimension  `json:"dimension"`
-	SubGrouping   *domain.Dimension `json:"sub_grouping,omitempty"`
 	DrilldownSize int               `json:"drilldown_size"`
 }
 
@@ -139,11 +137,8 @@ func (state AnalyticalState) validate() error {
 }
 
 func (scope NavigationScope) validate() error {
-	if !scope.Mode.Valid() || !scope.Dimension.Valid() {
-		return errors.New("invalid mode or dimension")
-	}
-	if scope.SubGrouping != nil && !scope.SubGrouping.Valid() {
-		return errors.New("invalid subgroup dimension")
+	if !scope.Mode.Valid() {
+		return errors.New("invalid mode")
 	}
 	if scope.DrilldownSize < 0 || scope.DrilldownSize > len(dimensionOrder) {
 		return errors.New("invalid drill-down size")
@@ -264,20 +259,14 @@ func navigationScopeFromMarker(marker *navigationMarker) *NavigationScope {
 	if marker == nil {
 		return nil
 	}
-	return &NavigationScope{
-		Mode: marker.mode, Dimension: marker.dimension,
-		SubGrouping: cloneDimension(marker.subGrouping), DrilldownSize: marker.drilldownSize,
-	}
+	return &NavigationScope{Mode: marker.mode, DrilldownSize: marker.drilldownSize}
 }
 
 func markerFromNavigationScope(scope *NavigationScope) *navigationMarker {
 	if scope == nil {
 		return nil
 	}
-	return &navigationMarker{
-		mode: scope.Mode, dimension: scope.Dimension,
-		subGrouping: cloneDimension(scope.SubGrouping), drilldownSize: scope.DrilldownSize,
-	}
+	return &navigationMarker{mode: scope.Mode, drilldownSize: scope.DrilldownSize}
 }
 
 func cloneNavigationScope(scope *NavigationScope) *NavigationScope {
@@ -285,7 +274,6 @@ func cloneNavigationScope(scope *NavigationScope) *NavigationScope {
 		return nil
 	}
 	cloned := *scope
-	cloned.SubGrouping = cloneDimension(scope.SubGrouping)
 	return &cloned
 }
 

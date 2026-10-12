@@ -188,7 +188,7 @@ func (service *Service) projectViewLocked(
 	selection SelectionValue,
 	window WindowRequest,
 ) (WebProjection, error) {
-	return service.projectViewWith(state, selection, window, service.currencies())
+	return service.projectViewWith(state, selection, window, service.Currencies())
 }
 
 // projectViewWith projects a view with the profile's currencies, which the caller computed
@@ -436,7 +436,7 @@ func (service *Service) applyTransition(
 	if err := validateTransitionArguments(transition); err != nil {
 		return transitionResult{}, err
 	}
-	currencies := service.currencies()
+	currencies := service.Currencies()
 	state, err := service.deriveViewState(state, currencies)
 	if err != nil {
 		return transitionResult{}, err

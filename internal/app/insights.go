@@ -15,6 +15,42 @@ import (
 // MaxInsightsRows bounds requested series rows to one loaded browser window.
 const MaxInsightsRows = analytics.MaxInsightsKeys
 
+// The insights result types are named here too, so interface adapters that may not import
+// analytics can convert them.
+
+// InsightsRanges holds the scope, chart context, trend, and comparison ranges.
+type InsightsRanges = analytics.Ranges
+
+// InsightsPeriodRange is one chart period.
+type InsightsPeriodRange = analytics.PeriodRange
+
+// InsightsSummary holds the view-wide chart data.
+type InsightsSummary = analytics.InsightsSummary
+
+// InsightsKPIs holds the scope totals and their comparison.
+type InsightsKPIs = analytics.InsightsKPIs
+
+// InsightsTotals holds exact totals for one range.
+type InsightsTotals = analytics.InsightsTotals
+
+// InsightsChange compares a value with its prior range.
+type InsightsChange = analytics.Change
+
+// InsightsPeriod is one cash-flow period.
+type InsightsPeriod = analytics.InsightsPeriod
+
+// InsightsComposition ranks rows by their share of spending and of income.
+type InsightsComposition = analytics.Composition
+
+// InsightsCompositionEntry is one ranked row, or the entry folding the rest.
+type InsightsCompositionEntry = analytics.CompositionEntry
+
+// InsightsSeries is one requested row's chart data.
+type InsightsSeries = analytics.InsightsSeries
+
+// InsightsChangeAmount marks a change reported as an amount rather than a percentage.
+const InsightsChangeAmount = analytics.ChangeAmount
+
 var errMalformedIdentity = errors.New("malformed aggregate row identity")
 
 // InsightsRequest asks for the chart data of one view.
@@ -30,6 +66,15 @@ type InsightsResult struct {
 	Revision uint64
 	State    AnalyticalState
 	Insights analytics.Insights
+}
+
+// RowIdentity returns the table row identity of an aggregate key in the view's grouping, so
+// series and composition entries link to the rows they describe.
+func (result InsightsResult) RowIdentity(key string) string {
+	return AggregateIdentity(domain.AggregateRow{
+		Dimension: insightsGrouping(result.State), Key: key,
+		Total: domain.Money{Currency: result.Insights.Currency, Scale: result.Insights.Scale},
+	})
 }
 
 // SetClock replaces the clock that defines today for insights. Harnesses pass a fixed clock;
@@ -158,12 +203,7 @@ func insightsKeys(state AnalyticalState, rows []string) ([]string, error) {
 	if len(rows) > MaxInsightsRows {
 		return nil, fmt.Errorf("at most %d insights rows", MaxInsightsRows)
 	}
-	grouping := state.Dimension
-	if state.SubGrouping != nil {
-		grouping = *state.SubGrouping
-	} else if state.Mode != domain.ResultModeAggregate {
-		grouping = ""
-	}
+	grouping := insightsGrouping(state)
 	keys := make([]string, 0, len(rows))
 	seen := make(map[string]struct{}, len(rows))
 	for index, row := range rows {
@@ -181,6 +221,17 @@ func insightsKeys(state AnalyticalState, rows []string) ([]string, error) {
 		keys = append(keys, key)
 	}
 	return keys, nil
+}
+
+// insightsGrouping is the dimension of the view's table rows; empty for a transaction view.
+func insightsGrouping(state AnalyticalState) domain.Dimension {
+	if state.SubGrouping != nil {
+		return *state.SubGrouping
+	}
+	if state.Mode != domain.ResultModeAggregate {
+		return ""
+	}
+	return state.Dimension
 }
 
 // parseAggregateIdentity reverses AggregateIdentity.

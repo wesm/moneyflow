@@ -37,7 +37,7 @@ func TestServerLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"confirm_refresh_deletions", "export_transactions", "get_account_info", "get_amazon_order_details",
-		"get_categories", "get_commit_status", "get_merchants", "get_refresh_status",
+		"get_categories", "get_commit_status", "get_insights", "get_merchants", "get_refresh_status",
 		"get_spending_summary", "get_transaction_details", "get_transactions",
 		"get_uncategorized_transactions", "preview_export", "refresh_data", "review_changes",
 		"search_transactions",

@@ -124,10 +124,139 @@ func TestWireCapabilitiesIncludeCategoriesAndUnavailableWebActions(t *testing.T)
 	assert.Equal(t, "Actions", byID[app.ActionEditMerchant].Category)
 	_, lifecycleVisible := byID[app.ActionQuit]
 	assert.False(t, lifecycleVisible)
-	_, searchApplyVisible := byID[app.ActionApplySearch]
-	assert.False(t, searchApplyVisible)
-	_, filtersApplyVisible := byID[app.ActionApplyFilters]
-	assert.False(t, filtersApplyVisible)
+}
+
+func TestWireCapabilitiesListKeylessWebActionsWithoutKeys(t *testing.T) {
+	t.Parallel()
+
+	projection := app.WebProjection{
+		Actions: []app.ActionID{app.ActionSetSort},
+		Capabilities: []app.Capability{{
+			Action: app.ActionSetCurrency, Available: false, Reason: "The profile has one currency.",
+		}},
+	}
+	wire := projectionToWire(projection, "v=1", nil)
+	byID := make(map[app.ActionID]Capability, len(wire.Capabilities))
+	for _, capability := range wire.Capabilities {
+		byID[capability.ID] = capability
+	}
+	for _, id := range []app.ActionID{
+		app.ActionSetSubGrouping, app.ActionSetCurrency, app.ActionSetSort,
+		app.ActionApplySearch, app.ActionApplyFilters,
+	} {
+		capability, listed := byID[id]
+		require.True(t, listed, id)
+		assert.Empty(t, capability.KeyDisplay, id)
+	}
+	assert.True(t, byID[app.ActionSetSort].Available)
+	assert.False(t, byID[app.ActionSetCurrency].Available)
+	assert.Equal(t, "The profile has one currency.", byID[app.ActionSetCurrency].Reason)
+	_, tuiOnly := byID[app.ActionChooseTime]
+	assert.False(t, tuiOnly, "actions the web does not offer stay out")
+}
+
+func TestWireProjectionCarriesCurrenciesAndSelectionSummary(t *testing.T) {
+	t.Parallel()
+
+	first, err := domain.ParseDate("2024-01-02")
+	require.NoError(t, err)
+	latest, err := domain.ParseDate("2026-03-04")
+	require.NoError(t, err)
+	projection := app.WebProjection{
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		Currencies: []domain.CurrencyCount{
+			{Currency: "USD", Scale: 2, Count: 9, First: first, Latest: latest},
+			{Currency: "KWD", Scale: 3, Count: 1, First: latest, Latest: latest},
+		},
+		SelectionSummary: []domain.CurrencyStats{{
+			Currency: "USD", Scale: 2, Count: 2,
+			In:  domain.Money{Minor: 500, Currency: "USD", Scale: 2},
+			Out: domain.Money{Minor: -300, Currency: "USD", Scale: 2},
+			Net: domain.Money{Minor: 200, Currency: "USD", Scale: 2},
+		}},
+	}
+
+	wire := projectionToWire(projection, "v=1", nil)
+
+	assert.Equal(t, []CurrencyCount{
+		{Currency: "USD", Scale: 2, Count: 9, First: "2024-01-02", Latest: "2026-03-04"},
+		{Currency: "KWD", Scale: 3, Count: 1, First: "2026-03-04", Latest: "2026-03-04"},
+	}, wire.Currencies)
+	require.Len(t, wire.SelectionSummary, 1)
+	assert.Equal(t, 2, wire.SelectionSummary[0].Count)
+	assert.Equal(t, "+2.00", wire.SelectionSummary[0].Net.Display)
+}
+
+func TestWireProjectionOmitsSelectionSummaryWhenNothingIsSelected(t *testing.T) {
+	t.Parallel()
+
+	wire := projectionToWire(app.WebProjection{
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	}, "v=1", nil)
+	data, err := json.Marshal(wire)
+	require.NoError(t, err)
+
+	assert.NotContains(t, string(data), "selection_summary")
+	assert.Contains(t, string(data), `"currencies":[]`)
+}
+
+func TestWireViewMetadataCarriesCurrencyScopeAndSubGrouping(t *testing.T) {
+	t.Parallel()
+
+	state := app.DefaultViewState()
+	subGrouping := domain.DimensionCategory
+	state.Current.SubGrouping = &subGrouping
+	state.Current.Currency = &domain.CurrencyScope{Currency: "EUR", Scale: 2}
+	wire := projectionToWire(
+		app.WebProjection{State: state, Selection: app.EmptySelection()}, "v=1", nil,
+	)
+
+	assert.Equal(t, "category", wire.View.SubGrouping)
+	assert.Equal(t, &CurrencyScope{Currency: "EUR", Scale: 2}, wire.View.Currency)
+
+	wire = projectionToWire(app.WebProjection{
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	}, "v=1", nil)
+	assert.Empty(t, wire.View.SubGrouping)
+	assert.Nil(t, wire.View.Currency)
+}
+
+func TestWireRowsCarryStagedValuesAndSavingsRate(t *testing.T) {
+	t.Parallel()
+
+	hidden := true
+	rate := -125
+	projection := app.WebProjection{
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		DetailRows: []app.WebDetailRow{
+			{Identity: "renamed", Staged: &app.StagedValues{
+				Merchant: &domain.EntityRef{ID: "m2", Name: "New Merchant"},
+				Category: &domain.CategoryRef{ID: "c2", Name: "New Category", Group: "New Group"},
+				Hidden:   &hidden,
+			}},
+			{Identity: "removed", Staged: &app.StagedValues{Deleted: true}},
+			{Identity: "plain"},
+		},
+		AggregateRows: []app.WebAggregateRow{
+			{Identity: "time", SavingsRateTenths: &rate},
+			{Identity: "other"},
+		},
+	}
+
+	wire := projectionToWire(projection, "v=1", nil)
+
+	staged := wire.DetailRows[0].Staged
+	require.NotNil(t, staged)
+	assert.Equal(t, "New Merchant", *staged.Merchant)
+	assert.Equal(t, "New Category", *staged.Category)
+	assert.Equal(t, "New Group", *staged.Group)
+	assert.True(t, *staged.Hidden)
+	assert.False(t, staged.Deleted)
+	assert.Equal(t, &StagedValues{Deleted: true}, wire.DetailRows[1].Staged)
+	assert.Nil(t, wire.DetailRows[2].Staged)
+	require.NotNil(t, wire.AggregateRows[0].SavingsRateTenths)
+	assert.Equal(t, -125, *wire.AggregateRows[0].SavingsRateTenths)
+	assert.Nil(t, wire.AggregateRows[1].SavingsRateTenths)
 }
 
 func TestWireCapabilitiesCarryDynamicUnavailableReason(t *testing.T) {

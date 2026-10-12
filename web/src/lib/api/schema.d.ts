@@ -700,6 +700,23 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/profiles/{profile_id}/view/insights': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Project chart data for one view from committed values */
+    post: operations['projectInsights']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/profiles/{profile_id}/view/transition': {
     parameters: {
       query?: never
@@ -742,6 +759,8 @@ export interface components {
       label: string
       out: components['schemas']['Money']
       period?: components['schemas']['Period']
+      /** Format: int64 */
+      savings_rate_tenths?: number
       /** Format: int64 */
       share_tenths: number
       top_category?: string
@@ -859,6 +878,28 @@ export interface components {
       version: string
       window: components['schemas']['Window']
     }
+    CurrencyCount: {
+      /** Format: int64 */
+      count: number
+      currency: string
+      /** Format: date */
+      first: string
+      /** Format: date */
+      latest: string
+      /** Format: int32 */
+      scale: number
+    }
+    CurrencyScope: {
+      currency: string
+      /** Format: int32 */
+      scale: number
+    }
+    DateRange: {
+      /** Format: date */
+      end: string
+      /** Format: date */
+      start: string
+    }
     DetailRow: {
       account: string
       amazon_match?: components['schemas']['AmazonMatchIndicator']
@@ -871,6 +912,7 @@ export interface components {
       /** Format: int64 */
       index: number
       merchant: string
+      staged?: components['schemas']['StagedValues']
     }
     DuplicateBody: {
       expected_revision: string
@@ -1022,9 +1064,131 @@ export interface components {
       revision: string
       version: string
     }
+    InsightsBody: {
+      query: string
+      /** @description Aggregate row identities of the view's grouping, at most 200. Duplicates are ignored. */
+      rows?: string[]
+      summary?: boolean
+    }
+    InsightsCashflow: {
+      count: number[]
+      in: string[]
+      labels: string[]
+      net: string[]
+      out: string[]
+    }
+    InsightsChange: {
+      amount?: string
+      favorable: boolean
+      grew: boolean
+      /** @enum {string} */
+      kind: 'none' | 'new' | 'percent' | 'amount'
+      /** Format: int64 */
+      percent_tenths: number
+    }
+    InsightsComposition: {
+      income: components['schemas']['InsightsCompositionEntry'][]
+      spending: components['schemas']['InsightsCompositionEntry'][]
+    }
+    InsightsCompositionEntry: {
+      identity?: string
+      key?: string
+      label: string
+      net: string
+      /** Format: int64 */
+      others?: number
+      /** Format: int64 */
+      share_tenths: number
+    }
+    InsightsHeatmap: {
+      /** Format: date */
+      end: string
+      /** @enum {string} */
+      layout: 'months' | 'weeks'
+      /** Format: date */
+      start: string
+    }
+    InsightsInOut: {
+      in: string[]
+      out: string[]
+    }
+    InsightsKPIs: {
+      average_per_transaction?: string
+      comparison?: components['schemas']['InsightsTotals']
+      income_change?: components['schemas']['InsightsChange']
+      net_change?: components['schemas']['InsightsChange']
+      /** Format: int64 */
+      savings_rate_tenths?: number
+      scope: components['schemas']['InsightsTotals']
+      spending_change?: components['schemas']['InsightsChange']
+    }
+    InsightsPeriodRange: {
+      absent: boolean
+      /** Format: date */
+      end: string
+      partial: boolean
+      period: components['schemas']['Period']
+      /** Format: date */
+      start: string
+    }
+    InsightsRanges: {
+      comparison?: components['schemas']['DateRange']
+      comparison_label?: string
+      context: components['schemas']['InsightsPeriodRange'][]
+      /** @enum {string} */
+      context_granularity: 'year' | 'month' | 'day'
+      heatmap?: components['schemas']['InsightsHeatmap']
+      /** @enum {string} */
+      kind: 'day' | 'month' | 'year' | 'custom' | 'all'
+      scope?: components['schemas']['DateRange']
+      trend: components['schemas']['InsightsPeriodRange'][]
+    }
+    InsightsResponse: {
+      currency: string
+      /** Format: date */
+      latest?: string
+      query: string
+      ranges: components['schemas']['InsightsRanges']
+      revision: string
+      /** Format: int32 */
+      scale: number
+      series: components['schemas']['InsightsSeries'][]
+      summary?: components['schemas']['InsightsSummary']
+      /** Format: date */
+      today: string
+      version: string
+    }
+    InsightsSeries: {
+      context: components['schemas']['InsightsInOut']
+      identity: string
+      prior_net?: string
+      trend: string[]
+      vs_prior?: components['schemas']['InsightsChange']
+    }
+    InsightsSummary: {
+      calendar?: components['schemas']['InsightsInOut']
+      cashflow: components['schemas']['InsightsCashflow']
+      composition?: components['schemas']['InsightsComposition']
+      kpis: components['schemas']['InsightsKPIs']
+      period_composition?: components['schemas']['InsightsComposition'][]
+    }
+    InsightsTotals: {
+      /** Format: int64 */
+      count: number
+      /** Format: int64 */
+      hidden_count: number
+      in: string
+      net: string
+      out: string
+      /** Format: int64 */
+      pending_count: number
+    }
     MerchantPreviewResponse: {
       /** Format: int64 */
       affected_transactions: number
+      outside_currencies: components['schemas']['CurrencyScope'][]
+      /** Format: int64 */
+      outside_view: number
       revision: string
       transactions: components['schemas']['DetailRow'][] | null
       version: string
@@ -1188,6 +1352,16 @@ export interface components {
       provider_kind?: 'monarch' | 'ynab' | 'simplefin' | 'amazon' | 'local'
       version: string
     }
+    ProfileBootstrap: {
+      base_path: string
+      canonical_url: string
+      currencies: components['schemas']['CurrencyCount'][]
+      mutation_token: string
+      revision: string
+      /** Format: date-time */
+      token_expires_at: string
+      version: string
+    }
     ProfileCancelBody: {
       version: string
     }
@@ -1233,6 +1407,7 @@ export interface components {
       canonical_query: string
       capabilities: components['schemas']['Capability'][] | null
       chart: components['schemas']['Chart']
+      currencies: components['schemas']['CurrencyCount'][]
       detail_rows?: components['schemas']['DetailRow'][] | null
       filters: components['schemas']['ActiveFilters']
       pending: components['schemas']['PendingSummary']
@@ -1243,6 +1418,7 @@ export interface components {
       selection: string
       /** Format: int64 */
       selection_count: number
+      selection_summary?: components['schemas']['Statistics'][]
       statistics: components['schemas']['Statistics'][] | null
       status?: string
       /** Format: int64 */
@@ -1494,6 +1670,13 @@ export interface components {
       protocol_version: number
       settings: components['schemas']['SimpleFINOnboardingSettingsResponse']
     }
+    StagedValues: {
+      category?: string
+      deleted: boolean
+      group?: string
+      hidden?: boolean
+      merchant?: string
+    }
     Statistics: {
       /** Format: int64 */
       count: number
@@ -1542,23 +1725,37 @@ export interface components {
     }
     TransitionBody: {
       action: string
+      currency?: components['schemas']['CurrencyScope']
+      /** @enum {string} */
+      dimension?: 'merchant' | 'category' | 'group' | 'account' | 'time'
       filters?: components['schemas']['TransitionFilters']
+      period?: components['schemas']['TransitionPeriod']
       query: string
       search?: string
       selection?: string
+      /** @enum {string} */
+      sort_field?:
+        | 'count'
+        | 'amount'
+        | 'date'
+        | 'merchant'
+        | 'category'
+        | 'group'
+        | 'account'
+        | 'time_period'
       target?: components['schemas']['TransitionTarget']
       window: components['schemas']['Window']
     }
-    TransitionDateRange: {
-      /** Format: date */
-      end: string
-      /** Format: date */
-      start: string
-    }
     TransitionFilters: {
-      date_range?: components['schemas']['TransitionDateRange']
+      date_range?: components['schemas']['DateRange']
       show_hidden: boolean
       show_transfers: boolean
+    }
+    TransitionPeriod: {
+      /** Format: date */
+      end?: string
+      /** Format: date */
+      start?: string
     }
     TransitionTarget: {
       identity: string
@@ -1570,11 +1767,13 @@ export interface components {
       window: components['schemas']['Window']
     }
     ViewMetadata: {
+      currency?: components['schemas']['CurrencyScope']
       grouping: string
       mode: string
       search?: string
       sort_direction: string
       sort_field: string
+      sub_grouping?: string
       time_granularity: string
     }
     Warning: {
@@ -2237,7 +2436,7 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['Bootstrap']
+          'application/json': components['schemas']['ProfileBootstrap']
         }
       }
       /** @description Not Found */
@@ -4937,6 +5136,77 @@ export interface operations {
       }
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  projectInsights: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['InsightsBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['InsightsResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
         headers: {
           [name: string]: unknown
         }

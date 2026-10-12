@@ -365,7 +365,7 @@ func TestMutationFailureNeverEchoesTargetLabelsOrQueryText(t *testing.T) {
 	initial := projectPersistentView(t, server)
 	response := requestProtectedJSON(t, server, "/api/v1/mutations", MutationBody{
 		Version: MutationSchemaVersion, ExpectedRevision: initial.Revision,
-		Query:     "q=private-query-text&search-at=aggregate%3Amerchant%3A_%3A0&v=1",
+		Query:     "q=private-query-text&search-at=aggregate%3A0&v=1",
 		Selection: initial.Selection,
 		Action:    app.ActionEditMerchant,
 		Target: &TransitionTarget{
@@ -424,19 +424,33 @@ func newPersistentAPITestServer(t testing.TB) *Server {
 
 func newPersistentAPITestServerWithClock(t testing.TB, now func() time.Time) *Server {
 	t.Helper()
+	return newPersistentAPITestServerFor(t, []domain.Transaction{apiTransaction(t)}, now)
+}
+
+func newPersistentAPITestServerFor(
+	t testing.TB,
+	transactions []domain.Transaction,
+	now func() time.Time,
+) *Server {
+	t.Helper()
+	return newAPITestServerForServiceWithClock(t, newPersistentAPITestService(t, transactions), now)
+}
+
+func newPersistentAPITestService(t testing.TB, transactions []domain.Transaction) *app.Service {
+	t.Helper()
 	ctx := context.Background()
 	paths, err := home.ResolveRoot(t.TempDir(), nil, "")
 	require.NoError(t, err)
 	profile, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, profile.Close()) })
-	committed, err := fixture.CommittedProfile([]domain.Transaction{apiTransaction(t)})
+	committed, err := fixture.CommittedProfile(transactions)
 	require.NoError(t, err)
 	_, err = profile.CreateSeededProfile(ctx, committed)
 	require.NoError(t, err)
 	service, err := app.NewProfileService(ctx, profile)
 	require.NoError(t, err)
-	return newAPITestServerForServiceWithClock(t, service, now)
+	return service
 }
 
 func newAPITestServerForService(t testing.TB, service *app.Service) *Server {

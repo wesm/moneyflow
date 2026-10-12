@@ -46,17 +46,24 @@ type TransitionTarget struct {
 	Identity string           `json:"identity" maxLength:"4096"`
 }
 
-// TransitionDateRange is an inclusive pair of ISO calendar dates.
-type TransitionDateRange struct {
+// DateRange is an inclusive pair of ISO calendar dates.
+type DateRange struct {
 	Start string `json:"start" format:"date"`
 	End   string `json:"end" format:"date"`
 }
 
+// TransitionPeriod sets the view's period. Both bounds make an inclusive range; neither
+// means all time.
+type TransitionPeriod struct {
+	Start *string `json:"start,omitempty" format:"date"`
+	End   *string `json:"end,omitempty" format:"date"`
+}
+
 // TransitionFilters contains staged predicates accepted by filters.apply.
 type TransitionFilters struct {
-	DateRange     *TransitionDateRange `json:"date_range,omitempty"`
-	ShowHidden    bool                 `json:"show_hidden"`
-	ShowTransfers bool                 `json:"show_transfers"`
+	DateRange     *DateRange `json:"date_range,omitempty"`
+	ShowHidden    bool       `json:"show_hidden"`
+	ShowTransfers bool       `json:"show_transfers"`
 }
 
 // TransitionBody asks the server to apply exactly one renderer-neutral action.
@@ -67,6 +74,10 @@ type TransitionBody struct {
 	Target    *TransitionTarget  `json:"target,omitempty"`
 	Search    *string            `json:"search,omitempty" maxLength:"2048"`
 	Filters   *TransitionFilters `json:"filters,omitempty"`
+	Dimension *string            `json:"dimension,omitempty" enum:"merchant,category,group,account,time"`
+	Currency  *CurrencyScope     `json:"currency,omitempty"`
+	SortField *string            `json:"sort_field,omitempty" enum:"count,amount,date,merchant,category,group,account,time_period"`
+	Period    *TransitionPeriod  `json:"period,omitempty"`
 	Window    Window             `json:"window"`
 }
 
@@ -89,6 +100,17 @@ type DetailRow struct {
 	Amount      Money                 `json:"amount"`
 	Flags       Flags                 `json:"flags"`
 	AmazonMatch *AmazonMatchIndicator `json:"amazon_match,omitempty"`
+	Staged      *StagedValues         `json:"staged,omitempty"`
+}
+
+// StagedValues lists the pending values of a row that differ from its committed ones, using
+// the row's own display strings. A category change carries the new group too.
+type StagedValues struct {
+	Merchant *string `json:"merchant,omitempty"`
+	Category *string `json:"category,omitempty"`
+	Group    *string `json:"group,omitempty"`
+	Hidden   *bool   `json:"hidden,omitempty"`
+	Deleted  bool    `json:"deleted"`
 }
 
 // AmazonMatchIndicator is the bounded summary rendered in qualifying transaction tables.
@@ -122,6 +144,8 @@ type AggregateRow struct {
 	TopCategoryPercent int     `json:"top_category_percent,omitempty"`
 	ShareTenths        int     `json:"share_tenths"`
 	Flags              Flags   `json:"flags"`
+	// SavingsRateTenths is a Time row's net over income in tenths of a percent.
+	SavingsRateTenths *int `json:"savings_rate_tenths,omitempty"`
 }
 
 // Statistics contains exact totals for one currency and scale partition.
@@ -141,6 +165,21 @@ type ChartMark struct {
 	Label     string `json:"label"`
 	Amount    Money  `json:"amount"`
 	PlotRatio int    `json:"plot_ratio" minimum:"-10000" maximum:"10000"`
+}
+
+// CurrencyScope names one currency and the scale of its minor units.
+type CurrencyScope struct {
+	Currency string `json:"currency"`
+	Scale    uint8  `json:"scale"`
+}
+
+// CurrencyCount describes one currency in a profile with its transaction count and date span.
+type CurrencyCount struct {
+	Currency string `json:"currency"`
+	Scale    uint8  `json:"scale"`
+	Count    int    `json:"count"`
+	First    string `json:"first" format:"date"`
+	Latest   string `json:"latest" format:"date"`
 }
 
 // Chart contains either aggregate marks or detail summaries.
@@ -199,6 +238,9 @@ type ViewMetadata struct {
 	Search          string `json:"search,omitempty"`
 	SortField       string `json:"sort_field"`
 	SortDirection   string `json:"sort_direction"`
+	SubGrouping     string `json:"sub_grouping,omitempty"`
+	// Currency is the single currency the view is scoped to; absent when it shows all.
+	Currency *CurrencyScope `json:"currency,omitempty"`
 }
 
 // Projection is the strict browser-facing view contract.
@@ -212,6 +254,7 @@ type Projection struct {
 	CanonicalQuery          string          `json:"canonical_query"`
 	Selection               string          `json:"selection"`
 	SelectionCount          int             `json:"selection_count"`
+	SelectionSummary        []Statistics    `json:"selection_summary,omitempty" nullable:"false"`
 	View                    ViewMetadata    `json:"view"`
 	Breadcrumbs             []Breadcrumb    `json:"breadcrumbs"`
 	BreadcrumbText          string          `json:"breadcrumb_text"`
@@ -223,6 +266,7 @@ type Projection struct {
 	AmazonMatchColumn       bool            `json:"amazon_match_column"`
 	AggregateRows           []AggregateRow  `json:"aggregate_rows,omitempty"`
 	Statistics              []Statistics    `json:"statistics"`
+	Currencies              []CurrencyCount `json:"currencies" nullable:"false"`
 	Chart                   Chart           `json:"chart"`
 	Status                  string          `json:"status,omitempty"`
 	Warnings                []Warning       `json:"warnings,omitempty"`
@@ -245,14 +289,7 @@ func projectionToWire(
 		Pending:        pendingToWire(projection.Pending),
 		CanonicalQuery: canonical, Selection: string(projection.Selection),
 		SelectionCount: projection.SelectionCount,
-		View: ViewMetadata{
-			Mode:            string(projection.State.Current.Mode),
-			Grouping:        string(projection.State.Current.Dimension),
-			TimeGranularity: string(projection.State.Current.TimeGranularity),
-			Search:          projection.State.Current.Search,
-			SortField:       string(projection.State.Current.Sort.Field),
-			SortDirection:   string(projection.State.Current.Sort.Direction),
-		},
+		View:           viewMetadataToWire(projection.State.Current),
 		BreadcrumbText: projection.BreadcrumbText, Filters: filtersToWire(projection.Filters),
 		TotalRows: projection.TotalRows,
 		Window: ReturnedWindow{
@@ -275,34 +312,16 @@ func projectionToWire(
 			Dimension: string(breadcrumb.Dimension), Label: breadcrumb.Label,
 		})
 	}
-	availableActions := make(map[app.ActionID]struct{}, len(projection.Actions))
-	for _, actionID := range projection.Actions {
-		availableActions[actionID] = struct{}{}
+	wire.Capabilities = capabilitiesToWire(projection)
+	wire.Currencies = currenciesToWire(projection.Currencies)
+	for _, stats := range projection.SelectionSummary {
+		wire.SelectionSummary = append(wire.SelectionSummary, statisticsToWire(stats))
 	}
-	dynamicCapabilities := make(map[app.ActionID]app.Capability, len(projection.Capabilities))
-	for _, capability := range projection.Capabilities {
-		dynamicCapabilities[capability.Action] = capability
-	}
-	for _, definition := range app.ReadOnlyActions() {
-		if !definition.Web || len(definition.Keys) == 0 {
-			continue
-		}
-		_, available := availableActions[definition.ID]
-		reason := ""
-		if dynamic, exists := dynamicCapabilities[definition.ID]; exists {
-			available = dynamic.Available
-			reason = dynamic.Reason
-		}
-		description := definition.Description
-		if projection.ProfileKind == "amazon" && definition.ID == app.ActionRefreshProvider {
-			description = "Import Amazon order history"
-		}
-		wire.Capabilities = append(wire.Capabilities, Capability{
-			ID: definition.ID, KeyDisplay: definition.KeyDisplay,
-			Description: description, Category: definition.Category,
-			Available: available, Reason: reason,
-		})
-	}
+	appendRowsToWire(&wire, projection)
+	return wire
+}
+
+func appendRowsToWire(wire *Projection, projection app.WebProjection) {
 	for _, row := range projection.DetailRows {
 		wire.DetailRows = append(wire.DetailRows, detailRowToWire(row))
 	}
@@ -321,7 +340,74 @@ func projectionToWire(
 	for _, stats := range projection.Chart.Summary {
 		wire.Chart.Summary = append(wire.Chart.Summary, statisticsToWire(stats))
 	}
+}
+
+func viewMetadataToWire(state app.AnalyticalState) ViewMetadata {
+	view := ViewMetadata{
+		Mode:            string(state.Mode),
+		Grouping:        string(state.Dimension),
+		TimeGranularity: string(state.TimeGranularity),
+		Search:          state.Search,
+		SortField:       string(state.Sort.Field),
+		SortDirection:   string(state.Sort.Direction),
+	}
+	if state.SubGrouping != nil {
+		view.SubGrouping = string(*state.SubGrouping)
+	}
+	if state.Currency != nil {
+		scope := currencyScopeToWire(*state.Currency)
+		view.Currency = &scope
+	}
+	return view
+}
+
+func currencyScopeToWire(scope domain.CurrencyScope) CurrencyScope {
+	return CurrencyScope{Currency: string(scope.Currency), Scale: scope.Scale}
+}
+
+func currenciesToWire(currencies []domain.CurrencyCount) []CurrencyCount {
+	wire := make([]CurrencyCount, 0, len(currencies))
+	for _, currency := range currencies {
+		wire = append(wire, CurrencyCount{
+			Currency: string(currency.Currency), Scale: currency.Scale, Count: currency.Count,
+			First: currency.First.String(), Latest: currency.Latest.String(),
+		})
+	}
 	return wire
+}
+
+// capabilitiesToWire lists every action the web offers, with keyless ones carrying no key.
+func capabilitiesToWire(projection app.WebProjection) []Capability {
+	availableActions := make(map[app.ActionID]struct{}, len(projection.Actions))
+	for _, actionID := range projection.Actions {
+		availableActions[actionID] = struct{}{}
+	}
+	dynamicCapabilities := make(map[app.ActionID]app.Capability, len(projection.Capabilities))
+	for _, capability := range projection.Capabilities {
+		dynamicCapabilities[capability.Action] = capability
+	}
+	var capabilities []Capability
+	for _, definition := range app.ReadOnlyActions() {
+		if !definition.Web {
+			continue
+		}
+		_, available := availableActions[definition.ID]
+		reason := ""
+		if dynamic, exists := dynamicCapabilities[definition.ID]; exists {
+			available = dynamic.Available
+			reason = dynamic.Reason
+		}
+		description := definition.Description
+		if projection.ProfileKind == "amazon" && definition.ID == app.ActionRefreshProvider {
+			description = "Import Amazon order history"
+		}
+		capabilities = append(capabilities, Capability{
+			ID: definition.ID, KeyDisplay: definition.KeyDisplay,
+			Description: description, Category: definition.Category,
+			Available: available, Reason: reason,
+		})
+	}
+	return capabilities
 }
 
 func moneyToWire(money domain.Money) Money {
@@ -345,7 +431,27 @@ func detailRowToWire(row app.WebDetailRow) DetailRow {
 			FirstProduct: row.AmazonMatch.FirstProduct, TotalMatches: row.AmazonMatch.TotalMatches,
 		}
 	}
+	if row.Staged != nil {
+		wire.Staged = stagedToWire(*row.Staged)
+	}
 	return wire
+}
+
+func stagedToWire(staged app.StagedValues) *StagedValues {
+	wire := StagedValues{Deleted: staged.Deleted}
+	if staged.Hidden != nil {
+		hidden := *staged.Hidden
+		wire.Hidden = &hidden
+	}
+	if staged.Merchant != nil {
+		merchant := staged.Merchant.Name
+		wire.Merchant = &merchant
+	}
+	if staged.Category != nil {
+		category, group := staged.Category.Name, staged.Category.Group
+		wire.Category, wire.Group = &category, &group
+	}
+	return &wire
 }
 
 func aggregateRowToWire(row app.WebAggregateRow) AggregateRow {
@@ -355,12 +461,11 @@ func aggregateRowToWire(row app.WebAggregateRow) AggregateRow {
 		In: moneyToWire(row.Row.In), Out: moneyToWire(row.Row.Out),
 		TopCategory: row.Row.TopCategory, TopCategoryPercent: row.Row.TopCategoryPercent,
 		ShareTenths: row.Row.ShareTenths, Flags: flagsToWire(row.Row.Flags),
+		SavingsRateTenths: row.SavingsRateTenths,
 	}
 	if row.Row.Period != nil {
-		wire.Period = &Period{
-			Granularity: string(row.Row.Period.Granularity), Year: row.Row.Period.Year,
-			Month: row.Row.Period.Month, Day: row.Row.Period.Day,
-		}
+		period := periodToWire(*row.Row.Period)
+		wire.Period = &period
 	}
 	return wire
 }

@@ -74,7 +74,7 @@ func TestViewStatePreservesSearchAnchorScope(t *testing.T) {
 	session.CycleGrouping()
 	state := session.ViewState()
 	require.NotNil(t, state.Current.SearchAnchor)
-	assert.Equal(t, domain.DimensionMerchant, state.Current.SearchAnchor.Dimension)
+	assert.Equal(t, NavigationScope{Mode: domain.ResultModeAggregate}, *state.Current.SearchAnchor)
 
 	restored, err := NewSessionFromViewState(state)
 	require.NoError(t, err)

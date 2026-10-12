@@ -68,9 +68,9 @@ onboarding wizard. Missing vaults, incorrect passwords, and mismatched plan bind
 
 ## Read and Write Policy
 
-The default server registers account, transaction, spending, taxonomy, merchant, Amazon-match,
-review, provider-status, explicit-refresh, and export tools. Results use exact decimal strings plus signed
-integer minor units; they do not expose floating-point money.
+The default server registers account, transaction, spending, insights, taxonomy, merchant,
+Amazon-match, review, provider-status, explicit-refresh, and export tools. Results use exact
+decimal strings plus signed integer minor units; they do not expose floating-point money.
 
 Enable staged editing explicitly:
 
@@ -183,6 +183,58 @@ and reloads provider truth; it does not undo remote writes that already succeede
 For an uncertain Monarch update, `resume_commit` first checks the affected transaction before
 continuing. It can confirm an already-applied edit or retry one that still matches its previous
 value, without fetching the full history. See [write recovery](editing.md#recover-an-interrupted-provider-write).
+
+## Chart insights
+
+`get_insights` returns the chart data behind one web view: KPIs with the prior-period comparison,
+cash flow per chart period, spending and income composition, the calendar, and per-row trend
+series. It reads **committed** values only. `get_transactions` and `search_transactions` return
+effective values with pending edits applied, so the two can differ until you commit.
+
+| Input | Meaning |
+| --- | --- |
+| `start_date`, `end_date` | Inclusive ISO dates. Omit both for all time; one alone is invalid. |
+| `currency`, `scale` | Required together when the profile has more than one currency; otherwise default to its only one. |
+| `group_by` | `merchant`, `category`, `group`, `account`, or `time`. Omit it for a transaction view. |
+| `merchant_id`, `category_id`, `group_id`, `account_id` | Narrow the view to one entity each, like drilling into its row. |
+| `search` | The view's case-insensitive regular expression over merchant and category names, and product names in an Amazon profile. |
+| `include_hidden` | With `group_by`, `false` leaves hidden transactions out of the grouped rows. Default `true`. A transaction view always lists and counts hidden transactions, and they never add money. |
+| `include_transfers` | Include the Transfers category group. Default `false`. |
+| `keys` | At most 200 row IDs of the `group_by` dimension to chart as series, counting repeats. Not allowed for `time` or a transaction view. |
+| `summary` | Include the view-wide charts. Default `true`. |
+
+ID filters apply in the order merchant, category, group, account, and `group_by` then groups what
+remains. Grouping by a filtered dimension is invalid. Get IDs from `get_merchants`,
+`get_categories`, or transaction reads. For example, this request charts two categories of one
+merchant over August:
+
+```json
+{
+  "start_date": "2026-08-01",
+  "end_date": "2026-08-31",
+  "merchant_id": "MERCHANT_ID",
+  "group_by": "category",
+  "keys": ["CATEGORY_ID_A", "CATEGORY_ID_B"]
+}
+```
+
+The result has the standard header and revision, plus `currency`, `scale`, `today`, `latest`,
+`ranges`, `summary`, and `series`. The server derives every range from the dates and its clock:
+`ranges.context` lists the chart periods, and cash-flow and series values align with it. Each
+amount is a money object with `amount`, `amount_minor`, `currency`, and `scale`. Changes such as
+`net_change` and `vs_prior` are computed by the server; `percent_tenths` and `share_tenths` are
+tenths of a percent. `pending_count` counts transactions the bank still lists as pending. It does
+not count your pending edits, which insights never read.
+
+An ID filter that matches nothing, such as a merchant, category, group, or account ID that does not
+exist, is not an error. It returns zeros.
+
+Invalid input returns `invalid_operation` with a `detail` that starts with
+`The insights request is invalid:` and gives the reason, such as a regular-expression syntax
+error, a currency and scale the profile does not have, or a grouping that repeats a filtered
+dimension. A profile with no transactions returns the same code when you give no `currency`,
+because there is no currency to default to. With an explicit `currency` and `scale`, it succeeds
+and returns zeros.
 
 ## Server-side export
 

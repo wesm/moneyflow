@@ -34,6 +34,8 @@ export function testEditingController(
       version: '1',
       revision: '1',
       affected_transactions: 5,
+      outside_view: 0,
+      outside_currencies: [],
       transactions: [
         {
           index: 0,

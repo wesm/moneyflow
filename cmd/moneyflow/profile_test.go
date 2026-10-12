@@ -316,6 +316,46 @@ func TestOpenProfileDemoSeedsUniquePrivateTemporaryProfileAndCleansIt(t *testing
 	require.NoError(t, err, "closing one demo must not remove another demo")
 }
 
+func TestOpenProfileDemoFixesInsightsTodayAtTheDemoEnd(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	opened, err := openProfile(ctx, ProfileOptions{Demo: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = opened.Close() })
+	demo := fixture.Demo()
+	latest := demo[0].Date
+	for _, transaction := range demo {
+		if transaction.Date.Compare(latest) > 0 {
+			latest = transaction.Date
+		}
+	}
+	state := app.DefaultViewState().Current
+	state.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+
+	result, err := opened.Service.Insights(ctx, app.InsightsRequest{State: state})
+
+	require.NoError(t, err)
+	assert.Equal(t, latest, result.Insights.Today, "today is the demo's last transaction date")
+}
+
+func TestOpenProfileFixtureKeepsTheRealClock(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixturePath := filepath.Join("..", "..", "testdata", "fixtures", "duplicate_transactions.json")
+	opened, err := openProfile(ctx, ProfileOptions{Demo: true, FixturePath: fixturePath})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = opened.Close() })
+	state := app.DefaultViewState().Current
+	state.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+
+	before := time.Now().Format(time.DateOnly)
+	result, err := opened.Service.Insights(ctx, app.InsightsRequest{State: state})
+	after := time.Now().Format(time.DateOnly)
+
+	require.NoError(t, err)
+	assert.Contains(t, []string{before, after}, result.Insights.Today.String())
+}
+
 func TestOpenTemporaryContractProfileUsesEmptySQLiteAndCleansIt(t *testing.T) {
 	t.Parallel()
 	opened, err := openTemporaryContractProfile(context.Background())

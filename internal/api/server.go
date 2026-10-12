@@ -88,6 +88,10 @@ type bootstrapOutput struct {
 	Body Bootstrap
 }
 
+type profileBootstrapOutput struct {
+	Body ProfileBootstrap
+}
+
 type profileBootstrapInput struct {
 	ProfileID string `path:"profile_id"`
 }
@@ -153,6 +157,7 @@ func New(config Config) (*Server, error) {
 	server.registerSimpleFINOnboardingEndpoints(config)
 	server.registerAmazonImportEndpoints(config)
 	server.registerTransactionInformationEndpoint()
+	server.registerInsightsEndpoint()
 	server.installProblemSchemas()
 
 	var handler http.Handler = mux
@@ -313,7 +318,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	huma.Register(server.api, huma.Operation{
 		OperationID: "profileBootstrap", Method: http.MethodGet, Path: profileBootstrapPath,
 		Summary: "Issue profile-scoped browser mutation configuration", Errors: []int{404, 500},
-	}, func(ctx context.Context, input *profileBootstrapInput) (*bootstrapOutput, error) {
+	}, func(ctx context.Context, input *profileBootstrapInput) (*profileBootstrapOutput, error) {
 		if _, _, parseErr := ParseProfileAPIPath(
 			server.basePath,
 			server.basePath+"api/v1/profiles/"+input.ProfileID+"/bootstrap",
@@ -336,7 +341,9 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 				"The bootstrap configuration could not be issued.",
 			)
 		}
-		return &bootstrapOutput{Body: body}, nil
+		return &profileBootstrapOutput{Body: ProfileBootstrap{
+			Bootstrap: body, Currencies: currenciesToWire(service.Currencies()),
+		}}, nil
 	})
 
 	huma.Register(server.api, huma.Operation{
@@ -459,6 +466,9 @@ func transitionToApp(body TransitionBody) (app.TransitionRequest, error) {
 			Kind: body.Target.Kind, Identity: body.Target.Identity,
 		}
 	}
+	if err := navigationArgumentsToApp(body, &transition); err != nil {
+		return app.TransitionRequest{}, err
+	}
 	if body.Filters == nil {
 		return transition, nil
 	}
@@ -466,22 +476,71 @@ func transitionToApp(body TransitionBody) (app.TransitionRequest, error) {
 		ShowHidden: body.Filters.ShowHidden, ShowTransfers: body.Filters.ShowTransfers,
 	}
 	if body.Filters.DateRange != nil {
-		start, err := domain.ParseDate(body.Filters.DateRange.Start)
+		dateRange, err := dateRangeToApp(body.Filters.DateRange.Start, body.Filters.DateRange.End)
 		if err != nil {
-			return app.TransitionRequest{}, newSafeError(
-				CodeInvalidViewState, "The filter values are invalid.", err,
-			)
+			return app.TransitionRequest{}, err
 		}
-		end, err := domain.ParseDate(body.Filters.DateRange.End)
-		if err != nil {
-			return app.TransitionRequest{}, newSafeError(
-				CodeInvalidViewState, "The filter values are invalid.", err,
-			)
-		}
-		filters.DateRange = &domain.DateRange{Start: start, End: end}
+		filters.DateRange = dateRange
 	}
 	transition.Filters = filters
 	return transition, nil
+}
+
+// navigationArgumentsToApp sets the direct navigation arguments of a transition. The app
+// layer decides which action accepts which argument.
+func navigationArgumentsToApp(body TransitionBody, transition *app.TransitionRequest) error {
+	if body.Dimension != nil {
+		dimension := domain.Dimension(*body.Dimension)
+		transition.Dimension = &dimension
+	}
+	if body.Currency != nil {
+		transition.Currency = &domain.CurrencyScope{
+			Currency: domain.Currency(body.Currency.Currency), Scale: body.Currency.Scale,
+		}
+	}
+	if body.SortField != nil {
+		field := domain.SortField(*body.SortField)
+		transition.SortField = &field
+	}
+	if body.Period != nil {
+		period, err := periodToApp(*body.Period)
+		if err != nil {
+			return err
+		}
+		transition.Period = period
+	}
+	return nil
+}
+
+// periodToApp converts a period with both bounds to a range and one with neither to all
+// time. A single bound is invalid.
+func periodToApp(period TransitionPeriod) (*app.PeriodTarget, error) {
+	switch {
+	case period.Start == nil && period.End == nil:
+		return &app.PeriodTarget{}, nil
+	case period.Start == nil || period.End == nil:
+		return nil, newSafeError(
+			CodeInvalidViewState, "The period needs both dates or neither.",
+			errors.New("period has one bound"),
+		)
+	}
+	dateRange, err := dateRangeToApp(*period.Start, *period.End)
+	if err != nil {
+		return nil, err
+	}
+	return &app.PeriodTarget{Range: dateRange}, nil
+}
+
+func dateRangeToApp(startText, endText string) (*domain.DateRange, error) {
+	start, err := domain.ParseDate(startText)
+	if err != nil {
+		return nil, newSafeError(CodeInvalidViewState, "The date range is invalid.", err)
+	}
+	end, err := domain.ParseDate(endText)
+	if err != nil {
+		return nil, newSafeError(CodeInvalidViewState, "The date range is invalid.", err)
+	}
+	return &domain.DateRange{Start: start, End: end}, nil
 }
 
 func (server *Server) installProblemSchemas() {
