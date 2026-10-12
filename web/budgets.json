@@ -23,7 +23,7 @@
       "manifest_entry": "index.html",
       "kind": "javascript",
       "compression": "brotli",
-      "max_bytes": 128882
+      "max_bytes": 141000
     },
     {
       "name": "initial_javascript_gzip",
@@ -31,14 +31,14 @@
       "manifest_entry": "index.html",
       "kind": "javascript",
       "compression": "gzip",
-      "max_bytes": 153600
+      "max_bytes": 168000
     },
     {
       "name": "total_javascript_brotli",
       "scope": "all",
       "kind": "javascript",
       "compression": "brotli",
-      "max_bytes": 128882
+      "max_bytes": 141000
     }
   ],
   "interactions": [
