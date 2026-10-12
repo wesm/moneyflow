@@ -227,9 +227,39 @@ describe('browser editing controller', () => {
 
     await expect(staged).resolves.toBe(true)
     expect(accept).not.toHaveBeenCalled()
-    expect(host.refresh).toHaveBeenCalledWith(undefined, true)
+    // The selection did not change with the view, so the reread takes the response's.
+    expect(host.refresh).toHaveBeenCalledWith('mfsel1.x', true)
     expect(host.current()?.canonical_query).toBe('v=1&period=2026-09')
     expect(controller.state.revision).toBe(8n)
+  })
+
+  it('keeps a selection made while the request ran when rereading a moved-on view', async () => {
+    let release!: (response: Response) => void
+    const response = new Promise<Response>((resolve) => (release = resolve))
+    const host = editingHost(
+      testProjection({
+        revision: '7',
+        canonical_query: 'v=1&group=merchant',
+        selection: 'mfsel1.sent' as SelectionValue,
+      }),
+    )
+    const controller = createEditingController({
+      transport: { request: vi.fn(async () => await response) },
+      host,
+    })
+
+    const staged = controller.submit({ action: 'transaction.toggle-hidden', input: {} })
+    host.install(
+      testProjection({
+        revision: '7',
+        canonical_query: 'v=1&period=2026-09',
+        selection: 'mfsel1.newer' as SelectionValue,
+      }),
+    )
+    release(jsonResponse(mutationResponse('8', 'mfsel1.cleared' as SelectionValue)))
+
+    await expect(staged).resolves.toBe(true)
+    expect(host.refresh).toHaveBeenCalledWith(undefined, true)
   })
 
   it('keeps the newer revision a reread of a moved-on view installed', async () => {

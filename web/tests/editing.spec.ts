@@ -224,6 +224,48 @@ test('a bulk rename keeps whole-merchant scope off and clears the selection', as
   }
 })
 
+test('a bulk edit still clears the selection after a sort during its request', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('Space')
+    await page.keyboard.press('j')
+    await page.keyboard.press('Space')
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
+    let release!: () => void
+    const held = new Promise<void>((resolve) => (release = resolve))
+    await page.route(`${server.profileAPI}mutations`, async (route) => {
+      await held
+      await route.continue()
+    })
+    const sent = page.waitForRequest(`${server.profileAPI}mutations`)
+    await page.keyboard.press('c')
+    const editor = page.getByRole('dialog', { name: 'Change category' })
+    const field = editor.getByRole('combobox', { name: 'Category' })
+    await field.fill('Uncategorized')
+    await field.press('Enter')
+    await expect(editor.getByRole('button', { name: /^Stage change to / })).toBeEnabled()
+    await field.press('Enter')
+    await sent
+    await page.keyboard.press('Escape')
+    await expect(editor).toBeHidden()
+    const unsorted = page.url()
+    await page.keyboard.press('s')
+    await expect(page).not.toHaveURL(unsorted)
+    // The sort moves the selected rows out of view, so the selection bar counts them.
+    const bar = page.getByRole('region', { name: 'Selection' })
+    await expect(bar).toContainText(/^2 transactions/)
+
+    release()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    await expect(bar).toBeHidden()
+  } finally {
+    await server.stop()
+  }
+})
+
 test('a merchant row renames the whole merchant through review and commit', async ({ page }) => {
   const server = await startE2EServer()
   try {
