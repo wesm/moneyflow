@@ -18,7 +18,7 @@ func (service *Service) projectionSelectionSummary(
 	selection SelectionSnapshot,
 ) ([]domain.CurrencyStats, error) {
 	if selection.Kind != IdentityTransaction {
-		return selectionSummary(result)
+		return aggregateSelectionSummary(result.AggregateRows)
 	}
 	service.mu.RLock()
 	var selected []domain.Transaction
@@ -34,28 +34,8 @@ func (service *Service) projectionSelectionSummary(
 	return analytics.Statistics(selected)
 }
 
-// selectionSummary totals the selected rows of a decorated query result per money partition.
-// It returns nil when nothing is selected.
-func selectionSummary(result domain.QueryResult) ([]domain.CurrencyStats, error) {
-	if result.DetailRows != nil {
-		return detailSelectionSummary(result.DetailRows)
-	}
-	return aggregateSelectionSummary(result.AggregateRows)
-}
-
-func detailSelectionSummary(rows []domain.DetailRow) ([]domain.CurrencyStats, error) {
-	var selected []domain.Transaction
-	for _, row := range rows {
-		if row.Flags.Selected {
-			selected = append(selected, row.Transaction)
-		}
-	}
-	if len(selected) == 0 {
-		return nil, nil
-	}
-	return analytics.Statistics(selected)
-}
-
+// aggregateSelectionSummary totals the selected aggregate rows per money partition. It
+// returns nil when nothing is selected.
 func aggregateSelectionSummary(rows []domain.AggregateRow) ([]domain.CurrencyStats, error) {
 	totals := make(map[moneyPartition]domain.CurrencyStats)
 	for _, row := range rows {
