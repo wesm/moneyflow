@@ -39,20 +39,26 @@ type WebOptions struct {
 	BasePath    string
 	ExternalURL string
 	Open        bool
+	// FallbackListen is tried when Listen cannot be bound; empty means fail instead.
+	FallbackListen string
 }
 
-// demoListen asks the system for a free loopback port. A demo profile is disposable, so no
-// bookmark or per-origin browser setting depends on its address, and it must not fail because
-// another server already holds the stable profile port.
-const demoListen = "127.0.0.1:0"
+// freeListen asks the system for a free loopback port.
+const freeListen = "127.0.0.1:0"
 
-// webListenAddress keeps the requested address when it matters: an explicit --listen, or a
-// proxy configured through --external-url, which must target a fixed port.
-func webListenAddress(command *cobra.Command, options WebOptions, demo bool) string {
-	if demo && !command.Flags().Changed("listen") && options.ExternalURL == "" {
-		return demoListen
+// webListenAddresses keeps the requested address when it matters: an explicit --listen, or a
+// proxy configured through --external-url, which must target a fixed port. Otherwise a demo,
+// which is disposable, takes a free port at once. A profile keeps the stable default so
+// bookmarks and per-origin browser settings keep working, and moves to a free port only when
+// another server already holds the default.
+func webListenAddresses(command *cobra.Command, options WebOptions, demo bool) (string, string) {
+	if command.Flags().Changed("listen") || options.ExternalURL != "" {
+		return options.Listen, ""
 	}
-	return options.Listen
+	if demo {
+		return freeListen, ""
+	}
+	return options.Listen, freeListen
 }
 
 func newWebCommand(streams IOStreams) *cobra.Command {
@@ -76,7 +82,7 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 			if _, err = api.ResolveOrigin(options.Listen, options.BasePath, options.ExternalURL); err != nil {
 				return fmt.Errorf("start web: %w", err)
 			}
-			options.Listen = webListenAddress(command, options, demo)
+			options.Listen, options.FallbackListen = webListenAddresses(command, options, demo)
 			builder := streams.BuildWeb
 			if builder == nil {
 				builder = buildWebDependencies
@@ -105,7 +111,7 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&options.Listen, "listen", options.Listen,
-		"explicit host and port; --demo without --external-url picks a free 127.0.0.1 port")
+		"explicit host and port; without it a free 127.0.0.1 port is used for --demo, or when 8080 is busy")
 	command.Flags().StringVar(&options.BasePath, "base-path", options.BasePath, "URL mount path")
 	command.Flags().StringVar(&options.ExternalURL, "external-url", "", "canonical browser URL through a trusted proxy")
 	command.Flags().BoolVar(&options.Open, "open", options.Open, "open the application in a browser")
@@ -150,14 +156,9 @@ func runWeb(
 	stopIdleSweeper := startIdleProfileSweeper(ctx, dependencies, streams.Err)
 	defer stopIdleSweeper()
 
-	listen := streams.Listen
-	if listen == nil {
-		listenConfig := &net.ListenConfig{}
-		listen = listenConfig.Listen
-	}
-	listener, err := listen(ctx, "tcp", options.Listen)
+	listener, err := openWebListener(ctx, options, streams)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", options.Listen, err)
+		return err
 	}
 	origin, err := api.ResolveOrigin(listener.Addr().String(), options.BasePath, options.ExternalURL)
 	if err != nil {
@@ -232,6 +233,31 @@ func runWeb(
 		}
 		return nil
 	}
+}
+
+// openWebListener binds options.Listen, or options.FallbackListen when that fails.
+func openWebListener(ctx context.Context, options WebOptions, streams IOStreams) (net.Listener, error) {
+	listen := streams.Listen
+	if listen == nil {
+		listenConfig := &net.ListenConfig{}
+		listen = listenConfig.Listen
+	}
+	listener, err := listen(ctx, "tcp", options.Listen)
+	if err == nil {
+		return listener, nil
+	}
+	if options.FallbackListen == "" {
+		return nil, fmt.Errorf("listen on %s: %w", options.Listen, err)
+	}
+	_, _ = fmt.Fprintf(streams.Err,
+		"%s is unavailable (%v); using a free port instead. Pass --listen to choose one.\n",
+		options.Listen, err)
+	listener, fallbackErr := listen(ctx, "tcp", options.FallbackListen)
+	if fallbackErr != nil {
+		return nil, fmt.Errorf("listen on %s: %w; then on %s: %w",
+			options.Listen, err, options.FallbackListen, fallbackErr)
+	}
+	return listener, nil
 }
 
 func startIdleProfileSweeper(

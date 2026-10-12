@@ -6,10 +6,12 @@ profile data and server-authoritative transitions.
 
 **Unreleased:** The command prints the address it serves, such as
 `Moneyflow web: http://127.0.0.1:8080/`. A profile is served on `127.0.0.1:8080`, so bookmarks
-and the browser's remembered settings keep working. `--demo` picks a free port on `127.0.0.1`
-instead, so a demo starts even while another server holds port 8080. With `--external-url`, a demo
-keeps `127.0.0.1:8080` so the proxy has a fixed target. `--listen` sets the host and port in every
-case.
+and the browser's remembered settings keep working. If another server already holds port 8080,
+Moneyflow says so and serves on a free `127.0.0.1` port instead. The browser remembers settings
+such as the theme per address, so that port starts with the defaults. `--demo` always picks a
+free port. With `--external-url`, Moneyflow keeps `127.0.0.1:8080` so the proxy has a fixed
+target, and fails if the port is busy. `--listen` sets the host and port in every case and never
+falls back.
 
 **Unreleased:** The profile selector's **Demo** entry, or `d`, opens the same synthetic household
 as `--demo` without restarting the server. Its data and edits stay separate from saved profiles.
