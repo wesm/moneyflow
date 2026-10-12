@@ -46,26 +46,16 @@ export function focusedRow(
 }
 
 /**
- * The row a key acts on when its queued turn comes: the cursor row when it was pressed, so later
- * cursor moves do not change it. A view change queued before it leaves that row behind, so the
- * key then acts on the cursor row of the new view.
+ * Moves the cursor from a pointer or a grid key, after pending view changes such as an Esc
+ * return. These never pass through the shortcut manager, so the move clears the status notice
+ * here, as every next action does.
  */
-export function pressedRow(controller: ViewController): () => FocusedRow | undefined {
-  const query = controller.projection?.canonical_query
-  const pressed = focusedRow(controller.projection, controller.cursorIndex)
-  return () =>
-    controller.projection?.canonical_query === query
-      ? pressed
-      : focusedRow(controller.projection, controller.cursorIndex)
-}
-
-/**
- * Moves the cursor from a pointer or a grid key. These never pass through the shortcut manager,
- * so the move clears the status notice here, as every next action does.
- */
-export function moveCursor(move: () => Promise<void>): Promise<void> {
+export async function moveCursor(
+  context: LocalActionContext,
+  move: () => Promise<void>,
+): Promise<void> {
   status.clear()
-  return move()
+  await context.queue(move)
 }
 
 /**
@@ -121,9 +111,11 @@ export function openEditor(
 }
 
 /** Moves the cursor as a key pressed outside the table asks, by the page the table last showed. */
-function moveBy(controller: ViewController, move: CursorMove): void {
+function moveBy(controller: ViewController, move: CursorMove): Promise<void> {
   const total = controller.projection?.total_rows ?? 0
-  void controller.moveCursorTo(cursorTarget(move, controller.cursorIndex, total, currentPageRows()))
+  return controller.moveCursorTo(
+    cursorTarget(move, controller.cursorIndex, total, currentPageRows()),
+  )
 }
 
 /** Opens a pointed row's editor after queued view transitions, as `m` and `c` do. */
@@ -141,12 +133,12 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
   const row = () => focusedRow(controller.projection, controller.cursorIndex)
   const later = (work: () => unknown) => () => whenSettled(context, work)
   return {
-    'cursor.up': () => void controller.moveCursor(-1),
-    'cursor.down': () => void controller.moveCursor(1),
-    'cursor.home': () => void controller.moveHome(),
-    'cursor.end': () => moveBy(controller, 'end'),
-    'cursor.page-up': () => moveBy(controller, 'page-up'),
-    'cursor.page-down': () => moveBy(controller, 'page-down'),
+    'cursor.up': () => void context.queue(() => controller.moveCursor(-1)),
+    'cursor.down': () => void context.queue(() => controller.moveCursor(1)),
+    'cursor.home': () => void context.queue(() => controller.moveHome()),
+    'cursor.end': () => void context.queue(() => moveBy(controller, 'end')),
+    'cursor.page-up': () => void context.queue(() => moveBy(controller, 'page-up')),
+    'cursor.page-down': () => void context.queue(() => moveBy(controller, 'page-down')),
     'overlay.search': () => context.focusSearch(),
     'overlay.filters': () => context.openFilters(),
     'overlay.help': () => overlays.open('help'),

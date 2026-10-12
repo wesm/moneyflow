@@ -10,10 +10,11 @@
     scopeKind,
     type PeriodKind,
   } from '../../lib/shell/period'
+  import type { ViewChange } from '../../lib/shell/transition-queue'
 
   interface Props {
     projection: ViewProjection
-    onapply: (action: TransitionAction) => void
+    onapply: (change: ViewChange) => void
     /** Fills the row, as in the View sheet. */
     block?: boolean
   }
@@ -30,12 +31,17 @@
     { value: 'all', label: 'All' },
   ]
 
+  // The period is anchored on the view shown when the change runs, after any pending one.
   function choose(value: string): void {
     if (value === 'all') return onapply({ action: 'time.clear-period' })
-    const anchor = anchorDate(range, currency?.latest)
-    if (anchor) {
-      onapply({ action: 'time.set-period', period: periodContaining(anchor, value as PeriodKind) })
-    }
+    onapply((current) => periodOf(current, value as PeriodKind))
+  }
+
+  function periodOf(current: ViewProjection, kind: PeriodKind): TransitionAction | undefined {
+    const anchor = anchorDate(current.filters.date_range, activeCurrency(current)?.latest)
+    return anchor
+      ? { action: 'time.set-period', period: periodContaining(anchor, kind) }
+      : undefined
   }
 </script>
 

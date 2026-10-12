@@ -9,7 +9,6 @@ import {
   moveCursor,
   openEditor,
   openEditorWhenSettled,
-  pressedRow,
   runRowAction,
   type LocalActionContext,
 } from './local-actions'
@@ -357,46 +356,60 @@ describe('runRowAction', () => {
 })
 
 describe('moveCursor', () => {
-  it('clears the status notice before the cursor moves', () => {
+  afterEach(() => document.body.replaceChildren())
+
+  it('clears the status notice at once and moves after pending view changes', async () => {
+    const { context } = setup(0)
+    const settle = holdTransitions(context)
     status.notify('Open the group to delete its transactions.')
-    const move = vi.fn(() => {
-      expect(status.notice).toBe('')
-      return Promise.resolve()
-    })
-    moveCursor(move)
-    expect(move).toHaveBeenCalledTimes(1)
+    const move = vi.fn(() => Promise.resolve())
+    const moved = moveCursor(context, move)
     expect(status.notice).toBe('')
+    await tick()
+    expect(move).not.toHaveBeenCalled()
+    settle()
+    await moved
+    expect(move).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('paging keys outside the table', () => {
-  afterEach(() => setPageRows(1))
+  afterEach(() => {
+    setPageRows(1)
+    document.body.replaceChildren()
+  })
 
-  it('move the cursor by the page the table last showed, or to the last row', () => {
+  function paged(cursorIndex: number) {
     const moveCursorTo = vi.fn(() => Promise.resolve())
     const controller = {
       projection: testProjection({ total_rows: 500 }),
-      cursorIndex: 40,
+      cursorIndex,
       moveCursorTo,
     } as unknown as ViewController
-    const actions = localActions({ ...setup(0).context, controller })
+    const context = { ...setup(0).context, controller }
     setPageRows(18)
+    return { context, controller, moveCursorTo, actions: localActions(context) }
+  }
+
+  it('move the cursor by the page the table last showed, or to the last row', async () => {
+    const { actions, moveCursorTo } = paged(40)
     actions['cursor.page-down']()
-    expect(moveCursorTo).toHaveBeenLastCalledWith(58)
+    await vi.waitFor(() => expect(moveCursorTo).toHaveBeenLastCalledWith(58))
     actions['cursor.page-up']()
-    expect(moveCursorTo).toHaveBeenLastCalledWith(22)
+    await vi.waitFor(() => expect(moveCursorTo).toHaveBeenLastCalledWith(22))
     actions['cursor.end']()
-    expect(moveCursorTo).toHaveBeenLastCalledWith(499)
+    await vi.waitFor(() => expect(moveCursorTo).toHaveBeenLastCalledWith(499))
   })
-})
 
-describe('pressedRow', () => {
-  afterEach(() => document.body.replaceChildren())
+  it('move from the cursor a pending view change leaves', async () => {
+    const { actions, context, controller, moveCursorTo } = paged(40)
+    const settle = holdTransitions(context)
+    actions['cursor.page-down']()
+    await tick()
+    expect(moveCursorTo).not.toHaveBeenCalled()
+    Object.assign(controller, { cursorIndex: 10 })
+    settle()
 
-  it('keeps the row the key was pressed on after the cursor moves in the same view', () => {
-    const { context } = setup(0)
-    const row = pressedRow(context.controller)
-    Object.assign(context.controller, { cursorIndex: 1 })
-    expect(row()).toEqual({ identity: 'agg-0', kind: 'aggregate' })
+    await vi.waitFor(() => expect(moveCursorTo).toHaveBeenCalledWith(28))
   })
 })

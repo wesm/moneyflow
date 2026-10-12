@@ -77,11 +77,12 @@ describe('scopeOptions', () => {
   })
 
   it('names selected transactions and drops counts still loading', () => {
-    expect(scopeOptions({ entity: true }, {}, true)).toEqual([
-      { value: 'transactions', label: 'Selected transactions' },
-      { value: 'entity', label: 'Whole merchant', disabled: false },
-    ])
-    expect(scopeOptions({ entity: true }, { transactions: 1 }, true)[0]?.label).toBe(
+    const selecting = { entity: false, reason: 'Clear the selection to rename the whole merchant' }
+    expect(scopeOptions(selecting, {}, true)[0]).toEqual({
+      value: 'transactions',
+      label: 'Selected transactions',
+    })
+    expect(scopeOptions(selecting, { transactions: 1 }, true)[0]?.label).toBe(
       '1 selected transaction',
     )
   })

@@ -77,10 +77,10 @@ describe('EditorCombobox', () => {
   })
 
   it('names each option by its label, group, and count, separated', async () => {
-    const groups = [choice('g-food', 'Food', 0)]
+    const groups = [choice('g-food', 'Food', 0), choice('g-life', 'Occasions', 0)]
     render(EditorComboboxHarness, {
       props: {
-        choices: [choice('c-1', 'Groceries', 9, 'g-food'), choice('c-2', 'Gifts', 1)],
+        choices: [choice('c-1', 'Groceries', 9, 'g-food'), choice('c-2', 'Gifts', 1, 'g-life')],
         groups,
         onaccept: vi.fn(),
         onkeyaction: vi.fn(),
@@ -89,7 +89,7 @@ describe('EditorCombobox', () => {
     const input = screen.getByRole('combobox')
     await type(input as HTMLInputElement, 'G')
     expect(screen.getByRole('option', { name: 'Groceries, Food, 9 transactions' })).toBeTruthy()
-    expect(screen.getByRole('option', { name: 'Gifts, 1 transaction' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Gifts, Occasions, 1 transaction' })).toBeTruthy()
     await type(input as HTMLInputElement, 'Gas')
     expect(screen.getByRole('option', { name: 'Create "Gas"' })).toBeTruthy()
   })

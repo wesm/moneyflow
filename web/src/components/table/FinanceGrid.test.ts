@@ -9,16 +9,24 @@ import type { RowInsights } from '../../lib/table/trend'
 import { testInsights, testSeries } from '../../test/insights'
 import { testAggregateRow, testMoney, testProjection } from '../../test/projection'
 
-const callbacks = () => ({
-  oncursor: vi.fn(() => Promise.resolve()),
-  ontoggle: vi.fn(),
-  ontoggleall: vi.fn(),
-  onactivate: vi.fn(),
-  oninformation: vi.fn(),
-  onedit: vi.fn(),
-  onsort: vi.fn(),
-  onactions: vi.fn(),
-})
+const callbacks = () => {
+  const oncursor = vi.fn<(index: number) => Promise<void>>(() => Promise.resolve())
+  return {
+    oncursor,
+    // Moves at once, as the shell does when no view change is pending.
+    onkey: vi.fn((decide: () => number | undefined) => {
+      const index = decide()
+      if (index !== undefined) void oncursor(index)
+    }),
+    ontoggle: vi.fn(),
+    ontoggleall: vi.fn(),
+    onactivate: vi.fn(),
+    oninformation: vi.fn(),
+    onedit: vi.fn(),
+    onsort: vi.fn(),
+    onactions: vi.fn(),
+  }
+}
 
 const detailView: ViewProjection['view'] = {
   mode: 'detail',
@@ -102,6 +110,30 @@ describe('FinanceGrid', () => {
     expect(screen.getByRole('columnheader', { name: 'Amount' }).hasAttribute('aria-sort')).toBe(
       false,
     )
+  })
+
+  it('decides a key’s row from the cursor when the shell runs the key', async () => {
+    const events = callbacks()
+    const decisions: Array<() => number | undefined> = []
+    events.onkey.mockImplementation((decide) => void decisions.push(decide))
+    const rows = [0, 1, 2].map((index) =>
+      testAggregateRow({ index, identity: `agg-${index}`, label: `Merchant ${index}` }),
+    )
+    const view = render(FinanceGrid, {
+      projection: grouped({
+        total_rows: 3,
+        window: { offset: 0, limit: 200, count: 3 },
+        aggregate_rows: rows,
+      }),
+      cursorIndex: 0,
+      compact: false,
+      ...events,
+    })
+    await fireEvent.keyDown(screen.getByRole('grid'), { key: 'ArrowDown' })
+    expect(decisions).toHaveLength(1)
+
+    await view.rerender({ cursorIndex: 1 })
+    expect(decisions[0]!()).toBe(2)
   })
 
   it('moves the cursor on a row click and toggles selection only from the box', async () => {
@@ -668,8 +700,17 @@ describe('FinanceGrid', () => {
 
   it('draws Trend and vs prior from the row series and names the comparison', async () => {
     const loaded = new Map<string, InsightsSeries>()
+    const base = testInsights()
+    const month = (number: number) => ({
+      start: `2026-0${number}-01`,
+      end: `2026-0${number}-28`,
+      period: { granularity: 'month' as const, year: 2026, month: number },
+      absent: false,
+      partial: false,
+    })
+    const response = { ...base, ranges: { ...base.ranges, trend: [7, 8, 9].map(month) } }
     const insights = (): RowInsights => ({
-      response: testInsights(),
+      response,
       failed: false,
       seriesFor: (identity) => loaded.get(identity),
     })
@@ -696,10 +737,14 @@ describe('FinanceGrid', () => {
 
     loaded.set('agg-0', {
       ...testSeries('agg-0', '-30000'),
+      trend: ['30000', '0', '-30000'],
       vs_prior: { kind: 'percent', percent_tenths: 200, grew: true, favorable: false },
     })
     await view.rerender({ insights: insights() })
-    expect(cell(row, 'trend')?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    const trend = cell(row, 'trend')?.querySelector('svg')
+    expect(trend?.getAttribute('aria-hidden')).toBe('true')
+    // July's income above the zero line, August on it, September's spending below.
+    expect(trend?.querySelector('polyline')?.getAttribute('points')).toBe('2.5,2.5 28,12 53.5,21.5')
     expect(cell(row, 'vs_prior')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
       '▲ 20.0% up 20.0% vs Aug',
     )

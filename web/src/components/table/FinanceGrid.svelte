@@ -51,6 +51,8 @@
     above?: number
     /** A row click moves the cursor; the grid keeps focus. Settles once the cursor moved. */
     oncursor: (index: number) => Promise<void>
+    /** A cursor key. `decide` returns the row it moves to, from the cursor when it is called. */
+    onkey: (decide: () => number | undefined) => void
     /** A click on a row's selection box. */
     ontoggle: (identity: string, kind: RowKind) => void
     ontoggleall: () => void
@@ -76,6 +78,7 @@
     viewport = 520,
     above = 0,
     oncursor,
+    onkey,
     ontoggle,
     ontoggleall,
     onactivate,
@@ -86,6 +89,7 @@
     onshow,
   }: Props = $props()
   let grid = $state<HTMLDivElement>()
+  const NO_ROWS_HINT = 'Change the current refinements to see results.'
   const height = $derived(rowHeight(compact))
   const wide = $derived((innerWidth.current ?? 0) >= WIDE_COLUMNS_WIDTH)
   const comparison = $derived(insights?.response?.ranges.comparison_label)
@@ -138,7 +142,7 @@
     if (!move) return
     // A row button keeps focus after its sheet closes; the grid takes it back, as its keys expect.
     if (event.target !== grid) grid?.focus({ preventScroll: true })
-    scroll.key(move)
+    onkey(() => scroll.key(move))
     event.preventDefault()
     event.stopPropagation()
   }
@@ -183,10 +187,9 @@
 </script>
 
 {#if projection.total_rows === 0}
-  <EmptyState
-    title="No transactions"
-    description="Change the current refinements to see results."
-  />
+  <div class="mf-table-empty" tabindex="-1">
+    <EmptyState title="No transactions" description={NO_ROWS_HINT} />
+  </div>
 {:else}
   <div
     class={['mf-table', compact && 'mf-table--compact', scrollTop > above && 'mf-table--scrolled']}

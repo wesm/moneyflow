@@ -112,16 +112,17 @@ export class GridScroll {
   }
 
   /**
-   * Moves the cursor as a grid key asks. The move is the user's, so its row is revealed, even
-   * when the cursor already sits on it but scrolling carried it off screen.
+   * The row a grid key moves the cursor to, or none when it stays. The move is the user's, so
+   * a cursor that stays has its row revealed, as scrolling may have carried it off screen.
    */
-  key(move: CursorMove): void {
+  key(move: CursorMove): number | undefined {
     const index = cursorTarget(move, this.#cursor, this.#total, this.#page)
     // The cursor stays, so a window that scrolling asked for must not move it when it arrives.
     if (index === this.#cursor && this.#shown !== undefined) this.#source.onshow?.(index)
     this.#shown = undefined
-    if (index === this.#cursor) this.#reveal(index)
-    else this.#source.oncursor(index)
+    if (index !== this.#cursor) return index
+    this.#reveal(index)
+    return undefined
   }
 
   // Effects run after the DOM updates, so the offset read here is current. `above` changes when

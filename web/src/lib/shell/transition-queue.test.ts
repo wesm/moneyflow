@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import type { ViewProjection } from '../api/client'
+import { testProjection } from '../../test/projection'
 import { TransitionQueue } from './transition-queue'
 
 function controller() {
-  return { apply: vi.fn(async () => true), settled: vi.fn(async () => undefined) }
+  return {
+    projection: testProjection(),
+    apply: vi.fn(async () => true),
+    settled: vi.fn(async () => undefined),
+  }
 }
 
 describe('TransitionQueue', () => {
@@ -23,19 +29,44 @@ describe('TransitionQueue', () => {
   it('settles only after the queued changes and the controller finish', async () => {
     const host = controller()
     const queue = new TransitionQueue(() => host)
-    let release!: () => void
-    void queue.run(() => new Promise<void>((resolve) => (release = resolve)))
-    const order: string[] = []
-    host.settled.mockImplementation(async () => {
-      order.push('controller settled')
-    })
+    let releaseWork!: () => void
+    let releaseController!: () => void
+    void queue.run(() => new Promise<void>((resolve) => (releaseWork = resolve)))
+    host.settled.mockImplementation(
+      () => new Promise<undefined>((resolve) => (releaseController = () => resolve(undefined))),
+    )
+    let settled = false
+    const done = queue.settled().then(() => (settled = true))
 
-    const settled = queue.settled().then(() => order.push('queue settled'))
     await Promise.resolve()
-    expect(order).toEqual([])
-    release()
-    await settled
+    expect(host.settled).not.toHaveBeenCalled()
+    releaseWork()
+    await vi.waitFor(() => expect(host.settled).toHaveBeenCalled())
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+    releaseController()
+    await done
 
-    expect(order).toEqual(['controller settled', 'queue settled'])
+    expect(settled).toBe(true)
+  })
+
+  it('decides a change from the view the controller shows once it settles', async () => {
+    const host = controller()
+    const queue = new TransitionQueue(() => host)
+    let release!: () => void
+    host.settled.mockImplementation(
+      () => new Promise<undefined>((resolve) => (release = () => resolve(undefined))),
+    )
+    const clearPeriod = (current: ViewProjection) =>
+      current.filters.date_range ? { action: 'time.clear-period' as const } : undefined
+
+    const applied = queue.apply(clearPeriod)
+    await vi.waitFor(() => expect(host.settled).toHaveBeenCalled())
+    const range = { from: '2025-01-01', to: '2025-12-31' }
+    host.projection = testProjection({ filters: { ...host.projection.filters, date_range: range } })
+    release()
+    await applied
+
+    expect(host.apply).toHaveBeenCalledWith({ action: 'time.clear-period' })
   })
 })

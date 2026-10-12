@@ -284,7 +284,12 @@ describe('emptyScope', () => {
   })
 
   it('is not an empty period for all time, a search, or a view without a currency', () => {
-    expect(emptyScope(testProjection({ currencies: [usd], statistics: [] }))).toBeUndefined()
+    const allTime = testProjection({
+      currencies: [usd],
+      view: { ...base.view, currency: { currency: 'USD', scale: 2 } },
+      statistics: [],
+    })
+    expect(emptyScope(allTime)).toBeUndefined()
     const searched = scoped('2026-09-01', '2026-09-30')
     searched.view.search = 'no such merchant'
     expect(emptyScope(searched)).toBeUndefined()

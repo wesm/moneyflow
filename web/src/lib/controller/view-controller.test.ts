@@ -1596,6 +1596,25 @@ describe('browser view controller', () => {
       expect(controller.neighbors.map((loaded) => loaded.window.offset)).toContain(1000)
     })
 
+    it('prefetches past a cached window the cursor moves into', async () => {
+      const client = clientWith({
+        view: vi.fn(async (body) => projection('v=1', body.window.offset, 1200)),
+      })
+      const controller = controllerFor(client)
+      await controller.hydrate()
+      await vi.waitFor(() =>
+        expect(controller.neighbors.map((loaded) => loaded.window.offset)).toEqual([200]),
+      )
+
+      await controller.moveCursorTo(199)
+      await controller.moveCursor(1)
+      expect(controller.projection?.window.offset).toBe(200)
+      expect(controller.cursorIndex).toBe(200)
+      await vi.waitFor(() =>
+        expect(controller.neighbors.map((loaded) => loaded.window.offset)).toEqual([0, 400]),
+      )
+    })
+
     it('exposes the cached windows next to the loaded one', async () => {
       const client = clientWith({
         view: vi.fn(async (body) => projection('v=1', body.window.offset, 450)),
