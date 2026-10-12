@@ -24,10 +24,10 @@
   import { keyHints } from '../lib/shell/key-hints'
   import {
     confirmDirectDelete,
+    focusedRow,
     localActions,
     moveCursor,
     openTransactionInformation,
-    pressedRow,
     type LocalActionContext,
   } from '../lib/shell/local-actions'
   import { SIDEBAR_FULL_QUERY, inSearch } from '../lib/shell/layout'
@@ -69,8 +69,9 @@
     openFilters: () => void commandBar?.openFilters(),
   }
   const local = (action: LocalAction) => localActions(actions)[action]()
-  async function apply(action: string, dimension?: Dimension, row = pressedRow(controller)) {
-    const focused = action === 'view.drill' || action === 'selection.toggle' ? row() : undefined
+  async function apply(action: string, dimension?: Dimension) {
+    const row = focusedRow(controller.projection, controller.cursorIndex)
+    const focused = action === 'view.drill' || action === 'selection.toggle' ? row : undefined
     if (action === 'view.drill' && focused?.kind === 'transaction')
       return openTransactionInformation(actions, focused.identity)
     if (focused) return send({ action, target: focused })
@@ -91,10 +92,9 @@
     status.clear()
     return transitions.run(work)
   }
-  /** Space toggles the row it was pressed on, unless a view change queued before it runs. */
+  /** Space toggles the cursor row when its turn comes; a later cursor move queues behind it. */
   function queueApply(action: string, dimension?: Dimension): void {
-    const pressed = action === 'selection.toggle' ? pressedRow(controller) : undefined
-    queue(() => apply(action, dimension, pressed))
+    queue(() => apply(action, dimension))
   }
   const queueSend = (request: TransitionAction) => queue(() => send(request))
   async function send(request: TransitionAction): Promise<void> {

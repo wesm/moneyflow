@@ -902,6 +902,24 @@ describe('AppShell', () => {
     })
   })
 
+  it('toggles the row j moved to when Space, j, Space wait behind a slow toggle', async () => {
+    const controller = heldFirstApply(lateInformation().controller)
+    vi.mocked(controller.moveCursor).mockImplementation(async (delta) => {
+      Object.assign(controller, { cursorIndex: controller.cursorIndex + delta })
+    })
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: 'j' })
+    await fireEvent.keyDown(window, { key: ' ' })
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(controller.apply).mock.calls.map(([action]) => action)).toEqual([
+      { action: 'selection.toggle', target: { identity: 'row-0', kind: 'transaction' } },
+      { action: 'selection.toggle', target: { identity: 'row-1', kind: 'transaction' } },
+    ])
+  })
+
   it('does not trap shortcuts when an editor has no focused row', async () => {
     const controller = stubController(testProjection({ total_rows: 0, detail_rows: [] }))
     render(AppShell, { controller })

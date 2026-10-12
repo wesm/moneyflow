@@ -8,7 +8,6 @@ import {
   moveCursor,
   openEditor,
   openEditorWhenSettled,
-  pressedRow,
   runRowAction,
   type LocalActionContext,
 } from './local-actions'
@@ -275,16 +274,5 @@ describe('moveCursor', () => {
     settle()
     await moved
     expect(move).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe('pressedRow', () => {
-  afterEach(() => document.body.replaceChildren())
-
-  it('keeps the row the key was pressed on after the cursor moves in the same view', () => {
-    const { context } = setup(0)
-    const row = pressedRow(context.controller)
-    Object.assign(context.controller, { cursorIndex: 1 })
-    expect(row()).toEqual({ identity: 'agg-0', kind: 'aggregate' })
   })
 })
