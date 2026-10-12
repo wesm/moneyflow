@@ -10,6 +10,10 @@ import { expect, openMoneyflow, test } from './fixtures'
 
 const sampleCount = 100
 
+// Tracing snapshots the page after each action, on the page's main thread, inside the timed
+// window: about 20 ms of a 4x-throttled drill. The timings here measure Moneyflow, not that.
+test.use({ trace: 'off' })
+
 interface PerformanceWindow extends Window {
   moneyflowCursorSamples: number[]
   moneyflowDrillSamples: number[]

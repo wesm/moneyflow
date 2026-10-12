@@ -2,6 +2,7 @@
   import { Tooltip } from '@kenn-io/kit-ui'
 
   import { calendarCells, type CalendarCell, type CalendarWeek } from '../../lib/charts/calendar'
+  import { DayTip } from '../../lib/charts/day-tip.svelte'
   import type { InsightsEntry } from '../../lib/insights/cache.svelte'
   import type { Period } from '../../lib/shell/period'
 
@@ -46,6 +47,14 @@
       days.findLast((cell) => cell.inScope) ??
       days.at(-1),
   )
+  const tip: DayTip = new DayTip(
+    () => grid,
+    (): string | undefined => tipped,
+  )
+  // The one day with a kit Tooltip: the pointed day, else the Tab stop, so Tab lands on a day
+  // that already has it.
+  const tipped: string | undefined = $derived(tip.pointed ?? active?.date)
+
   /** A step along the days: a neighbor in its week, or the same weekday in the next week. */
   const steps = $derived<Record<string, number>>(
     weeks
@@ -76,6 +85,11 @@
     return before !== undefined && last !== undefined && last.left < before.right
   }
 
+  /** Makes `date` the Tab stop. */
+  function choose(date: string): void {
+    chosen = { query: entry.query, date }
+  }
+
   function keydown(event: KeyboardEvent, cell: CalendarCell): void {
     if (event.key === 'Escape' && onleave) {
       event.preventDefault()
@@ -88,9 +102,7 @@
     const target = { Home: 0, End: last }[event.key] ?? (step === undefined ? undefined : at + step)
     if (target === undefined) return
     event.preventDefault()
-    const next = Math.min(Math.max(target, 0), last)
-    chosen = { query: entry.query, date: days[next]?.date ?? cell.date }
-    grid?.querySelectorAll<HTMLElement>('button.mf-day')[next]?.focus()
+    tip.move(days[Math.min(Math.max(target, 0), last)]?.date ?? cell.date, choose)
   }
 </script>
 
@@ -116,6 +128,10 @@
     aria-labelledby={id}
     style:--mf-weeks={blocks[0]?.weeks.length}
     bind:this={grid}
+    onpointerover={(event) => tip.over(event.target)}
+    onpointerleave={() => tip.leave()}
+    onpointerdown={() => tip.press()}
+    onfocusin={(event) => tip.focus(event.target, choose)}
   >
     {#each blocks as block, index (index)}
       {#if block.ticks}
@@ -158,7 +174,7 @@
         <span></span>
       {:else if cell.future}
         <span class="mf-day--future"></span>
-      {:else}
+      {:else if cell.date === tipped}
         <Tooltip>
           {#snippet content()}
             <p class="mf-cashflow-tip__title">{cell.label}</p>
@@ -169,27 +185,33 @@
               <dd>{cell.in}</dd>
             </dl>
           {/snippet}
-          <button
-            type="button"
-            class={[
-              'mf-day',
-              cell.outLevel === 0 && 'mf-heat--empty',
-              cell.hasIn && 'mf-day--in',
-              !cell.inScope && 'mf-day--outside',
-              dayScope && cell.inScope && 'mf-day--scope',
-              cell.cursor && 'mf-day--cursor',
-            ]}
-            style:--mf-level={cell.outLevel}
-            aria-label={cell.name}
-            tabindex={cell === active ? 0 : -1}
-            onclick={() => onperiod({ start: cell.date, end: cell.date })}
-            onkeydown={(event) => keydown(event, cell)}
-            onfocus={() => (chosen = { query: entry.query, date: cell.date })}
-          >
-            {#if month}{cell.day}{/if}
-          </button>
+          {@render day(cell, month)}
         </Tooltip>
+      {:else}
+        {@render day(cell, month)}
       {/if}
     {/each}
   </div>
+{/snippet}
+
+{#snippet day(cell: CalendarCell, month: boolean)}
+  <button
+    type="button"
+    class={[
+      'mf-day',
+      cell.outLevel === 0 && 'mf-heat--empty',
+      cell.hasIn && 'mf-day--in',
+      !cell.inScope && 'mf-day--outside',
+      dayScope && cell.inScope && 'mf-day--scope',
+      cell.cursor && 'mf-day--cursor',
+    ]}
+    style:--mf-level={cell.outLevel}
+    data-date={cell.date}
+    aria-label={cell.name}
+    tabindex={cell === active ? 0 : -1}
+    onclick={() => onperiod({ start: cell.date, end: cell.date })}
+    onkeydown={(event) => keydown(event, cell)}
+  >
+    {#if month}{cell.day}{/if}
+  </button>
 {/snippet}

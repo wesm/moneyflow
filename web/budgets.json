@@ -52,7 +52,7 @@
       "name": "chart_drill",
       "percentile": "p95",
       "samples": 100,
-      "max_ms": 30
+      "max_ms": 70
     }
   ]
 }

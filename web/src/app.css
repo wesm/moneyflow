@@ -1748,7 +1748,7 @@ button.mf-bar:hover {
 }
 .mf-day {
   position: relative;
-  /* The kit Tooltip wrapper is the grid item; the button fills it. */
+  /* The grid item, or the button that fills the kit Tooltip wrapper of the one tipped day. */
   flex: 1;
   padding: 1px 3px;
   border: 0;
