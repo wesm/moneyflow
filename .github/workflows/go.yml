@@ -19,7 +19,6 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     env:
       CGO_ENABLED: "0"
-      MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -50,6 +49,7 @@ jobs:
         shell: bash
         env:
           TMPDIR: ${{ runner.temp }}
+          MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
         run: |
           MONEYFLOW_SKIP_PERF=1 go test -shuffle=on ./...
           go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$' -count=1
@@ -61,6 +61,7 @@ jobs:
         if: ${{ !cancelled() && matrix.os == 'macos-latest' && steps.tests.outcome != 'skipped' }}
         env:
           TMPDIR: ${{ runner.temp }}
+          MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
         run: go test ./internal/home -run '^TestMCPHTTPTokenConcurrentEnsureReturnsOneValue$' -count=100
 
       - name: Profile startup after a test failure
@@ -68,6 +69,7 @@ jobs:
         shell: bash
         env:
           TMPDIR: ${{ runner.temp }}
+          MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
         run: |
           mkdir -p "$RUNNER_TEMP/cold-start"
           go test -trimpath ./internal/store/sqlite -run '^$' \
@@ -90,6 +92,7 @@ jobs:
       - name: Test provider refresh slice
         env:
           TMPDIR: ${{ runner.temp }}
+          MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
         run: make test-provider
 
       - name: Vet
@@ -107,8 +110,6 @@ jobs:
   race:
     name: Go race detector
     runs-on: ubuntu-latest
-    env:
-      MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -135,6 +136,7 @@ jobs:
         env:
           MONEYFLOW_SKIP_PERF: "1"
           TMPDIR: ${{ runner.temp }}
+          MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
         run: go test -race -shuffle=on ./...
 
       - name: Upload synthetic UI race failures
