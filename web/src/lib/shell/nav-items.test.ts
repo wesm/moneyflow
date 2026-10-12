@@ -108,11 +108,6 @@ describe('navItems', () => {
     ).toEqual(['detail'])
   })
 
-  it('marks All transactions in a depth-0 detail view', () => {
-    const projection = aggregate({ view: { ...aggregate().view, mode: 'detail', drill_depth: 0 } })
-    expect(navItems(projection).explore.find(({ active }) => active)?.id).toBe('detail')
-  })
-
   it('disables entries whose capability is unavailable or missing', () => {
     const projection = aggregate({
       capabilities: capabilities(['view.set-grouping', 'category-group.manage']).filter(

@@ -87,23 +87,29 @@ function affectedRows(affected: number, offset: number, limit: number) {
 /**
  * A review server whose one operation affects `affected` transactions. As the server does,
  * the review carries the operation's first 20 rows. Each target request waits for `wait`,
- * when given.
+ * when given. The server stages a hide toggle only over rows in one state, so a toggle's rows
+ * all start in its before state.
  */
 function reviewServer(
   affected: number,
   operation: ReturnType<typeof renameOperation> = renameOperation(affected),
   wait?: () => Promise<void>,
 ): MutationFetch {
+  const rows = (offset: number, limit: number) => {
+    const page = affectedRows(affected, offset, limit)
+    if (operation.type !== 'transaction.hide-toggle') return page
+    return page.map((row) => ({ ...row, hidden: operation.before === 'Hidden' }))
+  }
   return {
     request: vi.fn(async (_path: string, body: string) => {
       const window = (JSON.parse(body) as { window?: { offset: number; limit: number } }).window
       if (window) await wait?.()
-      const targets = window ? affectedRows(affected, window.offset, window.limit) : undefined
+      const targets = window ? rows(window.offset, window.limit) : undefined
       const response = {
         version: '1',
         revision: '1',
         pending: { active_operations: 1, inactive_operations: 0, affected_transactions: affected },
-        active_operations: [{ ...operation, targets: affectedRows(affected, 0, 20) }],
+        active_operations: [{ ...operation, targets: rows(0, 20) }],
         inactive_operations: [],
         window: { offset: window?.offset ?? 0, limit: window?.limit ?? 0, count: targets?.length },
         targets,
@@ -302,7 +308,7 @@ describe('ReviewDrawer in review mode', () => {
     ])
   })
 
-  it('shows a hidden or shown row’s visibility as old → new', async () => {
+  it('shows a hidden row’s visibility as old → new', async () => {
     const hide = {
       ...renameOperation(2),
       type: 'transaction.hide-toggle',
@@ -317,8 +323,7 @@ describe('ReviewDrawer in review mode', () => {
     const [, first, second] = screen.getAllByRole('row')
     const merchant = (row: HTMLElement | undefined) =>
       within(row!).getAllByRole('cell')[1]!.textContent?.replace(/\s+/g, ' ').trim()
-    // The first row was already hidden; the hide leaves it so.
-    expect(merchant(first)).toBe('Example Merchant 1 Hidden')
+    expect(merchant(first)).toBe('Example Merchant 1 Visible → Hidden')
     expect(merchant(second)).toBe('Example Merchant 2 Visible → Hidden')
   })
 
