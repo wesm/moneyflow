@@ -36,7 +36,24 @@ describe('seriesRows', () => {
   })
 
   it('charts the rows of a drill-down sub-grouping', () => {
-    expect(seriesRows(grouped('merchant', ['c-1'], 0, 'category'), [])).toEqual(['c-1'])
+    // A merchant drilled and sub-grouped by category stays in detail mode.
+    const drilled = testProjection({
+      view: {
+        mode: 'detail',
+        grouping: 'merchant',
+        sub_grouping: 'category',
+        time_granularity: 'year',
+        sort_field: 'amount',
+        sort_direction: 'desc',
+        sort_fields: ['category', 'count', 'amount'],
+        drill_depth: 1,
+        root: { mode: 'aggregate', grouping: 'merchant', time_granularity: 'year' },
+      },
+      detail_rows: null,
+      aggregate_rows: [testAggregateRow({ identity: 'c-1', dimension: 'category' })],
+    })
+
+    expect(seriesRows(drilled, [])).toEqual(['c-1'])
   })
 
   it('requests no series in the Time grouping or a transaction view', () => {

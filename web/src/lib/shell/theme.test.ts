@@ -1,4 +1,4 @@
-import { getThemeMode, getThemeName } from '@kenn-io/kit-ui'
+import { getThemeMode, getThemeName, setThemeMode } from '@kenn-io/kit-ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { initMoneyflowTheme } from './theme'
@@ -8,7 +8,7 @@ const modeKey = 'kit-ui-theme'
 
 function initWith(storage: Storage): void {
   vi.stubGlobal('localStorage', storage)
-  initMoneyflowTheme(storage)
+  initMoneyflowTheme()
 }
 
 describe('initMoneyflowTheme', () => {
@@ -51,6 +51,23 @@ describe('initMoneyflowTheme', () => {
     initWith(blocked)
 
     expect(getThemeMode()).toBe('dark')
+  })
+
+  it('starts dark when the browser refuses access to storage', () => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get: () => {
+        throw new DOMException('blocked', 'SecurityError')
+      },
+    })
+    initMoneyflowTheme()
+
+    expect(getThemeMode()).toBe('dark')
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(document.documentElement.getAttribute('data-kit-theme')).toBe('moneyflow')
+    // The theme toggle still switches modes for the session.
+    setThemeMode('light')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
   })
 
   it('replaces a previously stored theme name', () => {

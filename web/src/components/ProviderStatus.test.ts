@@ -87,6 +87,26 @@ describe('ProviderStatus', () => {
     expect(screen.getByRole('status').textContent).toContain('20 of 40')
   })
 
+  it('shows the update time, not progress, once a refresh finishes', async () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-07T12:00:00Z') })
+    const rendered = render(ProviderStatus, {
+      controller: stubProvider(true, {
+        phase: 'refreshing',
+        status: testProviderStatus({ progress: { fetched: 20, total: 40 } }),
+      }),
+    })
+    expect(screen.getByRole('status').textContent).toContain('20 of 40')
+
+    // The next status poll still carries the finished refresh's counts.
+    const finished = testProviderStatus({
+      last_success: '2026-10-07T11:55:00Z',
+      progress: { fetched: 40, total: 40 },
+    })
+    await rendered.rerender({ controller: stubProvider(true, { status: finished }) })
+    expect(screen.queryByText(/^Refreshing/)).toBeNull()
+    expect(screen.getByText('Updated 5m ago')).not.toBeNull()
+  })
+
   it('shows when provider data last refreshed', () => {
     vi.useFakeTimers({ now: Date.parse('2026-10-07T12:00:00Z') })
     const controller = stubProvider(true, {

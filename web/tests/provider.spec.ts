@@ -31,7 +31,9 @@ test('r refreshes through the protected base-path API without leaking provider s
   try {
     const fixture = await installProviderRoutes(page, false)
     await openMoneyflow(page, server)
-    await expect(page.getByText('Refreshing provider data: 20 of 40')).toBeVisible()
+    // Idle status keeps the last refresh's progress counts; the sidebar shows the update time.
+    await expect(page.getByText('Updated just now')).toBeVisible()
+    await expect(page.getByText('Refreshing provider data: 20 of 40')).toHaveCount(0)
 
     await page.keyboard.press('r')
 

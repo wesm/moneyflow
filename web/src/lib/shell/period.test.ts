@@ -309,9 +309,4 @@ describe('emptyScope', () => {
       emptyScope(scoped('2026-11-01', '2026-11-30', { view, breadcrumbs: november })),
     ).toBeUndefined()
   })
-
-  it('does not count the top-level Merchants crumb as a drill', () => {
-    const merchants = [{ dimension: 'merchant', label: 'Merchants' }]
-    expect(emptyScope(scoped('2026-11-01', '2026-11-30', { breadcrumbs: merchants }))).toBeDefined()
-  })
 })

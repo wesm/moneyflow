@@ -1,2 +1,4 @@
 * text=auto
 internal/web/dist/assets/*.js whitespace=-trailing-space
+# Generated golden files that tests compare byte for byte keep LF on every platform.
+web/src/lib/money/format-cases.json text eol=lf

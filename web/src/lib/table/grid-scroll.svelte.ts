@@ -47,6 +47,8 @@ export class GridScroll {
   #ownTop: number | undefined
   /** A mouse button is down on the grid, as while dragging to select text across rows. */
   #pressed = false
+  /** A scroll under the held button went unfollowed, so its rows may not have loaded. */
+  #skipped = false
   #lastViewport: number | undefined
   #lastRowHeight: number | undefined
   readonly #projection = $derived.by(() => this.#source.windows[0]!)
@@ -193,18 +195,25 @@ export class GridScroll {
     if (top === this.#ownTop) return undefined
     this.#ownTop = undefined
     const frame = requestAnimationFrame(() => {
-      if (!this.#pressed) this.#follow()
+      if (this.#pressed) this.#skipped = true
+      else this.#follow()
     })
     return () => cancelAnimationFrame(frame)
   }
 
   // Dragging to select text scrolls the rows under a held button; the cursor stays meanwhile.
+  // Releasing follows the scroll the drag made, so rows it reached that had not loaded load.
   // A press on the scroller's scrollbar lands outside the grid, so its scroll is followed.
   #watchPresses(): (() => void) | undefined {
     const grid = this.#source.grid
     if (!grid) return undefined
     const press = (event: MouseEvent) => (this.#pressed = event.button === 0)
-    const release = () => (this.#pressed = false)
+    const release = () => {
+      this.#pressed = false
+      if (!this.#skipped) return
+      this.#skipped = false
+      this.#follow()
+    }
     grid.addEventListener('mousedown', press)
     window.addEventListener('mouseup', release)
     return () => {

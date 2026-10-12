@@ -1035,9 +1035,35 @@ describe('FinanceGrid', () => {
       expect(events.oncursor).not.toHaveBeenCalled()
 
       await fireEvent.mouseUp(window, { button: 0 })
+      expect(events.oncursor).toHaveBeenCalledExactlyOnceWith(40)
+      await view.rerender({ cursorIndex: 40 })
       await view.rerender({ scrollTop: 41 * 30 })
       vi.advanceTimersToNextFrame()
-      expect(events.oncursor).toHaveBeenCalledExactlyOnceWith(41)
+      expect(events.oncursor).toHaveBeenLastCalledWith(41)
+    })
+
+    it('asks for the rows a drag scrolled to once the button is released', async () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      const events = { ...callbacks(), onshow: vi.fn() }
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 5,
+        compact: false,
+        scrollTop: 0,
+        viewport: 630,
+        ...events,
+      })
+      // The drag carries the rows past the loaded window; nothing loads under the held button.
+      await fireEvent.mouseDown(cell(rowAt(3)!, 'merchant')!, { button: 0 })
+      await view.rerender({ scrollTop: 300 * 30 })
+      vi.advanceTimersToNextFrame()
+      expect(events.onshow).not.toHaveBeenCalled()
+
+      // Released over unloaded rows with no further scroll.
+      await fireEvent.mouseUp(window, { button: 0 })
+      vi.advanceTimersToNextFrame()
+      expect(events.onshow).toHaveBeenCalledExactlyOnceWith(300)
+      expect(events.oncursor).not.toHaveBeenCalled()
     })
 
     it('does not follow the scroll the grid makes to show the cursor row', async () => {
