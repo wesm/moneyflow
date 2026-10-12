@@ -302,6 +302,9 @@ func appendAggregateTargets(
 	state AnalyticalState,
 	row domain.AggregateRow,
 ) error {
+	if row.Count == 0 {
+		return nil
+	}
 	filtered, err := aggregateTransactions(transactions, state, row)
 	if err != nil || len(filtered) == 0 {
 		return err

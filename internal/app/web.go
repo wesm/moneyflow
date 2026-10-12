@@ -208,7 +208,7 @@ func (service *Service) projectViewWith(
 		return WebProjection{}, err
 	}
 	decorateWebSelection(&result, snapshot)
-	summary, err := service.projectionSelectionSummary(result, selection, snapshot)
+	summary, err := service.projectionSelectionSummary(result, snapshot)
 	if err != nil {
 		return WebProjection{}, invalidWebRequest(err)
 	}

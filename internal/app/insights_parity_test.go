@@ -36,7 +36,7 @@ func TestInsightsScopeTotalsMatchTheTable(t *testing.T) {
 				DateRange: &domain.DateRange{Start: year, End: yearEnd}, ShowHidden: true,
 			}))
 		},
-		"search":         func(_ *testing.T, session *Session) { session.SetSearch("a") },
+		"search":         func(t *testing.T, session *Session) { selectiveSearch(t, service, session) },
 		"merchant drill": func(t *testing.T, session *Session) { drillTopRow(t, service, session) },
 		"sub-grouping": func(t *testing.T, session *Session) {
 			drillTopRow(t, service, session)
@@ -62,6 +62,24 @@ func TestInsightsScopeTotalsMatchTheTable(t *testing.T) {
 			})
 		})
 	}
+}
+
+// selectiveSearch searches for a few merchants and requires the search to keep a nonempty
+// subset of the unsearched scope, so a match between table and insights depends on search.
+func selectiveSearch(t *testing.T, service *Service, session *Session) {
+	t.Helper()
+	unsearched := viewCount(t, service, session)
+	session.SetSearch("Merchant 00[1-9]")
+	searched := viewCount(t, service, session)
+	require.NotZero(t, searched)
+	require.Less(t, searched, unsearched)
+}
+
+func viewCount(t *testing.T, service *Service, session *Session) int64 {
+	t.Helper()
+	projection, err := service.ProjectView(session.ViewState(), EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	return tableTotals(projection.Statistics)[0]
 }
 
 func drillTopRow(t *testing.T, service *Service, session *Session) {

@@ -32,6 +32,7 @@
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
   import { connectionState, status, writeProgress } from '../lib/shell/status.svelte'
+  import { TransitionQueue } from '../lib/shell/transition-queue'
   interface Props {
     controller: ViewController
     onreconnect?: (() => void) | undefined
@@ -41,7 +42,7 @@
   let grid = $state<HTMLElement | undefined>()
   let commandBar = $state<ShellCommandBar>()
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
-  let transitionTail: Promise<unknown> = Promise.resolve()
+  const transitions = new TransitionQueue(() => controller)
   const projection = $derived(controller.projection)
   const compact = new MediaQuery(MEDIA.compact)
   const fullSidebar = new MediaQuery(SIDEBAR_FULL_QUERY)
@@ -54,7 +55,7 @@
       return controller
     },
     overlays,
-    queue: (work) => (transitionTail = transitionTail.then(work, work)),
+    queue: (work) => transitions.run(work),
     focusGrid,
     importAmazon: () => onamazonimport?.(),
     focusSearch: () => void commandBar?.focusSearch(),
@@ -64,7 +65,7 @@
   async function apply(action: string, dimension?: Dimension, row = pressedRow(controller)) {
     const focused = action === 'view.drill' || action === 'selection.toggle' ? row() : undefined
     if (action === 'view.drill' && focused?.kind === 'transaction')
-      return void openTransactionInformation(actions, focused.identity)
+      return openTransactionInformation(actions, focused.identity)
     if (focused) return send({ action, target: focused })
     await send({ action, ...(dimension === undefined ? {} : { dimension }) })
   }
@@ -78,10 +79,10 @@
     overlays.close('keep')
     void tick().then(work)
   }
-  /** Queuing a transition is the user's next action, so it clears the notice now. */
-  function queue(work: () => Promise<void>): void {
+  /** Queuing a change is the user's next action, so it clears the notice now, not when it runs. */
+  function queue(work: () => unknown): Promise<unknown> {
     status.clear()
-    void actions.queue(work)
+    return actions.queue(work)
   }
   /** Space toggles the row it was pressed on, unless a view change queued before it runs. */
   function queueApply(action: string, dimension?: Dimension): void {
@@ -183,7 +184,8 @@
             {overlays}
             {charts}
             compact={compact.current}
-            onfocusgrid={() => focusGrid(true)}
+            queue={transitions}
+            onfocusgrid={focusGrid}
           />
           <main class="app-shell__main" aria-label="Moneyflow workspace">
             <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>

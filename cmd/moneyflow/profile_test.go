@@ -335,7 +335,6 @@ func TestOpenProfileDemoFixesInsightsTodayAtTheDemoEnd(t *testing.T) {
 	result, err := opened.Service.Insights(ctx, app.InsightsRequest{State: state})
 
 	require.NoError(t, err)
-	assert.Equal(t, "2026-10-07", result.Insights.Today.String())
 	assert.Equal(t, latest, result.Insights.Today, "today is the demo's last transaction date")
 }
 

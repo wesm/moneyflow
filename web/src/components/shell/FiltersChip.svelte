@@ -42,19 +42,11 @@
     trigger?.click()
   }
 
-  // Filters apply replaces the date range too, so the current period goes with every toggle.
   async function apply(change: Partial<Toggles>): Promise<void> {
     const next = { ...shown, ...change }
-    const range = filters.date_range
     pending = next
     try {
-      await onapply({
-        action: 'filters.apply',
-        filters: {
-          ...(range ? { date_range: { start: range.from, end: range.to } } : {}),
-          ...next,
-        },
-      })
+      await onapply({ action: 'filters.apply', filters: next })
     } finally {
       if (pending === next) pending = undefined
     }
