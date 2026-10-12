@@ -616,49 +616,27 @@ describe('AppShell', () => {
   })
 
   it('shows the last Enter’s transaction when an earlier one’s details arrive later', async () => {
-    const first = testProjection().detail_rows![0]!
-    const rows = [0, 1].map((index) => ({
-      ...first,
-      index,
-      identity: `row-${index}`,
-      merchant: `Example Merchant ${index}`,
-    }))
-    const controller = stubController(
-      testProjection({
-        total_rows: 2,
-        window: { offset: 0, limit: 200, count: 2 },
-        detail_rows: rows,
-      }),
-    )
-    controller.projection!.capabilities!.push({
-      id: 'view.drill',
-      key_display: 'enter',
-      description: 'view.drill',
-      category: 'Views',
-      available: true,
-    })
-    const waiting = new Map<string, () => void>()
-    controller.transactionInformation = vi.fn(
-      (identity: string) =>
-        new Promise<TransactionInformationResponse>((resolve) => {
-          const row = rows.find((candidate) => candidate.identity === identity)!
-          waiting.set(identity, () => resolve(transactionInformation(row)))
-        }),
-    )
+    const { controller, waiting } = lateInformation()
     render(AppShell, { controller })
     await fireEvent.keyDown(window, { key: 'Enter' })
     Object.assign(controller, { cursorIndex: 1, cursorIdentity: 'row-1' })
     await fireEvent.keyDown(window, { key: 'Enter' })
     await new Promise((resolve) => setTimeout(resolve))
 
-    waiting.get('row-1')?.()
-    waiting.get('row-0')!()
-    await vi.waitFor(() => expect(waiting.has('row-1')).toBe(true))
-    waiting.get('row-1')!()
-    const drawer = await screen.findByRole('dialog', { name: 'Transaction information' })
-    await vi.waitFor(() => expect(drawer.textContent).toContain('Example Merchant 1'))
+    await expectLastInformation(waiting)
+  })
+
+  it('shows the last tapped phone row’s transaction when an earlier one’s arrive later', async () => {
+    onTestFinished(stubMedia((query) => query.includes('640px')))
+    const { controller, waiting } = lateInformation()
+    render(AppShell, { controller })
+    const merchant = (index: number) =>
+      document.querySelector(`[data-index="${index}"] [data-column="merchant"]`)!
+    await fireEvent.click(merchant(0))
+    await fireEvent.click(merchant(1))
     await new Promise((resolve) => setTimeout(resolve))
-    expect(drawer.textContent).not.toContain('Example Merchant 0')
+
+    await expectLastInformation(waiting)
   })
 
   it('opens duplicate review with D and confirms direct deletion with x', async () => {
@@ -912,6 +890,55 @@ function captureFrames(): { flush: () => Promise<void> } {
       for (const callback of callbacks.splice(0)) callback(0)
     },
   }
+}
+
+/** Two transaction rows whose details each wait until the test releases them. */
+function lateInformation(): { controller: ViewController; waiting: Map<string, () => void> } {
+  const first = testProjection().detail_rows![0]!
+  const rows = [0, 1].map((index) => ({
+    ...first,
+    index,
+    identity: `row-${index}`,
+    merchant: `Example Merchant ${index}`,
+  }))
+  const controller = stubController(
+    testProjection({
+      total_rows: 2,
+      window: { offset: 0, limit: 200, count: 2 },
+      detail_rows: rows,
+    }),
+  )
+  controller.projection!.capabilities!.push({
+    id: 'view.drill',
+    key_display: 'enter',
+    description: 'view.drill',
+    category: 'Views',
+    available: true,
+  })
+  const waiting = new Map<string, () => void>()
+  controller.transactionInformation = vi.fn(
+    (identity: string) =>
+      new Promise<TransactionInformationResponse>((resolve) => {
+        const row = rows.find((candidate) => candidate.identity === identity)!
+        waiting.set(identity, () => resolve(transactionInformation(row)))
+      }),
+  )
+  return { controller, waiting }
+}
+
+/**
+ * Answers the second request first when both are out, then the first, and expects the drawer
+ * to end on the second row.
+ */
+async function expectLastInformation(waiting: Map<string, () => void>): Promise<void> {
+  waiting.get('row-1')?.()
+  waiting.get('row-0')!()
+  await vi.waitFor(() => expect(waiting.has('row-1')).toBe(true))
+  waiting.get('row-1')!()
+  const drawer = await screen.findByRole('dialog', { name: 'Transaction information' })
+  await vi.waitFor(() => expect(drawer.textContent).toContain('Example Merchant 1'))
+  await new Promise((resolve) => setTimeout(resolve))
+  expect(drawer.textContent).not.toContain('Example Merchant 0')
 }
 
 function transactionInformation(

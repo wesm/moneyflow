@@ -103,7 +103,8 @@
         onapply({ action: 'selection.toggle', target: { identity, kind } })}
       ontoggleall={() => onapply({ action: 'selection.toggle-all' })}
       onactivate={(identity, kind) => onapply({ action: 'view.drill', target: { identity, kind } })}
-      oninformation={(identity) => void openTransactionInformation(actions, identity)}
+      oninformation={(identity) =>
+        actions.queue(() => openTransactionInformation(actions, identity))}
       onedit={(identity, field) =>
         openEditorWhenSettled(actions, field, { identity, kind: 'transaction' })}
       onsort={(field) => onapply({ action: 'sort.set', sort_field: field })}
