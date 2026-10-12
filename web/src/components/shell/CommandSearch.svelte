@@ -24,9 +24,11 @@
     carry?: SearchCarry | undefined
     /** Shows the field, for a carried search that had focus to take it again. */
     reveal?: () => void
+    /** Settles once view changes queued before typing finish; the controller's by default. */
+    settled?: () => Promise<void>
   }
 
-  let { controller, ondone, carry, reveal }: Props = $props()
+  let { controller, ondone, carry, reveal, settled = () => controller.settled() }: Props = $props()
   let wrapper = $state<HTMLDivElement>()
   // kit types `inputEl` without `| undefined`, so the binding below casts the unmounted field.
   let inputEl = $state<HTMLInputElement>()
@@ -101,7 +103,7 @@
     draft = next
     if (leaving || waiting) return
     if (session) return session.search.input(next)
-    waiting = controller.settled().then(() => {
+    waiting = settled().then(() => {
       waiting = undefined
       if (draft !== undefined && wrapper?.isConnected) begin().input(draft)
     })

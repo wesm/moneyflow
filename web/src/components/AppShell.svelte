@@ -19,7 +19,7 @@
     type Dimension,
     type LocalAction,
   } from '../lib/shortcuts'
-  import type { ViewController } from '../lib/controller/view-controller.svelte'
+  import type { TransitionAction, ViewController } from '../lib/controller/view-controller.svelte'
   import { ChartState } from '../lib/shell/chart-state.svelte'
   import { keyHints } from '../lib/shell/key-hints'
   import {
@@ -34,7 +34,7 @@
   import type { NavRun } from '../lib/shell/nav-items'
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
-  import type { Period } from '../lib/shell/period'
+  import { TransitionQueue } from '../lib/shell/transition-queue'
   import { connectionState, writeProgress } from '../lib/shell/status'
   interface Props {
     controller: ViewController
@@ -45,7 +45,7 @@
   let grid = $state<HTMLElement | undefined>()
   let commandBar = $state<ShellCommandBar>()
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
-  let transitionTail: Promise<void> = Promise.resolve()
+  const transitions = new TransitionQueue(() => controller)
   const projection = $derived(controller.projection)
   const compact = new MediaQuery(MEDIA.compact)
   const fullSidebar = new MediaQuery(SIDEBAR_FULL_QUERY)
@@ -62,7 +62,7 @@
       return controller
     },
     overlays,
-    afterTransitions: () => transitionTail,
+    afterTransitions: () => transitions.idle(),
     importAmazon: () => onamazonimport?.(),
     focusSearch: () => void commandBar?.focusSearch(),
     openFilters: () => void commandBar?.openFilters(),
@@ -72,9 +72,8 @@
   const row = () => focusedRow(projection, controller.cursorIndex)
   async function apply(action: string, dimension?: Dimension): Promise<void> {
     const focused = action === 'view.drill' || action === 'selection.toggle' ? row() : undefined
-    if (focused) return target(action, focused.identity, focused.kind)
-    await controller.apply({ action, ...(dimension === undefined ? {} : { dimension }) })
-    focusGrid()
+    if (focused) return transition({ action, target: focused })
+    await transition({ action, ...(dimension === undefined ? {} : { dimension }) })
   }
   function run(entry: NavRun): void {
     if (entry.kind === 'local') local(entry.action)
@@ -86,22 +85,18 @@
     overlays.close('keep')
     void tick().then(work)
   }
-  function queueApply(action: string, dimension?: Dimension): void {
-    const run = () => apply(action, dimension)
-    transitionTail = transitionTail.then(run, run)
-  }
-  async function target(action: string, identity: string, kind: FocusedRow['kind']): Promise<void> {
-    await controller.apply({ action, target: { identity, kind } })
+  const queueApply = (action: string, dimension?: Dimension) =>
+    transitions.run(() => apply(action, dimension))
+  const target = (action: string, identity: string, kind: FocusedRow['kind']) =>
+    transitions.run(() => transition({ action, target: { identity, kind } }))
+  async function transition(action: TransitionAction): Promise<void> {
+    await controller.apply(action)
     focusGrid()
   }
   function focusGrid(fromSearch = false): void {
     // A request can finish after the user has opened a dialog or moved into search.
     if (overlays.current !== undefined || charts.dialogOpen || (!fromSearch && inSearch())) return
     grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
-  }
-  async function setPeriod(period: Period): Promise<void> {
-    await controller.apply({ action: 'time.set-period', period })
-    focusGrid()
   }
   $effect(() => {
     if (compact.current) return
@@ -200,6 +195,7 @@
             {overlays}
             {charts}
             compact={compact.current}
+            queue={transitions}
             onfocusgrid={focusGrid}
           />
           <main
@@ -214,7 +210,8 @@
                 {projection}
                 ontarget={(action, identity, kind) => void target(action, identity, kind)}
                 oninformation={(identity) => void openTransactionInformation(actions, identity)}
-                onperiod={(period) => void setPeriod(period)}
+                onperiod={(period) =>
+                  void transitions.run(() => transition({ action: 'time.set-period', period }))}
               />
             </div>
             {#if charts.aside}

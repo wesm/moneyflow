@@ -99,6 +99,45 @@ describe('AppShell', () => {
     expect(document.activeElement).toBe(search)
   })
 
+  it('runs a command-bar period change after the table toggles queued before it', async () => {
+    const controller = heldFirstApply(stubController(periodProjection()))
+    render(AppShell, { controller })
+
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous period' }))
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(3))
+    expect(vi.mocked(controller.apply).mock.calls.map(([action]) => action.action)).toEqual([
+      'selection.toggle',
+      'selection.toggle',
+      'time.previous-period',
+    ])
+  })
+
+  it('starts a search typed behind queued view changes from their result', async () => {
+    const controller = heldFirstApply(stubController(periodProjection()))
+    render(AppShell, { controller })
+
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.keyDown(window, { key: ' ' })
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous period' }))
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+    search.focus()
+    await fireEvent.input(search, { target: { value: 'coffee' } })
+    await tick()
+    expect(controller.beginSearch).not.toHaveBeenCalled()
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.beginSearch).toHaveBeenCalled())
+    const [lastApply] = vi.mocked(controller.apply).mock.invocationCallOrder.slice(-1)
+    expect(vi.mocked(controller.apply)).toHaveBeenCalledTimes(3)
+    expect(vi.mocked(controller.beginSearch).mock.invocationCallOrder[0]).toBeGreaterThan(
+      lastApply!,
+    )
+  })
+
   it('starts charts off at rail widths so the table keeps the full width', async () => {
     render(AppShell, { controller: stubController() })
     const charts = screen.getByRole('switch', { name: 'Charts' }) as HTMLInputElement
@@ -683,6 +722,27 @@ describe('AppShell', () => {
   })
 })
 
+/** A view with a year period and a currency, so the period arrows are enabled. */
+function periodProjection(): ReturnType<typeof testProjection> {
+  const base = testProjection()
+  return testProjection({
+    currencies: [
+      { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' },
+    ],
+    view: { ...base.view, currency: { currency: 'USD', scale: 2 } },
+    filters: { ...base.filters, date_range: { from: '2026-01-01', to: '2026-12-31' } },
+  })
+}
+
+/** Holds the first transition until `finish`, as a slow request would. */
+function heldFirstApply(controller: ViewController): ViewController & { finish: () => void } {
+  let release: ((applied: boolean) => void) | undefined
+  vi.mocked(controller.apply).mockImplementationOnce(
+    () => new Promise<boolean>((resolve) => (release = resolve)),
+  )
+  return Object.assign(controller, { finish: () => release?.(true) })
+}
+
 /** Holds animation frames until `flush`, so a test can check focus after the restore frame. */
 function captureFrames(): { flush: () => Promise<void> } {
   const callbacks: FrameRequestCallback[] = []
@@ -742,6 +802,7 @@ function stubController(projection = testProjection()): ViewController {
         },
         ...[
           ['view.set-grouping', '1-5'],
+          ['selection.toggle', 'space'],
           ['overlay.help', '?'],
           ['overlay.search', '/'],
           ['overlay.filters', 'f'],
