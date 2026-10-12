@@ -362,7 +362,9 @@ func TestWebCommandListenAddress(t *testing.T) {
 				In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
 				BuildWeb: testWebDependencyBuilder(t),
 				Listen: func(_ context.Context, _ string, address string) (net.Listener, error) {
-					requested = address
+					if requested == "" {
+						requested = address
+					}
 					return nil, refused
 				},
 				SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
@@ -373,6 +375,58 @@ func TestWebCommandListenAddress(t *testing.T) {
 			command.SetArgs(append([]string{"web", "--open=false"}, test.arguments...))
 			require.ErrorIs(t, command.Execute(), refused)
 			assert.Equal(t, test.requested, requested)
+		})
+	}
+}
+
+func TestWebCommandFallsBackToAFreePortOnlyForTheDefaultAddress(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name      string
+		arguments []string
+		requested []string
+	}{
+		{"a busy default port falls back to a free one", nil, []string{"127.0.0.1:8080", "127.0.0.1:0"}},
+		{"an explicit listen address never moves", []string{"--listen", "127.0.0.1:8080"}, []string{"127.0.0.1:8080"}},
+		{
+			"a proxied profile keeps the proxy's target",
+			[]string{"--external-url", "https://moneyflow.example/"},
+			[]string{"127.0.0.1:8080"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			busy := errors.New("address already in use")
+			var requested []string
+			var stdout, stderr bytes.Buffer
+			streams := IOStreams{
+				In: strings.NewReader(""), Out: &stdout, Err: &stderr,
+				BuildWeb: testWebDependencyBuilder(t),
+				Listen: func(ctx context.Context, network, address string) (net.Listener, error) {
+					requested = append(requested, address)
+					if address == "127.0.0.1:8080" {
+						return nil, busy
+					}
+					return (&net.ListenConfig{}).Listen(ctx, network, address)
+				},
+				SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
+					return context.WithCancel(parent)
+				},
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			command := newRootCommand(streams)
+			command.SetArgs(append([]string{"web", "--open=false"}, test.arguments...))
+			err := command.ExecuteContext(ctx)
+			assert.Equal(t, test.requested, requested)
+			if len(test.requested) == 1 {
+				require.ErrorIs(t, err, busy)
+				return
+			}
+			require.NoError(t, err)
+			assert.Contains(t, stderr.String(), "127.0.0.1:8080 is unavailable (address already in use)")
+			assert.Regexp(t, `^Moneyflow web: http://127\.0\.0\.1:\d+/\n$`, stdout.String())
+			assert.NotContains(t, stdout.String(), ":8080/")
 		})
 	}
 }
