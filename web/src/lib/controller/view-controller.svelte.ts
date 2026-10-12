@@ -599,7 +599,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         request.abort.signal,
       )
       if (request.superseded()) return
-      problem = undefined
       showWindow(next, request.index)
     } catch (error) {
       if (isAbort(error) || request.superseded()) return
@@ -613,6 +612,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   function showWindow(next: ViewProjection, index: number): void {
     const { offset, count } = next.window
     const holdsCursor = cursorIndex >= offset && cursorIndex < offset + count
+    problem = undefined
     setProjectionWindow(next, holdsCursor ? cursorIndex : index)
     replaceOwnedHistory()
     schedulePrefetch(next)

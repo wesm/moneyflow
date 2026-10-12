@@ -984,6 +984,34 @@ describe('browser view controller', () => {
       expect(controller.cursorIndex).toBe(250)
     })
 
+    it('clears the load error when a retry finds the window a prefetch cached', async () => {
+      let prefetched!: (value: ViewProjection) => void
+      let requests = 0
+      const client = clientWith({
+        view: vi.fn(async (body) => {
+          if (body.window.offset !== 200) return projection('v=1', body.window.offset, 450)
+          requests += 1
+          if (requests === 1) return await new Promise<ViewProjection>((r) => (prefetched = r))
+          throw new TypeError('Failed to fetch')
+        }),
+      })
+      const controller = controllerFor(client)
+      await controller.hydrate()
+      await vi.waitFor(() => expect(requests).toBe(1))
+
+      await controller.showIndex(250)
+      expect(controller.problem).toEqual({ kind: 'request', code: 'network_error' })
+      prefetched(projection('v=1', 200, 450))
+      await vi.waitFor(() =>
+        expect(controller.neighbors.map((loaded) => loaded.window.offset)).toEqual([200]),
+      )
+
+      await controller.retry()
+      expect(controller.projection?.window.offset).toBe(200)
+      expect(controller.cursorIndex).toBe(250)
+      expect(controller.problem).toBeUndefined()
+    })
+
     it('lets a transition already running finish', async () => {
       let release!: (value: ViewProjection) => void
       const client = clientWith({
