@@ -529,9 +529,12 @@ test('a transaction view shows the month’s heatmap, and a day click scopes to 
     new RegExp(`^Sep ${Number(date.slice(8))}, 2026, out -[\\d,]+\\.\\d\\d`),
   )
 
-  await heatmap(page)
-    .getByRole('button', { name: /^Sep 15, 2026, / })
-    .click()
+  // Only the day under the pointer has a tooltip, and it opens next to that day.
+  const fifteenth = heatmap(page).getByRole('button', { name: /^Sep 15, 2026, / })
+  await fifteenth.hover()
+  await expect(page.getByRole('tooltip')).toContainText('Sep 15, 2026')
+  await expect(heatmap(page).locator('.kit-tooltip-trigger')).toHaveCount(1)
+  await fifteenth.click()
   await expect(periodControl(page)).toHaveText('Sep 15, 2026')
   await expect(page).toHaveURL(/[?&]from=2026-09-15(&|$)/)
   await expect(page).toHaveURL(/[?&]to=2026-09-15(&|$)/)
