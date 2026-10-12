@@ -7,6 +7,7 @@
   import PeriodSegments from './PeriodSegments.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import type { TransitionAction } from '../../lib/controller/view-controller.svelte'
+  import { drillFrames } from '../../lib/shell/drills'
   import {
     activeCurrency,
     canShiftPeriod,
@@ -33,14 +34,16 @@
   const kind = $derived(scopeKind(range))
   const currency = $derived(activeCurrency(projection))
   const label = $derived(periodLabel(range))
+  const timeDrill = $derived(drillFrames(projection).some((frame) => frame.dimension === 'time'))
 
   function setPeriod(period: Period | undefined): void {
     onapply(period ? { action: 'time.set-period', period } : { action: 'time.clear-period' })
   }
 
+  // All time also clears a time drill, which can be open while the view covers all time.
   function pick(period: Period | undefined): void {
     onclose()
-    if (period || kind !== 'all') setPeriod(period)
+    if (period || kind !== 'all' || timeDrill) setPeriod(period)
   }
 </script>
 

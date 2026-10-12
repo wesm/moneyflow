@@ -35,6 +35,7 @@
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
   import { connectionState, status, writeProgress } from '../lib/shell/status.svelte'
+  import { TransitionQueue } from '../lib/shell/transition-queue'
   interface Props {
     controller: ViewController
     onreconnect?: (() => void) | undefined
@@ -44,7 +45,7 @@
   let grid = $state<HTMLElement | undefined>()
   let commandBar = $state<ShellCommandBar>()
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
-  let transitionTail: Promise<unknown> = Promise.resolve()
+  const transitions = new TransitionQueue(() => controller)
   const projection = $derived(controller.projection)
   const compact = new MediaQuery(MEDIA.compact)
   const fullSidebar = new MediaQuery(SIDEBAR_FULL_QUERY)
@@ -85,13 +86,10 @@
     overlays.close('keep')
     void tick().then(work)
   }
-  /**
-   * Runs view transitions one at a time, so each starts from the result of the last. Queuing
-   * one is the user's next action, so it clears the notice now, not when the transition runs.
-   */
+  /** Queuing a change is the user's next action, so it clears the notice now, not when it runs. */
   function queue(work: () => unknown): Promise<unknown> {
     status.clear()
-    return (transitionTail = transitionTail.then(work, work))
+    return transitions.run(work)
   }
   /** Space toggles the row it was pressed on, unless a view change queued before it runs. */
   function queueApply(action: string, dimension?: Dimension): void {
@@ -206,7 +204,8 @@
             {overlays}
             {charts}
             compact={compact.current}
-            onfocusgrid={() => focusGrid(true)}
+            queue={transitions}
+            onfocusgrid={focusGrid}
           />
           <main
             class="app-shell__main"

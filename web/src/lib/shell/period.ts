@@ -224,7 +224,8 @@ export interface EmptyScope {
 /**
  * Describes a chosen period with no transactions in the view's currency. All time, searches,
  * and drill-downs are not empty periods: the table's own empty state covers them, since Latest
- * for the currency may not hold a transaction inside the drill-down.
+ * for the currency may not hold a transaction inside the drill-down. Neither is the period that
+ * holds Latest: Latest counts hidden transactions and transfers, so filters alone emptied it.
  */
 export function emptyScope(projection: ViewProjection): EmptyScope | undefined {
   const currency = activeCurrency(projection)
@@ -237,8 +238,7 @@ export function emptyScope(projection: ViewProjection): EmptyScope | undefined {
       entry.currency === currency.currency && entry.scale === currency.scale && entry.count > 0,
   )
   if (counted) return undefined
-  return {
-    label: periodLabel(range),
-    jump: periodContaining(currency.latest, kind === 'custom' ? 'month' : kind),
-  }
+  const jump = periodContaining(currency.latest, kind === 'custom' ? 'month' : kind)
+  if (jump.start === range?.from && jump.end === range.to) return undefined
+  return { label: periodLabel(range), jump }
 }

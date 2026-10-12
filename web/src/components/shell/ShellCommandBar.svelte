@@ -15,14 +15,12 @@
   import PeriodSegments from './PeriodSegments.svelte'
   import ViewSheet from './ViewSheet.svelte'
   import type { ViewProjection } from '../../lib/api/client'
-  import type {
-    TransitionAction,
-    ViewController,
-  } from '../../lib/controller/view-controller.svelte'
+  import type { ViewController } from '../../lib/controller/view-controller.svelte'
   import type { ChartState } from '../../lib/shell/chart-state.svelte'
   import { drillFrames } from '../../lib/shell/drills'
   import type { OverlayState } from '../../lib/shell/overlay-state.svelte'
   import { SearchCarry } from '../../lib/shell/search-carry'
+  import type { TransitionQueue } from '../../lib/shell/transition-queue'
 
   interface Props {
     controller: ViewController
@@ -31,11 +29,13 @@
     charts: ChartState
     /** Phone width: two rows; the view controls move to the View sheet, search behind an icon. */
     compact: boolean
-    /** Returns focus to the grid after a control moved the view. */
-    onfocusgrid: () => void
+    /** Orders view changes from the command bar after the ones the user made before them. */
+    queue: TransitionQueue
+    /** Returns focus to the grid; only `fromSearch` takes it from the search field. */
+    onfocusgrid: (fromSearch?: boolean) => void
   }
 
-  let { controller, projection, overlays, charts, compact, onfocusgrid }: Props = $props()
+  let { controller, projection, overlays, charts, compact, queue, onfocusgrid }: Props = $props()
   let search = $state<CommandSearch>()
   let filters = $state<FiltersChip>()
   let searchToggle = $state<HTMLElement>()
@@ -68,12 +68,8 @@
     filters?.open()
   }
 
-  function apply(action: TransitionAction): void {
-    void controller.apply(action)
-  }
-
   async function backTo(depth: number): Promise<void> {
-    await controller.apply({ action: 'view.back-to', depth })
+    await queue.apply({ action: 'view.back-to', depth })
     onfocusgrid()
   }
 
@@ -101,7 +97,7 @@
     const toIcon = compact && searchFromIcon
     searchShown = false
     searchFromIcon = false
-    if (!toIcon) return onfocusgrid()
+    if (!toIcon) return onfocusgrid(true)
     await tick()
     searchToggle?.querySelector('button')?.focus()
   }
@@ -123,34 +119,36 @@
     chooserOpen={overlays.current === 'period'}
     onchoose={() => overlays.open('period')}
     onclose={(focus) => overlays.close(focus)}
-    onapply={apply}
+    onapply={queue.apply}
     segments={!compact}
   />
 {/snippet}
 {#snippet segments()}
-  <PeriodSegments {projection} onapply={apply} block />
+  <PeriodSegments {projection} onapply={queue.apply} block />
 {/snippet}
 {#snippet currency()}
   <CurrencyChip
     {projection}
-    onchange={(currency) => apply({ action: 'view.set-currency', currency })}
+    onchange={(currency) => queue.apply({ action: 'view.set-currency', currency })}
   />
 {/snippet}
 {#snippet filtersChip()}
-  <FiltersChip bind:this={filters} {projection} onapply={(action) => controller.apply(action)} />
+  <FiltersChip bind:this={filters} {projection} onapply={queue.apply} />
 {/snippet}
 {#snippet breakdown()}
   <BreakDownBy
     {projection}
     block={compact}
-    onbreakdown={(dimension) => apply({ action: 'view.set-subgrouping', dimension })}
-    ontransactions={() => apply({ action: 'view.back-to', depth: drillFrames(projection).length })}
+    onbreakdown={(dimension) => queue.apply({ action: 'view.set-subgrouping', dimension })}
+    ontransactions={() =>
+      queue.apply({ action: 'view.back-to', depth: drillFrames(projection).length })}
   />
 {/snippet}
 {#snippet searchField()}
   <CommandSearch
     bind:this={search}
     {controller}
+    settled={queue.settled}
     carry={searchCarry}
     reveal={() => (searchShown = compact)}
     ondone={() => void searchDone()}
