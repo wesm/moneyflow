@@ -106,8 +106,7 @@
   $effect(() => {
     if (compact.current) return
     if (charts.dialogOpen) charts.setDialog(false)
-    const open = overlays.current
-    if (open === 'navigation' || open === 'view') overlays.close()
+    if (overlays.current === 'navigation' || overlays.current === 'view') overlays.close()
   })
   $effect(() => {
     if (!projection) return
