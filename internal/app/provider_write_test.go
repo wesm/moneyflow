@@ -612,6 +612,11 @@ func TestProviderWriteHeartbeatErrorWithLiveLeaseNeverResendsAttemptedItem(t *te
 		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
 		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
 	}
+	// A fetch longer than two heartbeats, as on a slow runner, renews the refresh lease too.
+	reader.setFetchHook(func() error {
+		time.Sleep(5 * time.Millisecond)
+		return nil
+	})
 	started := make(chan struct{})
 	var startedOnce sync.Once
 	writer := &scriptedProviderWriter{
@@ -2139,11 +2144,12 @@ func (writer *scriptedProviderWriter) DeleteTransaction(
 
 type heartbeatErrorProfile struct {
 	store.Profile
-	mu     sync.Mutex
-	calls  int
-	failAt int
-	failed chan struct{}
-	lost   chan struct{}
+	mu sync.Mutex
+	// writeRenewals counts write-lease renewals only; failAt names the one that fails.
+	writeRenewals int
+	failAt        int
+	failed        chan struct{}
+	lost          chan struct{}
 }
 
 type blockingWriteRenewProfile struct {
@@ -2202,16 +2208,19 @@ func (profile *heartbeatErrorProfile) RenewProviderOperationLease(
 	expiresAt time.Time,
 	observedAt time.Time,
 ) (bool, error) {
+	if kind != store.ProviderOperationWrite {
+		return profile.Profile.RenewProviderOperationLease(ctx, owner, kind, expiresAt, observedAt)
+	}
 	profile.mu.Lock()
-	profile.calls++
-	call := profile.calls
+	profile.writeRenewals++
+	call := profile.writeRenewals
 	profile.mu.Unlock()
 	if call == profile.failAt {
 		close(profile.failed)
 		return false, errors.New("synthetic heartbeat storage failure")
 	}
 	renewed, err := profile.Profile.RenewProviderOperationLease(ctx, owner, kind, expiresAt, observedAt)
-	if !renewed && kind == store.ProviderOperationWrite {
+	if !renewed {
 		profile.mu.Lock()
 		if profile.lost != nil {
 			close(profile.lost)
