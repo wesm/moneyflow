@@ -172,6 +172,7 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
     showIndex: vi.fn(async () => undefined),
     showAnchor: vi.fn(async () => undefined),
     recheckNewer: vi.fn(async () => undefined),
+    reloadDay: vi.fn(async () => undefined),
     insights: vi.fn(() => new Promise<never>(() => undefined)),
     apply: vi.fn(async () => true),
     beginSearch: vi.fn(),

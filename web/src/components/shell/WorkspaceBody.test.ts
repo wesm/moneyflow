@@ -27,6 +27,7 @@ function renderBody(insights: Insights) {
     editing: testEditingController(),
     insights,
     recheckNewer: vi.fn(async () => undefined),
+    reloadDay: vi.fn(async () => undefined),
   } as unknown as ViewController
   const host = { pushScope: () => undefined }
   const actions: LocalActionContext = {
@@ -39,7 +40,8 @@ function renderBody(insights: Insights) {
     openFilters: () => undefined,
   }
   const charts = new ChartState({ ...host, compact: () => false })
-  return render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
+  const rendered = render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
+  return { ...rendered, controller }
 }
 
 describe('WorkspaceBody', () => {
@@ -78,5 +80,23 @@ describe('WorkspaceBody', () => {
     await fireEvent.focus(window)
     expect(insights).toHaveBeenCalledTimes(2)
     expect(insights.mock.lastCall?.[0]).toEqual({ query: 'v=1', summary: true })
+  })
+
+  it('reloads the table when the insights come back from a new day', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    let today = '2026-10-07'
+    const insights = vi.fn<Insights>(async (body) =>
+      testInsights({ query: body.query, revision: '0', today }),
+    )
+    const { controller } = renderBody(insights)
+    await vi.waitFor(() => expect(insights).toHaveBeenCalledTimes(1))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(controller.reloadDay).not.toHaveBeenCalled()
+
+    // The tab comes back after midnight; the profile revision has not changed.
+    today = '2026-10-08'
+    now.mockReturnValue(1_000_000 + 10 * 60_000)
+    await fireEvent.focus(window)
+    await vi.waitFor(() => expect(controller.reloadDay).toHaveBeenCalledTimes(1))
   })
 })

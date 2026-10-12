@@ -59,6 +59,7 @@ interface DisplayedView {
 export class InsightsCache {
   readonly #load: InsightsLoad
   readonly #onNewer: (revision: string) => unknown
+  readonly #onNewDay: () => unknown
   readonly #slots = new SvelteMap<string, Slot>()
   #flights: Flight[] = []
   #view = $state.raw<DisplayedView | undefined>()
@@ -81,10 +82,17 @@ export class InsightsCache {
    *   displayed projection; the view must be rechecked before those insights can show. When it
    *   returns a promise that settles with the view unchanged, the missing summary or series
    *   count as failed, and a later answer at that revision, such as after `retry`, calls it again.
+   * @param onNewDay Called when an answer at the same revision reports a new server day; the
+   *   view's Time rows end at today, so it must load again.
    */
-  constructor(load: InsightsLoad, onNewer: (revision: string) => unknown) {
+  constructor(
+    load: InsightsLoad,
+    onNewer: (revision: string) => unknown,
+    onNewDay: () => unknown = () => undefined,
+  ) {
     this.#load = load
     this.#onNewer = onNewer
+    this.#onNewDay = onNewDay
   }
 
   /** The entry to draw: the displayed view's, or the previous one while that loads. */
@@ -238,9 +246,12 @@ export class InsightsCache {
     if (dayChanged) this.#clear()
     this.#store(flight.query, response)
     const newer = revision > requested
-    // The chart context ends at today, so the displayed view loads again for the new day. Newer
-    // insights move the view to another key first, so the old key is not asked again.
-    if (dayChanged && !newer) this.#request()
+    // The chart context and the table's Time rows end at today, so both load again for the new
+    // day. Newer insights move the view to another key first, so the old key is not asked again.
+    if (dayChanged && !newer) {
+      this.#request()
+      this.#onNewDay()
+    }
     if (newer && revision > this.#notified) this.#notifyNewer(flight.key, response)
   }
 

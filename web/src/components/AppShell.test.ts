@@ -910,6 +910,7 @@ function stubController(projection = testProjection()): ViewController {
     showIndex: vi.fn(),
     showAnchor: vi.fn(),
     recheckNewer: vi.fn(),
+    reloadDay: vi.fn(),
     insights: vi.fn(async (body) => testInsights({ query: body.query, revision: '0' })),
     apply: vi.fn(),
     beginSearch: vi.fn(),

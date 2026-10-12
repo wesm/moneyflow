@@ -38,6 +38,10 @@ export class WindowCache {
     )
   }
 
+  clear(): void {
+    this.#entries.clear()
+  }
+
   retainAdjacent(query: string, selection: string, revision: string, currentOffset: number): void {
     const cacheKey = key(query, selection, revision)
     const entries = this.#entries.get(cacheKey)

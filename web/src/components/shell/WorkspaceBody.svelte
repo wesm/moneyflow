@@ -94,6 +94,7 @@
     return new InsightsCache(
       (body, signal) => owner.insights(body, signal),
       (revision) => actions.queue(() => owner.recheckNewer(revision)),
+      () => actions.queue(() => owner.reloadDay()),
     )
   }
 

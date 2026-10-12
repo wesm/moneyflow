@@ -99,6 +99,11 @@ export interface ViewController {
    * the charts can show them. Does nothing for an equal or older revision.
    */
   recheckNewer(revision: string): Promise<void>
+  /**
+   * Loads the view again after the server's day changed, after earlier transitions finish. Time
+   * rows end at today, so the rows can change while the revision stays the same.
+   */
+  reloadDay(): Promise<void>
   /** Sends one insights request for this profile; the charts' cache decides what to ask. */
   insights(body: InsightsBody, signal: AbortSignal): Promise<InsightsResponse>
   apply(action: TransitionAction): Promise<boolean>
@@ -281,6 +286,23 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     await serially(async () => {
       if (!projection || BigInt(revision) <= BigInt(projection.revision)) return
       await recheckInternal(undefined, true)
+    })
+  }
+
+  async function reloadDay(): Promise<void> {
+    await serially(async () => {
+      if (!projection) return
+      const current = projection
+      const body = viewBody(current.canonical_query, current.selection, alignedOffset(cursorIndex))
+      await requestProjection(
+        () => options.client.view(body, activeRequest?.signal),
+        (next) => {
+          // The windows read before hold the earlier day's rows under the same revision.
+          cache.clear()
+          acceptProfileProjection(next, true)
+        },
+        reloadDay,
+      )
     })
   }
 
@@ -906,6 +928,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     showIndex,
     showAnchor,
     recheckNewer,
+    reloadDay,
     insights: (body, signal) => options.client.insights(body, signal),
     apply,
     hold,

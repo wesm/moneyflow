@@ -1022,6 +1022,51 @@ describe('browser view controller', () => {
     })
   })
 
+  describe('reloading for a new day', () => {
+    it('takes the same revision’s new rows and drops the windows read the day before', async () => {
+      let total = 450
+      const client = clientWith({
+        view: vi.fn(async (body: ViewBody) => projection('v=1', body.window.offset, total, '4')),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      await controller.moveCursorTo(250)
+      const calls = vi.mocked(client.view).mock.calls.length
+
+      // The Time rows end at today, so the new day adds a row at the same revision.
+      total = 451
+      await controller.reloadDay()
+      expect(client.view).toHaveBeenCalledTimes(calls + 1)
+      expect(controller.projection?.total_rows).toBe(451)
+      expect(controller.cursorIndex).toBe(250)
+
+      await controller.moveCursorTo(10)
+      expect(controller.projection?.window.offset).toBe(0)
+      expect(controller.projection?.total_rows).toBe(451)
+    })
+
+    it('waits for a command-bar transition still on its way', async () => {
+      let answer!: (next: ViewProjection) => void
+      const client = clientWith({
+        view: vi.fn(async (body: ViewBody) => projection(body.query, 0, 3, '4')),
+        transition: vi.fn(() => new Promise<ViewProjection>((resolve) => (answer = resolve))),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+
+      const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const reloading = controller.reloadDay()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      answer(projection('v=2', 0, 3, '4'))
+
+      await expect(applying).resolves.toBe(true)
+      await reloading
+      expect(vi.mocked(client.view).mock.lastCall?.[0]).toMatchObject({ query: 'v=2' })
+      expect(controller.projection?.canonical_query).toBe('v=2')
+    })
+  })
+
   describe('showing a scrolled-to row', () => {
     it('loads the aligned window outside the loaded one and moves the cursor into it', async () => {
       const client = clientWith({
