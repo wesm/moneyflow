@@ -16,23 +16,34 @@ import (
 	"github.com/wesm/moneyflow/internal/uitest/tuidriver"
 )
 
-func TestTUICommitsThroughActualEventLoop(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+// stepTimeout bounds one rendered transition, matching Execute's checkpoints.
+// A budget for a whole scenario fails on slow race-detector runners even when
+// every individual step is healthy.
+const stepTimeout = 5 * time.Second
+
+func waitFor(t *testing.T, driver *tuidriver.Driver, text string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), stepTimeout)
 	defer cancel()
+	require.NoError(t, driver.Wait(ctx, text))
+}
+
+func TestTUICommitsThroughActualEventLoop(t *testing.T) {
+	ctx := t.Context()
 	run, err := scenario.Open(ctx, uitest.TestRoot(t))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, run.Close()) }()
 	driver, err := tuidriver.Start(ctx, run.Service, app.NewSession(), tui.Options{Now: run.Provider.Now, ColorMode: tui.ColorModeNone})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, driver.Close()) }()
-	require.NoError(t, driver.Wait(ctx, "Example Shop"))
+	waitFor(t, driver, "Example Shop")
 	require.NoError(t, driver.Key("t"))
-	require.NoError(t, driver.Wait(ctx, "Choose time"))
+	waitFor(t, driver, "Choose time")
 	require.NoError(t, driver.Text("2026-09"))
 	require.NoError(t, driver.Key("enter"))
-	require.NoError(t, driver.Wait(ctx, "Sep 2026"))
+	waitFor(t, driver, "Sep 2026")
 	require.NoError(t, driver.Key("f"))
-	require.NoError(t, driver.Wait(ctx, "Show hidden"))
+	waitFor(t, driver, "Show hidden")
 	for range 2 {
 		require.NoError(t, driver.Key("tab"))
 	}
@@ -42,20 +53,20 @@ func TestTUICommitsThroughActualEventLoop(t *testing.T) {
 	}
 	require.NoError(t, driver.Key("enter"))
 	require.NoError(t, driver.Key("m"))
-	require.NoError(t, driver.Wait(ctx, "2 transactions affected"))
+	waitFor(t, driver, "2 transactions affected")
 	require.NoError(t, driver.Text("Dest"))
-	require.NoError(t, driver.Wait(ctx, "Destination Shop"))
+	waitFor(t, driver, "Destination Shop")
 	require.NoError(t, driver.Key("enter"))
-	require.NoError(t, driver.Wait(ctx, "Pending: 1"))
+	waitFor(t, driver, "Pending: 1")
 	before, err := run.Observe(ctx)
 	require.NoError(t, err)
 	require.NoError(t, scenario.CheckTargets(before, []string{"current-a", "current-b"}))
 	assert.Equal(t, "Example Shop", before.Rows["current-a"].Merchant)
 	require.NoError(t, run.Provider.SetFault(uitest.FaultBlock))
 	require.NoError(t, driver.Key("w"))
-	require.NoError(t, driver.Wait(ctx, "Pending Changes"))
+	waitFor(t, driver, "Pending Changes")
 	require.NoError(t, driver.Key("enter"))
-	require.NoError(t, driver.Wait(ctx, "Monarch Write"))
+	waitFor(t, driver, "Monarch Write")
 	require.Eventually(t, func() bool {
 		for _, call := range run.Provider.State().Calls {
 			if call.Method == "update" {
@@ -63,18 +74,18 @@ func TestTUICommitsThroughActualEventLoop(t *testing.T) {
 			}
 		}
 		return false
-	}, time.Second, time.Millisecond)
+	}, stepTimeout, time.Millisecond)
 	run.Provider.Release()
-	require.NoError(t, driver.Wait(ctx, "Provider write complete"))
+	waitFor(t, driver, "Provider write complete")
 	after, err := run.Observe(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "Destination Shop", after.Rows["current-a"].Merchant)
 	assert.Equal(t, "Example Shop", after.Rows["older"].Merchant)
 	assert.Equal(t, 1, after.SnapshotCalls)
 	require.NoError(t, driver.Resize(60, 16))
-	require.NoError(t, driver.Wait(ctx, "80"))
+	waitFor(t, driver, "80")
 	require.NoError(t, driver.Resize(120, 40))
-	require.NoError(t, driver.Wait(ctx, "Destination Shop"))
+	waitFor(t, driver, "Destination Shop")
 }
 
 type delayedCleanup struct {
@@ -151,8 +162,7 @@ func TestRealKeysSelectMatchesCreateExplicitlyAndHideOnlyVisibleRows(t *testing.
 		{"mixed hidden group", "h", "", "Hide transactions", 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancel()
+			ctx := t.Context()
 			open := scenario.Open
 			if test.key == "c" && test.down > 0 {
 				open = scenario.OpenLocal
@@ -169,12 +179,12 @@ func TestRealKeysSelectMatchesCreateExplicitlyAndHideOnlyVisibleRows(t *testing.
 			driver, err := tuidriver.Start(ctx, run.Service, session, tui.Options{Now: run.Provider.Now, ColorMode: tui.ColorModeNone})
 			require.NoError(t, err)
 			defer func() { require.NoError(t, driver.Close()) }()
-			require.NoError(t, driver.Wait(ctx, "Example Shop"))
+			waitFor(t, driver, "Example Shop")
 			if test.key != "h" {
 				require.NoError(t, driver.Key(test.key))
 				require.NoError(t, driver.Text("cancel me"))
 				require.NoError(t, driver.Key("esc"))
-				require.NoError(t, driver.Wait(ctx, "g Group By"))
+				waitFor(t, driver, "g Group By")
 			}
 			require.NoError(t, driver.Key(test.key))
 			if test.text != "" {
@@ -184,25 +194,25 @@ func TestRealKeysSelectMatchesCreateExplicitlyAndHideOnlyVisibleRows(t *testing.
 				}
 				require.NoError(t, driver.Key("enter"))
 				if test.key == "c" && test.down > 0 {
-					require.NoError(t, driver.Wait(ctx, "Choose Group"))
+					waitFor(t, driver, "Choose Group")
 					require.NoError(t, driver.Key("enter"))
 				}
 			}
-			require.NoError(t, driver.Wait(ctx, "Pending: 1"))
+			waitFor(t, driver, "Pending: 1")
 			pending, err := run.Observe(ctx)
 			require.NoError(t, err)
 			require.Equal(t, before.Rows, pending.Rows)
 			require.Equal(t, []string{"current-a", "current-b"}, pending.Targets)
 			require.NoError(t, driver.Key("u"))
-			require.NoError(t, driver.Wait(ctx, "Redo"))
+			waitFor(t, driver, "Redo")
 			undone, err := run.Observe(ctx)
 			require.NoError(t, err)
 			require.Zero(t, undone.Pending)
 			require.NoError(t, driver.Key("U"))
-			require.NoError(t, driver.Wait(ctx, "Pending: 1"))
+			waitFor(t, driver, "Pending: 1")
 			require.NoError(t, driver.Key("w"))
-			require.NoError(t, driver.Wait(ctx, "Pending Changes"))
-			require.NoError(t, driver.Wait(ctx, test.review))
+			waitFor(t, driver, "Pending Changes")
+			waitFor(t, driver, test.review)
 		})
 	}
 }
