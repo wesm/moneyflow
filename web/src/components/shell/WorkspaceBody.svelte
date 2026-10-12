@@ -191,7 +191,7 @@
       above={above + bannerHeight}
       compact={compact.current}
       oncursor={(index) => moveCursor(actions, () => controller.moveCursorTo(index))}
-      onkey={(decide) =>
+      onmove={(decide) =>
         void moveCursor(actions, async () => {
           const index = decide()
           if (index !== undefined) await controller.moveCursorTo(index)

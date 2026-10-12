@@ -13,8 +13,8 @@ const callbacks = () => {
   const oncursor = vi.fn<(index: number) => Promise<void>>(() => Promise.resolve())
   return {
     oncursor,
-    // Moves at once, as the shell does when no view change is pending.
-    onkey: vi.fn((decide: () => number | undefined) => {
+    // Moves at once, as the shell does when nothing is queued before the move.
+    onmove: vi.fn((decide: () => number | undefined) => {
       const index = decide()
       if (index !== undefined) void oncursor(index)
     }),
@@ -115,7 +115,7 @@ describe('FinanceGrid', () => {
   it('decides a key’s row from the cursor when the shell runs the key', async () => {
     const events = callbacks()
     const decisions: Array<() => number | undefined> = []
-    events.onkey.mockImplementation((decide) => void decisions.push(decide))
+    events.onmove.mockImplementation((decide) => void decisions.push(decide))
     const rows = [0, 1, 2].map((index) =>
       testAggregateRow({ index, identity: `agg-${index}`, label: `Merchant ${index}` }),
     )

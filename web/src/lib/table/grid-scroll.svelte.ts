@@ -25,7 +25,11 @@ export interface GridScrollSource {
   readonly above: number
   /** The scroller's `scrollTop`. The model sets it, and the scroller, to reveal the cursor row. */
   scrollTop: number
-  oncursor(index: number): void
+  /**
+   * Moves the cursor for a key or a scroll once the changes queued before it run. `decide`
+   * returns the row from the cursor and scroll position it finds then, or none.
+   */
+  onmove(decide: () => number | undefined): void
   readonly onshow: ((index: number) => void) | undefined
 }
 
@@ -111,11 +115,16 @@ export class GridScroll {
     return this.range.last - this.range.first + 1
   }
 
+  /** Moves the cursor as a grid key asks. */
+  key(move: CursorMove): void {
+    this.#source.onmove(() => this.#keyTarget(move))
+  }
+
   /**
    * The row a grid key moves the cursor to, or none when it stays. The move is the user's, so
    * a cursor that stays has its row revealed, as scrolling may have carried it off screen.
    */
-  key(move: CursorMove): number | undefined {
+  #keyTarget(move: CursorMove): number | undefined {
     const index = cursorTarget(move, this.#cursor, this.#total, this.#page)
     // The cursor stays, so a window that scrolling asked for must not move it when it arrives.
     if (index === this.#cursor && this.#shown !== undefined) this.#source.onshow?.(index)
@@ -218,21 +227,26 @@ export class GridScroll {
    * is asked for first, and the controller moves the cursor there once it arrives.
    */
   #follow(): void {
+    this.#source.onmove(() => this.#followTarget())
+  }
+
+  #followTarget(): number | undefined {
     const index = followRow(this.range, this.#cursor)
     const onshow = this.#source.onshow
     if (index === undefined) {
       // Back at the cursor: the controller drops the window still on its way.
       if (this.#shown !== undefined) onshow?.(this.#cursor)
       this.#shown = undefined
-      return
+      return undefined
     }
     if (loadedRow(this.#source.windows, index)) {
       this.#shown = undefined
-      return this.#source.oncursor(index)
+      return index
     }
-    if (!onshow) return
+    if (!onshow) return undefined
     this.#shown = index
     onshow(index)
+    return undefined
   }
 
   #reveal(index: number): void {
