@@ -25,7 +25,8 @@ export interface TransitionAction {
   action: TransitionBody['action']
   target?: TransitionBody['target']
   search?: TransitionBody['search']
-  filters?: TransitionBody['filters']
+  /** The toggles to apply; the transition keeps the period of the view it starts from. */
+  filters?: Omit<NonNullable<TransitionBody['filters']>, 'date_range'>
   dimension?: TransitionBody['dimension']
   currency?: TransitionBody['currency']
   sort_field?: TransitionBody['sort_field']
@@ -274,7 +275,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       window: { offset: alignedOffset(cursorIndex), limit: windowSize },
       ...(action.target === undefined ? {} : { target: action.target }),
       ...(action.search === undefined ? {} : { search: action.search }),
-      ...(action.filters === undefined ? {} : { filters: action.filters }),
+      ...(action.filters === undefined ? {} : { filters: withPeriod(action.filters, prior) }),
       ...(action.dimension === undefined ? {} : { dimension: action.dimension }),
       ...(action.currency === undefined ? {} : { currency: action.currency }),
       ...(action.sort_field === undefined ? {} : { sort_field: action.sort_field }),
@@ -786,6 +787,15 @@ function viewBody(query: string, selection: SelectionValue | undefined, offset: 
     ...(selection === undefined ? {} : { selection }),
     window: { offset, limit: windowSize },
   }
+}
+
+// filters.apply replaces the date range too, so it carries the period of the view it changes.
+function withPeriod(
+  filters: NonNullable<TransitionAction['filters']>,
+  prior: ViewProjection,
+): NonNullable<TransitionBody['filters']> {
+  const range = prior.filters.date_range
+  return { ...(range ? { date_range: { start: range.from, end: range.to } } : {}), ...filters }
 }
 
 function busiestCurrency(next: ViewProjection): TransitionAction['currency'] {

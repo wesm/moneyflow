@@ -196,6 +196,48 @@ describe('browser view controller', () => {
     expect(controller.projection?.canonical_query).toBe('v=1&p&p')
   })
 
+  it('sends a filter change with the period of the view it starts from', async () => {
+    let release!: () => void
+    const september = { from: '2026-09-01', to: '2026-09-30' }
+    const client = clientWith({
+      transition: vi.fn(async (body) => {
+        const next = projection(`${body.query}&${body.action}`, 0, 3)
+        if (body.action !== 'time.set-period') return next
+        await new Promise<void>((resolve) => (release = resolve))
+        return { ...next, filters: { ...next.filters, date_range: september } }
+      }),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await controller.apply({
+      action: 'filters.apply',
+      filters: { show_hidden: true, show_transfers: false },
+    })
+    const period = controller.apply({
+      action: 'time.set-period',
+      period: { start: september.from, end: september.to },
+    })
+    const filters = controller.apply({
+      action: 'filters.apply',
+      filters: { show_hidden: true, show_transfers: true },
+    })
+    await vi.waitFor(() => expect(release).toBeDefined(), { interval: 1 })
+    release()
+    await Promise.all([period, filters])
+
+    const sent = vi.mocked(client.transition).mock.calls.map(([body]) => body.filters)
+    expect(sent).toEqual([
+      { show_hidden: true, show_transfers: false },
+      undefined,
+      {
+        date_range: { start: '2026-09-01', end: '2026-09-30' },
+        show_hidden: true,
+        show_transfers: true,
+      },
+    ])
+  })
+
   it('uses verified owned history for Esc and replaces with the server parent otherwise', async () => {
     const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
     const controller = controllerFor(
