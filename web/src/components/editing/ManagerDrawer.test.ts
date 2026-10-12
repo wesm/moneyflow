@@ -119,6 +119,21 @@ describe('ManagerDrawer', () => {
     expect(onclose).toHaveBeenCalledOnce()
   })
 
+  it('leaves an Esc that cancels text composition to the input method', async () => {
+    const { onclose } = setup()
+    const options = await list()
+    await fireEvent.keyDown(options, { key: 'n' })
+    const name = screen.getByRole('textbox', { name: 'Name' })
+    await fireEvent.input(name, { target: { value: 'New Category' } })
+    await fireEvent.keyDown(name, { key: 'Escape', isComposing: true })
+    // Safari reports the composition's keys as keyCode 229 without isComposing.
+    await fireEvent.keyDown(name, { key: 'Escape', keyCode: 229 })
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveProperty('value', 'New Category')
+    expect(onclose).not.toHaveBeenCalled()
+    await fireEvent.keyDown(name, { key: 'Escape' })
+    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
+  })
+
   it('confirms with Enter once, ignoring held and in-flight Enters', async () => {
     const pending = deferred()
     const controller = testEditingController({ submit: vi.fn(() => pending.promise) })

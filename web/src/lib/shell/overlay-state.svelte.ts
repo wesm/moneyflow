@@ -114,7 +114,8 @@ export class OverlayState {
    * Attaches to an overlay panel that takes Escape itself. While the panel is the innermost
    * layer, an Escape inside it that no control claimed calls `onescape`. An Escape on a control
    * with an open popup belongs to that popup. So does any Escape while a kit popup is open in the
-   * panel: kit's `dismissable` takes it on the document, after the panel has seen it.
+   * panel: kit's `dismissable` takes it on the document, after the panel has seen it. An Escape
+   * during text composition only cancels the composition.
    */
   escapeLayer(onescape: () => void): Attachment<HTMLElement> {
     return (panel) => {
@@ -123,6 +124,12 @@ export class OverlayState {
       const keydown = (event: KeyboardEvent) => {
         if (event.key !== 'Escape' || event.defaultPrevented) return
         if (this.#layers.at(-1) !== layer) return
+        // An Esc that cancels text composition belongs to the input method. Keep it from the
+        // window's Escape handlers too, or the panel's dialog closes. Safari reports it as 229.
+        if (event.isComposing || event.keyCode === 229) {
+          event.stopPropagation()
+          return
+        }
         const target = event.target
         if (target instanceof Element && target.getAttribute('aria-expanded') === 'true') return
         if (panel.querySelector('.kit-popover-card:not([hidden])')) return
