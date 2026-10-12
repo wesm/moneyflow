@@ -31,8 +31,8 @@
     charts: ChartState
     /** Phone width: two rows; the view controls move to the View sheet, search behind an icon. */
     compact: boolean
-    /** Returns focus to the grid after a control moved the view. */
-    onfocusgrid: () => void
+    /** Returns focus to the grid; only `fromSearch` takes it from the search field. */
+    onfocusgrid: (fromSearch?: boolean) => void
   }
 
   let { controller, projection, overlays, charts, compact, onfocusgrid }: Props = $props()
@@ -101,7 +101,7 @@
     const toIcon = compact && searchFromIcon
     searchShown = false
     searchFromIcon = false
-    if (!toIcon) return onfocusgrid()
+    if (!toIcon) return onfocusgrid(true)
     await tick()
     searchToggle?.querySelector('button')?.focus()
   }

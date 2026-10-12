@@ -74,6 +74,31 @@ describe('AppShell', () => {
     )
   })
 
+  it('leaves focus in search when a breadcrumb return finishes', async () => {
+    const controller = stubController(
+      testProjection({
+        canonical_query: 'v=1&mode=detail&drill=merchant%3AUSD%3A2%3Aexample-key',
+        breadcrumbs: [{ dimension: 'merchant', label: 'Corner Grocery' }],
+      }),
+    )
+    let finish!: (applied: boolean) => void
+    vi.mocked(controller.apply).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (finish = resolve)),
+    )
+    render(AppShell, { controller })
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+
+    const trail = within(screen.getByRole('navigation', { name: 'Breadcrumb' }))
+    await fireEvent.click(trail.getByRole('button', { name: 'Merchants' }))
+    expect(controller.apply).toHaveBeenCalledWith({ action: 'view.back-to', depth: 0 })
+    await fireEvent.keyDown(window, { key: '/' })
+    expect(document.activeElement).toBe(search)
+    finish(true)
+    await tick()
+    await tick()
+    expect(document.activeElement).toBe(search)
+  })
+
   it('starts charts off at rail widths so the table keeps the full width', async () => {
     render(AppShell, { controller: stubController() })
     const charts = screen.getByRole('switch', { name: 'Charts' }) as HTMLInputElement

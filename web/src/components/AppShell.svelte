@@ -200,7 +200,7 @@
             {overlays}
             {charts}
             compact={compact.current}
-            onfocusgrid={() => focusGrid(true)}
+            onfocusgrid={focusGrid}
           />
           <main
             class="app-shell__main"
