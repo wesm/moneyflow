@@ -5,6 +5,7 @@ import type { ViewController } from '../controller/view-controller.svelte'
 import type { LocalAction } from '../shortcuts'
 import type { OverlayState } from './overlay-state.svelte'
 import { activeCurrency } from './period'
+import type { TransitionQueue } from './transition-queue'
 
 export interface FocusedRow {
   identity: string
@@ -14,8 +15,11 @@ export interface FocusedRow {
 export interface LocalActionContext {
   controller: ViewController
   overlays: OverlayState
-  /** Settles once queued view transitions finish, so `i` reads the row the cursor moved to. */
-  afterTransitions(): Promise<void>
+  /**
+   * Orders cursor moves with view transitions, so a move waits for an Esc return to restore
+   * the parent view and `i` reads the row the cursor moved to.
+   */
+  transitions: Pick<TransitionQueue, 'run' | 'idle'>
   /** Opens Amazon order import, which the app shell owns. */
   importAmazon(): void
   /** Focuses the command bar's search field. */
@@ -54,9 +58,9 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
     if (row()) overlays.open(overlay)
   }
   return {
-    'cursor.up': () => void controller.moveCursor(-1),
-    'cursor.down': () => void controller.moveCursor(1),
-    'cursor.home': () => void controller.moveHome(),
+    'cursor.up': () => void context.transitions.run(() => controller.moveCursor(-1)),
+    'cursor.down': () => void context.transitions.run(() => controller.moveCursor(1)),
+    'cursor.home': () => void context.transitions.run(() => controller.moveHome()),
     'overlay.search': () => context.focusSearch(),
     'overlay.filters': () => context.openFilters(),
     'overlay.help': () => overlays.open('help'),
@@ -85,7 +89,7 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
     },
     'edit.delete': () => confirmDelete(context, row()),
     'transaction.info': () =>
-      void context.afterTransitions().then(async () => {
+      void context.transitions.idle().then(async () => {
         await tick()
         const target = row()
         if (target?.kind === 'transaction')

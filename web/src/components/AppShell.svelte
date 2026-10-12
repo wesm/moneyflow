@@ -62,7 +62,7 @@
       return controller
     },
     overlays,
-    afterTransitions: () => transitions.idle(),
+    transitions,
     importAmazon: () => onamazonimport?.(),
     focusSearch: () => void commandBar?.focusSearch(),
     openFilters: () => void commandBar?.openFilters(),
@@ -101,8 +101,7 @@
   $effect(() => {
     if (compact.current) return
     if (charts.dialogOpen) charts.setDialog(false)
-    const open = overlays.current
-    if (open === 'navigation' || open === 'view') overlays.close()
+    if (overlays.current === 'navigation' || overlays.current === 'view') overlays.close()
   })
   $effect(() => {
     if (charts.checked) untrack(() => charts.rail.load())
@@ -160,7 +159,7 @@
       loader={charts.rail}
       {projection}
       cursorIndex={controller.cursorIndex}
-      oncursor={(index) => void controller.moveCursorTo(index)}
+      oncursor={(index) => void transitions.run(() => controller.moveCursorTo(index))}
       ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
     />
   {/snippet}
@@ -208,6 +207,7 @@
               <WorkspaceBody
                 {controller}
                 {projection}
+                queue={transitions}
                 ontarget={(action, identity, kind) => void target(action, identity, kind)}
                 oninformation={(identity) => void openTransactionInformation(actions, identity)}
                 onperiod={(period) =>

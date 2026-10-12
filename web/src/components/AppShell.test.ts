@@ -123,6 +123,38 @@ describe('AppShell', () => {
     ])
   })
 
+  it('moves the cursor only after a pending Esc return restores the parent view', async () => {
+    const controller = heldFirstApply(stubController())
+    controller.projection!.capabilities!.push(escapeCapability, {
+      id: 'cursor.home',
+      key_display: 'home',
+      description: 'Move to the first row',
+      category: '',
+      available: true,
+    })
+    const moves: string[] = []
+    vi.mocked(controller.moveCursor).mockImplementation(async (delta) => {
+      moves.push(`move ${delta}`)
+    })
+    vi.mocked(controller.moveHome).mockImplementation(async () => {
+      moves.push('home')
+    })
+    render(AppShell, { controller })
+    const grid = screen.getByRole('grid', { name: 'Financial results' })
+
+    await fireEvent.keyDown(grid, { key: 'Escape' })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledWith({ action: 'view.back' }))
+    await fireEvent.keyDown(grid, { key: 'ArrowDown' })
+    await fireEvent.keyDown(grid, { key: 'Home' })
+    await fireEvent.keyDown(window, { key: 'j' })
+    await fireEvent.keyDown(window, { key: 'Home' })
+    await tick()
+    expect(moves).toEqual([])
+    controller.finish()
+
+    await vi.waitFor(() => expect(moves).toEqual(['move 1', 'home', 'move 1', 'home']))
+  })
+
   it('anchors a period segment on the view a pending period change returns', async () => {
     const controller = heldFirstApply(stubController(periodProjection()))
     render(AppShell, { controller })
