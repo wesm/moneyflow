@@ -285,6 +285,11 @@ describe('emptyScope', () => {
     )
   })
 
+  it('offers no jump to the period already shown', () => {
+    expect(emptyScope(scoped('2026-10-01', '2026-10-31'))).toBeUndefined()
+    expect(emptyScope(scoped('2026-10-07', '2026-10-07'))).toBeUndefined()
+  })
+
   it('is not an empty period for all time, a search, or a view without a currency', () => {
     expect(emptyScope(testProjection({ currencies: [usd], statistics: [] }))).toBeUndefined()
     const searched = scoped('2026-09-01', '2026-09-30')
