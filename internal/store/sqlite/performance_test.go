@@ -19,6 +19,10 @@ import (
 
 const editingPerformanceRows = 100_000
 
+// coldProfileLimit leaves room for GitHub's macOS runners, which took 1.06-1.56 s for a cold
+// open that takes about 0.37 s on a developer laptop.
+const coldProfileLimit = 2 * time.Second
+
 func TestColdProfilePerformance100K(t *testing.T) {
 	skipEditingPerformance(t)
 	ctx := context.Background()
@@ -35,7 +39,7 @@ func TestColdProfilePerformance100K(t *testing.T) {
 	require.NoError(t, profile.Close())
 	duration := time.Since(started)
 	t.Logf("cold open, load, and replay: %s", duration)
-	require.Less(t, duration, time.Second)
+	require.Less(t, duration, coldProfileLimit)
 }
 
 func TestBulkEditingPerformance100K(t *testing.T) {
