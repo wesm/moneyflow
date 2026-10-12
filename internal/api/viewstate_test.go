@@ -71,6 +71,9 @@ func TestViewQueryCanonicalExamples(t *testing.T) {
 				},
 			}}
 		}), want: "drill=time%3AUSD%3A2%3Amonth%3A2024-02&group=time&mode=detail&v=1"},
+		{name: "currency scope", state: withState(func(state *app.AnalyticalState) {
+			state.Currency = &domain.CurrencyScope{Currency: "EUR", Scale: 2}
+		}), want: "cur=EUR%3A2&v=1"},
 	}
 
 	for _, test := range tests {
@@ -159,6 +162,11 @@ func TestViewQueryRejectsMalformedInput(t *testing.T) {
 		"recursive return":    returnQuery(t, "navigation:return=navigation%253Av%253D1"),
 		"invalid return kind": returnQuery(t, "missing:group=category"),
 		"label field":         "drill=merchant%3A",
+		"currency no scale":   "cur=USD&v=1",
+		"currency lowercase":  "cur=usd%3A2&v=1",
+		"currency bad scale":  "cur=USD%3A02&v=1",
+		"currency vs drill": "cur=EUR%3A2&drill=merchant%3AUSD%3A2%3Am" +
+			"&mode=detail&sort=date%3Adesc&v=1",
 	}
 
 	for name, query := range tests {
@@ -269,6 +277,7 @@ func FuzzViewQuery(f *testing.F) {
 	f.Add("v=1")
 	f.Add("q=grocer&search-at=aggregate%3Amerchant%3A_%3A0")
 	f.Add("drill=time%3Aday%3A2024-02-29&group=time&mode=detail")
+	f.Add("cur=USD%3A2&v=1")
 	f.Fuzz(func(t *testing.T, query string) {
 		state, canonical, err := DecodeViewQuery(query)
 		if err != nil {

@@ -56,3 +56,10 @@ func detailIDs(rows []domain.DetailRow) []string {
 	}
 	return result
 }
+
+func rangeDate(t *testing.T, value string) domain.Date {
+	t.Helper()
+	date, err := domain.ParseDate(value)
+	require.NoError(t, err)
+	return date
+}

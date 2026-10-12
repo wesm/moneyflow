@@ -26,7 +26,7 @@ const (
 var scalarViewFields = map[string]struct{}{
 	"v": {}, "mode": {}, "group": {}, "subgroup": {}, "time": {},
 	"from": {}, "to": {}, "hidden": {}, "transfers": {}, "q": {},
-	"search-at": {}, "sort": {},
+	"search-at": {}, "sort": {}, "cur": {},
 }
 
 // DecodeViewQuery parses untrusted bookmark state and returns its canonical encoding.
@@ -182,6 +182,13 @@ func decodeAnalytical(values url.Values) (app.AnalyticalState, error) {
 		}
 		state.ShowTransfers = parsed
 	}
+	if value, ok := scalar(values, "cur"); ok {
+		scope, err := parseCurrencyScope(value)
+		if err != nil {
+			return app.AnalyticalState{}, err
+		}
+		state.Currency = &scope
+	}
 	if value, ok := scalar(values, "q"); ok {
 		state.Search = value
 	}
@@ -250,6 +257,9 @@ func encodeAnalytical(state app.AnalyticalState) (url.Values, error) {
 	}
 	if state.ShowTransfers {
 		values.Set("transfers", "1")
+	}
+	if state.Currency != nil {
+		values.Set("cur", fmt.Sprintf("%s:%d", state.Currency.Currency, state.Currency.Scale))
 	}
 	if state.Search != "" {
 		values.Set("q", state.Search)
@@ -395,6 +405,19 @@ func parseDrilldown(value string) (domain.Drilldown, error) {
 	}
 	drilldown.Key = parts[3]
 	return drilldown, nil
+}
+
+// parseCurrencyScope reads the canonical CODE:SCALE form, such as USD:2.
+func parseCurrencyScope(value string) (domain.CurrencyScope, error) {
+	currency, scaleText, ok := strings.Cut(value, ":")
+	scale, err := strconv.ParseUint(scaleText, 10, 8)
+	if !ok || err != nil || strconv.FormatUint(scale, 10) != scaleText {
+		return domain.CurrencyScope{}, errors.New("currency scope must be CODE:SCALE")
+	}
+	if !domain.IsValidCurrency(domain.Currency(currency)) {
+		return domain.CurrencyScope{}, errors.New("currency scope code is invalid")
+	}
+	return domain.CurrencyScope{Currency: domain.Currency(currency), Scale: uint8(scale)}, nil
 }
 
 func formatDrilldown(drilldown domain.Drilldown) (string, error) {

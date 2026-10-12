@@ -57,6 +57,7 @@ type sessionSnapshot struct {
 	search                 string
 	showHidden             bool
 	showTransfers          bool
+	currency               *domain.CurrencyScope
 	sort                   domain.SortSpec
 	selectedTransactionIDs map[string]struct{}
 	selectedAggregateKeys  map[string]struct{}
@@ -74,6 +75,7 @@ type Session struct {
 	Search                 string
 	ShowHidden             bool
 	ShowTransfers          bool
+	Currency               *domain.CurrencyScope
 	Sort                   domain.SortSpec
 	SelectedTransactionIDs map[string]struct{}
 	SelectedAggregateKeys  map[string]struct{}
@@ -107,6 +109,7 @@ func (session Session) QuerySpec() domain.QuerySpec {
 		Search:          session.Search,
 		ShowHidden:      session.ShowHidden,
 		ShowTransfers:   session.ShowTransfers,
+		Currency:        cloneCurrencyScope(session.Currency),
 		Drilldowns:      cloneDrilldowns(session.Drilldowns),
 		Mode:            mode,
 		GroupBy:         groupBy,
@@ -146,6 +149,7 @@ func (session Session) Clone() Session {
 	cloned.SubGrouping = cloneDimension(session.SubGrouping)
 	cloned.Drilldowns = cloneDrilldowns(session.Drilldowns)
 	cloned.DateRange = cloneDateRange(session.DateRange)
+	cloned.Currency = cloneCurrencyScope(session.Currency)
 	cloned.SelectedTransactionIDs = cloneSet(session.SelectedTransactionIDs)
 	cloned.SelectedAggregateKeys = cloneSet(session.SelectedAggregateKeys)
 	cloned.searchAnchor = cloneNavigationMarker(session.searchAnchor)
@@ -293,6 +297,7 @@ func (session *Session) snapshot() sessionSnapshot {
 		search:                 session.Search,
 		showHidden:             session.ShowHidden,
 		showTransfers:          session.ShowTransfers,
+		currency:               cloneCurrencyScope(session.Currency),
 		sort:                   session.Sort,
 		selectedTransactionIDs: cloneSet(session.SelectedTransactionIDs),
 		selectedAggregateKeys:  cloneSet(session.SelectedAggregateKeys),
@@ -310,6 +315,7 @@ func (session *Session) restore(snapshot sessionSnapshot) {
 	session.Search = snapshot.search
 	session.ShowHidden = snapshot.showHidden
 	session.ShowTransfers = snapshot.showTransfers
+	session.Currency = cloneCurrencyScope(snapshot.currency)
 	session.Sort = snapshot.sort
 	session.SelectedTransactionIDs = cloneSet(snapshot.selectedTransactionIDs)
 	session.SelectedAggregateKeys = cloneSet(snapshot.selectedAggregateKeys)
@@ -413,6 +419,14 @@ func cloneDateRange(dateRange *domain.DateRange) *domain.DateRange {
 	return &cloned
 }
 
+func cloneCurrencyScope(scope *domain.CurrencyScope) *domain.CurrencyScope {
+	if scope == nil {
+		return nil
+	}
+	cloned := *scope
+	return &cloned
+}
+
 func cloneDimension(dimension *domain.Dimension) *domain.Dimension {
 	if dimension == nil {
 		return nil
@@ -453,6 +467,7 @@ func cloneSessionSnapshot(snapshot sessionSnapshot) sessionSnapshot {
 	snapshot.subGrouping = cloneDimension(snapshot.subGrouping)
 	snapshot.drilldowns = cloneDrilldowns(snapshot.drilldowns)
 	snapshot.dateRange = cloneDateRange(snapshot.dateRange)
+	snapshot.currency = cloneCurrencyScope(snapshot.currency)
 	snapshot.selectedTransactionIDs = cloneSet(snapshot.selectedTransactionIDs)
 	snapshot.selectedAggregateKeys = cloneSet(snapshot.selectedAggregateKeys)
 	snapshot.searchAnchor = cloneNavigationMarker(snapshot.searchAnchor)

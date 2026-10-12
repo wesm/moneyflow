@@ -86,6 +86,21 @@ type Drilldown struct {
 	Period    *Period   `json:"period,omitempty"`
 }
 
+// CurrencyScope restricts a query to one currency and minor-unit scale.
+type CurrencyScope struct {
+	Currency Currency `json:"currency"`
+	Scale    uint8    `json:"scale"`
+}
+
+// CurrencyCount describes one currency and scale present in a profile.
+type CurrencyCount struct {
+	Currency Currency `json:"currency"`
+	Scale    uint8    `json:"scale"`
+	Count    int      `json:"count"`
+	First    Date     `json:"first"`
+	Latest   Date     `json:"latest"`
+}
+
 // SortSpec selects a field and direction.
 type SortSpec struct {
 	Field     SortField     `json:"field"`
@@ -98,6 +113,7 @@ type QuerySpec struct {
 	Search          string          `json:"search,omitempty"`
 	ShowHidden      bool            `json:"show_hidden"`
 	ShowTransfers   bool            `json:"show_transfers"`
+	Currency        *CurrencyScope  `json:"currency,omitempty"`
 	Drilldowns      []Drilldown     `json:"drilldowns,omitempty"`
 	Mode            ResultMode      `json:"mode"`
 	GroupBy         Dimension       `json:"group_by,omitempty"`
@@ -175,6 +191,9 @@ func (query QuerySpec) Validate() error {
 	if err := validateDrilldowns(query.Drilldowns); err != nil {
 		return err
 	}
+	if err := validateCurrencyScope(query.Currency, query.Drilldowns); err != nil {
+		return err
+	}
 	if query.GroupBy != "" && !query.GroupBy.Valid() {
 		return errors.New("validate query: invalid dimension")
 	}
@@ -198,6 +217,10 @@ func (query QuerySpec) Clone() QuerySpec {
 	if query.DateRange != nil {
 		dateRange := *query.DateRange
 		query.DateRange = &dateRange
+	}
+	if query.Currency != nil {
+		scope := *query.Currency
+		query.Currency = &scope
 	}
 	query.Drilldowns = append([]Drilldown(nil), query.Drilldowns...)
 	for index := range query.Drilldowns {
@@ -290,6 +313,22 @@ func validateDrilldowns(drilldowns []Drilldown) error {
 		}
 		if drilldown.Period != nil || drilldown.Key == "" {
 			return errors.New("validate query: invalid non-time drill-down")
+		}
+	}
+	return nil
+}
+
+// validateCurrencyScope requires a valid code and drill-downs in the same currency and scale.
+func validateCurrencyScope(scope *CurrencyScope, drilldowns []Drilldown) error {
+	if scope == nil {
+		return nil
+	}
+	if !validCurrency(scope.Currency) {
+		return errors.New("validate query: currency scope must be a three-letter uppercase code")
+	}
+	for _, drilldown := range drilldowns {
+		if drilldown.Currency != scope.Currency || drilldown.Scale != scope.Scale {
+			return errors.New("validate query: drill-down currency differs from the currency scope")
 		}
 	}
 	return nil

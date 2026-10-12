@@ -147,6 +147,7 @@ type WebProjection struct {
 	AmazonMatchColumn bool
 	AggregateRows     []WebAggregateRow
 	Statistics        []domain.CurrencyStats
+	Currencies        []domain.CurrencyCount
 	Chart             ChartProjection
 	Status            string
 	AuditWarning      string
@@ -222,6 +223,7 @@ func (service *Service) projectViewLocked(
 	}
 	service.mu.RLock()
 	projection.AuditWarning = service.auditWarning
+	projection.Currencies = analytics.Currencies(service.browseTransactionsLocked())
 	if service.amazonSettings != nil {
 		projection.AmazonSettings = &AmazonProjectionSettings{
 			Currency: service.amazonSettings.Currency, Scale: service.amazonSettings.Scale,

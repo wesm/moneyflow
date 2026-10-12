@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wesm/moneyflow/internal/analytics"
 	"github.com/wesm/moneyflow/internal/domain"
@@ -40,6 +41,7 @@ type Service struct {
 	amazonSettings        *store.AmazonSettings
 	amazonMatcher         *AmazonMatchingService
 	auditWarning          string
+	now                   func() time.Time
 }
 
 // ConfigureAmazonMatching installs the shared cross-profile matcher used by both renderers.
