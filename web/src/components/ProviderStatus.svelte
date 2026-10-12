@@ -17,7 +17,7 @@
   const available = $derived(controller.state.capability?.available === true)
   const progress = $derived(controller.state.status?.progress)
   const reconnect = $derived(controller.state.phase === 'reconnect' && onreconnect !== undefined)
-  const showProgress = $derived(progress !== undefined && (refreshing || progress.total > 0))
+  const showProgress = $derived(refreshing && progress !== undefined)
   const subject = $derived(
     controller.state.kind === 'recent'
       ? 'recent data (last 90 days)'
