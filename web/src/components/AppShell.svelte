@@ -104,13 +104,13 @@
   function focusGrid(fromSearch = false): void {
     // A request can finish after the user has opened a dialog or moved into search.
     if (overlays.current !== undefined || charts.dialogOpen || (!fromSearch && inSearch())) return
-    grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
+    const table = grid?.querySelector<HTMLElement>('[role="grid"], .mf-table-empty')
+    table?.focus({ preventScroll: true })
   }
   $effect(() => {
     if (compact.current) return
     if (charts.dialogOpen) charts.setDialog(false)
-    const open = overlays.current
-    if (open === 'navigation' || open === 'view') overlays.close()
+    if (overlays.current === 'navigation' || overlays.current === 'view') overlays.close()
   })
   $effect(() => {
     if (charts.checked) untrack(() => charts.rail.load())
@@ -168,7 +168,7 @@
       loader={charts.rail}
       {projection}
       cursorIndex={controller.cursorIndex}
-      oncursor={(index) => moveCursor(() => controller.moveCursorTo(index))}
+      oncursor={(index) => moveCursor(actions, () => controller.moveCursorTo(index))}
       ondrill={(identity) =>
         queueSend({ action: 'view.drill', target: { identity, kind: 'aggregate' } })}
     />

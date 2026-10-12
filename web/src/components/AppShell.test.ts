@@ -17,6 +17,13 @@ vi.mock('../lib/shell/rail', async (importOriginal) => {
 })
 
 const failureText = 'Charts could not load. Reload the page.'
+const escapeCapability = {
+  id: 'view.back',
+  key_display: 'esc',
+  description: 'Go back',
+  category: 'Navigation',
+  available: true,
+}
 
 describe('AppShell', () => {
   afterEach(() => {
@@ -117,6 +124,74 @@ describe('AppShell', () => {
     ])
   })
 
+  it('moves the cursor only after a pending Esc return restores the parent view', async () => {
+    const controller = heldFirstApply(stubController())
+    controller.projection!.capabilities!.push(escapeCapability, {
+      id: 'cursor.home',
+      key_display: 'home',
+      description: 'Move to the first row',
+      category: '',
+      available: true,
+    })
+    const moves: string[] = []
+    vi.mocked(controller.moveCursor).mockImplementation(async (delta) => {
+      moves.push(`move ${delta}`)
+    })
+    vi.mocked(controller.moveHome).mockImplementation(async () => {
+      moves.push('home')
+    })
+    render(AppShell, { controller })
+    const grid = screen.getByRole('grid', { name: 'Financial results' })
+
+    await fireEvent.keyDown(grid, { key: 'Escape' })
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledWith({ action: 'view.back' }))
+    await fireEvent.keyDown(grid, { key: 'ArrowDown' })
+    await fireEvent.keyDown(grid, { key: 'Home' })
+    await fireEvent.keyDown(window, { key: 'j' })
+    await fireEvent.keyDown(window, { key: 'Home' })
+    await tick()
+    expect(moves).toEqual([])
+    controller.finish()
+
+    await vi.waitFor(() => expect(moves).toEqual(['move 1', 'home', 'move 1', 'home']))
+  })
+
+  it('anchors a period segment on the view a pending period change returns', async () => {
+    const controller = heldFirstApply(stubController(periodProjection()))
+    render(AppShell, { controller })
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous period' }))
+    await fireEvent.click(screen.getByRole('radio', { name: 'Month' }))
+    showPeriod(controller, { from: '2025-01-01', to: '2025-12-31' })
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(controller.apply).toHaveBeenLastCalledWith({
+      action: 'time.set-period',
+      period: { start: '2025-12-01', end: '2025-12-31' },
+    })
+  })
+
+  it('applies All time chosen while a period change from all time is pending', async () => {
+    const shown = stubController(periodProjection())
+    showPeriod(shown, undefined)
+    const controller = heldFirstApply(shown)
+    render(AppShell, { controller })
+
+    await fireEvent.click(screen.getByRole('radio', { name: 'Month' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'All time' }))
+    const chooser = within(screen.getByRole('dialog', { name: 'Choose period' }))
+    await fireEvent.click(chooser.getByRole('button', { name: /All time/ }))
+    showPeriod(controller, { from: '2026-10-01', to: '2026-10-31' })
+    controller.finish()
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(controller.apply).mock.calls.map(([action]) => action)).toEqual([
+      { action: 'time.set-period', period: { start: '2026-10-01', end: '2026-10-31' } },
+      { action: 'time.clear-period' },
+    ])
+  })
+
   it('starts a search typed behind queued view changes from their result', async () => {
     const controller = heldFirstApply(stubController(periodProjection()))
     render(AppShell, { controller })
@@ -137,6 +212,32 @@ describe('AppShell', () => {
     expect(vi.mocked(controller.beginSearch).mock.invocationCallOrder[0]).toBeGreaterThan(
       lastApply!,
     )
+  })
+
+  it('leaves the search field after a search with no matches so Esc can clear it', async () => {
+    const base = testProjection()
+    const controller = stubController(
+      testProjection({
+        view: { ...base.view, search: 'no such merchant' },
+        total_rows: 0,
+        window: { offset: 0, limit: 200, count: 0 },
+        detail_rows: [],
+      }),
+    )
+    controller.projection!.capabilities!.push(escapeCapability)
+    vi.mocked(controller.previewSearch).mockResolvedValue('applied')
+    render(AppShell, { controller })
+    const search = screen.getByRole('searchbox', { name: 'Search transactions' })
+    search.focus()
+    await fireEvent.input(search, { target: { value: 'no such merchant' } })
+    await vi.waitFor(() => expect(controller.previewSearch).toHaveBeenCalled())
+
+    await fireEvent.keyDown(search, { key: 'Enter' })
+    await vi.waitFor(() => expect(controller.commitSearch).toHaveBeenCalled())
+    await vi.waitFor(() => expect(document.activeElement).not.toBe(search))
+    await fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+
+    await vi.waitFor(() => expect(controller.apply).toHaveBeenCalledWith({ action: 'view.back' }))
   })
 
   it('starts charts off at rail widths so the table keeps the full width', async () => {
@@ -458,10 +559,12 @@ describe('AppShell', () => {
     await fireEvent.click(view)
     const sheet = screen.getByRole('dialog', { name: 'View' })
     await fireEvent.click(within(sheet).getByRole('radio', { name: 'Month' }))
-    expect(controller.apply).toHaveBeenCalledWith({
-      action: 'time.set-period',
-      period: { start: '2026-10-01', end: '2026-10-31' },
-    })
+    await vi.waitFor(() =>
+      expect(controller.apply).toHaveBeenCalledWith({
+        action: 'time.set-period',
+        period: { start: '2026-10-01', end: '2026-10-31' },
+      }),
+    )
     expect(within(sheet).getByRole('combobox', { name: /^Currency/ })).not.toBeNull()
     expect(within(sheet).getByRole('button', { name: 'Filters' })).not.toBeNull()
 
@@ -860,6 +963,15 @@ function periodProjection(): ReturnType<typeof testProjection> {
     view: { ...base.view, currency: { currency: 'USD', scale: 2 } },
     filters: { ...base.filters, date_range: { from: '2026-01-01', to: '2026-12-31' } },
   })
+}
+
+/** Shows `range` as the view's period, as the controller does once a period change returns. */
+function showPeriod(controller: ViewController, range: { from: string; to: string } | undefined) {
+  const current = controller.projection!
+  const filters = { ...current.filters }
+  delete filters.date_range
+  if (range) filters.date_range = range
+  Object.assign(controller, { projection: { ...current, filters } })
 }
 
 /** Holds the first transition until `finish`, as a slow request would. */

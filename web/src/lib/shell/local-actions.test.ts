@@ -261,15 +261,20 @@ describe('runRowAction', () => {
 })
 
 describe('moveCursor', () => {
-  it('clears the status notice before the cursor moves', () => {
+  afterEach(() => document.body.replaceChildren())
+
+  it('clears the status notice at once and moves after pending view changes', async () => {
+    const { context } = setup(0)
+    const settle = holdTransitions(context)
     status.notify('Open the group to delete its transactions.')
-    const move = vi.fn(() => {
-      expect(status.notice).toBe('')
-      return Promise.resolve()
-    })
-    moveCursor(move)
-    expect(move).toHaveBeenCalledTimes(1)
+    const move = vi.fn(() => Promise.resolve())
+    const moved = moveCursor(context, move)
     expect(status.notice).toBe('')
+    await tick()
+    expect(move).not.toHaveBeenCalled()
+    settle()
+    await moved
+    expect(move).toHaveBeenCalledTimes(1)
   })
 })
 

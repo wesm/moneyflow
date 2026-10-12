@@ -79,6 +79,7 @@
     onshow,
   }: Props = $props()
   let grid = $state<HTMLDivElement>()
+  const NO_ROWS_HINT = 'Change the current refinements to see results.'
   const height = $derived(rowHeight(compact))
   const wide = new MediaQuery(WIDE_COLUMNS_QUERY)
   const columns = $derived(columnsAtWidth(columnsFor(projection), wide.current))
@@ -173,10 +174,9 @@
 </script>
 
 {#if projection.total_rows === 0}
-  <EmptyState
-    title="No transactions"
-    description="Change the current refinements to see results."
-  />
+  <div class="mf-table-empty" tabindex="-1">
+    <EmptyState title="No transactions" description={NO_ROWS_HINT} />
+  </div>
 {:else}
   <div
     class={['mf-table', compact && 'mf-table--compact']}
