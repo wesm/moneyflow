@@ -2338,6 +2338,30 @@ describe('visible view failures', () => {
     expect(view).toHaveBeenCalledTimes(2)
   })
 
+  it('ignores a recheck that fails after a newer window load failed', async () => {
+    let failRecheck!: (error: unknown) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 600, '4'))
+      .mockImplementationOnce(() => new Promise((_, reject) => (failRecheck = reject)))
+      .mockRejectedValueOnce(busy())
+      .mockResolvedValueOnce(projection('v=1', 200, 600, '4'))
+    const controller = controllerFor(clientWith({ view }), false)
+    await controller.hydrate()
+
+    const rechecking = controller.recheck()
+    await controller.showIndex(250)
+    expect(controller.problem?.code).toBe('store_busy')
+    failRecheck(new TypeError('Failed to fetch'))
+    await expect(rechecking).resolves.toBeUndefined()
+
+    expect(controller.problem?.code).toBe('store_busy')
+    await controller.retry()
+    expect(view).toHaveBeenCalledTimes(4)
+    expect(view.mock.calls[3]![0]).toMatchObject({ window: { offset: 200 } })
+    expect(controller.problem).toBeUndefined()
+  })
+
   it('ignores a recheck that fails after a newer transition succeeded', async () => {
     let failRecheck!: (error: unknown) => void
     const view = vi

@@ -184,6 +184,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let problem = $state<ControllerProblem | undefined>()
   // The problem shown is a failed recheck, which the next successful recheck clears.
   let recheckProblem = false
+  // Counts recorded failures, so a recheck can tell that a newer request failed meanwhile.
+  let problemsRecorded = 0
   let sequence = existing?.sequence ?? 0
   let generation = 0
   let activeRequest: AbortController | undefined
@@ -297,6 +299,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   ): Promise<ViewProjection | undefined> {
     const shown = projection
     const requestGeneration = generation
+    const priorProblems = problemsRecorded
     try {
       const next = await recheckInternal(selection, force)
       if (recheckProblem) problem = undefined
@@ -304,7 +307,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       return next
     } catch (error) {
       // A request or view newer than the recheck owns the problem and the retry now.
-      const superseded = requestGeneration !== generation || projection !== shown
+      const superseded =
+        requestGeneration !== generation ||
+        projection !== shown ||
+        problemsRecorded !== priorProblems
       if (isAbort(error) || superseded) return undefined
       lastRetry = async () => {
         await reportedRecheck(selection, true)
@@ -1018,6 +1024,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
    * the page that replaces the workspace does.
    */
   function setProblem(error: unknown, failure: string, report = true): void {
+    problemsRecorded += 1
     problem = controllerProblem(error)
     recheckProblem = false
     announcement =
