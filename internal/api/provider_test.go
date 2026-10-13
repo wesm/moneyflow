@@ -243,12 +243,17 @@ func TestProviderRefreshThatRunsOutOfTimeExplainsTheLimit(t *testing.T) {
 	t.Parallel()
 
 	fixture := newProviderAPIFixture(t, "/", 3)
-	fixture.source.failNextFetch(apiFetchUntilStopped, nil)
+	started := make(chan struct{})
+	fixture.source.failNextFetch(apiFetchUntilStopped, started)
 	issued, err := fixture.server.security.Issue(CatalogMutationScope)
 	require.NoError(t, err)
-	// The request deadline stands in for the server's 30-minute refresh limit.
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
+	// The request deadline stands in for the server's 30-minute refresh limit. It passes once
+	// the fetch has started, so a slow machine cannot end the request before the refresh runs.
+	ctx := &expiringContext{Context: context.Background(), done: make(chan struct{})}
+	go func() {
+		<-started
+		close(ctx.done)
+	}()
 	response := requestSignedJSONContext(
 		ctx, t, fixture.server, "/api/v1/provider/refresh", manualRefreshBody(), issued.Value,
 	)
@@ -264,6 +269,23 @@ func TestProviderRefreshThatRunsOutOfTimeExplainsTheLimit(t *testing.T) {
 
 	retried := requestProtectedJSON(t, fixture.server, "/api/v1/provider/refresh", manualRefreshBody())
 	assert.Equal(t, http.StatusOK, retried.Code, "the stopped refresh released its lease")
+}
+
+// expiringContext is a request context whose deadline passes when the test closes done.
+type expiringContext struct {
+	context.Context
+	done chan struct{}
+}
+
+func (ctx *expiringContext) Done() <-chan struct{} { return ctx.done }
+
+func (ctx *expiringContext) Err() error {
+	select {
+	case <-ctx.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
 }
 
 func TestUnexpectedRefreshFailureLogsItsCauseWithoutRequestSecrets(t *testing.T) {
