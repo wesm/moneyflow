@@ -51,11 +51,9 @@ func addResource(
 		func(ctx context.Context, _ *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
 			document, err := project(ctx)
 			if err != nil {
-				if mapped, ok := ApplicationErrorDocument(err, serverRevision(server)); ok {
-					document = mapped
-				} else {
-					document = ErrorDocument{Header: NewHeader(StatusError, serverRevision(server)), Code: "mcp_internal_error", Detail: "The Moneyflow MCP resource could not be read."}
-				}
+				document = failureDocument(
+					err, serverRevision(server), "The Moneyflow MCP resource could not be read.",
+				)
 			}
 			canonical, _, encodeErr := encodeDocument(document)
 			if encodeErr != nil {

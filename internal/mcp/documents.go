@@ -2,6 +2,7 @@
 package mcp
 
 import (
+	"context"
 	"errors"
 	"strconv"
 
@@ -76,6 +77,29 @@ func ApplicationErrorDocument(err error, revision uint64) (ErrorDocument, bool) 
 		document.CurrentRevision = strconv.FormatUint(failure.CurrentRevision, 10)
 	}
 	return document, true
+}
+
+// failureDocument describes a failed tool call or resource read. An application error keeps its
+// code. A request stopped by its deadline or by cancellation says so, so a client can tell it
+// apart from a server fault. Anything else is an internal error with the given detail.
+func failureDocument(err error, revision uint64, internalDetail string) ErrorDocument {
+	if document, ok := ApplicationErrorDocument(err, revision); ok {
+		return document
+	}
+	document := ErrorDocument{
+		Header: NewHeader(StatusError, revision), Code: "mcp_internal_error", Detail: internalDetail,
+	}
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		document.Code = "mcp_request_timeout"
+		document.Detail = "The Moneyflow MCP request ran out of time before it finished. " +
+			"Read the current state before retrying."
+	case errors.Is(err, context.Canceled):
+		document.Code = "mcp_request_canceled"
+		document.Detail = "The Moneyflow MCP request was canceled before it finished. " +
+			"Read the current state before retrying."
+	}
+	return document
 }
 
 func responseTooLargeDocument(revision uint64) ErrorDocument {
