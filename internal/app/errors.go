@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 
 	"github.com/wesm/moneyflow/internal/provider"
@@ -141,6 +142,12 @@ func mapAppError(err error, reliableRevision uint64) error {
 	}
 	var existing *AppError
 	if errors.As(err, &existing) {
+		return err
+	}
+	// A call stopped by its context is a cancelled or timed-out request, whatever layer
+	// reported it. The interfaces map the bare context error; a storage code would blame
+	// the profile.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
 	var mutation *MutationError
