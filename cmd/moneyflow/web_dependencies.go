@@ -261,7 +261,9 @@ func buildDemoWebDependencies(
 			mutex.Lock()
 			defer mutex.Unlock()
 			if !available || requestedID != profileID {
-				return webserver.RegistryProfile{}, errors.New("demo profile is unavailable")
+				return webserver.RegistryProfile{}, fmt.Errorf(
+					"demo profile is unavailable: %w", api.ErrProfileNotFound,
+				)
 			}
 			available = false
 			return webserver.RegistryProfile{

@@ -97,6 +97,11 @@ as a cleared selection or a view that returned to its parent, and an export with
 Banners stay for 12 seconds; the close button removes one sooner. Screen readers hear the same
 messages.
 
+**Unreleased:** If a profile does not open, the page says why instead of showing the
+workspace. A missing profile, a profile busy with recovery or another Moneyflow command, and a
+profile saved in a format this version cannot open each have their own message. The page
+suggests checking the connection only when the browser could not reach the server.
+
 ## Charts
 
 **Unreleased:** Above the table, the KPI strip sums the current period, and the chart row

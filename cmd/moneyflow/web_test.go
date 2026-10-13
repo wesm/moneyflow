@@ -611,7 +611,7 @@ func TestRunWebLogsServerFailuresToStandardError(t *testing.T) {
 	}()
 	path := "/api/v1/profiles/profile_aaaaaaaaaaaaaaaaaaaaaaaaaa/health"
 	response := eventuallyGET(t, "http://"+<-address+path)
-	assert.Equal(t, http.StatusNotFound, response.StatusCode)
+	assert.Equal(t, http.StatusInternalServerError, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 
 	cancel()

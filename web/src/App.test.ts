@@ -51,6 +51,39 @@ describe('Moneyflow application scaffold', () => {
     expect(controller.reset).toHaveBeenCalledTimes(1)
   })
 
+  it('says the server is unreachable only when the first load could not reach it', async () => {
+    const controller = stubController({
+      loading: false,
+      problem: {
+        kind: 'request',
+        code: 'network_error',
+        detail: 'Moneyflow could not reach the server. Check the connection and retry.',
+      },
+    })
+    render(App, { basePath: '/moneyflow/', controller })
+
+    expect(screen.getByText('Connection problem')).not.toBeNull()
+    expect(screen.getByText(/could not reach the server/)).not.toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(controller.retry).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the server reason when the first load is refused', () => {
+    const detail = 'This profile was saved by a newer Moneyflow. Install that version to open it.'
+    render(App, {
+      basePath: '/moneyflow/',
+      controller: stubController({
+        loading: false,
+        problem: { kind: 'request', code: 'schema_newer', detail },
+      }),
+    })
+
+    expect(screen.getByRole('heading', { name: 'The financial view did not load' })).not.toBeNull()
+    expect(screen.getByText(detail)).not.toBeNull()
+    expect(screen.queryByText('Connection problem')).toBeNull()
+    expect(screen.queryByText(/server is reachable/)).toBeNull()
+  })
+
   it('offers fresh setup for a legacy profile with no provider', async () => {
     const profile = {
       key: 'legacy',

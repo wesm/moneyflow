@@ -2,15 +2,18 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
 
 	"github.com/wesm/moneyflow/internal/amazonimport"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 	"github.com/wesm/moneyflow/internal/simplefinonboarding"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 type resolvedProfileContextKey struct{}
@@ -80,6 +83,14 @@ type AmazonImportCoordinator interface {
 	Cancel(context.Context, amazonimport.CancelRequest) (amazonimport.Snapshot, error)
 }
 
+// Profile acquisition failures that a resolver reports through ordinary error wrapping.
+var (
+	// ErrProfileNotFound reports a profile ID that names no openable profile.
+	ErrProfileNotFound = errors.New("profile was not found")
+	// ErrProfileUnavailable reports a profile that is closing or being recovered.
+	ErrProfileUnavailable = errors.New("profile is closing or being recovered")
+)
+
 func resolveProfileRequests(
 	next http.Handler,
 	basePath string,
@@ -119,10 +130,12 @@ func resolveProfileRequests(
 				request.Method, request.URL.Path, describeCause(err),
 			)
 		}
-		if err != nil || lease == nil || lease.Service() == nil {
-			writeProblem(response, newProblem(
-				http.StatusNotFound, "not_found", "The requested profile was not found.",
-			))
+		if err != nil {
+			writeProblem(response, problemFromProfileOpen(err))
+			return
+		}
+		if lease == nil || lease.Service() == nil {
+			writeProblem(response, problemFromProfileOpen(ErrProfileNotFound))
 			return
 		}
 		defer func() { _ = lease.Release() }()
@@ -132,6 +145,33 @@ func resolveProfileRequests(
 		})
 		next.ServeHTTP(response, request.WithContext(ctx))
 	})
+}
+
+// problemFromProfileOpen says why a profile could not be opened without exposing the cause.
+func problemFromProfileOpen(err error) *Problem {
+	var storageFailure *store.Error
+	isStorageFailure := errors.As(err, &storageFailure)
+	switch {
+	case errors.Is(err, ErrProfileNotFound),
+		profilecatalog.CodeOf(err) == profilecatalog.CodeProfileNotFound:
+		return newProblem(http.StatusNotFound, "not_found", "The requested profile was not found.")
+	case errors.Is(err, ErrProfileUnavailable) || errors.Is(err, home.ErrLockBusy):
+		return newProblem(http.StatusServiceUnavailable, "profile_busy",
+			"The profile is being recovered, closed, or used by another Moneyflow command. "+
+				"Wait a moment, then retry.")
+	case profilecatalog.CodeOf(err) != "":
+		return problemFromCatalogError(err)
+	case isStorageFailure && storageFailure.Code == store.CodeSchemaIncompatible:
+		return newProblem(http.StatusConflict, "schema_incompatible",
+			"This profile uses a preview format Moneyflow no longer opens. Run moneyflow tui "+
+				"and choose Add profile to start fresh; the existing profile files are kept.")
+	case isStorageFailure && storageFailure.Code == store.CodeSchemaNewer:
+		return newProblem(http.StatusConflict, "schema_newer",
+			"This profile was saved by a newer Moneyflow. Install that version to open it.")
+	default:
+		return newProblem(http.StatusInternalServerError, "internal_error",
+			"The profile could not be opened.")
+	}
 }
 
 func profileRoot(ctx context.Context) string {

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/home"
 )
@@ -282,6 +283,7 @@ func TestProfileRegistryShutdownDuringOpenReportsClosed(t *testing.T) {
 	assert.ErrorIs(t, registry.Close(ctx), context.Canceled)
 	_, acquireErr := registry.Acquire(context.Background(), registryTestProfileID)
 	assert.ErrorIs(t, acquireErr, ErrProfileRegistryClosed)
+	assert.ErrorIs(t, acquireErr, api.ErrProfileUnavailable)
 	close(continueOpen)
 
 	assert.ErrorIs(t, <-acquired, ErrProfileRegistryClosed)

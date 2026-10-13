@@ -79,7 +79,7 @@ func TestProfileOpenFailureLogsItsCause(t *testing.T) {
 
 	response := requestServer(t, server, http.MethodGet, path, nil)
 
-	require.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
+	require.Equal(t, http.StatusInternalServerError, response.Code, response.Body.String())
 	assert.NotContains(t, response.Body.String(), "resolver-private-detail")
 	assert.Contains(t, logged.String(),
 		"GET "+path+": the profile could not be opened: resolver-private-detail")

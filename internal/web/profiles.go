@@ -18,9 +18,9 @@ const defaultProfileIdleTimeout = 15 * time.Minute
 
 var (
 	// ErrProfileRegistryClosed reports acquisition after server shutdown begins.
-	ErrProfileRegistryClosed = errors.New("profile registry is closed")
+	ErrProfileRegistryClosed = fmt.Errorf("profile registry is closed: %w", api.ErrProfileUnavailable)
 	// ErrProfileEvicting reports acquisition while recovery owns the profile lifecycle.
-	ErrProfileEvicting = errors.New("profile is being evicted")
+	ErrProfileEvicting = fmt.Errorf("profile is being evicted: %w", api.ErrProfileUnavailable)
 )
 
 // ProfileLease is the API-facing lifetime contract implemented by the registry.
@@ -104,7 +104,7 @@ func (registry *ProfileRegistry) Acquire(
 	profileID string,
 ) (api.ProfileLease, error) {
 	if !profilecatalog.ValidProfileID(profileID) {
-		return nil, errors.New("acquire profile: profile ID is invalid")
+		return nil, fmt.Errorf("acquire profile: profile ID is invalid: %w", api.ErrProfileNotFound)
 	}
 	for {
 		registry.mutex.Lock()
