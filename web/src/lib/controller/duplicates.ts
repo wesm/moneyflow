@@ -83,7 +83,8 @@ export function createDuplicateController(
     announcement: '',
     confirmationCount: 0,
   }
-  // Counts closings, so a change sent before review closed can tell its dialog is gone.
+  // Counts closings. Each async call keeps the count it started with and checks `live` after
+  // every await, so a late answer cannot change a review that closed, or closed and reopened.
   let closings = 0
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
@@ -98,10 +99,15 @@ export function createDuplicateController(
     notify()
   }
 
+  /** Whether review is still the one an async call that began in `session` was made for. */
+  function live(session: number): boolean {
+    return session === closings
+  }
+
   async function open(): Promise<boolean> {
     const current = options.host.current()
     if (!current) return false
-    return await load(current, undefined, 0, 0)
+    return await load(closings, current, undefined, 0, 0)
   }
 
   function close(): void {
@@ -110,6 +116,7 @@ export function createDuplicateController(
   }
 
   async function load(
+    session: number,
     current: ViewProjection,
     selectionValue?: SelectionValue,
     groupOffset = state.projection?.group_window.offset ?? 0,
@@ -129,6 +136,7 @@ export function createDuplicateController(
         },
         undefined,
       )
+      if (!live(session)) return false
       const rows = flatten(projection)
       setState({
         phase: 'ready',
@@ -139,6 +147,7 @@ export function createDuplicateController(
       })
       return true
     } catch (error) {
+      if (!live(session)) return false
       if (
         refreshStaleSelection &&
         error instanceof MoneyflowProblem &&
@@ -146,13 +155,14 @@ export function createDuplicateController(
         error.problem.selection
       ) {
         const accepted = await load(
+          session,
           current,
           error.problem.selection.value as SelectionValue,
           groupOffset,
           rowOffset,
           false,
         )
-        if (accepted) {
+        if (accepted && live(session)) {
           setState({
             ...state,
             announcement: 'The profile changed. The stale duplicate selection was cleared.',
@@ -198,6 +208,7 @@ export function createDuplicateController(
 
   async function page(delta: -1 | 1): Promise<boolean> {
     if (!canInteract()) return false
+    const session = closings
     const current = options.host.current()
     const projection = state.projection
     if (!current || !projection) return false
@@ -219,8 +230,14 @@ export function createDuplicateController(
     } else {
       if (groupOffset === 0) return false
       groupOffset = Math.max(0, groupOffset - projection.group_window.limit)
-      const selected = await load(current, projection.selection as SelectionValue, groupOffset, 0)
-      if (!selected || !state.projection) return selected
+      const selected = await load(
+        session,
+        current,
+        projection.selection as SelectionValue,
+        groupOffset,
+        0,
+      )
+      if (!selected || !live(session) || !state.projection) return false
       const terminalOffset =
         Math.floor(Math.max(0, state.projection.window_transactions - 1) / windowLimit) *
         windowLimit
@@ -229,18 +246,21 @@ export function createDuplicateController(
         return true
       }
       const terminal = await load(
+        session,
         current,
         state.projection.selection as SelectionValue,
         groupOffset,
         terminalOffset,
       )
-      if (terminal) home()
-      return terminal
+      if (!terminal || !live(session)) return false
+      home()
+      return true
     }
     const selectionValue = projection.selection as SelectionValue
-    const accepted = await load(current, selectionValue, groupOffset, rowOffset)
-    if (accepted) home()
-    return accepted
+    const accepted = await load(session, current, selectionValue, groupOffset, rowOffset)
+    if (!accepted || !live(session)) return false
+    home()
+    return true
   }
 
   function focused(): DuplicateRow | undefined {
@@ -253,6 +273,7 @@ export function createDuplicateController(
     const projection = state.projection
     const row = focused()
     if (!current || !projection || !row) return false
+    const session = closings
     setState({ ...state, phase: 'loading', announcement: '' })
     try {
       const toggled = await options.client.transition({
@@ -262,13 +283,16 @@ export function createDuplicateController(
         target: row.target,
         window: { offset: 0, limit: windowLimit },
       })
+      if (!live(session)) return false
       return await load(
+        session,
         current,
         toggled.selection,
         projection.group_window.offset,
         projection.row_window.offset,
       )
     } catch {
+      if (!live(session)) return false
       setState({ ...state, phase: 'failed', announcement: 'Selection could not be changed.' })
       return false
     }
@@ -334,7 +358,7 @@ export function createDuplicateController(
         ? `Staged deletion for ${count} ${transactionWord(count)}. Press w to review and commit.`
         : `Staged visibility change for ${count} ${transactionWord(count)}.`
     const reloaded = await reload(unchangedSelection(mainSelection), session)
-    if (session !== closings) return true
+    if (!live(session)) return true
     setState({
       ...state,
       phase: reloaded ? 'ready' : 'failed',
@@ -359,7 +383,7 @@ export function createDuplicateController(
     session: number,
   ): Promise<boolean> {
     const reloaded = isConflict(error) && (await reload(mainSelection, session))
-    if (session !== closings) {
+    if (!live(session)) {
       // Review closed before the refusal could show in it, so only the workspace can say so.
       showFailure(`${changeRefused} ${failureReason(error)}`)
       return false
@@ -390,16 +414,19 @@ export function createDuplicateController(
    * review closed after `session` began, only the view is reread, and the workspace reports a
    * failure, because the dialog that would have shown it is gone.
    */
-  async function reload(selection?: SelectionValue, session = closings): Promise<boolean> {
-    const refreshed = await options.host.recheck(selection, () => session !== closings)
-    if (session !== closings) return refreshed !== undefined
-    return refreshed !== undefined && (await load(refreshed, undefined, 0, 0))
+  async function reload(selection: SelectionValue | undefined, session: number): Promise<boolean> {
+    const refreshed = await options.host.recheck(selection, () => !live(session))
+    if (!live(session)) return refreshed !== undefined
+    return refreshed !== undefined && (await load(session, refreshed, undefined, 0, 0))
   }
 
   async function retry(): Promise<boolean> {
     if (state.phase !== 'failed') return false
+    const session = closings
     setState({ ...state, phase: 'loading', announcement: '' })
-    if (await reload()) return true
+    const reloaded = await reload(undefined, session)
+    if (!live(session)) return false
+    if (reloaded) return true
     setState({ ...state, phase: 'failed', announcement: refreshFailed })
     return false
   }

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   MoneyflowProblem,
+  type DuplicateResponse,
   type MoneyflowClient,
   type MutationFetch,
   type Problem,
@@ -523,6 +524,114 @@ describe('DuplicateController after a failed reload', () => {
     expect(controller.state.announcement).toBe(
       'The pending change could not be saved. The profile is busy.',
     )
+  })
+})
+
+describe('DuplicateController after review closes or reopens', () => {
+  /** A controller whose duplicate lists and view rereads each wait until the test answers. */
+  function deferredController() {
+    const lists: ((response: DuplicateResponse) => void)[] = []
+    const rereads: ((next: ViewProjection | undefined) => void)[] = []
+    const client = duplicateClient()
+    vi.mocked(client.projectDuplicates).mockImplementation(
+      () => new Promise<DuplicateResponse>((resolve) => lists.push(resolve)),
+    )
+    const current = testProjection({ revision: '3' })
+    const controller = createDuplicateController({
+      client,
+      mutations: mutationTransport(),
+      host: {
+        current: () => current,
+        recheck: () => new Promise((resolve) => rereads.push(resolve)),
+      },
+    })
+    return { controller, lists, rereads, client }
+  }
+
+  /** A controller in the failed phase after a staged hide whose reread failed. */
+  async function failedController() {
+    const deferred = deferredController()
+    const opening = deferred.controller.open()
+    deferred.lists.shift()!(duplicates())
+    await opening
+    const hiding = deferred.controller.hideFocused()
+    await vi.waitFor(() => expect(deferred.rereads).toHaveLength(1))
+    deferred.rereads.shift()!(undefined)
+    await hiding
+    expect(deferred.controller.state.phase).toBe('failed')
+    return deferred
+  }
+
+  it('leaves a closed review idle when its retry reread fails late', async () => {
+    const { controller, rereads } = await failedController()
+
+    const retrying = controller.retry()
+    await vi.waitFor(() => expect(rereads).toHaveLength(1))
+    controller.close()
+    rereads.shift()!(undefined)
+
+    await expect(retrying).resolves.toBe(false)
+    expect(controller.state.phase).toBe('idle')
+  })
+
+  it('leaves a closed review idle when its retry list arrives late', async () => {
+    const { controller, lists, rereads } = await failedController()
+
+    const retrying = controller.retry()
+    await vi.waitFor(() => expect(rereads).toHaveLength(1))
+    rereads.shift()!(testProjection({ revision: '4' }))
+    await vi.waitFor(() => expect(lists).toHaveLength(1))
+    controller.close()
+    lists.shift()!(duplicates({ total_groups: 9 }))
+
+    await expect(retrying).resolves.toBe(false)
+    expect(controller.state.phase).toBe('idle')
+    expect(controller.state.projection).toBeUndefined()
+  })
+
+  it('leaves a closed review idle when a selection toggle fails late', async () => {
+    const { controller, lists, client } = deferredController()
+    const opening = controller.open()
+    lists.shift()!(duplicates())
+    await opening
+    let refuse!: (error: unknown) => void
+    vi.mocked(client.transition).mockImplementationOnce(
+      () => new Promise((_, reject) => (refuse = reject)),
+    )
+
+    const toggling = controller.toggleFocused()
+    controller.close()
+    refuse(new TypeError('Failed to fetch'))
+
+    await expect(toggling).resolves.toBe(false)
+    expect(controller.state.phase).toBe('idle')
+  })
+
+  it.each([
+    ['before', true],
+    ['after', false],
+  ])('keeps a reopened review when the first list arrives %s the new one', async (_, lateFirst) => {
+    const { controller, lists } = deferredController()
+    const first = controller.open()
+    controller.close()
+    const second = controller.open()
+    expect(lists).toHaveLength(2)
+    const [answerFirst, answerSecond] = [lists[0]!, lists[1]!]
+
+    if (lateFirst) {
+      answerFirst(duplicates({ total_groups: 9 }))
+      await expect(first).resolves.toBe(false)
+      expect(controller.state.phase).toBe('loading')
+    }
+    answerSecond(duplicates())
+    await expect(second).resolves.toBe(true)
+    if (!lateFirst) {
+      answerFirst(duplicates({ total_groups: 9 }))
+      await expect(first).resolves.toBe(false)
+    }
+
+    expect(controller.state.phase).toBe('ready')
+    expect(controller.state.projection?.total_groups).toBe(1)
   })
 })
 
