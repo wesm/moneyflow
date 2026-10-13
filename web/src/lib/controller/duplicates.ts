@@ -318,13 +318,13 @@ export function createDuplicateController(
     try {
       await requestProfileJSON<MutationResponse>(options.mutations, 'api/v1/mutations', body)
     } catch (error) {
-      return await refused(error, mainSelection)
+      return await refused(error, unchangedSelection(mainSelection))
     }
     const staged =
       action === 'transaction.delete'
         ? `Staged deletion for ${count} ${transactionWord(count)}. Press w to review and commit.`
         : `Staged visibility change for ${count} ${transactionWord(count)}.`
-    const reloaded = await reload(mainSelection)
+    const reloaded = await reload(unchangedSelection(mainSelection))
     setState({
       ...state,
       phase: reloaded ? 'ready' : 'failed',
@@ -335,7 +335,18 @@ export function createDuplicateController(
     return true
   }
 
-  async function refused(error: unknown, mainSelection: SelectionValue): Promise<boolean> {
+  /**
+   * The main selection to restore after a change, unless the user changed it while the request
+   * ran, such as after closing review. The reread then keeps the newer selection.
+   */
+  function unchangedSelection(mainSelection: SelectionValue): SelectionValue | undefined {
+    return options.host.current()?.selection === mainSelection ? mainSelection : undefined
+  }
+
+  async function refused(
+    error: unknown,
+    mainSelection: SelectionValue | undefined,
+  ): Promise<boolean> {
     if (error instanceof MoneyflowProblem && error.problem.code === 'revision_conflict') {
       const reloaded = await reload(mainSelection)
       setState({
