@@ -204,6 +204,8 @@ In the browser, the search field sits in the command bar. `/` focuses it, or cli
 - Esc cancels the preview, restores the previous search, and returns to the table.
 - The field's clear button (×) previews the view without a search.
 - A search longer than 2,048 bytes is refused with a message.
+- **Unreleased:** If the preview fails for another reason, such as a lost connection or a busy
+  profile, the field says "Search failed." with the reason, and Enter does not apply it.
 
 For Amazon-like merchants, [imported product names](amazon-mode.md#match-bank-charges-to-products)
 also help find related charges. This does not require an Amazon network connection.

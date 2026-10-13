@@ -54,6 +54,8 @@ const (
 	CodeProviderMoneyMismatch ErrorCode = "provider_money_mismatch"
 	// CodeProviderDataInvalid rejects provider data that violates domain invariants.
 	CodeProviderDataInvalid ErrorCode = "provider_data_invalid"
+	// CodeProviderRefreshTimeout reports a refresh stopped at the web refresh time limit.
+	CodeProviderRefreshTimeout ErrorCode = "provider_refresh_timeout"
 	// CodeProfileNotFound reports an absent local profile.
 	CodeProfileNotFound ErrorCode = "profile_not_found"
 	// CodeProfileAmbiguous reports a non-unique local profile selector.
@@ -118,6 +120,12 @@ const (
 	CodeAmazonCurrencyMismatch ErrorCode = "amazon_currency_mismatch"
 	// CodeAmazonProfileInvalid rejects an unusable Amazon target profile.
 	CodeAmazonProfileInvalid ErrorCode = "amazon_profile_invalid"
+	// CodeAmazonImportStorage reports staged files or profile data that could not be written.
+	CodeAmazonImportStorage ErrorCode = "amazon_import_storage"
+	// CodeAmazonProfileChanged reports a profile that changed while the import was saved.
+	CodeAmazonProfileChanged ErrorCode = "amazon_profile_changed"
+	// CodeAmazonTaxonomySourceInvalid reports a category source profile that could not be read.
+	CodeAmazonTaxonomySourceInvalid ErrorCode = "amazon_taxonomy_source_invalid"
 	// CodeAmazonImportStale reports an attempt state-version conflict.
 	CodeAmazonImportStale ErrorCode = "amazon_import_stale"
 	// CodeAmazonImportExpired reports an unavailable process-local attempt.
@@ -160,6 +168,8 @@ type Problem struct {
 	Provider                       *ProviderStatusResponse      `json:"provider,omitempty"`
 	ProviderWrite                  *ProviderWriteStatusResponse `json:"provider_write,omitempty"`
 	ProviderWriteConfirmationToken string                       `json:"provider_write_confirmation_token,omitempty" maxLength:"4096"`
+	// cause explains a server failure in the server log; it is never serialized.
+	cause error
 }
 
 var errUnsupportedProviderVersion = errors.New("unsupported provider request version")
@@ -180,6 +190,12 @@ func (problem *Problem) ContentType(contentType string) string {
 		return "application/problem+json"
 	}
 	return contentType
+}
+
+// withCause keeps the internal error behind a server-failure problem for the server log.
+func (problem *Problem) withCause(cause error) *Problem {
+	problem.cause = cause
+	return problem
 }
 
 func newProblem(status int, code string, detail string) *Problem {

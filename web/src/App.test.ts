@@ -36,7 +36,11 @@ describe('Moneyflow application scaffold', () => {
   it('renders a safe invalid-link shell with a reset action', async () => {
     const controller = stubController({
       loading: false,
-      problem: { kind: 'invalid-view', code: 'invalid_view_state' },
+      problem: {
+        kind: 'invalid-view',
+        code: 'invalid_view_state',
+        detail: 'The view URL is invalid.',
+      },
     })
     render(App, { basePath: '/moneyflow/', controller })
 
@@ -45,6 +49,39 @@ describe('Moneyflow application scaffold', () => {
     ).not.toBeNull()
     await fireEvent.click(screen.getByRole('button', { name: 'Reset view' }))
     expect(controller.reset).toHaveBeenCalledTimes(1)
+  })
+
+  it('says the server is unreachable only when the first load could not reach it', async () => {
+    const controller = stubController({
+      loading: false,
+      problem: {
+        kind: 'request',
+        code: 'network_error',
+        detail: 'Moneyflow could not reach the server. Check the connection and retry.',
+      },
+    })
+    render(App, { basePath: '/moneyflow/', controller })
+
+    expect(screen.getByText('Connection problem')).not.toBeNull()
+    expect(screen.getByText(/could not reach the server/)).not.toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(controller.retry).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the server reason when the first load is refused', () => {
+    const detail = 'This profile was saved by a newer Moneyflow. Install that version to open it.'
+    render(App, {
+      basePath: '/moneyflow/',
+      controller: stubController({
+        loading: false,
+        problem: { kind: 'request', code: 'schema_newer', detail },
+      }),
+    })
+
+    expect(screen.getByRole('heading', { name: 'The financial view did not load' })).not.toBeNull()
+    expect(screen.getByText(detail)).not.toBeNull()
+    expect(screen.queryByText('Connection problem')).toBeNull()
+    expect(screen.queryByText(/server is reachable/)).toBeNull()
   })
 
   it('offers fresh setup for a legacy profile with no provider', async () => {

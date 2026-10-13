@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { ExportBody, ExportPreviewResponse, MoneyflowClient } from '../api/client'
+import {
+  MoneyflowProblem,
+  type ExportBody,
+  type ExportPreviewResponse,
+  type MoneyflowClient,
+} from '../api/client'
 import { createExportController } from './export'
 
 describe('ExportController', () => {
@@ -38,6 +43,30 @@ describe('ExportController', () => {
     expect(controller.state.phase).toBe('idle')
     expect(controller.state.announcement).toBe('No data to export.')
     expect(client.downloadExport).not.toHaveBeenCalled()
+  })
+
+  it('names the server’s reason when the preview fails', async () => {
+    const client = exportClient()
+    vi.mocked(client.previewExport)
+      .mockRejectedValueOnce(
+        new MoneyflowProblem({
+          type: 'about:blank',
+          title: 'Bad Request',
+          status: 400,
+          detail: 'The view URL is invalid.',
+          code: 'invalid_view_state',
+        }),
+      )
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const controller = createExportController({ client })
+
+    await expect(controller.open('v=1')).resolves.toBe(false)
+    expect(controller.state).toMatchObject({
+      phase: 'failed',
+      announcement: 'The export preview could not be loaded. The view URL is invalid.',
+    })
+    await controller.open('v=1')
+    expect(controller.state.announcement).toBe('The export preview could not be loaded. Try again.')
   })
 
   it('buffers a protected response and completes a temporary browser download', async () => {

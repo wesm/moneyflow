@@ -2,12 +2,15 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"strings"
 	"testing"
 
@@ -42,6 +45,8 @@ func TestServerHealthAndBasePath(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, outside.Code)
 }
 
+var discardLog = log.New(io.Discard, "", 0)
+
 func TestSafeProblemResponsesStreamsSuccessImmediately(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	streamedInsideHandler := false
@@ -54,7 +59,7 @@ func TestSafeProblemResponsesStreamsSuccessImmediately(t *testing.T) {
 		unwrapper, ok := response.(interface{ Unwrap() http.ResponseWriter })
 		require.True(t, ok)
 		assert.Same(t, recorder, unwrapper.Unwrap())
-	}))
+	}), discardLog)
 	handler.ServeHTTP(recorder, httptest.NewRequest(
 		http.MethodPost, "/api/v1/profiles/profile-a/export", http.NoBody,
 	))
@@ -70,7 +75,7 @@ func TestSafeProblemResponsesBuffersOrdinarySuccessUntilHandlerReturns(t *testin
 		_, err := response.Write([]byte("complete"))
 		require.NoError(t, err)
 		visibleInsideHandler = recorder.Body.Len() > 0
-	}))
+	}), discardLog)
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
 	assert.False(t, visibleInsideHandler)
 	assert.Equal(t, "complete", recorder.Body.String())
@@ -113,7 +118,7 @@ func TestSafeProblemResponsesRejectsOversizedSuccess(t *testing.T) {
 				response.Header().Set("Content-Length", fmt.Sprint(len(payload)+len(extra)))
 				_, _ = io.WriteString(response, payload)
 				_, _ = io.WriteString(response, extra)
-			}))
+			}), discardLog)
 			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
 			if extra == "" {
 				require.Equal(t, http.StatusOK, recorder.Code)
@@ -160,7 +165,7 @@ func TestOrdinarySuccessCanStillRecoverPanicWithoutPartialResponse(t *testing.T)
 			_, _ = response.Write([]byte("private partial response"))
 			panic("private panic")
 		},
-	)))
+	), discardLog), discardLog)
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
 	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
 	assert.NotContains(t, recorder.Body.String(), "private")
@@ -172,7 +177,7 @@ func TestSafeProblemResponsesStillSanitizesMaliciousError(t *testing.T) {
 	handler := safeProblemResponses(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		response.WriteHeader(http.StatusInternalServerError)
 		_, _ = response.Write(bytes.Repeat([]byte("private-merchant-name"), 100_000))
-	}))
+	}), discardLog)
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/failure", http.NoBody))
 	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
 	assert.NotContains(t, recorder.Body.String(), "private-merchant-name")
@@ -336,7 +341,7 @@ func TestRecoveryReturnsSafeProblem(t *testing.T) {
 
 	handler := noStore(recoverAPI(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		panic("do-not-echo")
-	})))
+	}), discardLog))
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -425,6 +430,55 @@ func requestJSON(t testing.TB, server *Server, path string, body any) *httptest.
 	data, err := json.Marshal(body)
 	require.NoError(t, err)
 	return requestServer(t, server, http.MethodPost, path, bytes.NewReader(data))
+}
+
+// keepAliveClient serves the API on a real listener and returns its URL with a client that
+// sends every request over one reused connection, as a browser does.
+func keepAliveClient(t testing.TB, server *Server) (string, *http.Client) {
+	t.Helper()
+	listener := httptest.NewServer(server.Handler())
+	t.Cleanup(listener.Close)
+	transport := &http.Transport{MaxConnsPerHost: 1}
+	t.Cleanup(transport.CloseIdleConnections)
+	return listener.URL, &http.Client{Transport: transport}
+}
+
+type keepAliveResponse struct {
+	status int
+	body   string
+	reused bool
+}
+
+// postKeepAlive sends a signed JSON mutation for scope and reports whether it reused the
+// client's earlier connection.
+func postKeepAlive(
+	t testing.TB, client *http.Client, server *Server, url, scope string, body any,
+) keepAliveResponse {
+	t.Helper()
+	data, err := json.Marshal(body)
+	require.NoError(t, err)
+	issued, err := server.security.Issue(scope)
+	require.NoError(t, err)
+	var result keepAliveResponse
+	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
+		result.reused = info.Reused
+	}}
+	request, err := http.NewRequestWithContext(
+		httptrace.WithClientTrace(context.Background(), trace),
+		http.MethodPost, url, bytes.NewReader(data),
+	)
+	require.NoError(t, err)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", server.security.origin.Origin())
+	request.Header.Set("Sec-Fetch-Site", "same-origin")
+	request.Header.Set(MutationTokenHeader, issued.Value)
+	response, err := client.Do(request)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, response.Body.Close()) }()
+	responseBody, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	result.status, result.body = response.StatusCode, string(responseBody)
+	return result
 }
 
 func requestServer(

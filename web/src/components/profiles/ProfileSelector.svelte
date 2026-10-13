@@ -227,11 +227,12 @@
         onback={back}
       />
     {:else if view === 'name'}
-      <ProfileNameForm {provider} onsubmit={(name) => void create(name)} onback={back} />
+      <ProfileNameForm {provider} {problem} onsubmit={(name) => void create(name)} onback={back} />
     {:else if (view === 'recovery' || view === 'guidance') && selected}
       <RecoveryPanel
         profile={selected}
         {recovery}
+        {problem}
         busy={loading}
         onconfirm={() => void confirmRecovery()}
         onfresh={() => (view = 'provider')}

@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -81,7 +83,7 @@ func TestProblemMapsPersistentFailuresToStableSafeEnvelopes(t *testing.T) {
 				Code: test.code, Detail: "The request could not use private diagnostic data.",
 				CurrentRevision: 17, Selection: app.EmptySelection(),
 			}
-			problem := problemFromError(failure)
+			problem := problemFromError(t.Context(), failure)
 			assert.Equal(t, test.status, problem.Status)
 			assert.Equal(t, string(test.code), problem.Code)
 			assert.Equal(t, "17", problem.CurrentRevision)
@@ -123,8 +125,27 @@ func TestProblemReportsAReasonOnlyForAnInvalidOperation(t *testing.T) {
 	} {
 		failure := &app.AppError{Code: test.code, Detail: "Safe detail."}
 
-		problem := problemFromError(errors.Join(failure, reasoned))
+		problem := problemFromError(t.Context(), errors.Join(failure, reasoned))
 
 		assert.Equal(t, test.want, problem.Reason, test.code)
 	}
+}
+
+// A time limit inside Moneyflow, such as the bounded audit write after a provider write, can end a
+// storage step while the request goes on. That is a storage failure. Only a request whose own
+// context ended has stopped, and then storage is not to blame.
+func TestStorageStepPastAnInternalTimeLimitIsAStorageFailure(t *testing.T) {
+	t.Parallel()
+
+	failure := store.NewError(
+		store.CodeStoreError, fmt.Errorf("record outcomes: %w", context.DeadlineExceeded),
+	)
+	live := problemFromError(t.Context(), failure)
+	assert.Equal(t, string(app.AppStoreError), live.Code)
+	assert.ErrorIs(t, live.cause, context.DeadlineExceeded, "the log keeps the cause")
+
+	ended, stop := context.WithCancel(t.Context())
+	stop()
+	stopped := problemFromError(ended, failure)
+	assert.Equal(t, "internal_error", stopped.Code)
 }

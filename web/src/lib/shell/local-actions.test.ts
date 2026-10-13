@@ -1,3 +1,4 @@
+import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
 import { tick } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -352,6 +353,82 @@ describe('runRowAction', () => {
     const { context } = fromSheet()
     runRowAction(context, 'transaction.info', row)
     expect(context.controller.transactionInformation).toHaveBeenCalledWith('row-7')
+  })
+})
+
+describe('failures with no dialog to show them', () => {
+  afterEach(() => {
+    document.body.replaceChildren()
+    dismissFlash()
+  })
+  const row = { identity: 'row-7', kind: 'transaction' } as const
+  const flashes = () => getFlashes().map(({ message, tone }) => ({ message, tone }))
+
+  /** A controller whose edits resolve `false`, leaving `phase` and `announcement`. */
+  function refusing(phase: string, announcement: string) {
+    const { context } = setup(1)
+    const refuse = vi.fn(() => Promise.resolve(false))
+    Object.assign(context.controller, {
+      editing: { submit: refuse, undo: refuse, redo: refuse, state: { phase, announcement } },
+    })
+    return context
+  }
+
+  it('shows why a hide from h, the sheet, or the selection bar did not apply', async () => {
+    const context = refusing('failed', 'The profile is busy. Try the action again when ready.')
+    await hideRow(context, row)
+    expect(flashes()).toEqual([
+      { message: 'The profile is busy. Try the action again when ready.', tone: 'danger' },
+    ])
+  })
+
+  it('shows why an undo or redo did not apply', async () => {
+    const context = refusing('conflict', 'The profile changed in another session.')
+    localActions(context)['edit.undo']()
+    localActions(context)['edit.redo']()
+    await vi.waitFor(() => expect(flashes()).toHaveLength(2))
+    expect(flashes()[0]).toEqual({
+      message: 'The profile changed in another session.',
+      tone: 'danger',
+    })
+  })
+
+  it('warns that a refreshed selection needs the action again', async () => {
+    const context = refusing('idle', 'Selection refreshed. Invoke the action again.')
+    await hideRow(context, row)
+    expect(flashes()).toEqual([
+      { message: 'Selection refreshed. Invoke the action again.', tone: 'warning' },
+    ])
+  })
+
+  it('says nothing when another edit is still being sent', async () => {
+    // The editing controller clears the announcement when an edit starts sending.
+    const context = refusing('submitting', '')
+    await hideRow(context, row)
+    expect(flashes()).toEqual([])
+  })
+
+  function exporting(phase: string, announcement: string) {
+    const { context, overlays } = setup(1)
+    const open = vi.fn(() => Promise.resolve(false))
+    Object.assign(context.controller, { export: { open, state: { phase, announcement } } })
+    return { context, overlays }
+  }
+
+  it('shows why the export preview failed instead of opening nothing', async () => {
+    const message = 'The export preview could not be loaded. The profile is busy. Try again.'
+    const { context, overlays } = exporting('failed', message)
+    localActions(context)['transactions.export']()
+    await vi.waitFor(() => expect(flashes()).toEqual([{ message, tone: 'danger' }]))
+    expect(overlays.current).toBeUndefined()
+  })
+
+  it('says there is no data to export', async () => {
+    const { context } = exporting('idle', 'No data to export.')
+    localActions(context)['transactions.export']()
+    await vi.waitFor(() =>
+      expect(flashes()).toEqual([{ message: 'No data to export.', tone: 'warning' }]),
+    )
   })
 })
 

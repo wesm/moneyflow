@@ -61,7 +61,11 @@ The bottom of the sidebar holds:
   provider write in progress or another process refreshing, and why the last refresh failed,
   for example `Last refresh failed: The provider is temporarily unavailable.` While a refresh
   runs, progress updates every second; for Monarch it names the kind, recent data (last 90
-  days) or full history. See [Monarch refresh](monarch.md#refresh-data).
+  days) or full history. **Unreleased:** A failed refresh, including one started in the
+  background, also shows an error banner with the reason. The web app stops a refresh that runs
+  longer than 30 minutes; no data changes, and `moneyflow tui` can run it without that limit.
+  When the server cannot say why a request failed, the banner says so and the terminal running
+  `moneyflow web` logs the cause. See [Monarch refresh](monarch.md#refresh-data).
 - The theme toggle; see [Themes](#themes).
 
 **Unreleased:** At 1280 px and wider, the **Collapse sidebar** button beside the Moneyflow name
@@ -79,10 +83,24 @@ The status line at the bottom shows:
 
 - Up to six keys for the current view, such as `↵ Open` and `/ Search`. A short notice, such as
   why a key did nothing, takes their place for four seconds or until your next action.
-- The connection: **Connected**, **Updating…** for requests slower than 300 ms, or **Offline**
-  with **Retry**.
+- The connection: **Connected**, **Updating…** for requests slower than 300 ms, **Offline**
+  with **Retry**, or **Unreleased:** **Not updated** with **Retry** after the server refused the
+  last view request or the browser could not read its answer.
 - The profile revision, except at phone width.
 - The pending-edits text, when the sidebar card is not shown.
+
+**Unreleased:** When an action or a background check fails, an error banner below the command
+bar says what failed and gives the server's reason. Examples are a view change the server
+refuses, a recheck when the window regains focus, an undo or a hide from a key, transaction
+information, and the export preview. A warning banner reports a change you did not ask for, such
+as a cleared selection or a view that returned to its parent, and an export with no data.
+Banners stay for 12 seconds; the close button removes one sooner. Screen readers hear the same
+messages.
+
+**Unreleased:** If a profile does not open, the page says why instead of showing the
+workspace. A missing profile, a profile busy with recovery or another Moneyflow command, and a
+profile saved in a format this version cannot open each have their own message. The page
+suggests checking the connection only when the browser could not reach the server.
 
 ## Charts
 
@@ -279,6 +297,10 @@ A profile may need reconnect, vault unlock or explicit schema recovery. Use the 
 Closing a tab does not discard durable pending work. If a mutation sees a stale revision, inspect
 the new state and invoke it again deliberately. Provider write batches have their own status and
 recovery controls; see [editing](editing.md).
+
+**Unreleased:** When creating or recovering a profile, or a setup step, fails, the form says why
+and stays open. Moneyflow keeps the profile name and the Monarch email you entered. It clears
+passwords, secrets, tokens, and Access URLs, so enter those again.
 
 ## Limitations
 

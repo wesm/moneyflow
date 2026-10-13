@@ -1,14 +1,17 @@
+import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   MoneyflowProblem,
   type MoneyflowClient,
+  type MutationFetch,
   type ViewBody,
   type ViewProjection,
 } from '../api/client'
 import { createViewController, type ViewController } from './view-controller.svelte'
 import type { SelectionValue } from '../api/client'
 import type { MoneyflowHistoryState } from './history'
+import { testDuplicates } from '../../test/duplicates'
 import { testAggregateRow } from '../../test/projection'
 
 describe('browser view controller', () => {
@@ -477,10 +480,10 @@ describe('browser view controller', () => {
     })
   })
 
-  describe('an edit that lands between Esc and its history traversal', () => {
+  describe('a newer revision that lands between Esc and its history traversal', () => {
     const cleared = 'mfsel1.cleared' as SelectionValue
 
-    async function editDuringReturn() {
+    it('rereads the parent once the return lands instead of cutting it off', async () => {
       const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
       const client = clientWith({
         transition: vi.fn(async (body) =>
@@ -499,14 +502,51 @@ describe('browser view controller', () => {
       vi.mocked(client.view).mockImplementation(async (body) =>
         projection(body.query, body.window.offset, 3, '1'),
       )
-      await controller.recheck()
+      vi.mocked(client.view).mockClear()
+
+      const rechecking = controller.recheck()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(client.view).not.toHaveBeenCalled()
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+      await Promise.all([back, rechecking])
+
+      expect(client.view).toHaveBeenCalledOnce()
+      expect(client.view).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'v=1', selection: cleared }),
+      )
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect(controller.projection?.revision).toBe('1')
+      expect((history.state as MoneyflowHistoryState).sequence).toBe(parent.sequence)
+    })
+
+    async function newerDuringReturn() {
+      const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+      const client = clientWith({
+        transition: vi.fn(async (body) =>
+          body.action === 'view.back'
+            ? projection('v=1', 0, 3, '0', cleared)
+            : projection('v=1&drill=x', 0, 3),
+        ),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.drill' })
+      const before = go.mock.calls.length
+      const back = controller.apply({ action: 'view.back' })
+      await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+      vi.mocked(client.view).mockImplementation(async (body) =>
+        projection(body.query, body.window.offset, 3, '1'),
+      )
+      // A reload, such as Reset, reads the drilled view at the edited revision during the return.
+      await controller.hydrate()
       expect(controller.projection?.revision).toBe('1')
       vi.mocked(client.view).mockClear()
       return { client, controller, parent, back }
     }
 
     it('fetches the parent at the edited revision when the popstate arrives', async () => {
-      const { client, controller, parent, back } = await editDuringReturn()
+      const { client, controller, parent, back } = await newerDuringReturn()
 
       await controller.restore(new PopStateEvent('popstate', { state: parent }))
       await back
@@ -520,7 +560,7 @@ describe('browser view controller', () => {
     })
 
     it('fetches the parent with the selection Esc left, not the one history saved', async () => {
-      const { client, controller, parent, back } = await editDuringReturn()
+      const { client, controller, parent, back } = await newerDuringReturn()
       expect(parent.selection).not.toBe(cleared)
 
       await controller.restore(new PopStateEvent('popstate', { state: parent }))
@@ -533,7 +573,7 @@ describe('browser view controller', () => {
     })
 
     it('holds a key pressed during the parent fetch until the parent loads', async () => {
-      const { client, controller, parent, back } = await editDuringReturn()
+      const { client, controller, parent, back } = await newerDuringReturn()
       let release!: (value: ViewProjection) => void
       vi.mocked(client.view).mockImplementationOnce(
         () => new Promise<ViewProjection>((resolve) => (release = resolve)),
@@ -555,7 +595,7 @@ describe('browser view controller', () => {
     })
 
     it('keeps the edited view when the traversal times out', async () => {
-      const { controller, back } = await editDuringReturn()
+      const { controller, back } = await newerDuringReturn()
 
       await back
 
@@ -1510,7 +1550,7 @@ describe('browser view controller', () => {
       await controller.hydrate()
 
       await controller.showIndex(250)
-      expect(controller.problem).toEqual({ kind: 'request', code: 'network_error' })
+      expect(controller.problem).toMatchObject({ kind: 'request', code: 'network_error' })
       expect(controller.projection?.window.offset).toBe(0)
 
       await controller.retry()
@@ -1535,7 +1575,7 @@ describe('browser view controller', () => {
       await vi.waitFor(() => expect(requests).toBe(1))
 
       await controller.showIndex(250)
-      expect(controller.problem).toEqual({ kind: 'request', code: 'network_error' })
+      expect(controller.problem).toMatchObject({ kind: 'request', code: 'network_error' })
       prefetched(projection('v=1', 200, 450))
       await vi.waitFor(() =>
         expect(controller.neighbors.map((loaded) => loaded.window.offset)).toEqual([200]),
@@ -1653,7 +1693,7 @@ describe('browser view controller', () => {
     expect(vi.mocked(client.view).mock.calls[0]?.[1]?.aborted).toBe(true)
   })
 
-  it('cannot install an older foreground response after accepting a mutation', async () => {
+  it('lets a foreground request land before an edit, then shows the edit’s view', async () => {
     let release!: (value: ViewProjection) => void
     const delayed = new Promise<ViewProjection>((resolve) => (release = resolve))
     const client = clientWith({
@@ -1679,12 +1719,17 @@ describe('browser view controller', () => {
     await controller.hydrate()
 
     const stale = controller.hydrate()
-    await expect(controller.editing.undo()).resolves.toBe(true)
+    const undoing = controller.editing.undo()
+    await vi.waitFor(() => expect(client.mutations.request).toHaveBeenCalledOnce())
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(vi.mocked(client.view).mock.calls[1]?.[1]?.aborted).toBe(false)
     release(projection('v=1', 0, 3, '1'))
     await stale
+    await expect(undoing).resolves.toBe(true)
 
+    // The request left the view the edit was sent from, so the edit's own answer shows.
+    expect(client.view).toHaveBeenCalledTimes(2)
     expect(controller.projection?.revision).toBe('2')
-    expect(vi.mocked(client.view).mock.calls[1]?.[1]?.aborted).toBe(true)
   })
 
   it('retains the last good projection on bounded errors and supports retry', async () => {
@@ -1692,7 +1737,7 @@ describe('browser view controller', () => {
       type: 'about:blank',
       title: 'Conflict',
       status: 409,
-      detail: 'oversized private detail',
+      detail: 'The selection is too large.',
       code: 'selection_too_large',
     })
     const client = clientWith({
@@ -1707,7 +1752,7 @@ describe('browser view controller', () => {
 
     await controller.apply({ action: 'selection.toggle-all' })
     expect(controller.projection).toBe(prior)
-    expect(controller.announcement).not.toContain('private')
+    expect(controller.announcement).toContain('The selection is too large.')
     await controller.retry()
     expect(client.transition).toHaveBeenCalledTimes(2)
   })
@@ -1813,8 +1858,8 @@ describe('browser view controller', () => {
           type: 'about:blank',
           title: 'Bad Request',
           status: 400,
-          detail: 'bad expression',
-          code: 'invalid_request',
+          detail: 'The web view request is invalid.',
+          code: 'invalid_web_request',
         })
       })
       .mockImplementationOnce(() => new Promise<ViewProjection>((resolve) => (release = resolve)))
@@ -1823,14 +1868,14 @@ describe('browser view controller', () => {
     await controller.hydrate()
     controller.beginSearch()
 
-    expect(await controller.previewSearch('[')).toBe('rejected')
+    expect(await controller.previewSearch('[')).toBe('invalid')
     const slow = controller.previewSearch('a')
     expect(await controller.previewSearch('b')).toBe('applied')
     release(projection('v=1&q=a', 0, 1))
     expect(await slow).toBe('superseded')
   })
 
-  it('reports a search preview the network failed as failed, not rejected', async () => {
+  it('reports a search preview the network failed with the connection reason', async () => {
     const transition = vi.fn(async () => {
       throw new TypeError('Failed to fetch')
     })
@@ -1838,8 +1883,29 @@ describe('browser view controller', () => {
     await controller.hydrate()
     controller.beginSearch()
 
-    expect(await controller.previewSearch('coffee')).toBe('failed')
-    expect(controller.problem).toEqual({ kind: 'request', code: 'network_error' })
+    expect(await controller.previewSearch('coffee')).toEqual({
+      failed: 'Moneyflow could not reach the server. Check the connection and retry.',
+    })
+    expect(controller.problem).toMatchObject({ kind: 'request', code: 'network_error' })
+  })
+
+  it('reports a search preview the server refused for another reason with that reason', async () => {
+    const transition = vi.fn(async () => {
+      throw new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Service Unavailable',
+        status: 503,
+        detail: 'The profile is busy. Retry in a moment.',
+        code: 'store_busy',
+      })
+    })
+    const controller = controllerFor(clientWith({ transition }), false)
+    await controller.hydrate()
+    controller.beginSearch()
+
+    expect(await controller.previewSearch('coffee')).toEqual({
+      failed: 'The profile is busy. Retry in a moment.',
+    })
   })
 
   it('aborts an in-flight search preview when cancel restores its snapshot', async () => {
@@ -1875,8 +1941,8 @@ describe('browser view controller', () => {
 
     await controller.hydrate()
 
-    expect(controller.problem).toEqual({ kind: 'invalid-view', code: 'invalid_view_state' })
-    expect(controller.announcement).not.toContain('raw URL')
+    expect(controller.problem).toMatchObject({ kind: 'invalid-view', code: 'invalid_view_state' })
+    expect(controller.announcement).toBe('This Moneyflow link is invalid.')
   })
 
   describe('the cursor after a transition', () => {
@@ -2153,6 +2219,1275 @@ describe('browser view controller', () => {
 
     await expect(controller.providerWrite.reconcile()).resolves.toBe(true)
     expect(controller.editing.state.revision).toBe(2n)
+  })
+})
+
+describe('visible view failures', () => {
+  beforeEach(() => {
+    history.replaceState(null, '', '/moneyflow/?v=1')
+    dismissFlash()
+  })
+  afterEach(() => dismissFlash())
+
+  const flashes = () => getFlashes().map(({ message, tone }) => ({ message, tone }))
+  const busy = () =>
+    new MoneyflowProblem({
+      type: 'about:blank',
+      title: 'Service Unavailable',
+      status: 503,
+      detail: 'The profile is busy. Try again.',
+      code: 'store_busy',
+    })
+
+  it('shows a refused view change with the server’s reason and keeps the view', async () => {
+    const client = clientWith({ transition: vi.fn().mockRejectedValueOnce(busy()) })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    const prior = controller.projection
+
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+
+    expect(controller.projection).toBe(prior)
+    expect(controller.problem).toEqual({
+      kind: 'request',
+      code: 'store_busy',
+      detail: 'The profile is busy. Try again.',
+    })
+    const message =
+      'Moneyflow could not apply that change; the view is unchanged. ' +
+      'The profile is busy. Try again.'
+    expect(controller.announcement).toBe(message)
+    expect(flashes()).toEqual([{ message, tone: 'danger' }])
+  })
+
+  it('shows why a cursor move to a row outside the loaded window failed', async () => {
+    const client = clientWith({
+      view: vi
+        .fn()
+        .mockImplementationOnce(async () => projection('v=1', 0, 450))
+        .mockRejectedValueOnce(busy()),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await controller.moveCursorTo(250)
+
+    expect(controller.cursorIndex).toBe(0)
+    expect(flashes()).toEqual([
+      {
+        message:
+          'Moneyflow could not apply that change; the view is unchanged. ' +
+          'The profile is busy. Try again.',
+        tone: 'danger',
+      },
+    ])
+  })
+
+  it('points an unexpected server error to the server log', async () => {
+    const failure = new MoneyflowProblem({
+      type: 'about:blank',
+      title: 'Internal Server Error',
+      status: 500,
+      detail: 'The request could not be completed.',
+      code: 'internal_error',
+    })
+    const client = clientWith({ transition: vi.fn().mockRejectedValueOnce(failure) })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+
+    expect(controller.problem?.detail).toBe(
+      'The request could not be completed. The terminal running moneyflow web shows the cause.',
+    )
+  })
+
+  it('tells an unreadable answer from a network failure', async () => {
+    const client = clientWith({
+      transition: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('The Moneyflow API returned an invalid response.'))
+        .mockRejectedValueOnce(new TypeError('Failed to fetch')),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    expect(controller.problem).toEqual({
+      kind: 'request',
+      code: 'invalid_response',
+      detail: 'The server sent a response Moneyflow could not read.',
+    })
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    expect(controller.problem?.code).toBe('network_error')
+  })
+
+  it('leaves a failed first load to the page that replaces the workspace', async () => {
+    const client = clientWith({ view: vi.fn().mockRejectedValueOnce(busy()) })
+    const controller = controllerFor(client, false)
+
+    await controller.hydrate()
+
+    expect(controller.problem?.detail).toBe('The profile is busy. Try again.')
+    expect(flashes()).toEqual([])
+  })
+
+  it('reports a failed recheck, and a retry that succeeds clears it', async () => {
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+    const controller = controllerFor(clientWith({ view }), false)
+    await controller.hydrate()
+
+    await expect(controller.recheck()).resolves.toBeUndefined()
+
+    expect(controller.problem?.code).toBe('network_error')
+    expect(flashes()).toEqual([
+      {
+        message:
+          'Moneyflow could not check for newer data; the view may be out of date. ' +
+          'Moneyflow could not reach the server. Check the connection and retry.',
+        tone: 'danger',
+      },
+    ])
+    await controller.retry()
+    expect(view).toHaveBeenCalledTimes(3)
+    expect(controller.problem).toBeUndefined()
+  })
+
+  it('shows the parent view undo returned to when the drilled target is gone', async () => {
+    history.replaceState(null, '', '/moneyflow/?v=1&drill=x')
+    const notice = 'The previous view target is unavailable; returned to its parent.'
+    const parent = {
+      ...projection('v=1', 0, 3, '5'),
+      warnings: [{ code: 'view_notice', detail: notice }],
+    }
+    // The server cannot project the drilled view any more, so a reread of it fails.
+    const stale = new MoneyflowProblem({
+      type: 'about:blank',
+      title: 'Conflict',
+      status: 409,
+      detail: 'The selected view target is no longer available.',
+      code: 'stale_view_target',
+    })
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1&drill=x', 0, 3, '4'))
+      .mockRejectedValue(stale)
+    const mutations = {
+      request: vi.fn(async () =>
+        Response.json({
+          version: '1',
+          revision: '5',
+          canonical_query: 'v=1',
+          projection: parent,
+          pending: parent.pending,
+          selection: { kind: 'preserved', value: parent.selection },
+        }),
+      ),
+    }
+    const controller = controllerFor(clientWith({ view, mutations }), false)
+    await controller.hydrate()
+
+    await expect(controller.editing.undo()).resolves.toBe(true)
+
+    expect(controller.projection?.canonical_query).toBe('v=1')
+    expect(controller.projection?.revision).toBe('5')
+    expect(location.search).toBe('?v=1')
+    expect(flashes().map(({ message }) => message)).toEqual([notice])
+  })
+
+  it('ignores a recheck that fails after a newer transition failed', async () => {
+    let failRecheck!: (error: unknown) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockImplementationOnce(() => new Promise((_, reject) => (failRecheck = reject)))
+    const transition = vi.fn().mockRejectedValueOnce(busy())
+    const controller = controllerFor(clientWith({ view, transition }), false)
+    await controller.hydrate()
+
+    const rechecking = controller.recheck()
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    failRecheck(new TypeError('Failed to fetch'))
+    await expect(rechecking).resolves.toBeUndefined()
+
+    expect(controller.problem?.code).toBe('store_busy')
+    expect(flashes().map(({ message }) => message)).toEqual([
+      'Moneyflow could not apply that change; the view is unchanged. ' +
+        'The profile is busy. Try again.',
+    ])
+    await controller.retry()
+    expect(transition).toHaveBeenCalledTimes(2)
+    expect(view).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores a recheck that fails after a newer window load failed', async () => {
+    let failRecheck!: (error: unknown) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 600, '4'))
+      .mockImplementationOnce(() => new Promise((_, reject) => (failRecheck = reject)))
+      .mockRejectedValueOnce(busy())
+      .mockResolvedValueOnce(projection('v=1', 200, 600, '4'))
+    const controller = controllerFor(clientWith({ view }), false)
+    await controller.hydrate()
+
+    const rechecking = controller.recheck()
+    await controller.showIndex(250)
+    expect(controller.problem?.code).toBe('store_busy')
+    failRecheck(new TypeError('Failed to fetch'))
+    await expect(rechecking).resolves.toBeUndefined()
+
+    expect(controller.problem?.code).toBe('store_busy')
+    await controller.retry()
+    expect(view).toHaveBeenCalledTimes(4)
+    expect(view.mock.calls[3]![0]).toMatchObject({ window: { offset: 200 } })
+    expect(controller.problem).toBeUndefined()
+  })
+
+  it('ignores a recheck that fails after a newer transition succeeded', async () => {
+    let failRecheck!: (error: unknown) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockImplementationOnce(() => new Promise((_, reject) => (failRecheck = reject)))
+    const controller = controllerFor(clientWith({ view }), false)
+    await controller.hydrate()
+
+    const rechecking = controller.recheck()
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    failRecheck(new TypeError('Failed to fetch'))
+    await expect(rechecking).resolves.toBeUndefined()
+
+    expect(controller.problem).toBeUndefined()
+    expect(flashes()).toEqual([])
+  })
+
+  it('reports a failed recheck for newer insights as a view failure', async () => {
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockRejectedValueOnce(busy())
+    const controller = controllerFor(clientWith({ view }), false)
+    await controller.hydrate()
+
+    await controller.recheckNewer('5')
+
+    expect(controller.problem?.code).toBe('store_busy')
+    expect(flashes().map(({ tone }) => tone)).toEqual(['danger'])
+  })
+
+  it('asks the server again when a recheck follows a failed one inside the debounce', async () => {
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockRejectedValueOnce(busy())
+      .mockRejectedValueOnce(busy())
+    const controller = createViewController({
+      basePath: '/moneyflow/',
+      client: clientWith({ view }),
+      history,
+      location: window.location,
+      instance: 'test-instance',
+      prefetch: false,
+      recheckDebounceMillis: 60_000,
+    })
+    await controller.hydrate()
+    await controller.recheckNewer('5')
+    expect(controller.problem?.code).toBe('store_busy')
+
+    await controller.recheck()
+
+    expect(view).toHaveBeenCalledTimes(3)
+    expect(controller.problem?.code).toBe('store_busy')
+  })
+
+  it('shows a failed reread in the workspace when review closed while a deletion was sent', async () => {
+    let answer!: (response: Response) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '3'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+    const client = clientWith({
+      view,
+      projectDuplicates: vi.fn(async () => testDuplicates()),
+      mutations: { request: vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))) },
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.duplicates.open()
+    controller.duplicates.requestDelete()
+
+    const deleting = controller.duplicates.confirmDelete()
+    controller.duplicates.cancelDelete()
+    controller.duplicates.close()
+    answer(Response.json({}))
+    await deleting
+
+    expect(controller.problem?.code).toBe('network_error')
+    expect(flashes()).toEqual([
+      {
+        message:
+          'Moneyflow could not check for newer data; the view may be out of date. ' +
+          'Moneyflow could not reach the server. Check the connection and retry.',
+        tone: 'danger',
+      },
+    ])
+    await controller.retry()
+    expect(view).toHaveBeenCalledTimes(3)
+    expect(controller.projection?.revision).toBe('4')
+    expect(controller.problem).toBeUndefined()
+  })
+
+  it('keeps a newer recheck failure when an older recheck answers unchanged', async () => {
+    let answerOlder!: (next: ViewProjection) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockImplementationOnce(() => new Promise((resolve) => (answerOlder = resolve)))
+      .mockRejectedValueOnce(busy())
+    const controller = controllerFor(clientWith({ view }), false)
+    await controller.hydrate()
+
+    const older = controller.recheck()
+    await controller.recheckNewer('5')
+    expect(controller.problem?.code).toBe('store_busy')
+    answerOlder(projection('v=1', 0, 3, '4'))
+    await older
+
+    expect(controller.problem?.code).toBe('store_busy')
+  })
+
+  describe('rechecks that finish out of order', () => {
+    /** Two rechecks in flight at once: a passive one, then a forced one for newer insights. */
+    async function twoRechecks() {
+      const answers: { resolve: (next: ViewProjection) => void; reject: (e: unknown) => void }[] =
+        []
+      const view = vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+        .mockImplementation(
+          () => new Promise<ViewProjection>((resolve, reject) => answers.push({ resolve, reject })),
+        )
+      const controller = controllerFor(clientWith({ view }), false)
+      await controller.hydrate()
+      const older = controller.recheck()
+      const newer = controller.recheckNewer('5')
+      await vi.waitFor(() => expect(answers).toHaveLength(2))
+      return { controller, older: answers[0]!, newer: answers[1]!, settled: [older, newer] }
+    }
+
+    it('keeps the workspace connected when an older recheck fails after a newer one answered', async () => {
+      const { controller, older, newer, settled } = await twoRechecks()
+
+      newer.resolve(projection('v=1', 0, 3, '4'))
+      older.reject(new TypeError('Failed to fetch'))
+      await Promise.all(settled)
+
+      expect(controller.problem).toBeUndefined()
+      expect(flashes()).toEqual([])
+    })
+
+    it.each([
+      ['a newer revision', '5'],
+      ['the same revision', '4'],
+    ])('clears an older failure when a newer recheck answers %s', async (_, revision) => {
+      const { controller, older, newer, settled } = await twoRechecks()
+
+      older.reject(new TypeError('Failed to fetch'))
+      await settled[0]
+      expect(controller.problem?.code).toBe('network_error')
+      newer.resolve(projection('v=1', 0, 3, revision))
+      await settled[1]
+
+      expect(controller.projection?.revision).toBe(revision)
+      expect(controller.problem).toBeUndefined()
+    })
+  })
+
+  it('does not cut off a view change when an edit answers with a view', async () => {
+    let answerEdit!: (response: Response) => void
+    let answerChange!: (next: ViewProjection) => void
+    let changeSignal: AbortSignal | undefined
+    const transition = vi.fn((...[, signal]: Parameters<MoneyflowClient['transition']>) => {
+      changeSignal = signal
+      return new Promise<ViewProjection>((resolve) => (answerChange = resolve))
+    })
+    const edited = projection('v=1', 0, 3, '5')
+    const controller = controllerFor(
+      clientWith({
+        view: vi
+          .fn()
+          .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+          .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '5')),
+        transition,
+        mutations: {
+          request: vi.fn(() => new Promise<Response>((resolve) => (answerEdit = resolve))),
+        },
+      }),
+      false,
+    )
+    await controller.hydrate()
+
+    const undoing = controller.editing.undo()
+    const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+    answerEdit(
+      Response.json({
+        version: '1',
+        revision: '5',
+        canonical_query: 'v=1',
+        projection: edited,
+        pending: edited.pending,
+        selection: { kind: 'preserved', value: edited.selection },
+      }),
+    )
+    // The answer is handled while the view change is still on its way, which it must not abort.
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(changeSignal?.aborted).toBe(false)
+    answerChange(projection('v=2', 0, 3, '5'))
+
+    await expect(applying).resolves.toBe(true)
+    await expect(undoing).resolves.toBe(true)
+    expect(controller.projection?.canonical_query).toBe('v=2')
+    expect(controller.editing.state.phase).toBe('idle')
+    expect(controller.editing.state.revision).toBe(5n)
+  })
+
+  it('keeps a selection made while an edit was sent when the edit answers for another view', async () => {
+    const cleared = 'mfsel1.cleared' as SelectionValue
+    const newer = 'mfsel1.newer' as SelectionValue
+    let answerEdit!: (response: Response) => void
+    let answerSelection!: (next: ViewProjection) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockImplementation(async (body: ViewBody) =>
+        projection(body.query, 0, 3, '5', body.selection),
+      )
+    const transition = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=2', 0, 3, '4'))
+      .mockImplementationOnce(
+        () => new Promise<ViewProjection>((resolve) => (answerSelection = resolve)),
+      )
+    const edited = projection('v=1', 0, 3, '5', cleared)
+    const controller = controllerFor(
+      clientWith({
+        view,
+        transition,
+        mutations: {
+          request: vi.fn(() => new Promise<Response>((resolve) => (answerEdit = resolve))),
+        },
+      }),
+      false,
+    )
+    await controller.hydrate()
+
+    const undoing = controller.editing.undo()
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    const selecting = controller.apply({ action: 'selection.toggle-all' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledTimes(2))
+    // The edit cleared the selection it was sent with, but a newer selection is on its way.
+    answerEdit(
+      Response.json({
+        version: '1',
+        revision: '5',
+        canonical_query: 'v=1',
+        projection: edited,
+        pending: edited.pending,
+        selection: { kind: 'cleared', value: cleared },
+      }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    answerSelection(projection('v=2', 0, 3, '5', newer))
+    await selecting
+    await expect(undoing).resolves.toBe(true)
+
+    expect(view.mock.calls.at(-1)?.[0]).toMatchObject({ query: 'v=2', selection: newer })
+    expect(controller.projection?.selection).toBe(newer)
+  })
+
+  it.each([
+    ['undo', (controller: ViewController) => controller.editing.undo()],
+    [
+      'deletion',
+      (controller: ViewController) =>
+        controller.editing.submit({
+          action: 'transaction.delete',
+          input: {},
+          target: { kind: 'transaction', identity: 'txn-1' },
+        }),
+    ],
+  ] as const)(
+    'keeps a selection made while %s was sent when the server refuses its stale selection',
+    async (_name, edit) => {
+      const refreshed = 'mfsel1.refreshed' as SelectionValue
+      const newer = 'mfsel1.newer' as SelectionValue
+      let answerEdit!: (response: Response) => void
+      let answerSelection!: (next: ViewProjection) => void
+      const view = vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+        .mockImplementation(async (body: ViewBody) =>
+          projection(body.query, 0, 3, '4', body.selection),
+        )
+      const transition = vi.fn(
+        () => new Promise<ViewProjection>((resolve) => (answerSelection = resolve)),
+      )
+      const controller = controllerFor(
+        clientWith({
+          view,
+          transition,
+          mutations: {
+            request: vi.fn(() => new Promise<Response>((resolve) => (answerEdit = resolve))),
+          },
+        }),
+        false,
+      )
+      await controller.hydrate()
+
+      const editing = edit(controller)
+      const selecting = controller.apply({ action: 'selection.toggle-all' })
+      await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+      // The server refuses the selection the edit was sent with and offers a refreshed one.
+      const stale = new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Conflict',
+        status: 409,
+        detail: 'The selection changed.',
+        code: 'selection_stale',
+        current_revision: '4',
+        selection: { kind: 'refreshed', value: refreshed },
+      }).problem
+      answerEdit(
+        new Response(JSON.stringify(stale), {
+          status: 409,
+          headers: { 'Content-Type': 'application/problem+json' },
+        }),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      answerSelection(projection('v=1', 0, 3, '4', newer))
+      await selecting
+      await expect(editing).resolves.toBe(false)
+
+      expect(view.mock.calls.at(-1)?.[0]).toMatchObject({ selection: newer })
+      expect(controller.projection?.selection).toBe(newer)
+    },
+  )
+
+  it('keeps the selection a bulk edit cleared when a sort was on its way', async () => {
+    const sent = 'mfsel1.sent' as SelectionValue
+    const cleared = 'mfsel1.cleared' as SelectionValue
+    let answerEdit!: (response: Response) => void
+    let answerSort!: (next: ViewProjection) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4', sent))
+      .mockImplementation(async (body: ViewBody) =>
+        projection(body.query, 0, 3, '5', body.selection),
+      )
+    const transition = vi.fn(() => new Promise<ViewProjection>((resolve) => (answerSort = resolve)))
+    const edited = projection('v=1', 0, 3, '5', cleared)
+    const controller = controllerFor(
+      clientWith({
+        view,
+        transition,
+        mutations: {
+          request: vi.fn(() => new Promise<Response>((resolve) => (answerEdit = resolve))),
+        },
+      }),
+      false,
+    )
+    await controller.hydrate()
+
+    const editing = controller.editing.submit({ action: 'transaction.toggle-hidden', input: {} })
+    const sorting = controller.apply({ action: 'view.sort', sort_field: 'amount' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+    answerEdit(
+      Response.json({
+        version: '1',
+        revision: '5',
+        canonical_query: 'v=1',
+        projection: edited,
+        pending: edited.pending,
+        selection: { kind: 'cleared', value: cleared },
+      }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    answerSort(projection('sort=amount&v=1', 0, 3, '5', sent))
+    await sorting
+    await expect(editing).resolves.toBe(true)
+
+    expect(controller.projection?.canonical_query).toBe('sort=amount&v=1')
+    expect(controller.projection?.selection).toBe(cleared)
+  })
+
+  it('does not cut off a view change when a provider write control answers with a view', async () => {
+    let answerWrite!: (response: Response) => void
+    let answerChange!: (next: ViewProjection) => void
+    let changeSignal: AbortSignal | undefined
+    const transition = vi.fn((...[, signal]: Parameters<MoneyflowClient['transition']>) => {
+      changeSignal = signal
+      return new Promise<ViewProjection>((resolve) => (answerChange = resolve))
+    })
+    const written = projection('v=1', 0, 3, '5')
+    const controller = controllerFor(
+      clientWith({
+        view: vi
+          .fn()
+          .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+          .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '5')),
+        transition,
+        mutations: {
+          request: vi.fn(() => new Promise<Response>((resolve) => (answerWrite = resolve))),
+        },
+      }),
+      false,
+    )
+    await controller.hydrate()
+    controller.providerWrite.install({
+      version: '1',
+      revision: '4',
+      generation: '1',
+      batch_version: '2',
+      phase: 'paused',
+      total: 1,
+      completed: 0,
+      failed: 0,
+      remaining: 1,
+      overrides: 0,
+      actions: ['reconcile'],
+    })
+
+    const reconciling = controller.providerWrite.reconcile()
+    const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+    answerWrite(
+      Response.json({
+        version: '1',
+        revision: '5',
+        status: {
+          version: '1',
+          revision: '5',
+          generation: '1',
+          total: 1,
+          completed: 1,
+          failed: 0,
+          remaining: 0,
+          overrides: 0,
+          actions: [],
+        },
+        projection: written,
+        selection: { kind: 'preserved', value: written.selection },
+      }),
+    )
+    // The answer is handled while the view change is still on its way, which it must not abort.
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(changeSignal?.aborted).toBe(false)
+    answerChange(projection('v=2', 0, 3, '5'))
+
+    await expect(applying).resolves.toBe(true)
+    await expect(reconciling).resolves.toBe(true)
+    expect(controller.projection?.canonical_query).toBe('v=2')
+  })
+
+  it('does not cut off a view change when a finished provider write rereads the view', async () => {
+    let answerReread!: (next: ViewProjection) => void
+    let answerChange!: (next: ViewProjection) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockImplementationOnce(() => new Promise((resolve) => (answerReread = resolve)))
+    const transition = vi.fn(
+      () => new Promise<ViewProjection>((resolve) => (answerChange = resolve)),
+    )
+    const providerWriteStatus = vi.fn(async () => ({
+      version: '1',
+      revision: '5',
+      generation: '1',
+      total: 1,
+      completed: 1,
+      failed: 0,
+      remaining: 0,
+      overrides: 0,
+      actions: [],
+    }))
+    const controller = controllerFor(clientWith({ view, transition, providerWriteStatus }), false)
+    await controller.hydrate()
+    controller.providerWrite.install({
+      version: '1',
+      revision: '4',
+      generation: '1',
+      batch_version: '2',
+      phase: 'writing',
+      total: 1,
+      completed: 0,
+      failed: 0,
+      remaining: 1,
+      overrides: 0,
+      actions: [],
+    })
+
+    const polling = controller.providerWrite.poll()
+    await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+    const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    answerReread(projection('v=1', 0, 3, '5'))
+    await polling
+    // The view change runs once the reread has landed, so neither cuts the other off.
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+    answerChange(projection('v=2', 0, 3, '5'))
+
+    await expect(applying).resolves.toBe(true)
+    expect(controller.projection?.canonical_query).toBe('v=2')
+  })
+
+  describe('a browser Back still on its way', () => {
+    function pendingBack(view: ReturnType<typeof vi.fn>) {
+      let answerBack!: (next: ViewProjection) => void
+      view.mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '5'))
+      view.mockImplementationOnce(() => new Promise((resolve) => (answerBack = resolve)))
+      return (next: ViewProjection) => answerBack(next)
+    }
+
+    function goBack(controller: ViewController) {
+      history.pushState(null, '', '/moneyflow/?v=0')
+      return controller.restore(new PopStateEvent('popstate', { state: null }))
+    }
+
+    it('lands before a finished provider write rereads the view, which then reads it', async () => {
+      const view = vi.fn().mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      const providerWriteStatus = vi.fn(async () => ({
+        version: '1',
+        revision: '5',
+        generation: '1',
+        total: 1,
+        completed: 1,
+        failed: 0,
+        remaining: 0,
+        overrides: 0,
+        actions: [],
+      }))
+      const controller = controllerFor(clientWith({ view, providerWriteStatus }), false)
+      await controller.hydrate()
+      controller.providerWrite.install({
+        version: '1',
+        revision: '4',
+        generation: '1',
+        batch_version: '2',
+        phase: 'writing',
+        total: 1,
+        completed: 0,
+        failed: 0,
+        remaining: 1,
+        overrides: 0,
+        actions: [],
+      })
+      const answerBack = pendingBack(view)
+
+      const restoring = goBack(controller)
+      await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+      const polling = controller.providerWrite.poll()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(controller.loading).toBe(true)
+      answerBack(projection('v=0', 0, 3, '4'))
+      await restoring
+      await polling
+
+      expect(view.mock.calls.at(-1)?.[0]).toMatchObject({ query: 'v=0' })
+      expect(controller.projection?.canonical_query).toBe('v=0')
+      expect(controller.projection?.revision).toBe('5')
+    })
+
+    it('shows the parent undo answered with when Back fails, and redo works after', async () => {
+      history.replaceState(null, '', '/moneyflow/?v=1&drill=x')
+      let answerMove!: (response: Response) => void
+      let failBack!: (error: unknown) => void
+      // The server cannot project the drilled view once undo removed its target.
+      const stale = new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Conflict',
+        status: 409,
+        detail: 'The selected view target is no longer available.',
+        code: 'stale_view_target',
+      })
+      const view = vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1&drill=x', 0, 3, '4'))
+        .mockImplementationOnce(() => new Promise((_, reject) => (failBack = reject)))
+        .mockImplementation(async (body: ViewBody) => {
+          if (body.query.includes('drill')) throw stale
+          return projection(body.query, 0, 3, '5')
+        })
+      const moved = (revision: string) => {
+        const answer = projection('v=1', 0, 3, revision)
+        return Response.json({
+          version: '1',
+          revision,
+          canonical_query: 'v=1',
+          projection: answer,
+          pending: answer.pending,
+          selection: { kind: 'preserved', value: answer.selection },
+        })
+      }
+      const mutations = {
+        request: vi
+          .fn()
+          .mockImplementationOnce(() => new Promise<Response>((resolve) => (answerMove = resolve)))
+          .mockImplementationOnce(async () => moved('6')),
+      }
+      const controller = controllerFor(clientWith({ view, mutations }), false)
+      await controller.hydrate()
+
+      const restoring = goBack(controller)
+      await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+      const undoing = controller.editing.undo()
+      await vi.waitFor(() => expect(mutations.request).toHaveBeenCalledOnce())
+      answerMove(moved('5'))
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      failBack(busy())
+      await restoring
+
+      await expect(undoing).resolves.toBe(true)
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect(controller.projection?.revision).toBe('5')
+      expect(controller.editing.state.revision).toBe(5n)
+      await expect(controller.editing.redo()).resolves.toBe(true)
+      expect(controller.editing.state.phase).toBe('idle')
+      expect(controller.projection?.revision).toBe('6')
+    })
+
+    async function moveDuringBack(move: 'undo' | 'redo', order: 'back-first' | 'move-first') {
+      history.replaceState(null, '', '/moneyflow/?v=1&drill=x')
+      let answerMove!: (response: Response) => void
+      const parent = projection('v=1', 0, 3, '5')
+      const view = vi.fn().mockResolvedValueOnce(projection('v=1&drill=x', 0, 3, '4'))
+      const mutations = {
+        request: vi.fn(() => new Promise<Response>((resolve) => (answerMove = resolve))),
+      }
+      const controller = controllerFor(clientWith({ view, mutations }), false)
+      await controller.hydrate()
+      const answerBack = pendingBack(view)
+
+      let restoring: Promise<void>
+      let moving: Promise<boolean>
+      if (order === 'back-first') {
+        restoring = goBack(controller)
+        await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+        moving = controller.editing[move]()
+        await vi.waitFor(() => expect(mutations.request).toHaveBeenCalledOnce())
+      } else {
+        moving = controller.editing[move]()
+        await vi.waitFor(() => expect(mutations.request).toHaveBeenCalledOnce())
+        restoring = goBack(controller)
+        await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+      }
+      // The move removed the drilled target, so it answers with the drilled view's parent.
+      answerMove(
+        Response.json({
+          version: '1',
+          revision: '5',
+          canonical_query: 'v=1',
+          projection: parent,
+          pending: parent.pending,
+          selection: { kind: 'preserved', value: parent.selection },
+        }),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(controller.loading).toBe(true)
+      answerBack(projection('v=0', 0, 3, '4'))
+      await restoring
+
+      await expect(moving).resolves.toBe(true)
+      expect(controller.projection?.canonical_query).toBe('v=0')
+      expect(controller.projection?.revision).toBe('5')
+      expect(location.search).toBe('?v=0')
+      expect(controller.editing.state.phase).toBe('idle')
+      expect(controller.editing.state.revision).toBe(5n)
+    }
+
+    it.each(['undo', 'redo'] as const)(
+      'lands when %s, sent after it, answers with a parent view',
+      async (move) => {
+        await moveDuringBack(move, 'back-first')
+      },
+    )
+
+    it.each(['undo', 'redo'] as const)(
+      'lands when %s, sent before it, answers with a parent view',
+      async (move) => {
+        await moveDuringBack(move, 'move-first')
+      },
+    )
+  })
+
+  it('keeps a change failure and its Retry when a recheck started after it fails', async () => {
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const transition = vi
+      .fn()
+      .mockRejectedValueOnce(busy())
+      .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '4'))
+    const controller = controllerFor(clientWith({ view, transition }), false)
+    await controller.hydrate()
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    expect(controller.problem?.code).toBe('store_busy')
+
+    await expect(controller.recheck()).resolves.toBeUndefined()
+
+    expect(view).toHaveBeenCalledTimes(2)
+    expect(controller.problem?.code).toBe('store_busy')
+    expect(flashes().map(({ message }) => message)).toEqual([
+      'Moneyflow could not apply that change; the view is unchanged. ' +
+        'The profile is busy. Try again.',
+    ])
+    await controller.retry()
+    expect(transition).toHaveBeenCalledTimes(2)
+    expect(controller.problem).toBeUndefined()
+  })
+
+  describe('an older recheck that answers a newer revision', () => {
+    function pendingRecheck() {
+      let answer!: (next: ViewProjection) => void
+      const view = vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+        .mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))
+      return { view, answer: (next: ViewProjection) => answer(next) }
+    }
+
+    it('installs the new data but keeps a newer recheck failure', async () => {
+      const { view, answer } = pendingRecheck()
+      view.mockRejectedValueOnce(busy())
+      const controller = controllerFor(clientWith({ view }), false)
+      await controller.hydrate()
+
+      const older = controller.recheck()
+      await controller.recheckNewer('5')
+      answer(projection('v=1', 0, 3, '5'))
+      await older
+
+      expect(controller.projection?.revision).toBe('5')
+      expect(controller.problem?.code).toBe('store_busy')
+    })
+
+    it('keeps a newer change failure and its Retry when it answers last', async () => {
+      const { view, answer } = pendingRecheck()
+      const transition = vi
+        .fn()
+        .mockRejectedValueOnce(busy())
+        .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '5'))
+      const controller = controllerFor(clientWith({ view, transition }), false)
+      await controller.hydrate()
+
+      const older = controller.recheck()
+      await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+      answer(projection('v=1', 0, 3, '5'))
+      await older
+
+      expect(controller.problem?.code).toBe('store_busy')
+      await controller.retry()
+      expect(transition).toHaveBeenCalledTimes(2)
+      expect(controller.problem).toBeUndefined()
+    })
+
+    it('does not cut off a newer change still on its way', async () => {
+      const { view, answer } = pendingRecheck()
+      let refuse!: (error: unknown) => void
+      const transition = vi.fn(() => new Promise<ViewProjection>((_, reject) => (refuse = reject)))
+      const controller = controllerFor(clientWith({ view, transition }), false)
+      await controller.hydrate()
+
+      const older = controller.recheck()
+      const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+      await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+      answer(projection('v=1', 0, 3, '5'))
+      await older
+      refuse(busy())
+      await applying
+
+      expect(controller.problem?.code).toBe('store_busy')
+    })
+  })
+
+  it('keeps a selection made after review closed when a duplicate deletion answers', async () => {
+    const newer = 'mfsel1.newer' as SelectionValue
+    let answerDeletion!: (response: Response) => void
+    let answerSelection!: (next: ViewProjection) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '3'))
+      .mockImplementation(async (body: ViewBody) =>
+        projection(body.query, 0, 3, '4', body.selection),
+      )
+    const transition = vi.fn(
+      () => new Promise<ViewProjection>((resolve) => (answerSelection = resolve)),
+    )
+    const client = clientWith({
+      view,
+      transition,
+      projectDuplicates: vi.fn(async () => testDuplicates()),
+      mutations: {
+        request: vi.fn(() => new Promise<Response>((resolve) => (answerDeletion = resolve))),
+      },
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.duplicates.open()
+    controller.duplicates.requestDelete()
+    const deleting = controller.duplicates.confirmDelete()
+    controller.duplicates.close()
+
+    const selecting = controller.apply({ action: 'selection.toggle-all' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+    answerDeletion(Response.json({}))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    answerSelection(projection('v=1', 0, 3, '4', newer))
+    await selecting
+    await expect(deleting).resolves.toBe(true)
+
+    expect(view.mock.calls.at(-1)?.[0]).toMatchObject({ selection: newer })
+    expect(controller.projection?.selection).toBe(newer)
+  })
+
+  describe('a duplicate reread after review closed, once a newer change failed', () => {
+    async function rereadAfterNewerFailure(
+      answerReread: (settle: {
+        resolve: (next: ViewProjection) => void
+        reject: (error: unknown) => void
+      }) => void,
+    ) {
+      let reread!: { resolve: (next: ViewProjection) => void; reject: (error: unknown) => void }
+      const view = vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1', 0, 3, '3'))
+        .mockImplementationOnce(
+          () => new Promise<ViewProjection>((resolve, reject) => (reread = { resolve, reject })),
+        )
+      const transition = vi
+        .fn()
+        .mockRejectedValueOnce(busy())
+        .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '3'))
+      const client = clientWith({
+        view,
+        transition,
+        projectDuplicates: vi.fn(async () => testDuplicates()),
+        mutations: { request: vi.fn(async () => Response.json({})) },
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      await controller.duplicates.open()
+      controller.duplicates.requestDelete()
+      const deleting = controller.duplicates.confirmDelete()
+      controller.duplicates.cancelDelete()
+      controller.duplicates.close()
+      await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+
+      await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+      expect(controller.problem?.code).toBe('store_busy')
+      answerReread(reread)
+      await deleting
+      return { controller, transition }
+    }
+
+    it('keeps the newer failure and its Retry when the reread fails', async () => {
+      const { controller, transition } = await rereadAfterNewerFailure(({ reject }) =>
+        reject(new TypeError('Failed to fetch')),
+      )
+
+      expect(controller.problem?.code).toBe('store_busy')
+      await controller.retry()
+      expect(transition).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps the newer failure when the reread answers unchanged', async () => {
+      const { controller } = await rereadAfterNewerFailure(({ resolve }) =>
+        resolve(projection('v=1', 0, 3, '3')),
+      )
+
+      expect(controller.problem?.code).toBe('store_busy')
+    })
+  })
+
+  it('offers Retry when review opens on a workspace one revision behind', async () => {
+    const behind = new MoneyflowProblem({
+      type: 'about:blank',
+      title: 'Conflict',
+      status: 409,
+      detail: 'The profile changed.',
+      code: 'revision_conflict',
+      current_revision: '4',
+    })
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '3'))
+      .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '4'))
+    const projectDuplicates = vi
+      .fn()
+      .mockRejectedValueOnce(behind)
+      .mockImplementation(async () => testDuplicates({ revision: '4' }))
+    const controller = controllerFor(clientWith({ view, projectDuplicates }), false)
+    await controller.hydrate()
+
+    await expect(controller.duplicates.open()).resolves.toBe(false)
+    expect(controller.duplicates.state.phase).toBe('failed')
+
+    await expect(controller.duplicates.retry()).resolves.toBe(true)
+    expect(controller.projection?.revision).toBe('4')
+    expect(projectDuplicates.mock.calls.at(-1)?.[0]).toMatchObject({ expected_revision: '4' })
+    expect(controller.duplicates.state.phase).toBe('ready')
+    expect(controller.duplicates.state.projection?.total_groups).toBe(1)
+  })
+
+  describe('a duplicate change the server refuses', () => {
+    const refusal = () =>
+      Response.json(
+        {
+          type: 'about:blank',
+          title: 'Service Unavailable',
+          status: 503,
+          detail: 'The profile is busy. Try again.',
+          code: 'store_busy',
+        },
+        { status: 503, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+
+    async function openReview(
+      request: MutationFetch['request'],
+      view: MoneyflowClient['view'] = vi.fn(async () => projection('v=1', 0, 3, '3')),
+    ) {
+      const client = clientWith({
+        view,
+        projectDuplicates: vi.fn(async () => testDuplicates()),
+        mutations: { request },
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      await controller.duplicates.open()
+      controller.duplicates.requestDelete()
+      return controller
+    }
+
+    it('shows the refusal in the workspace when review closed while it was sent', async () => {
+      let answer!: (response: Response) => void
+      const controller = await openReview(
+        vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))),
+      )
+
+      const deleting = controller.duplicates.confirmDelete()
+      controller.duplicates.cancelDelete()
+      controller.duplicates.close()
+      answer(refusal())
+      await expect(deleting).resolves.toBe(false)
+
+      expect(flashes()).toEqual([
+        {
+          message: 'The duplicate change could not be saved. The profile is busy. Try again.',
+          tone: 'danger',
+        },
+      ])
+      expect(controller.duplicates.state.phase).toBe('idle')
+    })
+
+    it('rereads the view after a conflict once review closed, and reports both failures', async () => {
+      const conflict = Response.json(
+        {
+          type: 'about:blank',
+          title: 'Conflict',
+          status: 409,
+          detail: 'The profile changed.',
+          code: 'revision_conflict',
+          current_revision: '4',
+        },
+        { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+      let answer!: (response: Response) => void
+      const view = vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1', 0, 3, '3'))
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      const controller = await openReview(
+        vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))),
+        view,
+      )
+
+      const deleting = controller.duplicates.confirmDelete()
+      controller.duplicates.cancelDelete()
+      controller.duplicates.close()
+      answer(conflict)
+      await deleting
+
+      expect(controller.problem?.code).toBe('network_error')
+      expect(flashes().map(({ message }) => message)).toEqual([
+        'Moneyflow could not check for newer data; the view may be out of date. ' +
+          'Moneyflow could not reach the server. Check the connection and retry.',
+        'The duplicate change could not be saved. The profile changed.',
+      ])
+    })
+
+    it('shows the refusal only in review while review is open', async () => {
+      const controller = await openReview(vi.fn(async () => refusal()))
+
+      await expect(controller.duplicates.confirmDelete()).resolves.toBe(false)
+
+      expect(controller.duplicates.state.announcement).toBe(
+        'The pending change could not be saved. The profile is busy. Try again.',
+      )
+      expect(controller.problem).toBeUndefined()
+      expect(flashes()).toEqual([])
+    })
+  })
+
+  it('does not show a refused search preview in a banner', async () => {
+    const client = clientWith({ transition: vi.fn().mockRejectedValueOnce(busy()) })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    controller.beginSearch()
+
+    await controller.previewSearch('coffee')
+
+    expect(flashes()).toEqual([])
+  })
+
+  it('shows the warnings of a view the user now sees, except the audit warning', async () => {
+    const client = clientWith({
+      transition: vi.fn(async (body) => ({
+        ...projection(body.query, 0, 3),
+        warnings: [
+          { code: 'view_notice', detail: 'The selection changed and was cleared after refresh.' },
+          { code: 'audit_completion_failed', detail: 'Changes saved, but the audit failed.' },
+        ],
+      })),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+
+    expect(flashes()).toEqual([
+      { message: 'The selection changed and was cleared after refresh.', tone: 'warning' },
+    ])
+  })
+
+  it('shows why transaction information did not load', async () => {
+    const client = clientWith({ transactionInformation: vi.fn().mockRejectedValueOnce(busy()) })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await expect(controller.transactionInformation?.('row-0')).resolves.toBeUndefined()
+
+    expect(flashes()).toEqual([
+      {
+        message: 'Transaction information could not be loaded. The profile is busy. Try again.',
+        tone: 'danger',
+      },
+    ])
   })
 })
 

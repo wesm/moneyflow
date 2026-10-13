@@ -35,17 +35,24 @@ describe('DeleteConfirmation', () => {
     expect(confirm).toHaveBeenCalledTimes(1)
   })
 
-  it('does not close through modal chrome while submitting', async () => {
+  it('closes through Cancel or the modal chrome while submitting, but cannot confirm again', async () => {
     const cancel = vi.fn()
+    const confirm = vi.fn()
     render(DeleteConfirmation, {
       count: 1,
-      onconfirm: vi.fn(),
+      onconfirm: confirm,
       oncancel: cancel,
       submitting: true,
     })
 
     await fireEvent.click(screen.getByRole('button', { name: 'Cancel deletion' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await fireEvent.keyDown(window, { key: 'Enter' })
 
-    expect(cancel).not.toHaveBeenCalled()
+    expect(cancel).toHaveBeenCalledTimes(2)
+    expect(confirm).not.toHaveBeenCalled()
+    expect(
+      (screen.getByRole('button', { name: 'Stage deletion' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
   })
 })

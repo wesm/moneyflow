@@ -544,7 +544,7 @@ func (service *Service) cursorMutationResult(
 			recovery, selection, SelectionPreserved, window,
 		)
 		if recoveryErr == nil {
-			result.Projection.Status = "The previous view target is unavailable; returned to its parent."
+			result.Projection.Notice = "The previous view target is unavailable; returned to its parent."
 			return result, nil
 		}
 	}
@@ -554,7 +554,7 @@ func (service *Service) cursorMutationResult(
 			recovery, selection, SelectionPreserved, window,
 		)
 		if recoveryErr == nil {
-			result.Projection.Status = "The previous view target is unavailable; returned to its parent."
+			result.Projection.Notice = "The previous view target is unavailable; returned to its parent."
 			return result, nil
 		}
 	}
@@ -564,7 +564,7 @@ func (service *Service) cursorMutationResult(
 	if recoveryErr != nil {
 		return MutationResult{}, recoveryErr
 	}
-	result.Projection.Status = "The previous view target is unavailable; returned to the main view."
+	result.Projection.Notice = "The previous view target is unavailable; returned to the main view."
 	return result, nil
 }
 

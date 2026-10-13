@@ -43,7 +43,7 @@ describe('DuplicateReview', () => {
     expect(screen.getByRole('grid', { name: 'Likely duplicate transactions' })).not.toBeNull()
   })
 
-  it('keeps the confirmation visible and disables controls while submitting', () => {
+  it('keeps the confirmation visible while submitting, with only Cancel enabled', async () => {
     const controller = duplicateController()
     controller.state.phase = 'submitting'
     controller.state.confirmationCount = 1
@@ -53,9 +53,28 @@ describe('DuplicateReview', () => {
     expect(
       (screen.getByRole('button', { name: 'Stage deletion' }) as HTMLButtonElement).disabled,
     ).toBe(true)
-    expect((screen.getByRole('button', { name: 'Cancel' }) as HTMLButtonElement).disabled).toBe(
-      true,
-    )
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(controller.cancelDelete).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the list, not a deletion confirmation, while a hide is sent', () => {
+    const controller = duplicateController()
+    controller.state.phase = 'submitting'
+    controller.state.confirmationCount = 0
+    render(DuplicateReview, { controller, onclose: vi.fn() })
+
+    expect(screen.queryByRole('dialog', { name: 'Confirm deletion' })).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'Duplicate transactions' })).not.toBeNull()
+  })
+
+  it('offers Retry after a failure', async () => {
+    const controller = duplicateController()
+    controller.state.phase = 'failed'
+    controller.state.announcement = 'The duplicate list could not be refreshed. Press Retry.'
+    render(DuplicateReview, { controller, onclose: vi.fn() })
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(controller.retry).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -113,5 +132,6 @@ function duplicateController(): DuplicateController {
     requestDelete: vi.fn(),
     cancelDelete: vi.fn(),
     confirmDelete: vi.fn(async () => true),
+    retry: vi.fn(async () => true),
   } as DuplicateController
 }

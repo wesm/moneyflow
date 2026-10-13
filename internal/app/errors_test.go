@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -41,6 +42,28 @@ func TestAppErrorMapsStableStoreCodesAndReliableRevision(t *testing.T) {
 			assert.Equal(t, appCode, failure.Code)
 			assert.Equal(t, uint64(9), failure.CurrentRevision)
 			assert.NotContains(t, failure.Error(), "internal detail")
+		})
+	}
+}
+
+// A store call that fails because its request ended is a cancellation or a timeout, not a
+// storage failure, so the interfaces can say the request stopped instead of blaming the profile.
+func TestStoreErrorFromAnEndedRequestKeepsItsContextError(t *testing.T) {
+	t.Parallel()
+
+	for _, stopped := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(stopped.Error(), func(t *testing.T) {
+			t.Parallel()
+			profile := newMemoryProfile(t, 9)
+			service, err := app.NewProfileService(context.Background(), profile)
+			require.NoError(t, err)
+			profile.currentErr = store.NewError(
+				store.CodeStoreError, fmt.Errorf("read profile: %w", stopped),
+			)
+			_, err = service.Refresh(context.Background())
+			require.ErrorIs(t, err, stopped)
+			var failure *app.AppError
+			assert.False(t, errors.As(err, &failure), "reported as %v", err)
 		})
 	}
 }

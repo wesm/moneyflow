@@ -107,14 +107,12 @@
       account_password: accountPassword,
       confirmation,
     }
-    email = ''
     password = ''
     totpSecret = ''
     accountPassword = ''
     confirmation = ''
     validation = ''
     await controller.submitCredentials(submitted)
-    email = ''
     password = ''
     totpSecret = ''
     accountPassword = ''
@@ -423,6 +421,9 @@
       {:else}
         <h1 id="onboarding-title">Profile setup complete</h1>
         <p>Opening the keyboard-first financial workspace…</p>
+      {/if}
+      {#if controller.state.failure && !problem}
+        <p role="alert" class="editing-error">{controller.state.failure}</p>
       {/if}
       {#if progress}
         <p role="status" aria-live="polite">

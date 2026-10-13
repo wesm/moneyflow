@@ -6,12 +6,14 @@ import {
   type MutationFetch,
   type OperationSummary,
   type SelectionValue,
+  type ViewProjection,
 } from '../api/client'
 import { testProjection } from '../../test/projection'
 import { createEditingController, type EditingProjectionHost } from './editing'
 
 describe('browser editing controller', () => {
   beforeEach(() => history.replaceState({ safe: true }, '', '/moneyflow/?v=1&group=merchant'))
+  afterEach(() => dismissFlash())
 
   it('submits exact revisions and installs the server projection without browser history writes', async () => {
     const localStorageWrite = vi.fn()
@@ -190,6 +192,8 @@ describe('browser editing controller', () => {
       await controller.submit({ action: 'transaction.toggle-hidden', input: {}, target })
 
       expect(controller.state.announcement).toBe(`Hidden 2 transactions · Undo u ${warning}`)
+      // The server repeats the warning until the next commit, so only a commit shows it.
+      expect(getFlashes().map(({ message }) => message)).toEqual(['Hidden 2 transactions · Undo u'])
     })
   })
 
@@ -228,8 +232,28 @@ describe('browser editing controller', () => {
     await expect(staged).resolves.toBe(true)
     expect(accept).not.toHaveBeenCalled()
     // The selection did not change with the view, so the reread takes the response's.
-    expect(host.refresh).toHaveBeenCalledWith('mfsel1.x', true)
+    expect(chosenSelection(host)).toBe('mfsel1.x')
     expect(host.current()?.canonical_query).toBe('v=1&period=2026-09')
+    expect(controller.state.revision).toBe(8n)
+  })
+
+  it('installs the parent view undo answers with when the drilled target is gone', async () => {
+    const drilled = 'v=1&group=merchant&drill=x'
+    const host = editingHost(testProjection({ revision: '7', canonical_query: drilled }))
+    const accept = vi.spyOn(host, 'accept')
+    // Undo removed the drilled target, so the server answers for its parent view.
+    const transport = mutationTransport(mutationResponse('8', 'mfsel1.x' as SelectionValue))
+    const controller = createEditingController({ transport, host })
+
+    await expect(controller.undo()).resolves.toBe(true)
+
+    const [path, rawBody] = vi.mocked(transport.request).mock.calls[0]!
+    expect(path).toBe('api/v1/undo')
+    expect(JSON.parse(rawBody)).toMatchObject({ query: drilled })
+    expect(accept).toHaveBeenCalledOnce()
+    expect(host.current()?.canonical_query).toBe('v=1&group=merchant')
+    expect(host.refresh).not.toHaveBeenCalled()
+    expect(controller.state.phase).toBe('idle')
     expect(controller.state.revision).toBe(8n)
   })
 
@@ -259,7 +283,7 @@ describe('browser editing controller', () => {
     release(jsonResponse(mutationResponse('8', 'mfsel1.cleared' as SelectionValue)))
 
     await expect(staged).resolves.toBe(true)
-    expect(host.refresh).toHaveBeenCalledWith(undefined, true)
+    expect(chosenSelection(host)).toBeUndefined()
   })
 
   it('keeps the newer revision a reread of a moved-on view installed', async () => {
@@ -312,6 +336,10 @@ describe('browser editing controller', () => {
     ).resolves.toBe(true)
     expect(controller.state.phase).toBe('idle')
     expect(controller.state.announcement).toContain('The current view could not be refreshed.')
+    expect(getFlashes().map(({ message, tone }) => ({ message, tone }))).toContainEqual({
+      message: 'The current view could not be refreshed.',
+      tone: 'warning',
+    })
   })
 
   it('rejects a mutation when the displayed projection and editing revision differ', async () => {
@@ -339,7 +367,7 @@ describe('browser editing controller', () => {
     await expect(controller.redo()).resolves.toBe(false)
 
     expect(transport.request).toHaveBeenCalledTimes(1)
-    expect(host.refresh).toHaveBeenCalledWith(undefined, true)
+    expect(chosenSelection(host)).toBeUndefined()
     expect(controller.state.phase).toBe('conflict')
     expect(controller.state.revision).toBe(4n)
     expect(controller.state.announcement).toContain('changed in another session')
@@ -348,8 +376,10 @@ describe('browser editing controller', () => {
   it('installs a refreshed stale selection and requires explicit reinvocation', async () => {
     const refreshed = 'mfsel1.refreshed' as SelectionValue
     const host = editingHost(testProjection({ revision: '5' }))
-    host.refresh = vi.fn(async (selection) => {
-      host.install(testProjection({ revision: '5', selection: selection ?? refreshed }))
+    // As the view controller does, a reread without a chosen selection keeps the one shown.
+    host.refresh = vi.fn(async (choose) => {
+      const shown = host.current()!
+      host.install(testProjection({ revision: '5', selection: choose(shown) ?? shown.selection }))
       return host.current()
     })
     const transport: MutationFetch = {
@@ -365,7 +395,7 @@ describe('browser editing controller', () => {
     await expect(controller.undo()).resolves.toBe(false)
 
     expect(transport.request).toHaveBeenCalledTimes(1)
-    expect(host.refresh).toHaveBeenCalledWith(refreshed, true)
+    expect(host.current()?.selection).toBe(refreshed)
     expect(controller.state.phase).toBe('idle')
     expect(controller.state.announcement).toContain('Selection refreshed')
   })
@@ -452,6 +482,9 @@ describe('browser editing controller', () => {
     expect(controller.state.phase).toBe('idle')
     expect(controller.state.announcement).toContain('Changes saved in Moneyflow.')
     expect(controller.state.announcement).toContain(warning)
+    expect(getFlashes().map(({ message, tone }) => ({ message, tone }))).toEqual([
+      { message: warning, tone: 'warning' },
+    ])
   })
 
   it('loads bounded editor choices at the exact current revision', async () => {
@@ -502,19 +535,34 @@ describe('browser editing controller', () => {
 })
 
 function editingHost(initial: ReturnType<typeof testProjection>): EditingProjectionHost & {
+  accept(next: ViewProjection): void
   install(next: ReturnType<typeof testProjection>): void
 } {
   let projection = initial
-  return {
+  const host = {
     current: () => projection,
-    accept: (next) => {
+    /** Shows an edit's view; every claim the fake hands out calls it. */
+    accept: (next: ViewProjection) => {
       projection = next
     },
+    claim: () => (next: ViewProjection) => {
+      host.accept(next)
+      return true
+    },
+    settled: async () => undefined,
     refresh: vi.fn(async () => projection),
-    install: (next) => {
+    install: (next: ViewProjection) => {
       projection = next
     },
   }
+  return host
+}
+
+/** The selection the edit's one reread chose from the view the fake shows. */
+function chosenSelection(host: ReturnType<typeof editingHost>): SelectionValue | undefined {
+  expect(host.refresh).toHaveBeenCalledOnce()
+  const [choose] = vi.mocked(host.refresh).mock.calls[0]!
+  return choose(host.current()!)
 }
 
 function mutationTransport(body: unknown): MutationFetch {

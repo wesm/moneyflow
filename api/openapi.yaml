@@ -2163,6 +2163,17 @@ components:
       required:
         - status
       type: object
+    ProviderWriteRunFailure:
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+      required:
+        - code
+        - detail
+      type: object
     ProviderWriteStatusResponse:
       additionalProperties: false
       properties:
@@ -2210,6 +2221,8 @@ components:
         revision:
           pattern: ^[0-9]+$
           type: string
+        run_failure:
+          $ref: "#/components/schemas/ProviderWriteRunFailure"
         total:
           format: int64
           type: integer
@@ -4330,6 +4343,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
+        "504":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Gateway Timeout
       summary: Refresh one complete provider snapshot
   /api/v1/profiles/{profile_id}/provider/refresh/confirm:
     post:
@@ -4395,6 +4414,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
+        "504":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Gateway Timeout
       summary: Confirm one suspicious provider refresh candidate
   /api/v1/profiles/{profile_id}/provider/status:
     get:

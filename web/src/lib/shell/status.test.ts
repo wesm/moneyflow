@@ -5,18 +5,26 @@ import type { ProviderWriteStatus } from '../api/client'
 
 describe('connectionState', () => {
   it('reports offline for a network error, even while a request runs', () => {
-    expect(connectionState({ kind: 'request', code: 'network_error' }, true)).toBe('offline')
+    expect(
+      connectionState({ kind: 'request', code: 'network_error', detail: 'Unreachable.' }, true),
+    ).toBe('offline')
   })
 
   it('reports updating while a request runs', () => {
     expect(connectionState(undefined, true)).toBe('updating')
   })
 
-  it('reports connected otherwise, including after a non-network problem', () => {
+  it('reports failed after the server refused or could not answer the last request', () => {
+    const refused = { kind: 'request' as const, code: 'store_busy', detail: 'Busy.' }
+    expect(connectionState(refused, false)).toBe('failed')
+    expect(
+      connectionState({ kind: 'invalid-view', code: 'invalid_view_state', detail: '' }, false),
+    ).toBe('failed')
+    expect(connectionState(refused, true)).toBe('updating')
+  })
+
+  it('reports connected without a problem', () => {
     expect(connectionState(undefined, false)).toBe('connected')
-    expect(connectionState({ kind: 'invalid-view', code: 'invalid_query' }, false)).toBe(
-      'connected',
-    )
   })
 })
 

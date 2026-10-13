@@ -1045,10 +1045,13 @@ func TestPausePreventsClaimAfterRequestArrivesDuringLeaseRenewal(t *testing.T) {
 		status, _ := service.PauseProviderWrite(ctx, prepared.ProviderWrite.Version)
 		pauseDone <- status
 	}()
+	// Release the renewal only once the pause request is registered, so the claim that follows
+	// sees it however long the pause goroutine took to start.
+	require.Eventually(t, service.ProviderWritePausePending, 5*time.Second, time.Millisecond)
 	select {
 	case <-pauseDone:
 		t.Fatal("pause returned while the write lease renewal was blocked")
-	case <-time.After(20 * time.Millisecond):
+	default:
 	}
 	close(wrapped.release)
 	require.NoError(t, <-runDone)
@@ -2150,6 +2153,8 @@ type heartbeatErrorProfile struct {
 	failAt        int
 	failed        chan struct{}
 	lost          chan struct{}
+	// beforeFail, when set, runs against the wrapped profile just before the renewal fails.
+	beforeFail func(store.Profile)
 }
 
 type blockingWriteRenewProfile struct {
@@ -2216,6 +2221,9 @@ func (profile *heartbeatErrorProfile) RenewProviderOperationLease(
 	call := profile.writeRenewals
 	profile.mu.Unlock()
 	if call == profile.failAt {
+		if profile.beforeFail != nil {
+			profile.beforeFail(profile.Profile)
+		}
 		close(profile.failed)
 		return false, errors.New("synthetic heartbeat storage failure")
 	}

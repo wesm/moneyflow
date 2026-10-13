@@ -20,6 +20,7 @@ import {
 } from '../api/client'
 import { LABEL_TAKEN } from '../editing/manager'
 import { toastMessage, type ToastAction } from '../editing/toasts'
+import { showWarning } from '../shell/notices'
 
 export type MutationPhase = 'idle' | 'submitting' | 'conflict' | 'failed'
 
@@ -39,8 +40,20 @@ export interface MutationIntent {
 
 export interface EditingProjectionHost {
   current(): ViewProjection | undefined
-  accept(projection: ViewProjection): void
-  refresh(selection?: SelectionValue, force?: boolean): Promise<ViewProjection | undefined>
+  /**
+   * Marks the view an edit is sent from. The returned function shows the edit's view only while
+   * no view change has started since, and says whether it did.
+   */
+  claim(): (projection: ViewProjection) => boolean
+  /** Resolves once view changes queued or on their way have settled. */
+  settled(): Promise<void>
+  /**
+   * Rereads the view once view changes on their way have landed, with the selection `choose`
+   * picks from the view shown then; undefined keeps that view's selection.
+   */
+  refresh(
+    choose: (shown: ViewProjection) => SelectionValue | undefined,
+  ): Promise<ViewProjection | undefined>
 }
 
 export interface EditingController {
@@ -202,7 +215,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
           !['selection_stale', 'revision_conflict'].includes(error.problem.code)
         )
           throw error
-        await handleFailure(error)
+        await handleFailure(error, body.selection)
         if (state.phase === 'failed') throw error
       }
     }
@@ -216,20 +229,20 @@ export function createEditingController(options: EditingControllerOptions): Edit
   ) {
     if (state.phase === 'submitting') return false
     setState({ ...state, phase: 'submitting', announcement: '' })
+    const install = options.host.claim()
     try {
       const response = await requestProfileJSON<MutationResponse>(options.transport, path, body)
-      if (response.canonical_query !== body.query) {
-        throw new Error('The mutation changed analytical browser state.')
-      }
       const selection = response.selection.value as SelectionValue
+      // An answer can name another query than the one sent, such as the parent view undo
+      // returns to when its drilled target is gone. show() decides which view to install.
       const projection: ViewProjection = {
         ...response.projection,
         revision: response.revision,
         pending: response.pending,
-        canonical_query: body.query,
+        canonical_query: response.canonical_query,
         selection,
       }
-      const viewWarning = await show(projection, body.selection)
+      const viewWarning = await show(projection, body.query, body.selection, install)
       const auditWarning = projection.warnings?.find(
         (warning) => warning.code === 'audit_completion_failed',
       )?.detail
@@ -237,6 +250,9 @@ export function createEditingController(options: EditingControllerOptions): Edit
       // the persistent announcement repeats it.
       const toasted = toast && toastMessage(response.operation, toast)
       if (toasted) showFlash(toasted)
+      // The server repeats the audit warning until the next commit; it belongs to this one.
+      if (auditWarning && path === 'api/v1/commit') showWarning(auditWarning)
+      if (viewWarning) showWarning(viewWarning)
       setState({
         ...newestRevision(response),
         phase: 'idle',
@@ -252,7 +268,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
       if (response.provider_write) options.onProviderWrite?.(response.provider_write)
       return true
     } catch (error) {
-      await handleFailure(error)
+      await handleFailure(error, body.selection)
       return false
     }
   }
@@ -260,17 +276,38 @@ export function createEditingController(options: EditingControllerOptions): Edit
   // A view change that finished while the request ran keeps its own query: reread that view at
   // the new revision rather than reinstall the query the mutation was sent with. The reread
   // takes the response's selection, such as a cleared one, unless the selection changed too.
+  // While the view sent is still on screen, the answer is for it, even under another query,
+  // unless a view change is on its way: that change owns the view until it settles. If it left
+  // the view and selection the edit was sent with, such as a Back that failed, the answer is
+  // still for what is shown; otherwise the view is reread by the same rule.
   async function show(
     projection: ViewProjection,
+    sentQuery: string,
     sent: string | undefined,
+    install: (projection: ViewProjection) => boolean,
   ): Promise<string | undefined> {
     const shown = options.host.current()
-    if (!shown || shown.canonical_query === projection.canonical_query) {
-      options.host.accept(projection)
-      return undefined
+    if (
+      !shown ||
+      shown.canonical_query === projection.canonical_query ||
+      shown.canonical_query === sentQuery
+    ) {
+      if (install(projection)) return undefined
+      await options.host.settled()
+      const now = options.host.current()
+      if (now?.canonical_query === sentQuery && now.selection === sent) {
+        if (options.host.claim()(projection)) return undefined
+      }
     }
+    // Chosen once view changes on their way have landed, so a selection made since is kept.
+    return await reread((now) => (now.selection === sent ? projection.selection : undefined))
+  }
+
+  async function reread(
+    choose: (shown: ViewProjection) => SelectionValue | undefined,
+  ): Promise<string | undefined> {
     try {
-      await options.host.refresh(shown.selection === sent ? projection.selection : undefined, true)
+      await options.host.refresh(choose)
       return undefined
     } catch {
       return 'The current view could not be refreshed.'
@@ -299,14 +336,15 @@ export function createEditingController(options: EditingControllerOptions): Edit
     return false
   }
 
-  async function handleFailure(error: unknown): Promise<void> {
+  /** Handles a refused request that was sent with the selection `sent`. */
+  async function handleFailure(error: unknown, sent: string | undefined): Promise<void> {
     if (!(error instanceof MoneyflowProblem)) {
       setState({ ...state, phase: 'failed', announcement: REQUEST_FAILED })
       return
     }
     const code = error.problem.code
     if (code === 'revision_conflict') {
-      if (!(await refreshAfterRejection())) return
+      if (!(await refreshAfterRejection(() => undefined))) return
       setState({
         ...state,
         phase: 'conflict',
@@ -318,7 +356,9 @@ export function createEditingController(options: EditingControllerOptions): Edit
     if (code === 'selection_stale') {
       const disposition = error.problem.selection
       const selection = disposition?.value as SelectionValue | undefined
-      if (!(await refreshAfterRejection(selection))) return
+      // Chosen once view changes on their way have landed, so a selection made since is kept.
+      const choose = (now: ViewProjection) => (now.selection === sent ? selection : undefined)
+      if (!(await refreshAfterRejection(choose))) return
       setState({
         ...state,
         phase: 'idle',
@@ -332,9 +372,11 @@ export function createEditingController(options: EditingControllerOptions): Edit
     setState({ ...state, phase: 'failed', announcement: safeFailureMessage(error.problem) })
   }
 
-  async function refreshAfterRejection(selection?: SelectionValue): Promise<boolean> {
+  async function refreshAfterRejection(
+    choose: (shown: ViewProjection) => SelectionValue | undefined,
+  ): Promise<boolean> {
     try {
-      const projection = await options.host.refresh(selection, true)
+      const projection = await options.host.refresh(choose)
       if (projection) sync(projection)
       return projection !== undefined
     } catch {

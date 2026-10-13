@@ -18,7 +18,7 @@ function host(search = '', valid = true) {
     projection: testProjection({ view: { ...testProjection().view, search } }),
     beginSearch: vi.fn(() => snapshot),
     previewSearch: vi.fn<(search: string) => Promise<SearchPreview>>(async () =>
-      valid ? 'applied' : 'rejected',
+      valid ? 'applied' : 'invalid',
     ),
     commitSearch: vi.fn(),
     restoreSearch: vi.fn(),

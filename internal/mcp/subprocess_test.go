@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -382,13 +383,20 @@ func assertProtocolFrames(t *testing.T, content []byte) {
 	}
 }
 
+// mcpStderrEventLine matches a whole log line from the MCP logger: a severity and the generic SDK
+// code, or the provider-write event with a bounded stable cause code. Nothing else may follow.
+var mcpStderrEventLine = regexp.MustCompile(
+	`^level=(?:WARN|ERROR)(?:[+-][0-9]+)? code=mcp_sdk_event$` +
+		`|^level=ERROR code=provider_write_stopped cause=[a-z_]{1,64}$`,
+)
+
 func assertMCPStderrAllowlist(t *testing.T, content string, allowStartup bool) {
 	t.Helper()
 	for _, line := range strings.Split(strings.TrimSpace(content), "\n") {
 		if line == "" {
 			continue
 		}
-		if strings.HasPrefix(line, "level=") && strings.HasSuffix(line, " code=mcp_sdk_event") {
+		if mcpStderrEventLine.MatchString(line) {
 			continue
 		}
 		if allowStartup && (strings.HasPrefix(line, "Moneyflow MCP: http://127.0.0.1:") ||

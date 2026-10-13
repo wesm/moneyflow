@@ -19,11 +19,22 @@ import type { SearchPreview } from './search'
 import { createProviderController, type ProviderController } from './provider'
 import { createProviderWriteController, type ProviderWriteController } from './provider-write'
 import { createReviewController, type ReviewController } from './review'
+import {
+  INVALID_RESPONSE,
+  NETWORK_FAILURE,
+  problemReason,
+  showFailure,
+  showWarning,
+} from '../shell/notices'
 import { preserveCursor, startsAtFirstRow, WindowCache } from './windows'
 
 const windowSize = 200
 // Browsers limit history writes (Safari: 100 in 10 seconds), so cursor moves wait for a pause.
 const defaultHistoryDebounceMillis = 300
+const changeFailed = 'Moneyflow could not apply that change; the view is unchanged.'
+const recheckFailed = 'Moneyflow could not check for newer data; the view may be out of date.'
+/** The editing controller reports this warning with the commit that caused it. */
+const auditWarningCode = 'audit_completion_failed'
 
 export interface TransitionAction {
   action: TransitionBody['action']
@@ -54,7 +65,10 @@ interface ReturnInProgress {
 
 export interface ControllerProblem {
   kind: 'invalid-view' | 'request'
+  /** The server's problem code, `network_error`, or `invalid_response` for an unreadable answer. */
   code: string
+  /** Why the request failed, in words the user can read. */
+  detail: string
 }
 
 export interface SearchSnapshot {
@@ -82,6 +96,10 @@ export interface ViewController {
   readonly provider: ProviderController
   readonly providerWrite: ProviderWriteController
   hydrate(): Promise<void>
+  /**
+   * Rereads the view when the profile may have changed elsewhere. A failure shows a banner and
+   * the problem, and resolves `undefined`.
+   */
   recheck(selection?: SelectionValue): Promise<ViewProjection | undefined>
   moveCursor(delta: -1 | 1): Promise<void>
   moveCursorTo(index: number): Promise<void>
@@ -144,6 +162,12 @@ export interface ViewControllerOptions {
   returnTimeoutMillis?: number
 }
 
+/** The foreground state a recheck started under; see `failRecheck`. */
+interface ForegroundMark {
+  generation: number
+  failures: number
+}
+
 export function createViewController(options: ViewControllerOptions): ViewController {
   const basePath = normalizeBrowserBasePath(options.basePath)
   const browserHistory = options.history ?? history
@@ -164,9 +188,18 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let cursorIdentity = $state<string | undefined>()
   let cursorIndex = $state(0)
   let problem = $state<ControllerProblem | undefined>()
+  // The problem shown is a failed recheck, which the next successful recheck clears.
+  let recheckProblem = false
+  // Counts foreground failures, so a recheck can tell that a newer request failed meanwhile.
+  let problemsRecorded = 0
+  // Rechecks are numbered as they start; only an answer newer than the last applied one counts.
+  let rechecksStarted = 0
+  let appliedRecheck = 0
   let sequence = existing?.sequence ?? 0
   let generation = 0
   let activeRequest: AbortController | undefined
+  // The foreground request that set `loading` last; a reread waits for it to settle.
+  let foregroundRequest: Promise<unknown> = Promise.resolve()
   let lastRetry: (() => Promise<void>) | undefined
   let searchSnapshot: SearchSnapshot | undefined
   let recheckRequest: Promise<ViewProjection | undefined> | undefined
@@ -188,8 +221,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     transport: { mutations: options.client.mutations, status: options.client.providerWriteStatus },
     host: {
       current: () => projection,
-      accept: (next) => acceptProfileProjection(next, true),
-      reload: () => recheckInternal(undefined, true),
+      claim: () => claimView(() => true),
+      // A reread waits for view changes on their way, so its answer cannot cut them off.
+      reload: () => serially(() => ownedRecheck(undefined, true, () => false)),
     },
   })
   const editing = createEditingController({
@@ -200,8 +234,19 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     },
     host: {
       current: () => projection,
-      accept: acceptProfileProjection,
-      refresh: recheckInternal,
+      // Undo can answer for the parent of a drilled view that is gone; the address follows it.
+      claim: () => claimView((next) => next.canonical_query !== projection?.canonical_query),
+      settled: () =>
+        serially(async () => {
+          while (loading) await foregroundSettling()
+        }),
+      // A reread waits for view changes on their way, so its answer cannot cut them off.
+      refresh: (choose) =>
+        serially(async () => {
+          while (loading) await foregroundSettling()
+          if (!projection) return undefined
+          return await ownedRecheck(choose(projection), true, () => false)
+        }),
     },
   })
   const duplicates = createDuplicateController({
@@ -209,7 +254,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     mutations: options.client.mutations,
     host: {
       current: () => projection,
-      recheck: recheckInternal,
+      recheck: async (report) => await reportedRecheck(undefined, true, report),
     },
   })
   const exportController = createExportController({ client: options.client })
@@ -222,7 +267,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     host: {
       current: () => projection,
       accept: (next) => acceptProfileProjection(next, true),
-      reload: () => recheckInternal(undefined, true),
+      reload: () => ownedRecheck(undefined, true, () => false),
       serially: (work) => serially(work),
     },
   })
@@ -268,23 +313,75 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function recheck(selection?: SelectionValue): Promise<ViewProjection | undefined> {
-    return await recheckInternal(selection, false)
+    return await reportedRecheck(selection, false)
   }
 
-  async function recheckInternal(
-    selection?: SelectionValue,
-    force = false,
+  /**
+   * Marks the view a request starts from. The returned function installs the request's answer
+   * only while no view change is on its way or has started since, so the answer cannot cut that
+   * change off, and says whether it did.
+   */
+  function claimView(
+    replaceHistory: (next: ViewProjection) => boolean,
+  ): (next: ViewProjection) => boolean {
+    const started = generation
+    return (next) =>
+      !loading && generation === started && acceptProfileProjection(next, replaceHistory(next))
+  }
+
+  /** Settles with the foreground request on its way; never rejects. */
+  function foregroundSettling(): Promise<void> {
+    return foregroundRequest.then(
+      () => undefined,
+      () => undefined,
+    )
+  }
+
+  /** Rereads the view; a failure resolves undefined after `ownedRecheck` handles it. */
+  async function reportedRecheck(
+    selection: SelectionValue | undefined,
+    force: boolean,
+    report: () => boolean = () => true,
   ): Promise<ViewProjection | undefined> {
+    try {
+      return await ownedRecheck(selection, force, report)
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Rereads the view. Every reread takes this path. A foreground request on its way, such as a
+   * browser Back, settles first, and the reread reads the view it left. Each request gets a
+   * sequence number when it starts. Only an answer newer than the last one applied may change the
+   * recheck outcome: a success clears an older recheck failure, and a failure shows in the
+   * workspace when `report()` allows it and no foreground request owns the problem. An answer
+   * installs its view only while the view it was read for is still shown and no foreground request
+   * has started since. Throws the request's error after handling it.
+   */
+  async function ownedRecheck(
+    selection: SelectionValue | undefined,
+    force: boolean,
+    report: () => boolean,
+  ): Promise<ViewProjection | undefined> {
+    // Awaiting only while a request is on its way keeps a reread started just before a view change
+    // from reading after it.
+    while (loading) await foregroundSettling()
     if (!projection) return undefined
     if (!force && selection === undefined && recheckRequest) return await recheckRequest
+    // After a failed recheck, only the server can say the view is current again.
     if (
       !force &&
+      !recheckProblem &&
       selection === undefined &&
       Date.now() - lastRevisionObservation < recheckDebounceMillis
     ) {
       return projection
     }
     const current = projection
+    rechecksStarted += 1
+    const order = rechecksStarted
+    const foreground = { generation, failures: problemsRecorded }
     const request = options.client
       .view(
         viewBody(
@@ -293,13 +390,13 @@ export function createViewController(options: ViewControllerOptions): ViewContro
           alignedOffset(cursorIndex),
         ),
       )
-      .then((next) => {
-        if (projection !== current) return projection
-        if (next.revision === current.revision && next.selection === current.selection) {
-          return projection
-        }
-        return acceptProfileProjection(next) ? next : projection
-      })
+      .then(
+        (next) => settleRecheck(order, foreground, current, next),
+        (error: unknown) => {
+          failRecheck(order, foreground, error, () => reportedRecheck(selection, true), report)
+          throw error
+        },
+      )
     if (selection !== undefined) return await request
     recheckRequest = request.finally(() => {
       recheckRequest = undefined
@@ -307,10 +404,60 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return await recheckRequest
   }
 
+  function settleRecheck(
+    order: number,
+    foreground: ForegroundMark,
+    current: ViewProjection,
+    next: ViewProjection,
+  ): ViewProjection | undefined {
+    if (order > appliedRecheck) {
+      appliedRecheck = order
+      if (recheckProblem) {
+        problem = undefined
+        recheckProblem = false
+      }
+    }
+    // A newer view, or a foreground request started since, owns what the workspace shows;
+    // installing this answer would abort that request.
+    if (projection !== current || generation !== foreground.generation) return projection
+    if (next.revision === current.revision && next.selection === current.selection) {
+      return projection
+    }
+    // A foreground failure keeps its problem and Retry, even over fresh data.
+    return acceptProfileProjection(next, false, problem !== undefined) ? next : projection
+  }
+
+  function failRecheck(
+    order: number,
+    foreground: ForegroundMark,
+    error: unknown,
+    retry: () => Promise<unknown>,
+    report: () => boolean,
+  ): void {
+    if (order <= appliedRecheck) return
+    appliedRecheck = order
+    if (isAbort(error) || !report()) return
+    // A foreground failure shown, a foreground request on its way, or one that started or
+    // failed since, owns the problem and the Retry.
+    if (
+      (problem !== undefined && !recheckProblem) ||
+      loading ||
+      generation !== foreground.generation ||
+      problemsRecorded !== foreground.failures
+    ) {
+      return
+    }
+    lastRetry = async () => {
+      await retry()
+    }
+    recordProblem(error, recheckFailed)
+    recheckProblem = true
+  }
+
   async function recheckNewer(revision: string): Promise<void> {
     await serially(async () => {
       if (!projection || BigInt(revision) <= BigInt(projection.revision)) return
-      await recheckInternal(undefined, true)
+      await reportedRecheck(undefined, true)
     })
   }
 
@@ -506,10 +653,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         item_window: { offset: 0, limit: 20 },
       })
     } catch (error) {
-      announcement =
-        error instanceof MoneyflowProblem
-          ? error.problem.detail
-          : 'Transaction information could not be loaded.'
+      announcement = `Transaction information could not be loaded. ${failureReason(error)}`
+      showFailure(announcement)
       return undefined
     }
   }
@@ -550,12 +695,14 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         accepted = true
       },
       () => previewSearch(search).then(() => undefined),
+      // The search field shows why a preview failed; a banner per keystroke would bury it.
+      false,
     )
     const requestGeneration = generation
     await request
     if (accepted) return 'applied'
     if (requestGeneration !== generation || !problem) return 'superseded'
-    return problem.code === 'network_error' ? 'failed' : 'rejected'
+    return invalidSearchCodes.has(problem.code) ? 'invalid' : { failed: problem.detail }
   }
 
   function commitSearch(snapshot: SearchSnapshot): void {
@@ -689,7 +836,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     } catch (error) {
       if (isAbort(error) || request.superseded()) return
       lastRetry = () => showIndex(request.index)
-      setProblem(error)
+      setProblem(error, changeFailed)
     } finally {
       if (showing === request) showing = undefined
     }
@@ -734,6 +881,18 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     request: () => Promise<ViewProjection>,
     onSuccess: (next: ViewProjection) => void | Promise<void>,
     retry: () => Promise<void>,
+    report = true,
+  ): Promise<boolean> {
+    const work = foregroundProjection(request, onSuccess, retry, report)
+    foregroundRequest = work
+    return await work
+  }
+
+  async function foregroundProjection(
+    request: () => Promise<ViewProjection>,
+    onSuccess: (next: ViewProjection) => void | Promise<void>,
+    retry: () => Promise<void>,
+    report: boolean,
   ): Promise<boolean> {
     lastRetry = async () => {
       await retry()
@@ -751,7 +910,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       return true
     } catch (error) {
       if (requestGeneration !== generation || isAbort(error)) return false
-      setProblem(error)
+      setProblem(error, changeFailed, report)
       return false
     } finally {
       if (requestGeneration === generation) loading = false
@@ -779,6 +938,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     cursorIndex = cursor.index
     announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
     problem = undefined
+    showWarnings(next)
 
     if (historyMode === 'none') {
       schedulePrefetch(next)
@@ -802,7 +962,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return projection !== undefined && BigInt(cached.revision) < BigInt(projection.revision)
   }
 
-  function acceptProfileProjection(next: ViewProjection, replaceHistory = false): boolean {
+  function acceptProfileProjection(
+    next: ViewProjection,
+    replaceHistory = false,
+    keepProblem = false,
+  ): boolean {
     if (newerThan(next)) return false
     generation += 1
     activeRequest?.abort()
@@ -817,8 +981,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const cursor = preserveCursor(next, cursorIdentity, cursorIndex)
     cursorIdentity = cursor.identity
     cursorIndex = cursor.index
-    announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
-    problem = undefined
+    if (!keepProblem) {
+      announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
+      problem = undefined
+    }
+    showWarnings(next)
     if (replaceHistory) replaceOwnedHistory()
     schedulePrefetch(next)
     void openInBusiestCurrency()
@@ -966,17 +1133,23 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     )
   }
 
-  function setProblem(error: unknown): void {
-    if (error instanceof MoneyflowProblem) {
-      const invalid = error.problem.code === 'invalid_view_state'
-      problem = { kind: invalid ? 'invalid-view' : 'request', code: error.problem.code }
-      announcement = invalid
+  /**
+   * Records why a request failed. Once a view is on screen, a banner says so too; before that,
+   * the page that replaces the workspace does.
+   */
+  function setProblem(error: unknown, failure: string, report = true): void {
+    problemsRecorded += 1
+    recordProblem(error, failure, report)
+  }
+
+  function recordProblem(error: unknown, failure: string, report = true): void {
+    problem = controllerProblem(error)
+    recheckProblem = false
+    announcement =
+      problem.kind === 'invalid-view'
         ? 'This Moneyflow link is invalid.'
-        : 'Moneyflow could not apply that change. Your previous view is unchanged.'
-      return
-    }
-    problem = { kind: 'request', code: 'network_error' }
-    announcement = 'Moneyflow could not load this view. Check the connection and retry.'
+        : `${failure} ${failureReason(error)}`
+    if (report && projection) showFailure(announcement)
   }
 
   return {
@@ -1038,6 +1211,36 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     reset,
     transactionInformation,
   }
+}
+
+/** Shows the warnings of a view the user now sees, except the one editing reports itself. */
+function showWarnings(next: ViewProjection): void {
+  for (const warning of next.warnings ?? []) {
+    if (warning.code !== auditWarningCode) showWarning(warning.detail)
+  }
+}
+
+/** The codes the server answers a search expression it cannot parse with. */
+const invalidSearchCodes = new Set(['invalid_web_request', 'invalid_request'])
+
+function controllerProblem(error: unknown): ControllerProblem {
+  if (error instanceof MoneyflowProblem) {
+    const invalid = error.problem.code === 'invalid_view_state'
+    return {
+      kind: invalid ? 'invalid-view' : 'request',
+      code: error.problem.code,
+      detail: problemReason(error.problem),
+    }
+  }
+  if (error instanceof TypeError) {
+    return { kind: 'request', code: 'network_error', detail: NETWORK_FAILURE }
+  }
+  return { kind: 'request', code: 'invalid_response', detail: INVALID_RESPONSE }
+}
+
+/** Why a request failed: the server's reason, or what went wrong without one. */
+function failureReason(error: unknown): string {
+  return controllerProblem(error).detail
 }
 
 function viewBody(query: string, selection: SelectionValue | undefined, offset: number): ViewBody {

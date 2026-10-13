@@ -191,11 +191,11 @@ func (server *Server) registerInsightsEndpoint() {
 	}, func(ctx context.Context, input *insightsInput) (*insightsOutput, error) {
 		service := profileService(ctx)
 		if _, err := service.Refresh(ctx); err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		response, err := projectInsights(ctx, service, input.Body)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &insightsOutput{Body: response}, nil
 	})

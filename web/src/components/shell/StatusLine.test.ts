@@ -59,6 +59,15 @@ describe('StatusLine', () => {
     expect(onretry).toHaveBeenCalledTimes(1)
   })
 
+  it('offers a retry when the last request failed', async () => {
+    const onretry = vi.fn()
+    render(StatusLine, props({ connection: 'failed', onretry }))
+    expect(screen.getByText('Not updated')).not.toBeNull()
+    expect(screen.queryByText('Connected')).toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onretry).toHaveBeenCalledTimes(1)
+  })
+
   it('puts pending text in place of the hints and the revision at phone width', () => {
     render(StatusLine, props({ compact: true, pending: '1 pending edit · 1 transaction' }))
     expect(screen.queryByText('Open')).toBeNull()

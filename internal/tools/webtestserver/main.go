@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -158,6 +159,7 @@ func run(ctx context.Context, args []string) error {
 		AmazonImports:       amazonCoordinator,
 		SimpleFINOnboarding: simplefinCoordinator,
 		BasePath:            basePath, Version: version.Version, Origin: origin,
+		ErrorLog: log.New(os.Stderr, "moneyflow web: ", 0),
 	})
 	if err != nil {
 		return fmt.Errorf("compose web server: %w", err)

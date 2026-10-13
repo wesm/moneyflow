@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 
 	"github.com/wesm/moneyflow/internal/provider"
@@ -143,6 +144,36 @@ func mapAppError(err error, reliableRevision uint64) error {
 	if errors.As(err, &existing) {
 		return err
 	}
+	// A call stopped by its context may be a cancelled or timed-out request, whatever layer
+	// reported it. Only the interface knows whether its request ended, so it gets the context
+	// error and decides with RequestFailure; a storage code would blame the profile.
+	if isContextError(err) {
+		return err
+	}
+	return applicationError(err, reliableRevision)
+}
+
+// RequestFailure returns err as the interface serving a request with context ctx should report
+// it. A context error means the request stopped only while ctx itself is done. While the request
+// goes on, the error came from a time limit inside Moneyflow, such as the bounded audit write
+// after a provider write. A storage step it ended is a storage failure and keeps its storage
+// code; any other such error is returned unchanged, and the interface must not call it a stop.
+func RequestFailure(ctx context.Context, err error, revision uint64) error {
+	var existing *AppError
+	var storage *store.Error
+	if ctx.Err() != nil || !isContextError(err) || errors.As(err, &existing) ||
+		!errors.As(err, &storage) {
+		return err
+	}
+	return applicationError(err, revision)
+}
+
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// applicationError gives err, which carries no application code, the code of its cause.
+func applicationError(err error, reliableRevision uint64) error {
 	var mutation *MutationError
 	if errors.As(err, &mutation) {
 		code := AppInvalidOperation

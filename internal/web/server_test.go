@@ -3,7 +3,6 @@ package web
 import (
 	"bytes"
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -130,7 +129,7 @@ type serverTestResolver struct {
 
 func (resolver serverTestResolver) Acquire(_ context.Context, profileID string) (api.ProfileLease, error) {
 	if resolver.onlyID != "" && profileID != resolver.onlyID {
-		return nil, errors.New("profile was not found")
+		return nil, api.ErrProfileNotFound
 	}
 	return serverTestLease{service: resolver.service}, nil
 }

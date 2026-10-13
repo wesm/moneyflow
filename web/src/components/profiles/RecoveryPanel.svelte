@@ -6,13 +6,15 @@
   interface Props {
     profile: ProfileSummary
     recovery?: RecoveryResponse | undefined
+    /** Why loading or applying the recovery plan failed. */
+    problem?: string | undefined
     busy?: boolean
     onconfirm: () => void
     onfresh: () => void
     onback: () => void
   }
 
-  let { profile, recovery, busy = false, onconfirm, onfresh, onback }: Props = $props()
+  let { profile, recovery, problem, busy = false, onconfirm, onfresh, onback }: Props = $props()
   const recoverable = $derived(profile.status === 'needs_recovery')
 </script>
 
@@ -29,7 +31,7 @@
         Recreate moves the old database into this backup and replaces it with an empty one. Saved
         credentials stay on disk. You will need to reconnect.
       </p>
-    {:else}
+    {:else if !problem}
       <p role="status">Preparing the exact recovery plan…</p>
     {/if}
   {:else if profile.status === 'requires_newer_moneyflow'}
@@ -39,6 +41,7 @@
   {:else}
     <p>This profile was created by an unsupported Moneyflow version.</p>
   {/if}
+  {#if problem}<p role="alert" class="editing-error">{problem}</p>{/if}
   <p>Start fresh to set up a separate profile. Your existing profile and files will be kept.</p>
   <div class="profile-actions">
     <Button onclick={onback}>Back</Button>

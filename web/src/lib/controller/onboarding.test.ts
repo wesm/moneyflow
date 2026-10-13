@@ -151,6 +151,45 @@ describe('onboarding controller', () => {
     expect(controller.state.problem).toBeUndefined()
   })
 
+  it('says why a setup step failed and keeps the step open', async () => {
+    const transport = stubTransport(status('credentials_required'))
+    transport.submit.mockRejectedValueOnce(
+      new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Unprocessable Entity',
+        status: 422,
+        code: 'credential_input_invalid',
+        detail: 'The submitted onboarding input is invalid.',
+      }),
+    )
+    const controller = createOnboardingController({ profileID, transport })
+    try {
+      await controller.start()
+      const credentials = {
+        email: 'user@example.test',
+        password: 'synthetic-secret',
+        totp_secret: 'JBSWY3DPEHPK3PXP',
+        account_password: 'vault-secret',
+        confirmation: 'vault-secret',
+      }
+
+      await controller.submitCredentials(credentials)
+
+      expect(controller.state.failure).toBe(
+        'Setup did not continue. The submitted onboarding input is invalid.',
+      )
+      expect(controller.state.problem).toBeUndefined()
+      expect(controller.state.snapshot?.state).toBe('credentials_required')
+      transport.set(status('authenticating', { state_version: 2 }))
+      await controller.submitCredentials(credentials)
+      expect(controller.state.snapshot?.state).toBe('authenticating')
+      expect(controller.state.failure).toBeUndefined()
+    } finally {
+      // A successful retry starts the status poll.
+      controller.destroy()
+    }
+  })
+
   it('ignores a stale expired poll that races a successful restart', async () => {
     vi.useFakeTimers()
     try {

@@ -243,7 +243,7 @@
       }
     }
     const recheck = () => {
-      void controller.recheck().catch(() => undefined)
+      void controller.recheck()
       pollProvider()
     }
     const visible = () => {
@@ -359,9 +359,11 @@
         </section>
       {:else if controller?.problem?.kind === 'request' && controller.projection === undefined}
         <section class="moneyflow-message" aria-labelledby="error-title">
-          <p class="moneyflow-eyebrow">Connection problem</p>
+          <p class="moneyflow-eyebrow">
+            {controller.problem.code === 'network_error' ? 'Connection problem' : 'Profile problem'}
+          </p>
           <h1 id="error-title">The financial view did not load</h1>
-          <p>Check that the Moneyflow server is reachable, then try again.</p>
+          <p>{controller.problem.detail}</p>
           <Button tone="info" surface="solid" onclick={() => void controller.retry()}>Retry</Button>
         </section>
       {:else}

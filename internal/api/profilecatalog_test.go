@@ -206,6 +206,7 @@ type apiCatalogFake struct {
 	creates           int
 	canceledID        string
 	cancelRemoved     bool
+	listErr           error
 }
 
 func (catalog *apiCatalogFake) CancelNewProfile(_ context.Context, profileID string) (bool, error) {
@@ -224,6 +225,9 @@ func (catalog *apiCatalogFake) ActivateForProvider(
 }
 
 func (catalog *apiCatalogFake) List(context.Context) ([]profilecatalog.Entry, error) {
+	if catalog.listErr != nil {
+		return nil, catalog.listErr
+	}
 	return append([]profilecatalog.Entry(nil), catalog.entries...), nil
 }
 

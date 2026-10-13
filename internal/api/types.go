@@ -210,7 +210,10 @@ type Capability struct {
 	Reason      string       `json:"reason,omitempty"`
 }
 
-const warningAnchorMissing = "anchor_missing"
+const (
+	warningAnchorMissing = "anchor_missing"
+	warningViewNotice    = "view_notice"
+)
 
 // Warning is a safe announced non-fatal condition.
 type Warning struct {
@@ -314,6 +317,9 @@ func projectionToWire(
 			Code:   warningAnchorMissing,
 			Detail: "The requested row is not in this view.",
 		})
+	}
+	if projection.Notice != "" {
+		wire.Warnings = append(wire.Warnings, Warning{Code: warningViewNotice, Detail: projection.Notice})
 	}
 	if projection.AuditWarning != "" {
 		wire.Warnings = append(wire.Warnings, Warning{Code: "audit_completion_failed", Detail: projection.AuditWarning})

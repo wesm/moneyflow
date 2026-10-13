@@ -23,7 +23,7 @@ describe('search coordinator', () => {
 
   it('retains the last accepted view after invalid input', async () => {
     vi.useFakeTimers()
-    const host = fakeHost({ previewSearch: vi.fn(async () => 'rejected' as const) })
+    const host = fakeHost({ previewSearch: vi.fn(async () => 'invalid' as const) })
     const search = createSearchCoordinator(host)
 
     search.input('[')
@@ -45,15 +45,16 @@ describe('search coordinator', () => {
     expect(search.pending).toBe(false)
   })
 
-  it('shows no expression error when a preview request fails', async () => {
+  it('says why a preview failed when the cause is not the expression', async () => {
     vi.useFakeTimers()
-    const host = fakeHost({ previewSearch: vi.fn(async () => 'failed' as const) })
+    const reason = 'The profile is busy. Retry in a moment.'
+    const host = fakeHost({ previewSearch: vi.fn(async () => ({ failed: reason })) })
     const search = createSearchCoordinator(host)
 
     search.input('coffee')
     await vi.advanceTimersByTimeAsync(150)
 
-    expect(search.error).toBe('')
+    expect(search.error).toBe(`Search failed. ${reason}`)
     expect(search.pending).toBe(false)
     await expect(search.commit()).resolves.toBe(false)
     expect(host.commitSearch).not.toHaveBeenCalled()

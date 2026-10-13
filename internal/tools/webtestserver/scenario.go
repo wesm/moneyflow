@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -121,6 +122,7 @@ func runScenario(ctx context.Context, root, descriptorPath, listen, basePath str
 	application, err := webserver.NewServer(webserver.ServerConfig{
 		Resolver: registry, Catalog: catalog, Evictor: registry, PreselectedID: descriptor.ProfileID,
 		BasePath: basePath, Origin: origin, Version: "ui-scenario",
+		ErrorLog: log.New(os.Stderr, "moneyflow web: ", 0),
 	})
 	if err != nil {
 		return err

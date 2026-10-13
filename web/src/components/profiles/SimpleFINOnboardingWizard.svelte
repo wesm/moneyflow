@@ -163,6 +163,9 @@
           >Cancel</Button
         >
       {/if}
+      {#if controller.state.failure && !controller.state.problem}
+        <p role="alert" class="editing-error">{controller.state.failure}</p>
+      {/if}
     </section>
   </main>
   <StatusBar

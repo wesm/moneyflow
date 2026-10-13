@@ -2,7 +2,9 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,4 +98,37 @@ func TestLoadRejectsJournalHeaderWithoutPayloadEvenWhenInactive(t *testing.T) {
 
 	_, err = profile.Load(ctx)
 	assertStoreCode(t, err, store.CodeStoreCorrupt)
+}
+
+// A reload has its own time limit, such as after an audited commit. When that limit or a
+// cancellation stops the load partway while the request goes on, the profile is not corrupt:
+// the load is a storage failure that keeps its cause.
+func TestLoadStoppedByItsContextIsAStorageFailureNotCorruption(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profileStore, err := Open(ctx, temporaryPaths(t), DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profileStore.Close()) })
+	transaction, err := profileStore.(*profile).database.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = transaction.Rollback() })
+	expired, expire := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+	t.Cleanup(expire)
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+
+	for name, stop := range map[string]struct {
+		ctx   context.Context
+		cause error
+	}{
+		"time limit": {expired, context.DeadlineExceeded},
+		"canceled":   {canceled, context.Canceled},
+	} {
+		_, err := loadSnapshot(stop.ctx, transaction)
+		var failure *store.Error
+		require.ErrorAs(t, err, &failure, name)
+		assert.Equal(t, store.CodeStoreError, failure.Code, name)
+		assert.ErrorIs(t, err, stop.cause, name)
+	}
 }

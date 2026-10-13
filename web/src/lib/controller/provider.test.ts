@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ProviderStatus, ViewProjection } from '../api/client'
 import { createProviderController } from './provider'
 import { testProjection } from '../../test/projection'
 
 describe('provider controller', () => {
+  afterEach(() => dismissFlash())
+
   it.each(['recent', 'full'] as const)(
     'starts the %s refresh the server reports as due',
     async (refresh_due) => {
@@ -210,6 +213,113 @@ describe('provider controller', () => {
     expect(controller.state.status).toEqual(failed)
   })
 
+  it('shows a failed refresh in an error banner', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({
+      mutationResponse: problemResponse(
+        'provider_unavailable',
+        'The provider is temporarily unavailable.',
+      ),
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+
+    await controller.refresh()
+
+    expect(getFlashes().map(({ message, tone }) => ({ message, tone }))).toEqual([
+      {
+        message: 'Provider refresh failed: The provider is temporarily unavailable.',
+        tone: 'danger',
+      },
+    ])
+  })
+
+  it('points an unexpected server error to the server log', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({
+      mutationResponse: problemResponse(
+        'internal_error',
+        'The request could not be completed.',
+        undefined,
+        500,
+      ),
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+
+    await controller.refresh()
+
+    const reason =
+      'The request could not be completed. The terminal running moneyflow web shows the cause.'
+    expect(controller.state.phase).toBe('failed')
+    expect(controller.state.announcement).toBe(reason)
+    expect(getFlashes().map(({ message }) => message)).toEqual([
+      `Provider refresh failed: ${reason}`,
+    ])
+  })
+
+  it('shows a refresh that never reached the server in an error banner', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub()
+    vi.mocked(transport.mutations.request).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+
+    await controller.refresh()
+
+    expect(getFlashes().map(({ message }) => message)).toEqual([
+      'Provider refresh failed. Press r to try again.',
+    ])
+  })
+
+  it('shows a failed background refresh in an error banner', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({
+      status: providerStatus({
+        provider_kind: 'monarch',
+        last_success: '2026-10-02T12:00:00Z',
+        refresh_due: 'full',
+      }),
+      mutationResponse: problemResponse(
+        'provider_refresh_timeout',
+        'The refresh did not finish within 30 minutes, so Moneyflow stopped it.',
+        undefined,
+        504,
+      ),
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+
+    await controller.poll()
+
+    expect(getFlashes().map(({ message }) => message)).toEqual([
+      'Provider refresh failed: The refresh did not finish within 30 minutes, so Moneyflow ' +
+        'stopped it.',
+    ])
+  })
+
+  it('asks for confirmation without an error banner', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const pending = providerStatus({
+      code: 'provider_deletion_confirmation_required',
+      confirmation_token: 'opaque-confirmation',
+    })
+    const transport = transportStub({
+      mutationResponse: problemResponse(
+        'provider_deletion_confirmation_required',
+        'Confirm provider removals.',
+        pending,
+      ),
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+
+    await controller.refresh()
+
+    expect(controller.state.phase).toBe('confirmation')
+    expect(getFlashes()).toEqual([])
+  })
+
   it('reports a failed last attempt from a poll', async () => {
     const transport = transportStub({
       status: providerStatus({
@@ -400,17 +510,22 @@ function refreshResponse(projection: ViewProjection, kind: string) {
   }
 }
 
-function problemResponse(code: string, detail: string, status?: ProviderStatus): Response {
+function problemResponse(
+  code: string,
+  detail: string,
+  status?: ProviderStatus,
+  httpStatus = 409,
+): Response {
   const problem = {
     type: 'about:blank',
-    title: 'Conflict',
-    status: 409,
+    title: 'Request failed',
+    status: httpStatus,
     detail,
     code,
     ...(status === undefined ? {} : { provider: status }),
   }
   return Response.json(problem, {
-    status: 409,
+    status: httpStatus,
     headers: { 'Content-Type': 'application/problem+json' },
   })
 }

@@ -36,6 +36,42 @@ describe('onboarding wizard', () => {
     resolve()
   })
 
+  it('shows why a step failed inside the panel and keeps the email for another try', async () => {
+    const controller = stubController('credentials_required')
+    render(OnboardingWizard, { controller, oncomplete: vi.fn(), oncancel: vi.fn() })
+    await fireEvent.input(screen.getByLabelText('Monarch email'), {
+      target: { value: 'user@example.test' },
+    })
+    await fireEvent.input(screen.getByLabelText('Monarch password'), {
+      target: { value: 'synthetic-secret' },
+    })
+    await fireEvent.input(screen.getByLabelText('TOTP secret'), {
+      target: { value: 'JBSWY3DPEHPK3PXP' },
+    })
+    await fireEvent.input(screen.getByLabelText('Moneyflow account password'), {
+      target: { value: 'vault-secret' },
+    })
+    await fireEvent.input(screen.getByLabelText('Confirm Moneyflow account password'), {
+      target: { value: 'vault-secret' },
+    })
+    await fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+    expect((screen.getByLabelText('Monarch email') as HTMLInputElement).value).toBe(
+      'user@example.test',
+    )
+    expect((screen.getByLabelText('Monarch password') as HTMLInputElement).value).toBe('')
+  })
+
+  it('renders the reason for a failed step as an alert in the panel', () => {
+    const controller = stubController('credentials_required')
+    controller.state.failure = 'Setup did not continue. Monarch rejected these credentials.'
+    render(OnboardingWizard, { controller, oncomplete: vi.fn(), oncancel: vi.fn() })
+
+    expect(screen.getByRole('alert').textContent).toBe(
+      'Setup did not continue. Monarch rejected these credentials.',
+    )
+  })
+
   it('shows progress counts and elapsed time, and separates retry from credential re-entry', async () => {
     const controller = stubController('failed', {
       snapshot: {

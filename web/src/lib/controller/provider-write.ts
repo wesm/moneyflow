@@ -12,6 +12,7 @@ import {
   type ViewProjection,
 } from '../api/client'
 import { providerName } from '../provider-name'
+import { problemReason, showFailure, showWarning } from '../shell/notices'
 
 export type ProviderWritePhase =
   | 'idle'
@@ -47,8 +48,13 @@ export interface ProviderWriteTransport {
 
 interface ProviderWriteHost {
   current(): ViewProjection | undefined
-  accept(projection: ViewProjection): void
-  reload(): Promise<ViewProjection | undefined>
+  /**
+   * Marks the view a write request starts from. The returned function shows the response's view
+   * only while no view change has started since, and says whether it did.
+   */
+  claim(): (projection: ViewProjection) => boolean
+  /** Rereads and shows the view at the newest revision; throws when the reread fails. */
+  reload(): Promise<unknown>
 }
 
 interface ProviderWriteControllerOptions {
@@ -66,6 +72,9 @@ export function createProviderWriteController(
   let state: ProviderWriteState = { phase: 'idle', announcement: '' }
   let confirmationToken = ''
   let inFlight = false
+  // The run failure and status failure already shown, so a poll each second repeats neither.
+  let shownRunFailure = ''
+  let statusFailing = false
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
     notify = update
@@ -90,11 +99,15 @@ export function createProviderWriteController(
       status.phase === 'reconcile_confirmation_required' &&
       state.status.batch_version === status.batch_version
     if (!retainConfirmation) confirmationToken = ''
+    const stopped = runFailureMessage(status)
     setState({
       status,
       phase: phaseFor(status),
-      announcement: announcementFor(status, providerName(options.host.current()?.profile_kind)),
+      announcement:
+        stopped ?? announcementFor(status, providerName(options.host.current()?.profile_kind)),
     })
+    if (stopped && stopped !== shownRunFailure) showFailure(stopped)
+    shownRunFailure = stopped ?? ''
   }
 
   // Polling an unchanged finished result must keep the announcement that completion chose.
@@ -124,6 +137,7 @@ export function createProviderWriteController(
     try {
       const previous = state.status
       const status = await options.transport.status()
+      statusFailing = false
       install(status)
       if (!status.phase) {
         if (previous?.phase) await complete()
@@ -157,7 +171,11 @@ export function createProviderWriteController(
           await reconcile()
       }
     } catch {
-      setState({ ...state, phase: 'failed', announcement: 'Provider write status is unavailable.' })
+      const announcement =
+        'Provider write status is unavailable, so the progress shown may be out of date.'
+      setState({ ...state, phase: 'failed', announcement })
+      if (!statusFailing) showFailure(announcement)
+      statusFailing = true
     }
   }
 
@@ -214,6 +232,7 @@ export function createProviderWriteController(
     confirming = false,
   ): Promise<boolean> {
     inFlight = true
+    const show = options.host.claim()
     try {
       const response = await requestProfileJSON<ProviderWriteResponse>(
         options.transport.mutations,
@@ -223,13 +242,14 @@ export function createProviderWriteController(
       install(response.status)
       if (response.projection) {
         const current = options.host.current()
-        if (current && response.projection.canonical_query !== current.canonical_query) {
-          throw new Error('Provider reconciliation changed analytical browser state.')
-        }
-        options.host.accept({
-          ...response.projection,
-          selection: response.selection?.value ?? response.projection.selection,
-        } as ViewProjection)
+        const shown =
+          (!current || response.projection.canonical_query === current.canonical_query) &&
+          show({
+            ...response.projection,
+            selection: response.selection?.value ?? response.projection.selection,
+          } as ViewProjection)
+        // The view moved on while the server worked; read it again instead of replacing it.
+        if (!shown && response.status.phase) await refreshView()
       }
       if (!response.status.phase) await complete(path.includes('/reconcile'))
       return true
@@ -266,15 +286,27 @@ export function createProviderWriteController(
   }
 
   async function complete(reconciled = false): Promise<void> {
-    const projection = await options.host.reload()
-    if (projection) options.host.accept(projection)
+    const refreshed = await refreshView()
+    const finished = finishedMessage(state.status, reconciled)
     setState({
       ...(state.status ? { status: state.status } : {}),
       phase: 'complete',
-      announcement: [finishedMessage(state.status, reconciled), state.status?.audit_warning]
+      announcement: [finished, refreshed ? '' : viewNotRefreshed, state.status?.audit_warning]
         .filter(Boolean)
         .join(' '),
     })
+    // The write finished; only the view on screen is old.
+    if (!refreshed) showWarning(`${finished} ${viewNotRefreshed}`)
+  }
+
+  /** Rereads the view at the newest revision; false when that request fails. */
+  async function refreshView(): Promise<boolean> {
+    try {
+      await options.host.reload()
+      return true
+    } catch {
+      return false
+    }
   }
 
   return {
@@ -290,6 +322,15 @@ export function createProviderWriteController(
     confirm,
     can,
   }
+}
+
+const viewNotRefreshed = 'The view could not be refreshed; reload the page to see it.'
+
+/** Why a background run stopped while its batch still reads as active, if it did. */
+function runFailureMessage(status: ProviderWriteStatus): string | undefined {
+  const failure = status.run_failure
+  if (!failure || (status.phase !== 'writing' && status.phase !== 'reconciling')) return undefined
+  return `Provider write stopped: ${problemReason(failure)} Moneyflow resumes it within 2 minutes.`
 }
 
 function finishedMessage(status: ProviderWriteStatus | undefined, reconciled: boolean): string {

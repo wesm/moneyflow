@@ -7,6 +7,7 @@ import type { LocalAction } from '../shortcuts'
 import { rowActionButtons, type RowActionButton } from '../table/actions'
 import { currentPageRows, cursorTarget, type CursorMove } from '../table/cursor-keys'
 import type { EditorAnchor, OverlayState } from './overlay-state.svelte'
+import { showFailure, showWarning } from './notices'
 import { activeCurrency } from './period'
 import { status } from './status.svelte'
 
@@ -158,8 +159,8 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
       const projection = controller.projection
       if (projection && activeCurrency(projection)) overlays.open('period')
     },
-    'edit.undo': later(() => controller.editing.undo()),
-    'edit.redo': later(() => controller.editing.redo()),
+    'edit.undo': later(() => reportEdit(context, controller.editing.undo())),
+    'edit.redo': later(() => reportEdit(context, controller.editing.redo())),
     'edit.hide': later(() => hideRow(context, row())),
     'edit.delete': later(() => confirmDelete(context, row())),
     'transaction.info': later(async () => {
@@ -221,11 +222,24 @@ export async function hideRow(
   target: FocusedRow | undefined,
 ): Promise<void> {
   if (!target) return
-  await context.controller.editing.submit({
-    action: 'transaction.toggle-hidden',
-    input: {},
-    target,
-  })
+  await reportEdit(
+    context,
+    context.controller.editing.submit({ action: 'transaction.toggle-hidden', input: {}, target }),
+  )
+}
+
+/**
+ * Shows why an edit from a key, the row actions sheet, or the selection bar did not apply: no
+ * dialog is open to show it. An edit refused because another is still being sent says nothing:
+ * the editing controller clears the announcement when an edit starts sending.
+ */
+async function reportEdit(context: LocalActionContext, edit: Promise<boolean>): Promise<void> {
+  if (await edit) return
+  const { phase, announcement } = context.controller.editing.state
+  if (announcement === '') return
+  // A refreshed or cleared selection is applied; the user only has to repeat the action.
+  if (phase === 'idle') showWarning(announcement)
+  else showFailure(announcement)
 }
 
 /**
@@ -246,5 +260,10 @@ async function beginExport(context: LocalActionContext): Promise<void> {
   if (!projection) return
   if (await context.controller.export.open(projection.canonical_query)) {
     context.overlays.open('export')
+    return
   }
+  // The dialog shows export messages, but it opens only once a preview has data.
+  const { phase, announcement } = context.controller.export.state
+  if (phase === 'failed') showFailure(announcement)
+  else if (announcement !== '') showWarning(announcement)
 }

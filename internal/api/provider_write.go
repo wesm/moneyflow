@@ -35,6 +35,15 @@ type ProviderWriteStatusResponse struct {
 	OwnerRenderer   string   `json:"owner_renderer,omitempty"`
 	OwnerInstanceID string   `json:"owner_instance_id,omitempty" maxLength:"128"`
 	Actions         []string `json:"actions"`
+	// RunFailure says why the last background write stopped while the batch still reads as
+	// writing or reconciling. The batch resumes once its lease expires.
+	RunFailure *ProviderWriteRunFailure `json:"run_failure,omitempty"`
+}
+
+// ProviderWriteRunFailure is the problem code and detail of a stopped background write.
+type ProviderWriteRunFailure struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
 }
 
 // ProviderWriteControlBody applies one batch-versioned control.
@@ -91,8 +100,9 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 		service := profileService(ctx)
 		status, revision, generation, err := currentProviderWriteStatus(ctx, service)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
+		server.logSessionCheck(ctx, status.SessionCheckErr)
 		return &providerWriteStatusOutput{Body: providerWriteStatusToWire(
 			revision, generation, status,
 		)}, nil
@@ -110,7 +120,7 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 		}, func(ctx context.Context, input *providerWriteControlInput) (*providerWriteOutput, error) {
 			expected, err := providerWriteControlVersion(input.Body)
 			if err != nil {
-				return nil, problemFromError(err)
+				return nil, problemFromError(ctx, err)
 			}
 			service := profileService(ctx)
 			status, err := action(ctx, service, expected)
@@ -119,7 +129,7 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 			}
 			_, revision, generation, err := currentProviderWriteStatus(ctx, service)
 			if err != nil {
-				return nil, problemFromError(err)
+				return nil, problemFromError(ctx, err)
 			}
 			return &providerWriteOutput{Body: ProviderWriteResponse{Status: providerWriteStatusToWire(
 				revision, generation, status,
@@ -149,7 +159,7 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 					input.Body.ProviderWriteReconcileBody, input.Body.ConfirmationToken,
 				)
 				if err != nil {
-					return nil, problemFromError(err)
+					return nil, problemFromError(ctx, err)
 				}
 				return providerWriteReconcileOutput(ctx, profileService(ctx), request, true)
 			})
@@ -160,7 +170,7 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 		) (*providerWriteOutput, error) {
 			request, err := providerWriteReconcileRequest(input.Body, "")
 			if err != nil {
-				return nil, problemFromError(err)
+				return nil, problemFromError(ctx, err)
 			}
 			return providerWriteReconcileOutput(ctx, profileService(ctx), request, false)
 		})
@@ -225,12 +235,12 @@ func providerWriteReconcileOutput(
 	}
 	currentStatus, revision, generation, statusErr := currentProviderWriteStatus(ctx, service)
 	if statusErr != nil {
-		return nil, problemFromError(statusErr)
+		return nil, problemFromError(ctx, statusErr)
 	}
 	status := providerWriteStatusToWire(revision, generation, currentStatus)
 	canonical, encodeErr := EncodeViewQuery(result.Projection.State)
 	if encodeErr != nil {
-		return nil, problemFromError(encodeErr)
+		return nil, problemFromError(ctx, encodeErr)
 	}
 	projection := projectionToWire(result.Projection, canonical, nil)
 	selection := SelectionDisposition{
@@ -239,6 +249,23 @@ func providerWriteReconcileOutput(
 	return &providerWriteOutput{Body: ProviderWriteResponse{
 		Status: status, Projection: &projection, Selection: &selection,
 	}}, nil
+}
+
+// logSessionCheck logs why the saved provider session could not be inspected. Until it can be,
+// a write waiting for a reconnect keeps asking for one even after the user reconnects.
+func (server *Server) logSessionCheck(ctx context.Context, err error) {
+	profile, _ := ctx.Value(resolvedProfileContextKey{}).(resolvedProfile)
+	cause := ""
+	if err != nil {
+		cause = describeCause(err)
+	}
+	previous, _ := server.sessionChecks.Swap(profile.id, cause)
+	if cause != "" && previous != cause {
+		server.errorLog.Printf(
+			"provider write status for %s: the saved provider session could not be inspected: %s",
+			profile.id, cause,
+		)
+	}
 }
 
 func currentProviderWriteStatus(
@@ -277,6 +304,11 @@ func providerWriteStatusToWire(
 	}
 	if !status.CompletedAt.IsZero() {
 		wire.CompletedAt = status.CompletedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if status.RunFailure != nil {
+		wire.RunFailure = &ProviderWriteRunFailure{
+			Code: status.RunFailure.Code, Detail: status.RunFailure.Detail,
+		}
 	}
 	return wire
 }
@@ -322,7 +354,7 @@ func problemFromProviderWriteError(
 	err error,
 	result app.ProviderWriteResult,
 ) *Problem {
-	problem := problemFromError(err)
+	problem := problemFromError(ctx, err)
 	problem.ProviderWriteConfirmationToken = result.ConfirmationToken
 	status, revision, _, statusErr := currentProviderWriteStatus(ctx, service)
 	if statusErr != nil {
@@ -339,10 +371,18 @@ func problemFromProviderWriteError(
 func (server *Server) startProviderWrite(profileID string) {
 	go func() {
 		lease, err := server.resolver.Acquire(context.Background(), profileID)
-		if err != nil || lease == nil || lease.Service() == nil {
+		if err != nil {
+			server.errorLog.Printf(
+				"provider write for %s could not start: %s", profileID, describeCause(err),
+			)
+			return
+		}
+		if lease == nil || lease.Service() == nil {
 			return
 		}
 		defer func() { _ = lease.Release() }()
-		_, _ = lease.Service().RunProviderWrite(context.Background())
+		if _, err = lease.Service().RunProviderWrite(context.Background()); err != nil {
+			server.errorLog.Printf("provider write for %s stopped: %s", profileID, describeCause(err))
+		}
 	}()
 }

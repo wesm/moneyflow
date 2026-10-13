@@ -1,6 +1,7 @@
 import { createSubscriber } from 'svelte/reactivity'
 
 import type { CatalogClient, ProfileSummary, RecoveryResponse } from '../api/catalog-client'
+import { failureReason } from '../shell/notices'
 
 export interface CatalogState {
   profiles: ProfileSummary[]
@@ -78,13 +79,9 @@ export function createCatalogController(options: { client: CatalogClient }): Cat
       await load()
       setState({ ...state, announcement: `${profile.display_name} is ready for setup.` })
       return profile
-    } catch {
-      setState({
-        ...state,
-        loading: false,
-        problem: 'The profile could not be created.',
-        announcement: 'Profile creation failed.',
-      })
+    } catch (error) {
+      const problem = `The profile could not be created. ${failureReason(error)}`
+      setState({ ...state, loading: false, problem, announcement: problem })
       return undefined
     }
   }
@@ -117,13 +114,9 @@ export function createCatalogController(options: { client: CatalogClient }): Cat
         })
       }
       return response
-    } catch {
-      setState({
-        ...state,
-        loading: false,
-        problem: 'The profile could not be recovered safely.',
-        announcement: 'Profile recovery failed.',
-      })
+    } catch (error) {
+      const problem = `The profile could not be recovered. ${failureReason(error)}`
+      setState({ ...state, loading: false, problem, announcement: problem })
       return undefined
     }
   }
@@ -137,12 +130,9 @@ export function createCatalogController(options: { client: CatalogClient }): Cat
         announcement: removed ? 'Profile setup canceled.' : 'Profile setup state was retained.',
       })
       return removed
-    } catch {
-      setState({
-        ...state,
-        problem: 'The incomplete profile could not be removed safely.',
-        announcement: 'Profile setup state was retained.',
-      })
+    } catch (error) {
+      const problem = `The incomplete profile was kept. ${failureReason(error)}`
+      setState({ ...state, problem, announcement: problem })
       return false
     }
   }

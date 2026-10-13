@@ -3,6 +3,7 @@ import { createSubscriber } from 'svelte/reactivity'
 import type { components } from '../api/schema'
 import { createMutationFetch, MoneyflowProblem, requestProfileJSON } from '../api/client'
 import { providerName } from '../provider-name'
+import { failureReason } from '../shell/notices'
 import { apiURL } from './base-path'
 
 export type OnboardingStatus = components['schemas']['OnboardingStatusResponse']
@@ -33,6 +34,8 @@ export interface OnboardingState {
   busy: boolean
   announcement: string
   problem?: { kind: 'start' | 'expired'; message: string }
+  /** Why the last step failed while the attempt stays open; cleared by the next request. */
+  failure?: string
 }
 
 export interface OnboardingController {
@@ -50,6 +53,8 @@ export interface OnboardingController {
   poll(): Promise<void>
   destroy(): void
 }
+
+const stepFailed = 'Setup did not continue.'
 
 export function createOnboardingTransport(
   basePath: string,
@@ -157,20 +162,16 @@ export function createOnboardingController(options: {
           }
         }
       }
-      const message =
-        error instanceof MoneyflowProblem
-          ? error.problem.detail
-          : 'The onboarding request could not be completed.'
+      const message = failureReason(error)
       const expired =
         error instanceof MoneyflowProblem && error.problem.code === 'onboarding_expired'
-      setState({
-        ...state,
-        busy: false,
-        announcement: message,
-        ...(!activeSnapshot || expired
-          ? { problem: { kind: expired ? ('expired' as const) : ('start' as const), message } }
-          : {}),
-      })
+      if (!activeSnapshot || expired) {
+        const kind = expired ? ('expired' as const) : ('start' as const)
+        setState({ ...state, busy: false, announcement: message, problem: { kind, message } })
+        return
+      }
+      const failure = `${stepFailed} ${message}`
+      setState({ ...state, busy: false, announcement: failure, failure })
     }
   }
 

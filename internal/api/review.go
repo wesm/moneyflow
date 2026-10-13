@@ -85,13 +85,13 @@ func (server *Server) registerReviewEndpoints(_ Config) {
 	}, func(ctx context.Context, input *reviewInput) (*reviewOutput, error) {
 		expected, err := reviewRevision(input.Body.Version, input.Body.ExpectedRevision)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		projection, err := profileService(ctx).Review(
 			ctx, expected, app.ReviewWindow{Preview: reviewPreviewRows},
 		)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &reviewOutput{Body: reviewToWire(projection)}, nil
 	})
@@ -104,14 +104,14 @@ func (server *Server) registerReviewEndpoints(_ Config) {
 	}, func(ctx context.Context, input *reviewTargetsInput) (*reviewOutput, error) {
 		expected, err := reviewRevision(input.Body.Version, input.Body.ExpectedRevision)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		projection, err := profileService(ctx).Review(ctx, expected, app.ReviewWindow{
 			OperationID: input.Body.OperationID,
 			Offset:      input.Body.Window.Offset, Limit: input.Body.Window.Limit,
 		})
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		response := reviewToWire(projection)
 		response.OperationID = input.Body.OperationID

@@ -66,17 +66,17 @@ func (server *Server) registerExportEndpoints() {
 		Errors: []int{400, 404, 413, 422, 500},
 	}, func(ctx context.Context, input *exportPreviewInput) (*exportPreviewOutput, error) {
 		if input.Body.Version != ExportWireVersion {
-			return nil, problemFromError(invalidExportRequest(
+			return nil, problemFromError(ctx, invalidExportRequest(
 				errors.New("unsupported export preview version"),
 			))
 		}
 		state, canonical, err := DecodeViewQuery(input.Body.Query)
 		if err != nil {
-			return nil, err
+			return nil, problemFromError(ctx, err)
 		}
 		preview, err := profileService(ctx).PreviewExport(ctx, state)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &exportPreviewOutput{Body: ExportPreviewResponse{
 			Version: ExportWireVersion, Revision: strconv.FormatUint(preview.Revision, 10),
@@ -110,11 +110,11 @@ func (server *Server) registerExportEndpoints() {
 		body := input.Body
 		if body.Version != ExportWireVersion || !validExportFormat(body.Format) ||
 			(body.Scope != app.ExportScopeFull && body.Scope != app.ExportScopeFiltered) {
-			return nil, problemFromError(invalidExportRequest(errors.New("unsupported export request")))
+			return nil, problemFromError(ctx, invalidExportRequest(errors.New("unsupported export request")))
 		}
 		state, canonical, err := DecodeViewQuery(body.Query)
 		if err != nil {
-			return nil, err
+			return nil, problemFromError(ctx, err)
 		}
 		if body.Scope == app.ExportScopeFull {
 			canonical = ""
@@ -130,7 +130,7 @@ func (server *Server) registerExportEndpoints() {
 			},
 		})
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &huma.StreamResponse{Body: func(stream huma.Context) {
 			defer func() { _ = download.Close() }()
@@ -139,11 +139,17 @@ func (server *Server) registerExportEndpoints() {
 			stream.SetHeader("Content-Disposition", exportContentDisposition(download.Filename))
 			stream.SetHeader("X-Moneyflow-Transaction-Count", strconv.Itoa(download.Count))
 			stream.SetHeader("X-Content-Type-Options", "nosniff")
-			if _, copyErr := io.Copy(
+			written, copyErr := io.Copy(
 				stream.BodyWriter(),
 				&exportStreamReader{ctx: stream.Context(), reader: download.Reader},
-			); copyErr != nil {
-				return
+			)
+			if copyErr != nil {
+				// The status line is sent, so only the log can say the file is incomplete.
+				address := stream.URL()
+				server.errorLog.Printf(
+					"%s %s: the export download stopped after %d of %d bytes: %s",
+					stream.Method(), address.Path, written, download.Size, describeCause(copyErr),
+				)
 			}
 		}}, nil
 	})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/importer/amazon"
 )
 
@@ -16,6 +17,8 @@ const (
 	CodeImportEmpty           Code = "amazon_import_empty"
 	CodeImportTooLarge        Code = "amazon_import_too_large"
 	CodeImportInvalid         Code = "amazon_import_invalid"
+	CodeImportStorage         Code = "amazon_import_storage"
+	CodeProfileChanged        Code = "amazon_profile_changed"
 	CodeCurrencyMismatch      Code = "amazon_currency_mismatch"
 	CodeProfileInvalid        Code = "amazon_profile_invalid"
 	CodeTaxonomySourceInvalid Code = "amazon_taxonomy_source_invalid"
@@ -29,6 +32,8 @@ var details = map[Code]string{
 	CodeImportEmpty:           "No eligible Amazon order-history records were found.",
 	CodeImportTooLarge:        "The Amazon import exceeds a fixed safety limit.",
 	CodeImportInvalid:         "The Amazon order-history export is invalid.",
+	CodeImportStorage:         "Moneyflow could not save the Amazon import on this computer.",
+	CodeProfileChanged:        "The profile changed while the Amazon import was being saved.",
 	CodeCurrencyMismatch:      "The Amazon export currency does not match this profile.",
 	CodeProfileInvalid:        "The target is not a usable Amazon profile.",
 	CodeTaxonomySourceInvalid: "The taxonomy source is not usable.",
@@ -83,7 +88,26 @@ func mapError(err error) error {
 		}
 		return &Error{Code: code, Coordinate: parser.Coordinate, cause: err}
 	}
-	return err
+	return mapInstallError(err)
+}
+
+// mapInstallError names the profile-side reasons an install can fail; others stay unmapped.
+func mapInstallError(err error) error {
+	if errors.Is(err, app.ErrAmazonSettingsMismatch) {
+		return newError(CodeCurrencyMismatch, err)
+	}
+	var failure *app.AppError
+	if !errors.As(err, &failure) {
+		return err
+	}
+	switch failure.Code {
+	case app.AppStoreBusy, app.AppRevisionConflict:
+		return newError(CodeProfileChanged, err)
+	case app.AppStoreError:
+		return newError(CodeImportStorage, err)
+	default:
+		return err
+	}
 }
 
 // CodeOf returns a stable code or an empty value.

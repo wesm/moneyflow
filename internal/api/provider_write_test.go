@@ -211,3 +211,20 @@ func (writer apiProviderWriter) DeleteTransaction(
 	writer.source.mu.Unlock()
 	return provider.TransactionDeleteResult{TransactionExternalID: externalID}, nil
 }
+
+func TestProviderWriteStatusCarriesWhyABackgroundRunStopped(t *testing.T) {
+	t.Parallel()
+
+	wire := providerWriteStatusToWire(7, 5, app.ProviderWriteStatus{
+		Phase: store.WritePhaseWriting,
+		RunFailure: &app.ProviderWriteRunFailure{
+			Code: string(app.AppStoreBusy), Detail: "The profile is busy. Try again.",
+		},
+	})
+
+	require.NotNil(t, wire.RunFailure)
+	assert.Equal(t, ProviderWriteRunFailure{
+		Code: string(app.AppStoreBusy), Detail: "The profile is busy. Try again.",
+	}, *wire.RunFailure)
+	assert.Nil(t, providerWriteStatusToWire(7, 5, app.ProviderWriteStatus{}).RunFailure)
+}

@@ -4,10 +4,10 @@ const maxSearchBytes = 2048
 const previewDelay = 150
 
 /**
- * How a preview ended: shown, refused by the server, replaced by a newer request before its
- * answer arrived, or failed without a server answer, such as on a network error.
+ * How a preview ended: shown, replaced by a newer request before its answer arrived, refused
+ * as an invalid expression, or failed for another reason that `failed` names.
  */
-export type SearchPreview = 'applied' | 'rejected' | 'superseded' | 'failed'
+export type SearchPreview = 'applied' | 'superseded' | 'invalid' | { readonly failed: string }
 
 export interface SearchHost<Snapshot> {
   beginSearch(): Snapshot
@@ -73,7 +73,7 @@ export function createSearchCoordinator<Snapshot>(
     if (closed || requestGeneration !== generation) return false
     pending = false
     if (outcome !== 'applied') {
-      if (outcome === 'rejected') error = 'That search expression is invalid.'
+      error = previewError(outcome)
       notify()
       return false
     }
@@ -135,4 +135,10 @@ export function createSearchCoordinator<Snapshot>(
       listeners.clear()
     },
   }
+}
+
+function previewError(outcome: Exclude<SearchPreview, 'applied'>): string {
+  if (outcome === 'superseded') return ''
+  if (outcome === 'invalid') return 'That search expression is invalid.'
+  return `Search failed. ${outcome.failed}`
 }

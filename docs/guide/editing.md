@@ -249,6 +249,13 @@ status. Write status shows progress and offers the actions the batch allows: **P
 **Resume** or **Check and resume**, **Stop and reconcile**, **Confirm reconciliation**, or
 **Reconnect Monarch** / **Reconnect YNAB**.
 
+**Unreleased:** If the background write stops without parking its batch, for example because
+the profile store failed, write status still reads as writing. An error banner then shows
+`Provider write stopped:` with the reason, and Moneyflow resumes the write within 2 minutes, when
+its lease expires. The terminal running `moneyflow web` logs the cause. A banner also says when
+write status cannot be read, so the progress shown may be out of date, and when a finished write
+could not refresh the view.
+
 **Unreleased:** When a write finishes, browser write status keeps its counts, such as
 `4 of 4 complete`, and shows when it finished. The result stays after polling or reopening the
 profile, until the profile changes again. After **Stop and reconcile**, write status reads

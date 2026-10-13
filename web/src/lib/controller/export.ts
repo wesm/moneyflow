@@ -1,6 +1,12 @@
 import { createSubscriber } from 'svelte/reactivity'
 
-import type { ExportBody, ExportPreviewResponse, MoneyflowClient } from '../api/client'
+import {
+  MoneyflowProblem,
+  type ExportBody,
+  type ExportPreviewResponse,
+  type MoneyflowClient,
+} from '../api/client'
+import { problemReason } from '../shell/notices'
 
 export type ExportFormat = ExportBody['format']
 export type ExportScope = ExportBody['scope']
@@ -89,7 +95,7 @@ export function createExportController(options: ExportControllerOptions): Export
       setState({
         ...state,
         phase: 'failed',
-        announcement: 'The export preview could not be loaded. Try again.',
+        announcement: `The export preview could not be loaded. ${previewFailure(error)}`,
         canCancel: true,
       })
       return false
@@ -256,4 +262,9 @@ function isAbort(error: unknown): boolean {
     (error instanceof DOMException && error.name === 'AbortError') ||
     (typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError')
   )
+}
+
+/** The server's reason a preview failed, or a retry hint when the server gave none. */
+function previewFailure(error: unknown): string {
+  return error instanceof MoneyflowProblem ? problemReason(error.problem) : 'Try again.'
 }

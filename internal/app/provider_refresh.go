@@ -330,8 +330,7 @@ func (service *Service) RefreshProvider(
 	)
 	if fetchErr != nil {
 		if errors.Is(fetchErr, context.Canceled) || errors.Is(fetchErr, context.DeadlineExceeded) {
-			_ = service.releaseProviderLease(ctx, runtime.instanceID)
-			return ProviderRefreshResult{}, fetchErr
+			return service.stopProviderRefresh(ctx, runtime, providerState, now, fingerprint, fetchErr)
 		}
 		var storage *store.Error
 		if errors.As(fetchErr, &storage) {
@@ -744,11 +743,18 @@ func (service *Service) failProviderRefresh(
 		code = provider.CodeDataInvalid
 		failure = provider.NewError(code)
 	}
+	// The retry delay counts from when the attempt ended. A read can outlast the delay, such as
+	// one stopped at the web time limit, and the next scheduler tick would then start it again.
+	// The SimpleFIN quota floor counts from the attempt itself.
+	endedAt := runtime.now().UTC().Truncate(time.Millisecond)
+	if endedAt.Before(attemptedAt) {
+		endedAt = attemptedAt
+	}
 	nextEligible := time.Time{}
 	if ProviderErrorRetryClass(code) == ProviderBoundedRetry {
-		nextEligible = attemptedAt.Add(5 * time.Minute)
+		nextEligible = endedAt.Add(5 * time.Minute)
 		if retryAfter, hasRetryAfter := provider.RetryAfterOf(failure); hasRetryAfter {
-			nextEligible = attemptedAt.Add(retryAfter)
+			nextEligible = endedAt.Add(retryAfter)
 		}
 	}
 	if runtime.provider == "simplefin" && nextEligible.Before(attemptedAt.Add(time.Hour)) {
@@ -776,6 +782,30 @@ func (service *Service) failProviderRefresh(
 	return ProviderRefreshResult{Status: status}, newAppError(
 		AppErrorCode(code), service.Revision(), failure,
 	)
+}
+
+// stopProviderRefresh records a provider read that its request stopped, so the status shows the
+// attempt and the scheduler waits out the bounded retry delay instead of restarting the read on
+// its next tick. The profile schema has no stopped-refresh code, so the attempt is recorded as
+// provider_unavailable. When the request stopped, the caller still gets the context error, so
+// each interface can say so. A context error while the request goes on came from a deadline of
+// the adapter's own, so the caller gets the provider_unavailable failure.
+func (service *Service) stopProviderRefresh(
+	ctx context.Context,
+	runtime *providerRuntimeState,
+	state store.ProviderState,
+	attemptedAt time.Time,
+	fingerprint provider.SessionFingerprint,
+	stopErr error,
+) (ProviderRefreshResult, error) {
+	result, err := service.failProviderRefresh(
+		context.WithoutCancel(ctx), runtime, state, attemptedAt, fingerprint,
+		provider.NewError(provider.CodeUnavailable),
+	)
+	if result.Status.Code != provider.CodeUnavailable || ctx.Err() == nil {
+		return result, err
+	}
+	return result, stopErr
 }
 
 func (service *Service) foldProviderCandidate(
@@ -828,10 +858,13 @@ func (service *Service) foldProviderCandidate(
 		}
 		return ProviderRefreshResult{}, mapAppError(err, service.Revision())
 	}
-	if err = service.reloadExpected(ctx, commit.Revision); err != nil {
+	// The refresh is saved. A request that stops now must not turn it into a failure, and the
+	// service must still load what was saved, so these local reads ignore the request's end.
+	saved := context.WithoutCancel(ctx)
+	if err = service.reloadExpected(saved, commit.Revision); err != nil {
 		return ProviderRefreshResult{}, err
 	}
-	state, err := service.profile.ProviderState(ctx)
+	state, err := service.profile.ProviderState(saved)
 	if err != nil {
 		return ProviderRefreshResult{}, mapAppError(err, service.Revision())
 	}
@@ -1345,7 +1378,7 @@ func (service *Service) providerProjectionResult(
 		return ProviderRefreshResult{}, newAppError(AppInvalidOperation, service.Revision(), err)
 	}
 	if disposition == SelectionCleared {
-		projection.Status = "The selection changed and was cleared after refresh."
+		projection.Notice = "The selection changed and was cleared after refresh."
 	}
 	return ProviderRefreshResult{
 		Revision: service.Revision(), Generation: status.Generation, Status: status,

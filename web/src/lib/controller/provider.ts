@@ -10,6 +10,7 @@ import {
   type ProviderStatus,
   type ViewProjection,
 } from '../api/client'
+import { problemReason, showFailure } from '../shell/notices'
 
 type Capability = NonNullable<ViewProjection['capabilities']>[number]
 export type ProviderPhase = 'idle' | 'refreshing' | 'confirmation' | 'reconnect' | 'failed'
@@ -222,12 +223,9 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 
   async function fail(error: unknown, confirmation: boolean): Promise<boolean> {
     if (!(error instanceof MoneyflowProblem)) {
-      setState({
-        ...state,
-        phase: 'failed',
-        kind: undefined,
-        announcement: 'Provider refresh failed. Press r to try again.',
-      })
+      const announcement = 'Provider refresh failed. Press r to try again.'
+      setState({ ...state, phase: 'failed', kind: undefined, announcement })
+      showFailure(announcement)
       return false
     }
     const problem = error.problem
@@ -240,6 +238,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       })
       return false
     }
+    showFailure(`Provider refresh failed: ${problemReason(problem)}`)
     if (problem.code === 'provider_reconnect_required') {
       setState({ ...state, phase: 'reconnect', kind: undefined, announcement: problem.detail })
       return false
@@ -253,7 +252,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       phase: 'failed',
       kind: undefined,
       ...(problem.provider === undefined ? {} : { status: problem.provider }),
-      announcement: problem.detail,
+      announcement: problemReason(problem),
     })
     return false
   }

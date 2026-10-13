@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -38,6 +40,8 @@ type Config struct {
 	SimpleFINOnboarding SimpleFINOnboardingCoordinator
 	AmazonImports       AmazonImportCoordinator
 	LoadAmazonTaxonomy  func(context.Context, string) (*app.TaxonomyClone, error)
+	// ErrorLog receives the cause of every unexpected server error; nil discards it.
+	ErrorLog *log.Logger
 }
 
 // Health reports non-sensitive process and persistent-profile metadata.
@@ -59,7 +63,11 @@ type Server struct {
 	api                 huma.API
 	security            *MutationSecurity
 	resolver            ProfileResolver
+	errorLog            *log.Logger
 	completedOnboarding sync.Map
+	// sessionChecks holds the last logged session-inspection failure per profile ID, so a
+	// status poll every second logs each distinct failure once.
+	sessionChecks sync.Map
 }
 
 type onboardingCompletion struct {
@@ -137,12 +145,16 @@ func New(config Config) (*Server, error) {
 	humaConfig.DocsPath = ""
 	humaConfig.SchemasPath = ""
 	humaConfig.CreateHooks = nil
-	humaConfig.Transformers = nil
+	humaConfig.Transformers = []huma.Transformer{recordProblemCause}
 	humaConfig.Servers = []*huma.Server{{URL: basePath}}
 	humaAPI := humago.New(mux, humaConfig)
+	errorLog := config.ErrorLog
+	if errorLog == nil {
+		errorLog = log.New(io.Discard, "", 0)
+	}
 	server := &Server{
 		basePath: basePath, version: config.Version, api: humaAPI,
-		security: config.Security, resolver: config.Resolver,
+		security: config.Security, resolver: config.Resolver, errorLog: errorLog,
 	}
 	server.register(config, mux)
 	server.registerMutationEndpoints(config)
@@ -163,12 +175,12 @@ func New(config Config) (*Server, error) {
 
 	var handler http.Handler = mux
 	handler = requestBodyLimit(handler, basePath)
-	handler = resolveProfileRequests(handler, basePath, config.Resolver)
+	handler = resolveProfileRequests(handler, basePath, config.Resolver, server.errorLog)
 	handler = profileMutationSecurity(handler, basePath, config.Security)
 	handler = strictProfileAPIPaths(handler, basePath)
 	handler = legacyProfileRoutes(handler, basePath, config.LegacyProfileID)
-	handler = safeProblemResponses(handler)
-	handler = recoverAPI(handler)
+	handler = safeProblemResponses(handler, server.errorLog)
+	handler = recoverAPI(handler, server.errorLog)
 	handler = noStore(handler)
 	server.handler = handler
 	return server, nil
@@ -330,7 +342,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		}
 		service := profileService(ctx)
 		if _, refreshErr := service.Refresh(ctx); refreshErr != nil {
-			return nil, problemFromError(refreshErr)
+			return nil, problemFromError(ctx, refreshErr)
 		}
 		body, bootstrapErr := newBootstrap(
 			config.Version, config.Origin, service.Revision(), config.Security,
@@ -353,7 +365,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	}, func(ctx context.Context, _ *profileBootstrapInput) (*healthOutput, error) {
 		service := profileService(ctx)
 		if _, err := service.Refresh(ctx); err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &healthOutput{Body: Health{
 			Version: config.Version, APISchemaVersion: APISchemaVersion,
@@ -369,11 +381,11 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	}, func(ctx context.Context, input *viewInput) (*projectionOutput, error) {
 		service := profileService(ctx)
 		if _, err := service.Refresh(ctx); err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		state, canonical, err := DecodeViewQuery(input.Body.Query)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		selection := app.SelectionValue(input.Body.Selection)
 		if selection == "" {
@@ -391,7 +403,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 			warnings = selectionResetWarnings()
 		}
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &projectionOutput{Body: projectionToWire(projection, canonical, warnings)}, nil
 	})
@@ -403,11 +415,11 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	}, func(ctx context.Context, input *transitionInput) (*projectionOutput, error) {
 		service := profileService(ctx)
 		if _, err := service.Refresh(ctx); err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		state, _, err := DecodeViewQuery(input.Body.Query)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		selection := app.SelectionValue(input.Body.Selection)
 		if selection == "" {
@@ -415,7 +427,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		}
 		transition, err := transitionToApp(input.Body)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		window := app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit}
 		transit := func(selection app.SelectionValue) (app.ViewState, app.WebProjection, error) {
@@ -429,27 +441,29 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 			warnings = selectionResetWarnings()
 		}
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		canonical, err := EncodeViewQuery(nextState)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &projectionOutput{Body: projectionToWire(projection, canonical, warnings)}, nil
 	})
 
-	mux.HandleFunc("GET "+server.basePath+"openapi.json", func(response http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET "+server.basePath+"openapi.json", func(response http.ResponseWriter, request *http.Request) {
 		data, err := server.OpenAPIJSON()
 		if err != nil {
+			noteProblemCause(request.Context(), err)
 			writeProblem(response, newProblem(500, "internal_error", "The API document is unavailable."))
 			return
 		}
 		response.Header().Set("Content-Type", "application/openapi+json")
 		_, _ = response.Write(data)
 	})
-	mux.HandleFunc("GET "+server.basePath+"openapi.yaml", func(response http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET "+server.basePath+"openapi.yaml", func(response http.ResponseWriter, request *http.Request) {
 		data, err := server.OpenAPIYAML()
 		if err != nil {
+			noteProblemCause(request.Context(), err)
 			writeProblem(response, newProblem(500, "internal_error", "The API document is unavailable."))
 			return
 		}
@@ -571,7 +585,22 @@ func (server *Server) installProblemSchemas() {
 	}
 }
 
-func problemFromError(err error) *Problem {
+// problemFromError maps an error to its public problem. A server failure keeps the error as its
+// cause, which reaches only the server log. ctx is the request's context: a context error means
+// the request stopped only once ctx ended, which app.RequestFailure decides.
+func problemFromError(ctx context.Context, err error) *Problem {
+	revision := uint64(0)
+	if service := profileService(ctx); service != nil {
+		revision = service.Revision()
+	}
+	problem := publicProblem(app.RequestFailure(ctx, err, revision))
+	if problem.Status >= http.StatusInternalServerError {
+		problem.cause = err
+	}
+	return problem
+}
+
+func publicProblem(err error) *Problem {
 	var safe *SafeError
 	if errors.As(err, &safe) {
 		status := http.StatusBadRequest
@@ -681,12 +710,33 @@ func invalidOperationReason(code app.AppErrorCode, err error) string {
 	return string(reason)
 }
 
+// providerRefreshTimeoutDetail names the limit and the one interface without it.
+var providerRefreshTimeoutDetail = fmt.Sprintf(
+	"The refresh did not finish within %d minutes, so Moneyflow stopped it. No data changed. "+
+		"Try again, or refresh in the terminal app (moneyflow tui), which has no time limit.",
+	int(ProviderRefreshTimeout.Minutes()),
+)
+
+// problemFromProviderError explains a failed refresh. ctx is the handler's context, which carries
+// the web refresh time limit.
 func problemFromProviderError(
+	ctx context.Context,
 	err error,
 	result app.ProviderRefreshResult,
 	capability Capability,
 ) *Problem {
-	problem := problemFromError(err)
+	// The service returns the bare context error when the provider read outlives the request
+	// deadline; it released the lease before folding anything. Only the handler's own expired
+	// deadline is the web limit.
+	var application *app.AppError
+	if !errors.As(err, &application) && errors.Is(err, context.DeadlineExceeded) &&
+		errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return newProblem(
+			http.StatusGatewayTimeout, string(CodeProviderRefreshTimeout),
+			providerRefreshTimeoutDetail,
+		)
+	}
+	problem := problemFromError(ctx, err)
 	if result.Status.Code != "" || result.Status.ConfirmationToken != "" {
 		revision := result.Revision
 		if revision == 0 {
@@ -758,9 +808,26 @@ func requestBodyLimit(next http.Handler, basePath string) http.Handler {
 			}
 			request.Body = io.NopCloser(bytes.NewReader(body))
 			request.ContentLength = int64(len(body))
+			response = bufferedBodyResponse{response}
 		}
 		next.ServeHTTP(response, request)
 	})
+}
+
+// bufferedBodyResponse keeps Huma's body read deadline off a connection whose request body is
+// already in memory. Once the body is read, net/http watches the connection for a client
+// disconnect. A deadline set after that point expires during the handler, and net/http treats
+// the timeout as a disconnect: it cancels this request and every later one on the connection.
+type bufferedBodyResponse struct {
+	http.ResponseWriter
+}
+
+func (bufferedBodyResponse) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (response bufferedBodyResponse) Unwrap() http.ResponseWriter {
+	return response.ResponseWriter
 }
 
 type bufferedResponse struct {
@@ -825,12 +892,13 @@ func (response *bufferedResponse) Unwrap() http.ResponseWriter {
 	return response.target
 }
 
-func safeProblemResponses(next http.Handler) http.Handler {
+func safeProblemResponses(next http.Handler, logger *log.Logger) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		buffered := &bufferedResponse{
 			target: response, header: make(http.Header), suppressBody: request.Method == http.MethodHead,
 			streaming: isExportStreamRequest(request),
 		}
+		request, cause := withProblemCause(request)
 		next.ServeHTTP(buffered, request)
 		status := buffered.status
 		if status == 0 {
@@ -838,10 +906,14 @@ func safeProblemResponses(next http.Handler) http.Handler {
 		}
 		if status < 400 {
 			if buffered.overflow {
-				writeProblem(response, newProblem(
+				problem := newProblem(
 					http.StatusInternalServerError, "response_too_large",
 					"The response is too large to return.",
+				)
+				logServerFailure(logger, request, problem, fmt.Errorf(
+					"the response exceeded %d bytes", maximumBufferedResponseBytes,
 				))
+				writeProblem(response, problem)
 				return
 			}
 			if !buffered.passthrough {
@@ -854,20 +926,22 @@ func safeProblemResponses(next http.Handler) http.Handler {
 			return
 		}
 		var problem Problem
-		if json.Unmarshal(buffered.body.Bytes(), &problem) == nil && problem.Code != "" {
-			writeProblem(response, &problem)
-			return
+		if json.Unmarshal(buffered.body.Bytes(), &problem) != nil || problem.Code == "" {
+			if bytes.Contains(buffered.body.Bytes(), []byte("request body too large")) {
+				status = http.StatusRequestEntityTooLarge
+			}
+			code := "invalid_request"
+			detail := "The request body is invalid."
+			if status >= 500 {
+				code = "internal_error"
+				detail = "The request could not be completed."
+			}
+			problem = *newProblem(status, code, detail)
 		}
-		if bytes.Contains(buffered.body.Bytes(), []byte("request body too large")) {
-			status = http.StatusRequestEntityTooLarge
+		if problem.Status == http.StatusInternalServerError {
+			logServerFailure(logger, request, &problem, cause.err)
 		}
-		code := "invalid_request"
-		detail := "The request body is invalid."
-		if status >= 500 {
-			code = "internal_error"
-			detail = "The request could not be completed."
-		}
-		writeProblem(response, newProblem(status, code, detail))
+		writeProblem(response, &problem)
 	})
 }
 
@@ -877,10 +951,11 @@ func isExportStreamRequest(request *http.Request) bool {
 		strings.HasSuffix(request.URL.Path, "/export")
 }
 
-func recoverAPI(next http.Handler) http.Handler {
+func recoverAPI(next http.Handler, logger *log.Logger) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		defer func() {
-			if recover() != nil {
+			if recovered := recover(); recovered != nil {
+				logPanic(logger, request, recovered)
 				writeProblem(response, newProblem(
 					http.StatusInternalServerError,
 					"internal_error",

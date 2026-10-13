@@ -33,11 +33,11 @@ func (server *Server) registerMerchantPreviewEndpoint() {
 	}, func(ctx context.Context, input *mutationInput) (*merchantPreviewOutput, error) {
 		request, _, _, err := mutationToApp(input.Body)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		preview, err := profileService(ctx).PreviewMerchantEdit(ctx, request)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		response := MerchantPreviewResponse{
 			Version: MutationSchemaVersion, Revision: strconv.FormatUint(preview.Revision, 10),

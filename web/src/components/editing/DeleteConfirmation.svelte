@@ -22,17 +22,12 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<Modal
-  title="Confirm deletion"
-  closeLabel="Cancel deletion"
-  onclose={() => {
-    if (!submitting) oncancel()
-  }}
->
+<!-- Cancel and Esc always close it: a deletion already sent reports its outcome elsewhere. -->
+<Modal title="Confirm deletion" closeLabel="Cancel deletion" onclose={oncancel}>
   <p>Delete {count} {count === 1 ? 'transaction' : 'transactions'}?</p>
   <p>This stages a pending edit; nothing reaches the provider until review and commit.</p>
   <div class="editing-actions">
-    <Button type="button" disabled={submitting} onclick={oncancel}>Cancel</Button><Button
+    <Button type="button" onclick={oncancel}>Cancel</Button><Button
       type="button"
       tone="danger"
       surface="solid"

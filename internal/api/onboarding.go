@@ -349,7 +349,7 @@ func (server *Server) releaseCompletedProfile(
 			return newProblem(
 				http.StatusInternalServerError, "internal_error",
 				"The completed profile could not be released.",
-			)
+			).withCause(ctx.Err())
 		}
 		return completion.problem
 	}
@@ -362,7 +362,7 @@ func (server *Server) releaseCompletedProfile(
 			completion.problem = newProblem(
 				http.StatusInternalServerError, "internal_error",
 				"The completed profile could not be released.",
-			)
+			).withCause(err)
 		}
 	}
 	close(completion.done)
@@ -440,7 +440,7 @@ func problemFromOnboardingError(err error) *Problem {
 	case onboarding.CodeProviderConnectInProgress:
 		status, detail = http.StatusServiceUnavailable, "Another provider connection is in progress."
 	default:
-		return newProblem(status, "internal_error", detail)
+		return newProblem(status, "internal_error", detail).withCause(err)
 	}
 	return newProblem(status, string(code), detail)
 }

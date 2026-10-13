@@ -54,6 +54,7 @@ func New(dependencies Dependencies, options Options) (*Server, error) {
 		return nil, errors.New("new MCP server: logger is nil")
 	}
 	supervisor := newSupervisor(dependencies.Clock, dependencies.Random)
+	supervisor.logger = dependencies.Logger
 	sdk := mcpsdk.NewServer(
 		&mcpsdk.Implementation{Name: "moneyflow", Version: version.Version},
 		&mcpsdk.ServerOptions{Logger: dependencies.Logger},

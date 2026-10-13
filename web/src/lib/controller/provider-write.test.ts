@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ProviderWriteResponse, ProviderWriteStatus, ViewProjection } from '../api/client'
 import { testProjection } from '../../test/projection'
@@ -243,10 +244,124 @@ describe('provider write controller', () => {
   })
 })
 
+describe('provider write failures the user must see', () => {
+  afterEach(() => dismissFlash())
+  const flashes = () => getFlashes().map(({ message, tone }) => ({ message, tone }))
+
+  it('shows why a background write stopped while the batch still reads as writing', async () => {
+    const stopped = writeStatus({
+      phase: 'writing',
+      batch_version: '4',
+      total: 2,
+      run_failure: { code: 'store_busy', detail: 'The profile is busy. Try again.' },
+    })
+    const controller = createProviderWriteController({
+      transport: transportStub({ status: stopped }),
+      host: hostStub(),
+    })
+
+    await controller.poll()
+    await controller.poll()
+
+    const message =
+      'Provider write stopped: The profile is busy. Try again. ' +
+      'Moneyflow resumes it within 2 minutes.'
+    expect(controller.state.announcement).toBe(message)
+    expect(flashes()).toEqual([{ message, tone: 'danger' }])
+  })
+
+  it('reports a completed write whose view reload failed as complete', async () => {
+    const host = hostStub()
+    host.reload.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const controller = createProviderWriteController({
+      transport: transportStub({ status: writeStatus({ completed_at: '2026-10-15T12:00:00Z' }) }),
+      host,
+    })
+    controller.install(writeStatus({ phase: 'writing', batch_version: '4' }))
+
+    await controller.poll()
+
+    expect(controller.state.phase).toBe('complete')
+    expect(controller.state.announcement).toBe(
+      'Provider write complete. The view could not be refreshed; reload the page to see it.',
+    )
+    expect(flashes()).toEqual([
+      {
+        message:
+          'Provider write complete. The view could not be refreshed; reload the page to see it.',
+        tone: 'warning',
+      },
+    ])
+  })
+
+  it('rereads a view that moved on while the server reconciled, without reporting failure', async () => {
+    const merchant = testProjection({ canonical_query: 'v=1&group=merchant' })
+    const category = testProjection({ canonical_query: 'v=1&group=category' })
+    const reread = testProjection({ canonical_query: 'v=1&group=category', revision: '9' })
+    const response: ProviderWriteResponse = {
+      status: writeStatus(),
+      projection: testProjection({ canonical_query: 'v=1&group=merchant', revision: '9' }),
+      selection: { kind: 'cleared', value: merchant.selection },
+    }
+    let shown = merchant
+    const accept = vi.fn(() => true)
+    const host = {
+      current: vi.fn(() => shown),
+      accept,
+      claim: () => accept,
+      reload: vi.fn(async () => reread),
+    }
+    let answer!: (response: Response) => void
+    const transport = transportStub()
+    transport.mutations.request.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => (answer = resolve)),
+    )
+    const controller = createProviderWriteController({ transport, host })
+    controller.install(
+      writeStatus({ phase: 'paused', batch_version: '7', actions: ['resume', 'reconcile'] }),
+    )
+
+    const reconciling = controller.reconcile()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+    const [, rawBody] = transport.mutations.request.mock.calls[0]!
+    expect(JSON.parse(rawBody)).toMatchObject({ query: 'v=1&group=merchant' })
+    shown = category
+    answer(Response.json(response))
+
+    await expect(reconciling).resolves.toBe(true)
+    expect(controller.state.phase).toBe('complete')
+    expect(host.reload).toHaveBeenCalledOnce()
+    expect(host.accept).not.toHaveBeenCalled()
+  })
+
+  it('shows a failed status poll once, without the write drawer open', async () => {
+    const transport = transportStub()
+    transport.status
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const controller = createProviderWriteController({ transport, host: hostStub() })
+    controller.install(writeStatus({ phase: 'writing', batch_version: '4' }))
+
+    await controller.poll()
+    await controller.poll()
+
+    expect(controller.state.phase).toBe('failed')
+    expect(flashes()).toEqual([
+      {
+        message: 'Provider write status is unavailable, so the progress shown may be out of date.',
+        tone: 'danger',
+      },
+    ])
+  })
+})
+
 function hostStub(current = testProjection()) {
+  const accept = vi.fn<(projection: ViewProjection) => boolean>(() => true)
   return {
     current: vi.fn(() => current),
-    accept: vi.fn(),
+    /** The view-showing function every write request's claim returns. */
+    accept,
+    claim: () => accept,
     reload: vi.fn(async () => current),
   }
 }

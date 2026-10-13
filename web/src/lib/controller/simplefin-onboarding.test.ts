@@ -1,4 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
+
+import { MoneyflowProblem } from '../api/client'
 import {
   createSimpleFINOnboardingController,
   type SimpleFINOnboardingStatus,
@@ -85,4 +87,45 @@ it('ignores a late start response after the wizard is destroyed', async () => {
   })
   await pending
   expect(controller.state.snapshot).toBeUndefined()
+})
+
+it('says why a connect request failed and keeps the input step open', async () => {
+  const snapshot: SimpleFINOnboardingStatus = {
+    protocol_version: 1,
+    profile_id: 'profile_example',
+    attempt_id: 'attempt_example',
+    state_version: 2,
+    state: 'credentials_required',
+    provider_kind: 'simplefin',
+    progress: { fetched: 0, total: 0 },
+    imported_transactions: 0,
+  }
+  const transport: SimpleFINOnboardingTransport = {
+    start: vi.fn(async () => snapshot),
+    status: vi.fn(async () => snapshot),
+    submit: vi.fn(async () => {
+      throw new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Service Unavailable',
+        status: 503,
+        code: 'profile_busy',
+        detail: 'The profile is in use. Wait a moment, then retry.',
+      })
+    }),
+    cancel: vi.fn(async () => ({ ...snapshot, state: 'canceled' })),
+  }
+  const controller = createSimpleFINOnboardingController({
+    profileID: snapshot.profile_id,
+    transport,
+  })
+  await controller.start()
+
+  await controller.connect('synthetic-token', { currency: 'USD', scale: 2 })
+
+  expect(controller.state.failure).toBe(
+    'Setup did not continue. The profile is in use. Wait a moment, then retry.',
+  )
+  expect(controller.state.problem).toBeUndefined()
+  expect(controller.state.snapshot?.state).toBe('credentials_required')
+  controller.destroy()
 })

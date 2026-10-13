@@ -61,7 +61,10 @@ open. The status line in the TUI, and the provider status in the web sidebar, na
 while it runs. Background refresh does not run in these cases:
 
 - The profile's first import has not finished.
-- A failed attempt is waiting for its retry time.
+- A failed attempt is waiting for its retry time. A refresh that stops before it finishes,
+  because its request was canceled or reached the web app's 30-minute limit, counts as a failed
+  attempt: provider status reports `provider_unavailable`, and background refresh waits five
+  minutes.
 - The failure needs action, such as reconnecting or reviewing removals. Press `r` after acting.
 
 MCP never refreshes on a schedule; its `refresh_data` tool runs a full refresh.

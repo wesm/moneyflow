@@ -1553,6 +1553,10 @@ export interface components {
       selection?: components['schemas']['SelectionDisposition']
       status: components['schemas']['ProviderWriteStatusResponse']
     }
+    ProviderWriteRunFailure: {
+      code: string
+      detail: string
+    }
     ProviderWriteStatusResponse: {
       actions: string[] | null
       audit_warning?: string
@@ -1575,6 +1579,7 @@ export interface components {
       /** Format: int64 */
       remaining: number
       revision: string
+      run_failure?: components['schemas']['ProviderWriteRunFailure']
       /** Format: int64 */
       total: number
       version: string
@@ -3704,6 +3709,15 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem']
         }
       }
+      /** @description Gateway Timeout */
+      504: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
     }
   }
   confirmProviderRefresh: {
@@ -3786,6 +3800,15 @@ export interface operations {
       }
       /** @description Service Unavailable */
       503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Gateway Timeout */
+      504: {
         headers: {
           [name: string]: unknown
         }

@@ -275,6 +275,25 @@ func TestCompletedOnboardingWaitsForOneReleaseAndPreservesReleaseFailure(t *test
 	assert.Equal(t, int32(1), coordinator.closes.Load())
 }
 
+// Every buffered request, not only a provider refresh, may outlive Huma's five-second body
+// read deadline without cancelling itself or the next request on its connection.
+func TestSlowMutationOutlivesTheBodyReadDeadlineOnAKeepAliveConnection(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{startDelay: 6 * time.Second}
+	server := newOnboardingAPIServer(t, coordinator)
+	baseURL, client := keepAliveClient(t, server)
+	path, err := ProfileAPIPath("/", testProfileID, "onboarding/start")
+	require.NoError(t, err)
+	body := OnboardingStartBody{ProtocolVersion: onboarding.ProtocolVersion}
+
+	first := postKeepAlive(t, client, server, baseURL+path, testProfileID, body)
+	assert.Equal(t, http.StatusOK, first.status, first.body)
+	second := postKeepAlive(t, client, server, baseURL+path, testProfileID, body)
+	assert.True(t, second.reused, "the second start reuses the connection")
+	assert.Equal(t, http.StatusOK, second.status, "the reused connection: %s", second.body)
+	assert.Equal(t, int32(2), coordinator.starts.Load())
+}
+
 func newOnboardingAPIServer(t testing.TB, coordinator OnboardingCoordinator) *Server {
 	t.Helper()
 	service, err := app.NewService(nil)
@@ -301,15 +320,19 @@ type apiOnboardingFake struct {
 	closes           atomic.Int32
 	profileCancels   atomic.Int32
 	submits          atomic.Int32
+	startDelay       time.Duration
 	providerKind     string
 	lastStart        onboarding.StartRequest
 	lastSubmit       onboarding.SubmitRequest
 }
 
 func (coordinator *apiOnboardingFake) Start(
-	_ context.Context,
+	ctx context.Context,
 	request onboarding.StartRequest,
 ) (onboarding.Snapshot, error) {
+	if err := coordinator.waitToStart(ctx); err != nil {
+		return onboarding.Snapshot{}, err
+	}
 	coordinator.starts.Add(1)
 	coordinator.lastStart = request
 	providerKind := coordinator.providerKind
@@ -325,6 +348,24 @@ func (coordinator *apiOnboardingFake) Start(
 		State: onboarding.StateCredentialsRequired, ProviderKind: providerKind,
 	}
 	return coordinator.snapshot, nil
+}
+
+// waitToStart holds the first start for startDelay, as a slow provider sign-in does, and
+// stops early when the request context ends.
+func (coordinator *apiOnboardingFake) waitToStart(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	delay := coordinator.startDelay
+	coordinator.startDelay = 0
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (coordinator *apiOnboardingFake) Status(

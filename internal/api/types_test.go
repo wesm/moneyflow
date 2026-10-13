@@ -283,3 +283,20 @@ func TestWireCapabilitiesCarryDynamicUnavailableReason(t *testing.T) {
 	}
 	t.Fatal("provider refresh capability is missing")
 }
+
+func TestWireProjectionReportsANoticeAsAWarning(t *testing.T) {
+	t.Parallel()
+
+	projection := app.WebProjection{
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		Status: "No transactions match the current view.",
+		Notice: "The selection changed and was cleared after refresh.",
+	}
+
+	wire := projectionToWire(projection, "v=1", nil)
+
+	assert.Equal(t, "No transactions match the current view.", wire.Status)
+	assert.Equal(t, []Warning{{
+		Code: warningViewNotice, Detail: "The selection changed and was cleared after refresh.",
+	}}, wire.Warnings)
+}

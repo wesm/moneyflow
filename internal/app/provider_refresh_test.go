@@ -318,32 +318,186 @@ func TestProviderRefreshFetchDoesNotHoldSQLiteTransaction(t *testing.T) {
 	assert.Equal(t, "operation_during_provider_fetch", persisted.Journal[0].ID)
 }
 
-func TestProviderRefreshCancellationReleasesLeaseWithoutChangingStatus(t *testing.T) {
+// A refresh that its request stops, by cancellation or by the web time limit, records the
+// attempt. The status shows it, and the scheduler waits out the retry delay instead of starting
+// the same refresh again on its next tick.
+func TestStoppedProviderRefreshRecordsTheAttemptAndWaitsBeforeRetrying(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	service, profileHandle := newProviderRefreshService(t)
+	for _, stopped := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(stopped.Error(), func(t *testing.T) {
+			t.Parallel()
+			service, profileHandle := newProviderRefreshService(t)
+			now := time.Date(2026, time.August, 15, 18, 45, 0, 0, time.UTC)
+			source := &fakeProviderSource{
+				identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+				snapshot: providerSnapshot(t, now, 3), fingerprint: "session-a",
+			}
+			require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+				ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
+				Renderer: "web", InstanceID: "instance-a",
+				Now: func() time.Time { return now }, Random: &incrementingReader{},
+			}))
+			scheduled := app.ProviderRefreshRequest{
+				State: app.DefaultViewState(), Selection: app.EmptySelection(),
+			}
+			manual := scheduled
+			manual.Manual = true
+			_, err := service.RefreshProvider(context.Background(), manual)
+			require.NoError(t, err)
+			now = now.Add(31 * 24 * time.Hour)
+			status, err := service.ProviderStatus(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, app.ProviderRefreshFull, status.RefreshDue)
+
+			ctx, stop := context.WithCancelCause(context.Background())
+			source.setFetchHook(func() error {
+				stop(stopped)
+				return context.Cause(ctx)
+			})
+			_, err = service.RefreshProvider(ctx, scheduled)
+			require.ErrorIs(t, err, stopped)
+			var failure *app.AppError
+			assert.False(t, errors.As(err, &failure), "the request still reports that it stopped")
+
+			state, err := profileHandle.ProviderState(context.Background())
+			require.NoError(t, err)
+			assert.Nil(t, state.Lease)
+			assert.Equal(t, uint64(1), state.Refresh.Generation, "no data changed")
+			status, err = service.ProviderStatus(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, provider.CodeUnavailable, status.Code)
+			assert.Equal(t, now, status.LastAttempt)
+			assert.Equal(t, now.Add(5*time.Minute), status.NextEligible)
+			assert.Equal(t, app.ProviderRefreshNone, status.RefreshDue)
+
+			source.setFetchHook(nil)
+			fetches := source.fetchCalls()
+			_, err = service.RefreshProvider(context.Background(), scheduled)
+			require.NoError(t, err)
+			assert.Equal(t, fetches, source.fetchCalls(), "the scheduler waits for the retry delay")
+			now = now.Add(5 * time.Minute)
+			status, err = service.ProviderStatus(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, app.ProviderRefreshFull, status.RefreshDue)
+		})
+	}
+}
+
+// A refresh can run far longer than the retry delay before its request stops it, as at the web
+// time limit. The delay counts from when it stopped, or the next tick would start it again.
+func TestLongStoppedProviderRefreshWaitsTheRetryDelayFromWhenItStopped(t *testing.T) {
+	t.Parallel()
+
+	service, _ := newProviderRefreshService(t)
+	start := time.Date(2026, time.August, 15, 18, 45, 0, 0, time.UTC)
+	clock := &providerTestClock{now: start}
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, start, 3), fingerprint: "session-a",
+	}
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "web", InstanceID: "instance-a", Now: clock.Now, Random: &incrementingReader{},
+	}))
+	scheduled := app.ProviderRefreshRequest{
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	}
+	manual := scheduled
+	manual.Manual = true
+	_, err := service.RefreshProvider(context.Background(), manual)
+	require.NoError(t, err)
+	attempted := clock.Advance(31 * 24 * time.Hour)
+
+	ctx, stop := context.WithCancelCause(context.Background())
+	source.setFetchHook(func() error {
+		clock.Advance(31 * time.Minute)
+		stop(context.DeadlineExceeded)
+		return context.Cause(ctx)
+	})
+	_, err = service.RefreshProvider(ctx, scheduled)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	stopped := clock.Now()
+
+	status, err := service.ProviderStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, attempted, status.LastAttempt, "status keeps when the attempt started")
+	assert.Equal(t, stopped.Add(5*time.Minute), status.NextEligible)
+	assert.Equal(t, app.ProviderRefreshNone, status.RefreshDue)
+	source.setFetchHook(nil)
+	fetches := source.fetchCalls()
+	_, err = service.RefreshProvider(context.Background(), scheduled)
+	require.NoError(t, err)
+	assert.Equal(t, fetches, source.fetchCalls(), "the scheduler waits for the retry delay")
+}
+
+// A request can stop after the refresh commits, while the service reloads the saved data. The
+// refresh is saved, so it must report success rather than a stopped request that changed nothing.
+func TestProviderRefreshStoppedAfterItsCommitReportsTheSavedRefresh(t *testing.T) {
+	t.Parallel()
+
+	ctx, stop := context.WithCancelCause(context.Background())
+	paths, err := home.ResolveRoot(t.TempDir(), nil, "")
+	require.NoError(t, err)
+	profileHandle, err := sqlite.Open(context.Background(), paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profileHandle.Close()) })
+	stopping := &stopAfterRefreshCommitProfile{
+		Profile: profileHandle, stop: func() { stop(context.DeadlineExceeded) },
+	}
+	service, err := app.NewProfileService(context.Background(), stopping)
+	require.NoError(t, err)
 	now := time.Date(2026, time.August, 15, 18, 45, 0, 0, time.UTC)
 	source := &fakeProviderSource{
 		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
 		snapshot: providerSnapshot(t, now, 3), fingerprint: "session-a",
 	}
-	source.setFetchHook(func() error {
-		cancel()
-		return ctx.Err()
-	})
 	configureProviderRefreshService(t, service, source, now, "instance-a")
 
-	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+	result, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
 		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 	})
-	require.ErrorIs(t, err, context.Canceled)
-	state, stateErr := profileHandle.ProviderState(context.Background())
-	require.NoError(t, stateErr)
-	assert.Nil(t, state.Lease)
-	assert.Equal(t, uint64(0), state.Refresh.Generation)
-	assert.Empty(t, state.Refresh.StatusCode)
-	assert.True(t, state.Refresh.LastAttempt.IsZero())
+	require.NoError(t, err)
+	require.Error(t, ctx.Err(), "the request stopped after the commit")
+	assert.Equal(t, uint64(1), result.Status.Generation)
+	assert.NotZero(t, result.Revision)
+	assert.Equal(t, service.Revision(), result.Revision, "the service loaded the saved refresh")
+}
+
+// stopAfterRefreshCommitProfile stops the request right after a provider refresh commits.
+type stopAfterRefreshCommitProfile struct {
+	store.Profile
+	stop func()
+}
+
+func (profile *stopAfterRefreshCommitProfile) ApplyProviderRefresh(
+	ctx context.Context,
+	request store.AtomicRefreshRequest,
+	planner store.RefreshPlanner,
+) (store.RefreshCommit, error) {
+	commit, err := profile.Profile.ApplyProviderRefresh(ctx, request, planner)
+	profile.stop()
+	return commit, err
+}
+
+// providerTestClock is a provider clock a test moves forward while a refresh runs.
+type providerTestClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (clock *providerTestClock) Now() time.Time {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	return clock.now
+}
+
+// Advance moves the clock forward and returns the new time.
+func (clock *providerTestClock) Advance(delta time.Duration) time.Time {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	clock.now = clock.now.Add(delta)
+	return clock.now
 }
 
 func TestProviderRefreshClearsCompleteSelectionWhenOneIdentityVanishes(t *testing.T) {
@@ -726,6 +880,7 @@ type fakeProviderSource struct {
 	reloads          int
 	reloadHook       func()
 	requests         []provider.FetchRequest
+	changedErr       error
 }
 
 type providerStateRaceProfile struct {
@@ -773,6 +928,9 @@ func (*fakeProviderSource) Writer(
 func (source *fakeProviderSource) Changed(previous provider.SessionFingerprint) (bool, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
+	if source.changedErr != nil {
+		return false, source.changedErr
+	}
 	return previous != source.fingerprint, nil
 }
 

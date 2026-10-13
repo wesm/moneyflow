@@ -83,6 +83,11 @@ returns the window that holds that row and reports its global index as `anchor_i
 that matches no row of the result leaves the window as requested, omits `anchor_index`, and adds the
 warning `anchor_missing`.
 
+**Unreleased:** A projection reports a change the request made that the user did not ask for as
+the warning `view_notice`. Examples are an undo or redo that returns to the parent view because
+the drilled target is gone, and a provider refresh that clears the selection. The browser shows
+each warning in a banner.
+
 **Unreleased:** Charts read from a separate operation,
 `POST /api/v1/profiles/{profile_id}/view/insights`. It takes the view's query and optional row
 identities and returns committed chart data from `Service.Insights`.

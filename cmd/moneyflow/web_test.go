@@ -530,6 +530,24 @@ func TestRunWebSweepsIdleProfilesUntilShutdown(t *testing.T) {
 	}
 }
 
+func TestIdleProfileSweepWarningNamesTheCause(t *testing.T) {
+	t.Parallel()
+	stderr := &lockedWriter{}
+	stop := startIdleProfileSweeper(context.Background(), WebDependencies{
+		CloseIdle: func(context.Context) error {
+			return errors.New("close idle profile profile_example: synthetic close failure")
+		},
+		IdleSweepInterval: time.Millisecond,
+	}, stderr)
+	defer stop()
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(stderr.String(),
+			"Warning: idle profile cleanup failed: "+
+				"close idle profile profile_example: synthetic close failure\n")
+	}, 2*time.Second, time.Millisecond)
+}
+
 func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 	for _, basePath := range []string{"/", "/moneyflow"} {
 		t.Run(basePath, func(t *testing.T) {
@@ -576,6 +594,66 @@ func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunWebLogsServerFailuresToStandardError(t *testing.T) {
+	t.Parallel()
+	registry, err := webserver.NewProfileRegistry(webserver.ProfileRegistryConfig{
+		Open: func(context.Context, string) (webserver.RegistryProfile, error) {
+			return webserver.RegistryProfile{}, errors.New("synthetic open failure")
+		},
+	})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	address := make(chan string, 1)
+	stderr := &lockedWriter{}
+	streams := IOStreams{
+		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: stderr,
+		Listen: func(ctx context.Context, network, _ string) (net.Listener, error) {
+			listener, listenErr := (&net.ListenConfig{}).Listen(ctx, network, "127.0.0.1:0")
+			if listenErr == nil {
+				address <- listener.Addr().String()
+			}
+			return listener, listenErr
+		},
+		SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
+			return context.WithCancel(parent)
+		},
+	}
+	result := make(chan error, 1)
+	go func() {
+		result <- runWeb(ctx, WebDependencies{Registry: registry}, WebOptions{
+			Listen: "127.0.0.1:8080", BasePath: "/", Open: false,
+		}, streams)
+	}()
+	path := "/api/v1/profiles/profile_aaaaaaaaaaaaaaaaaaaaaaaaaa/health"
+	response := eventuallyGET(t, "http://"+<-address+path)
+	assert.Equal(t, http.StatusInternalServerError, response.StatusCode)
+	require.NoError(t, response.Body.Close())
+
+	cancel()
+	require.NoError(t, <-result)
+	assert.Contains(t, stderr.String(),
+		"moneyflow web: GET "+path+": the profile could not be opened: synthetic open failure")
+}
+
+// lockedWriter collects output that server goroutines write while a test runs.
+type lockedWriter struct {
+	mutex  sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (writer *lockedWriter) Write(data []byte) (int, error) {
+	writer.mutex.Lock()
+	defer writer.mutex.Unlock()
+	return writer.buffer.Write(data)
+}
+
+func (writer *lockedWriter) String() string {
+	writer.mutex.Lock()
+	defer writer.mutex.Unlock()
+	return writer.buffer.String()
 }
 
 func TestRunWebHonorsExternalBasePathProfileContract(t *testing.T) {

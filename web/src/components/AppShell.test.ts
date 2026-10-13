@@ -1,3 +1,4 @@
+import { dismissFlash } from '@kenn-io/kit-ui'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { tick } from 'svelte'
@@ -22,6 +23,7 @@ const escapeCapability = {
 describe('AppShell', () => {
   afterEach(() => {
     cleanup()
+    dismissFlash()
   })
   it('keeps the finance grid primary and routes the TUI cursor shortcut', async () => {
     const controller = stubController(twoRows(testProjection()))
@@ -676,7 +678,7 @@ describe('AppShell', () => {
     await fireEvent.keyDown(window, { key: 'u' })
     expect(controller.editing.undo).toHaveBeenCalled()
     await fireEvent.keyDown(window, { key: 'U', shiftKey: true })
-    expect(controller.editing.redo).toHaveBeenCalled()
+    await vi.waitFor(() => expect(controller.editing.redo).toHaveBeenCalled())
     await fireEvent.keyDown(window, { key: 'w' })
     expect(screen.getByRole('dialog', { name: 'Review pending changes' })).not.toBeNull()
   })
@@ -798,7 +800,11 @@ describe('AppShell', () => {
     await fireEvent.keyDown(window, { key: 'E', shiftKey: true })
 
     expect(screen.queryByRole('dialog', { name: 'Export transactions' })).toBeNull()
-    expect(screen.getByText('No data to export.')).not.toBeNull()
+    await vi.waitFor(() =>
+      expect(document.querySelector('.kit-flash-banner')?.textContent).toContain(
+        'No data to export.',
+      ),
+    )
   })
 
   it('opens an editor from the table and restores stable grid focus on cancel', async () => {
@@ -1304,6 +1310,7 @@ function stubController(projection = testProjection()): ViewController {
       requestDelete: vi.fn(),
       cancelDelete: vi.fn(),
       confirmDelete: vi.fn(async () => true),
+      retry: vi.fn(async () => true),
     },
     hydrate: vi.fn(),
     recheck: vi.fn(),

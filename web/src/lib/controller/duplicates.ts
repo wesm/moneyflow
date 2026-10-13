@@ -11,6 +11,7 @@ import {
   type SelectionValue,
   type ViewProjection,
 } from '../api/client'
+import { failureReason, problemReason, showFailure } from '../shell/notices'
 
 export type DuplicatePhase =
   | 'idle'
@@ -31,7 +32,12 @@ export interface DuplicateState {
 
 export interface DuplicateHost {
   current(): ViewProjection | undefined
-  recheck(selection?: SelectionValue, force?: boolean): Promise<ViewProjection | undefined>
+  /**
+   * Rereads the view with the selection it shows once view changes on their way have landed. A
+   * failure resolves undefined; it also shows in the workspace when `report()` is true by then
+   * and nothing newer owns the workspace problem.
+   */
+  recheck(report: () => boolean): Promise<ViewProjection | undefined>
 }
 
 export interface DuplicateController {
@@ -47,8 +53,11 @@ export interface DuplicateController {
   toggleFocused(): Promise<boolean>
   hideFocused(): Promise<boolean>
   requestDelete(): void
+  /** Closes the confirmation, even while its deletion is still being sent. */
   cancelDelete(): void
   confirmDelete(): Promise<boolean>
+  /** Rereads the view and the duplicate list after a failure. */
+  retry(): Promise<boolean>
 }
 
 type DuplicateRow = NonNullable<NonNullable<DuplicateResponse['groups']>[number]['rows']>[number]
@@ -60,6 +69,8 @@ interface DuplicateControllerOptions {
 }
 
 const windowLimit = 200
+const refreshFailed = 'The duplicate list could not be refreshed. Press Retry.'
+const changeRefused = 'The duplicate change could not be saved.'
 
 export function createDuplicateController(
   options: DuplicateControllerOptions,
@@ -70,6 +81,9 @@ export function createDuplicateController(
     announcement: '',
     confirmationCount: 0,
   }
+  // Counts closings. Each async call keeps the count it started with and checks `live` after
+  // every await, so a late answer cannot change a review that closed, or closed and reopened.
+  let closings = 0
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
     notify = update
@@ -83,17 +97,24 @@ export function createDuplicateController(
     notify()
   }
 
+  /** Whether review is still the one an async call that began in `session` was made for. */
+  function live(session: number): boolean {
+    return session === closings
+  }
+
   async function open(): Promise<boolean> {
     const current = options.host.current()
     if (!current) return false
-    return await load(current, undefined, 0, 0)
+    return await load(closings, current, undefined, 0, 0)
   }
 
   function close(): void {
+    closings += 1
     setState({ phase: 'idle', cursor: 0, announcement: '', confirmationCount: 0 })
   }
 
   async function load(
+    session: number,
     current: ViewProjection,
     selectionValue?: SelectionValue,
     groupOffset = state.projection?.group_window.offset ?? 0,
@@ -113,6 +134,7 @@ export function createDuplicateController(
         },
         undefined,
       )
+      if (!live(session)) return false
       const rows = flatten(projection)
       setState({
         phase: 'ready',
@@ -123,6 +145,7 @@ export function createDuplicateController(
       })
       return true
     } catch (error) {
+      if (!live(session)) return false
       if (
         refreshStaleSelection &&
         error instanceof MoneyflowProblem &&
@@ -130,13 +153,14 @@ export function createDuplicateController(
         error.problem.selection
       ) {
         const accepted = await load(
+          session,
           current,
           error.problem.selection.value as SelectionValue,
           groupOffset,
           rowOffset,
           false,
         )
-        if (accepted) {
+        if (accepted && live(session)) {
           setState({
             ...state,
             announcement: 'The profile changed. The stale duplicate selection was cleared.',
@@ -144,12 +168,10 @@ export function createDuplicateController(
         }
         return accepted
       }
+      // Without a list to review, a conflict can only be retried: Retry rereads the view first.
       setState({
         ...state,
-        phase:
-          error instanceof MoneyflowProblem && error.problem.code === 'revision_conflict'
-            ? 'conflict'
-            : 'failed',
+        phase: isConflict(error) && state.projection ? 'conflict' : 'failed',
         announcement:
           'The duplicate list could not be loaded. Review the current data and try again.',
       })
@@ -185,6 +207,7 @@ export function createDuplicateController(
 
   async function page(delta: -1 | 1): Promise<boolean> {
     if (!canInteract()) return false
+    const session = closings
     const current = options.host.current()
     const projection = state.projection
     if (!current || !projection) return false
@@ -206,8 +229,14 @@ export function createDuplicateController(
     } else {
       if (groupOffset === 0) return false
       groupOffset = Math.max(0, groupOffset - projection.group_window.limit)
-      const selected = await load(current, projection.selection as SelectionValue, groupOffset, 0)
-      if (!selected || !state.projection) return selected
+      const selected = await load(
+        session,
+        current,
+        projection.selection as SelectionValue,
+        groupOffset,
+        0,
+      )
+      if (!selected || !live(session) || !state.projection) return false
       const terminalOffset =
         Math.floor(Math.max(0, state.projection.window_transactions - 1) / windowLimit) *
         windowLimit
@@ -216,18 +245,21 @@ export function createDuplicateController(
         return true
       }
       const terminal = await load(
+        session,
         current,
         state.projection.selection as SelectionValue,
         groupOffset,
         terminalOffset,
       )
-      if (terminal) home()
-      return terminal
+      if (!terminal || !live(session)) return false
+      home()
+      return true
     }
     const selectionValue = projection.selection as SelectionValue
-    const accepted = await load(current, selectionValue, groupOffset, rowOffset)
-    if (accepted) home()
-    return accepted
+    const accepted = await load(session, current, selectionValue, groupOffset, rowOffset)
+    if (!accepted || !live(session)) return false
+    home()
+    return true
   }
 
   function focused(): DuplicateRow | undefined {
@@ -240,6 +272,7 @@ export function createDuplicateController(
     const projection = state.projection
     const row = focused()
     if (!current || !projection || !row) return false
+    const session = closings
     setState({ ...state, phase: 'loading', announcement: '' })
     try {
       const toggled = await options.client.transition({
@@ -249,13 +282,16 @@ export function createDuplicateController(
         target: row.target,
         window: { offset: 0, limit: windowLimit },
       })
+      if (!live(session)) return false
       return await load(
+        session,
         current,
         toggled.selection,
         projection.group_window.offset,
         projection.row_window.offset,
       )
     } catch {
+      if (!live(session)) return false
       setState({ ...state, phase: 'failed', announcement: 'Selection could not be changed.' })
       return false
     }
@@ -276,6 +312,9 @@ export function createDuplicateController(
   function cancelDelete(): void {
     if (state.phase === 'confirming') {
       setState({ ...state, phase: 'ready', confirmationCount: 0, announcement: '' })
+    } else if (state.phase === 'submitting') {
+      // The deletion is already on its way; its outcome shows in the list.
+      setState({ ...state, confirmationCount: 0 })
     }
   }
 
@@ -294,7 +333,7 @@ export function createDuplicateController(
     const projection = state.projection
     const row = focused()
     if (!current || !projection || !row) return false
-    const mainSelection = current.selection
+    const session = closings
     const count = projection.selection_count > 0 ? projection.selection_count : 1
     const body: MutationBody = {
       version: '1',
@@ -309,46 +348,73 @@ export function createDuplicateController(
     setState({ ...state, phase: 'submitting', announcement: '' })
     try {
       await requestProfileJSON<MutationResponse>(options.mutations, 'api/v1/mutations', body)
-      const refreshed = await options.host.recheck(mainSelection, true)
-      if (!refreshed || !(await load(refreshed, undefined, 0, 0))) {
-        setState({
-          ...state,
-          phase: 'failed',
-          announcement: 'The current profile could not be loaded.',
-        })
-        return false
-      }
-      setState({
-        ...state,
-        phase: 'ready',
-        announcement:
-          action === 'transaction.delete'
-            ? `Staged deletion for ${count} ${transactionWord(count)}. Press w to review and commit.`
-            : `Staged visibility change for ${count} ${transactionWord(count)}.`,
-        confirmationCount: 0,
-      })
-      return true
     } catch (error) {
-      if (error instanceof MoneyflowProblem && error.problem.code === 'revision_conflict') {
-        const refreshed = await options.host.recheck(mainSelection, true)
-        if (refreshed) await load(refreshed, undefined, 0, 0)
-        setState({
-          ...state,
-          phase: 'conflict',
-          announcement:
-            'The profile changed. Review the refreshed duplicates. Invoke deletion again.',
-          confirmationCount: 0,
-        })
-        return false
-      }
+      return await refused(error, session)
+    }
+    const staged =
+      action === 'transaction.delete'
+        ? `Staged deletion for ${count} ${transactionWord(count)}. Press w to review and commit.`
+        : `Staged visibility change for ${count} ${transactionWord(count)}.`
+    const reloaded = await reload(session)
+    if (!live(session)) return true
+    setState({
+      ...state,
+      phase: reloaded ? 'ready' : 'failed',
+      // The change is staged either way; pressing h again would reverse it.
+      announcement: reloaded ? staged : `${staged} ${refreshFailed}`,
+      confirmationCount: 0,
+    })
+    return true
+  }
+
+  async function refused(error: unknown, session: number): Promise<boolean> {
+    const reloaded = isConflict(error) && (await reload(session))
+    if (!live(session)) {
+      // Review closed before the refusal could show in it, so only the workspace can say so.
+      showFailure(`${changeRefused} ${failureReason(error)}`)
+      return false
+    }
+    if (isConflict(error)) {
       setState({
         ...state,
-        phase: 'failed',
-        announcement: 'The pending change could not be saved.',
+        phase: reloaded ? 'conflict' : 'failed',
+        announcement: reloaded
+          ? 'The profile changed. Review the refreshed duplicates. Invoke deletion again.'
+          : 'The profile changed, and the duplicate list could not be refreshed. Press Retry.',
         confirmationCount: 0,
       })
       return false
     }
+    const reason = error instanceof MoneyflowProblem ? ` ${problemReason(error.problem)}` : ''
+    setState({
+      ...state,
+      phase: 'failed',
+      announcement: `The pending change could not be saved.${reason}`,
+      confirmationCount: 0,
+    })
+    return false
+  }
+
+  /**
+   * Rereads the view, then the duplicate list; false when either fails. When review closed after
+   * `session` began, only the view is reread, and the workspace reports a failure, because the
+   * dialog that would have shown it is gone.
+   */
+  async function reload(session: number): Promise<boolean> {
+    const refreshed = await options.host.recheck(() => !live(session))
+    if (!live(session)) return refreshed !== undefined
+    return refreshed !== undefined && (await load(session, refreshed, undefined, 0, 0))
+  }
+
+  async function retry(): Promise<boolean> {
+    if (state.phase !== 'failed') return false
+    const session = closings
+    setState({ ...state, phase: 'loading', announcement: '' })
+    const reloaded = await reload(session)
+    if (!live(session)) return false
+    if (reloaded) return true
+    setState({ ...state, phase: 'failed', announcement: refreshFailed })
+    return false
   }
 
   function canInteract(): boolean {
@@ -373,7 +439,12 @@ export function createDuplicateController(
     requestDelete,
     cancelDelete,
     confirmDelete,
+    retry,
   }
+}
+
+function isConflict(error: unknown): boolean {
+  return error instanceof MoneyflowProblem && error.problem.code === 'revision_conflict'
 }
 
 function flatten(projection: DuplicateResponse): DuplicateRow[] {

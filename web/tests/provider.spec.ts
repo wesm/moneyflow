@@ -49,6 +49,39 @@ test('r refreshes through the protected base-path API without leaking provider s
   }
 })
 
+test('a refresh the server cannot complete shows a visible error', async ({ page }) => {
+  const server = await startE2EServer('/moneyflow/')
+  try {
+    await installProviderRoutes(page, false)
+    await page.route('**/api/v1/profiles/*/provider/refresh', async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/problem+json',
+        json: {
+          type: 'about:blank',
+          title: 'Internal Server Error',
+          status: 500,
+          detail: 'The request could not be completed.',
+          code: 'internal_error',
+        },
+      })
+    })
+    await openMoneyflow(page, server)
+
+    await page.keyboard.press('r')
+
+    await expect(
+      page.getByRole('status').filter({
+        hasText:
+          'Provider refresh failed: The request could not be completed. ' +
+          'The terminal running moneyflow web shows the cause.',
+      }),
+    ).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
 test('keyboard-only deletion confirmation applies only after explicit Enter', async ({ page }) => {
   const server = await startE2EServer('/moneyflow/')
   try {
