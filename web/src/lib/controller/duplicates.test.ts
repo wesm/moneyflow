@@ -472,39 +472,6 @@ describe('DuplicateController after a failed reload', () => {
     expect(controller.state.phase).toBe('ready')
   })
 
-  it('keeps a selection made after closing review while the deletion was sent', async () => {
-    let shown = testProjection({ revision: '3', selection: selection('before') })
-    let answer!: (response: Response) => void
-    const transport: MutationFetch = {
-      request: vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))),
-    }
-    const client = duplicateClient()
-    vi.mocked(client.projectDuplicates).mockResolvedValue(duplicates())
-    // Like the view controller, a recheck rereads the view with the selection it shows.
-    const recheck = vi.fn(async () => {
-      shown = testProjection({ revision: '4', selection: shown.selection })
-      return shown
-    })
-    const controller = createDuplicateController({
-      client,
-      mutations: transport,
-      host: { current: () => shown, recheck },
-    })
-    await controller.open()
-    controller.requestDelete()
-
-    const pending = controller.confirmDelete()
-    controller.cancelDelete()
-    controller.close()
-    shown = testProjection({ revision: '3', selection: selection('newer') })
-    answer(Response.json({}))
-
-    await expect(pending).resolves.toBe(true)
-    expect(recheck).toHaveBeenCalledOnce()
-    expect(shown.revision).toBe('4')
-    expect(shown.selection).toBe(selection('newer'))
-  })
-
   it('names the server’s reason when the change could not be saved', async () => {
     const busy = Response.json(
       {

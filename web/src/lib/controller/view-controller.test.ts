@@ -3077,7 +3077,7 @@ describe('visible view failures', () => {
     await new Promise((resolve) => setTimeout(resolve, 10))
     answerSelection(projection('v=1', 0, 3, '4', newer))
     await selecting
-    await deleting
+    await expect(deleting).resolves.toBe(true)
 
     expect(view.mock.calls.at(-1)?.[0]).toMatchObject({ selection: newer })
     expect(controller.projection?.selection).toBe(newer)
