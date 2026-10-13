@@ -1045,10 +1045,13 @@ func TestPausePreventsClaimAfterRequestArrivesDuringLeaseRenewal(t *testing.T) {
 		status, _ := service.PauseProviderWrite(ctx, prepared.ProviderWrite.Version)
 		pauseDone <- status
 	}()
+	// Release the renewal only once the pause request is registered, so the claim that follows
+	// sees it however long the pause goroutine took to start.
+	require.Eventually(t, service.ProviderWritePausePending, 5*time.Second, time.Millisecond)
 	select {
 	case <-pauseDone:
 		t.Fatal("pause returned while the write lease renewal was blocked")
-	case <-time.After(20 * time.Millisecond):
+	default:
 	}
 	close(wrapped.release)
 	require.NoError(t, <-runDone)
