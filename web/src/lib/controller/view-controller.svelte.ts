@@ -246,7 +246,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     mutations: options.client.mutations,
     host: {
       current: () => projection,
-      recheck: async (selection, report) => await reportedRecheck(selection, true, report),
+      recheck: async (report) => await reportedRecheck(undefined, true, report),
     },
   })
   const exportController = createExportController({ client: options.client })

@@ -128,7 +128,7 @@ describe('DuplicateController', () => {
       selection: selection('selected'),
       query: 'mode=detail&v=1',
     })
-    expect(recheck).toHaveBeenCalledWith(current.selection, expect.any(Function))
+    expect(recheck).toHaveBeenCalledWith(expect.any(Function))
     expect(controller.state.projection?.total_groups).toBe(0)
     expect(controller.state.announcement).toContain('Staged deletion')
   })
@@ -480,9 +480,9 @@ describe('DuplicateController after a failed reload', () => {
     }
     const client = duplicateClient()
     vi.mocked(client.projectDuplicates).mockResolvedValue(duplicates())
-    // Like the view controller, a recheck rereads the view with the selection it is given.
-    const recheck = vi.fn(async (requested?: SelectionValue) => {
-      shown = testProjection({ revision: '4', selection: requested ?? shown.selection })
+    // Like the view controller, a recheck rereads the view with the selection it shows.
+    const recheck = vi.fn(async () => {
+      shown = testProjection({ revision: '4', selection: shown.selection })
       return shown
     })
     const controller = createDuplicateController({

@@ -33,13 +33,11 @@ export interface DuplicateState {
 export interface DuplicateHost {
   current(): ViewProjection | undefined
   /**
-   * Rereads the view with `selection`. A failure resolves undefined; it also shows in the
-   * workspace when `report()` is true by then and nothing newer owns the workspace problem.
+   * Rereads the view with the selection it shows once view changes on their way have landed. A
+   * failure resolves undefined; it also shows in the workspace when `report()` is true by then
+   * and nothing newer owns the workspace problem.
    */
-  recheck(
-    selection: SelectionValue | undefined,
-    report: () => boolean,
-  ): Promise<ViewProjection | undefined>
+  recheck(report: () => boolean): Promise<ViewProjection | undefined>
 }
 
 export interface DuplicateController {
@@ -334,7 +332,6 @@ export function createDuplicateController(
     const projection = state.projection
     const row = focused()
     if (!current || !projection || !row) return false
-    const mainSelection = current.selection
     const session = closings
     const count = projection.selection_count > 0 ? projection.selection_count : 1
     const body: MutationBody = {
@@ -351,13 +348,13 @@ export function createDuplicateController(
     try {
       await requestProfileJSON<MutationResponse>(options.mutations, 'api/v1/mutations', body)
     } catch (error) {
-      return await refused(error, unchangedSelection(mainSelection), session)
+      return await refused(error, session)
     }
     const staged =
       action === 'transaction.delete'
         ? `Staged deletion for ${count} ${transactionWord(count)}. Press w to review and commit.`
         : `Staged visibility change for ${count} ${transactionWord(count)}.`
-    const reloaded = await reload(unchangedSelection(mainSelection), session)
+    const reloaded = await reload(session)
     if (!live(session)) return true
     setState({
       ...state,
@@ -369,20 +366,8 @@ export function createDuplicateController(
     return true
   }
 
-  /**
-   * The main selection to restore after a change, unless the user changed it while the request
-   * ran, such as after closing review. The reread then keeps the newer selection.
-   */
-  function unchangedSelection(mainSelection: SelectionValue): SelectionValue | undefined {
-    return options.host.current()?.selection === mainSelection ? mainSelection : undefined
-  }
-
-  async function refused(
-    error: unknown,
-    mainSelection: SelectionValue | undefined,
-    session: number,
-  ): Promise<boolean> {
-    const reloaded = isConflict(error) && (await reload(mainSelection, session))
+  async function refused(error: unknown, session: number): Promise<boolean> {
+    const reloaded = isConflict(error) && (await reload(session))
     if (!live(session)) {
       // Review closed before the refusal could show in it, so only the workspace can say so.
       showFailure(`${changeRefused} ${failureReason(error)}`)
@@ -410,12 +395,12 @@ export function createDuplicateController(
   }
 
   /**
-   * Rereads the view with `selection`, then the duplicate list; false when either fails. When
-   * review closed after `session` began, only the view is reread, and the workspace reports a
-   * failure, because the dialog that would have shown it is gone.
+   * Rereads the view, then the duplicate list; false when either fails. When review closed after
+   * `session` began, only the view is reread, and the workspace reports a failure, because the
+   * dialog that would have shown it is gone.
    */
-  async function reload(selection: SelectionValue | undefined, session: number): Promise<boolean> {
-    const refreshed = await options.host.recheck(selection, () => !live(session))
+  async function reload(session: number): Promise<boolean> {
+    const refreshed = await options.host.recheck(() => !live(session))
     if (!live(session)) return refreshed !== undefined
     return refreshed !== undefined && (await load(session, refreshed, undefined, 0, 0))
   }
@@ -424,7 +409,7 @@ export function createDuplicateController(
     if (state.phase !== 'failed') return false
     const session = closings
     setState({ ...state, phase: 'loading', announcement: '' })
-    const reloaded = await reload(undefined, session)
+    const reloaded = await reload(session)
     if (!live(session)) return false
     if (reloaded) return true
     setState({ ...state, phase: 'failed', announcement: refreshFailed })

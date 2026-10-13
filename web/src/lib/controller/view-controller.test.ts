@@ -2979,6 +2979,46 @@ describe('visible view failures', () => {
     })
   })
 
+  it('keeps a selection made after review closed when a duplicate deletion answers', async () => {
+    const newer = 'mfsel1.newer' as SelectionValue
+    let answerDeletion!: (response: Response) => void
+    let answerSelection!: (next: ViewProjection) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '3'))
+      .mockImplementation(async (body: ViewBody) =>
+        projection(body.query, 0, 3, '4', body.selection),
+      )
+    const transition = vi.fn(
+      () => new Promise<ViewProjection>((resolve) => (answerSelection = resolve)),
+    )
+    const client = clientWith({
+      view,
+      transition,
+      projectDuplicates: vi.fn(async () => testDuplicates()),
+      mutations: {
+        request: vi.fn(() => new Promise<Response>((resolve) => (answerDeletion = resolve))),
+      },
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.duplicates.open()
+    controller.duplicates.requestDelete()
+    const deleting = controller.duplicates.confirmDelete()
+    controller.duplicates.close()
+
+    const selecting = controller.apply({ action: 'selection.toggle-all' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+    answerDeletion(Response.json({}))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    answerSelection(projection('v=1', 0, 3, '4', newer))
+    await selecting
+    await deleting
+
+    expect(view.mock.calls.at(-1)?.[0]).toMatchObject({ selection: newer })
+    expect(controller.projection?.selection).toBe(newer)
+  })
+
   describe('a duplicate reread after review closed, once a newer change failed', () => {
     async function rereadAfterNewerFailure(
       answerReread: (settle: {
