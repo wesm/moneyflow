@@ -198,6 +198,20 @@ func (source *Provider) snapshotLocked() domain.ImportSnapshot {
 	return snapshot
 }
 
+// windowedSnapshotLocked keeps the rows a recent refresh asked for, as Monarch does, and
+// echoes the window so the refresh can scope removals to it.
+func (source *Provider) windowedSnapshotLocked(window *domain.DateRange) domain.ImportSnapshot {
+	snapshot := source.snapshotLocked()
+	if window == nil {
+		return snapshot
+	}
+	scope := *window
+	snapshot.TransactionWindow = &scope
+	outside := func(row domain.ImportTransaction) bool { return !snapshot.InTransactionWindow(row.Date) }
+	snapshot.Transactions = slices.DeleteFunc(snapshot.Transactions, outside)
+	return snapshot
+}
+
 // Reader opens the synthetic provider, never a network client.
 func (source *Provider) Reader(context.Context, bool) (provider.Reader, provider.SessionFingerprint, error) {
 	return source, "scenario-session", nil
@@ -225,7 +239,9 @@ func (source *Provider) ProbeIdentity(ctx context.Context) (provider.ProfileIden
 }
 
 // FetchSnapshot records full downloads so tests can enforce their request budget.
-func (source *Provider) FetchSnapshot(ctx context.Context, _ provider.FetchRequest, progress provider.ProgressFunc) (provider.SnapshotResult, error) {
+func (source *Provider) FetchSnapshot(
+	ctx context.Context, request provider.FetchRequest, progress provider.ProgressFunc,
+) (provider.SnapshotResult, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -238,7 +254,7 @@ func (source *Provider) FetchSnapshot(ctx context.Context, _ provider.FetchReque
 	if err := source.saveLocked(); err != nil {
 		return provider.SnapshotResult{}, err
 	}
-	snapshot := source.snapshotLocked()
+	snapshot := source.windowedSnapshotLocked(request.TransactionWindow)
 	switch fault {
 	case RefreshFail:
 		source.state.Calls[index].Outcome = "failed"

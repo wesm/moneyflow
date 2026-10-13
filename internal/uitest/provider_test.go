@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/uitest"
 )
@@ -157,4 +158,23 @@ func TestProviderBlockedRefreshReportsProgressAndStopsWhenCanceled(t *testing.T)
 	require.Eventually(t, func() bool { return source.Blocked() }, time.Second, time.Millisecond)
 	source.Release()
 	require.NoError(t, <-done)
+}
+
+func TestProviderSnapshotKeepsOnlyTheRequestedWindow(t *testing.T) {
+	source, err := uitest.OpenProvider(t.TempDir())
+	require.NoError(t, err)
+	start, err := domain.ParseDate("2026-07-17")
+	require.NoError(t, err)
+	end, err := domain.ParseDate("2026-10-15")
+	require.NoError(t, err)
+	window := domain.DateRange{Start: start, End: end}
+	request := provider.FetchRequest{TransactionWindow: &window}
+	result, err := source.FetchSnapshot(t.Context(), request, nil)
+	require.NoError(t, err)
+	require.NotNil(t, result.Snapshot.TransactionWindow, "a recent refresh needs its window back")
+	assert.Equal(t, window, *result.Snapshot.TransactionWindow)
+	assert.Len(t, result.Snapshot.Transactions, 6, "the 2025 row is outside the window")
+	for _, transaction := range result.Snapshot.Transactions {
+		assert.True(t, result.Snapshot.InTransactionWindow(transaction.Date), transaction.ExternalID)
+	}
 }
