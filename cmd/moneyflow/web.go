@@ -286,7 +286,7 @@ func startIdleProfileSweeper(
 				return
 			case <-ticker.C:
 				if err := dependencies.CloseIdle(ctx); err != nil && ctx.Err() == nil {
-					_, _ = fmt.Fprintln(stderr, "Warning: idle profile cleanup failed.")
+					_, _ = fmt.Fprintf(stderr, "Warning: idle profile cleanup failed: %v\n", err)
 				}
 			}
 		}

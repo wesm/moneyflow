@@ -530,6 +530,24 @@ func TestRunWebSweepsIdleProfilesUntilShutdown(t *testing.T) {
 	}
 }
 
+func TestIdleProfileSweepWarningNamesTheCause(t *testing.T) {
+	t.Parallel()
+	stderr := &lockedWriter{}
+	stop := startIdleProfileSweeper(context.Background(), WebDependencies{
+		CloseIdle: func(context.Context) error {
+			return errors.New("close idle profile profile_example: synthetic close failure")
+		},
+		IdleSweepInterval: time.Millisecond,
+	}, stderr)
+	defer stop()
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(stderr.String(),
+			"Warning: idle profile cleanup failed: "+
+				"close idle profile profile_example: synthetic close failure\n")
+	}, 2*time.Second, time.Millisecond)
+}
+
 func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 	for _, basePath := range []string{"/", "/moneyflow"} {
 		t.Run(basePath, func(t *testing.T) {

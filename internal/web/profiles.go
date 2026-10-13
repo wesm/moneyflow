@@ -310,7 +310,7 @@ func (registry *ProfileRegistry) CloseIdle(ctx context.Context) error {
 	var result error
 	for _, id := range ids {
 		if err := registry.Evict(ctx, id); err != nil {
-			result = errors.Join(result, err)
+			result = errors.Join(result, fmt.Errorf("close idle profile %s: %w", id, err))
 		}
 	}
 	return result

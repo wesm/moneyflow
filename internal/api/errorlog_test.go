@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -119,4 +120,24 @@ func TestNonProblemServerFailureIsLogged(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, response.Code)
 	assert.Equal(t, "GET /api/v1/example: 500 internal_error\n", output.String())
+}
+
+func TestUnreadableProviderSessionIsLoggedOncePerCause(t *testing.T) {
+	t.Parallel()
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	server, logged := newLoggedServer(t, Config{Resolver: resolverForService(testProfileID, service)})
+	ctx := context.WithValue(context.Background(), resolvedProfileContextKey{}, resolvedProfile{
+		id: testProfileID, service: service,
+	})
+	unreadable := errors.New("inspect session: permission denied")
+
+	server.logSessionCheck(ctx, unreadable)
+	server.logSessionCheck(ctx, unreadable)
+	server.logSessionCheck(ctx, nil)
+	server.logSessionCheck(ctx, unreadable)
+
+	line := "provider write status for " + testProfileID +
+		": the saved provider session could not be inspected: inspect session: permission denied"
+	assert.Equal(t, 2, strings.Count(logged.String(), line))
 }

@@ -40,8 +40,11 @@ type ProviderWriteStatus struct {
 	OwnerInstanceID  string
 	PreparedRevision uint64
 	SessionChanged   bool
-	CanCheckOutcome  bool // Bounded readback can resolve or retry this batch.
-	AuditWarning     string
+	// SessionCheckErr says why the saved provider session could not be inspected while the
+	// batch waits for a reconnect; SessionChanged is false then. It is for the operator log.
+	SessionCheckErr error
+	CanCheckOutcome bool // Bounded readback can resolve or retry this batch.
+	AuditWarning    string
 	// RunFailure says why the last background run stopped while the batch still reads as
 	// writing or reconciling; nil otherwise.
 	RunFailure *ProviderWriteRunFailure
@@ -184,7 +187,9 @@ func (service *Service) ProviderWriteStatus(ctx context.Context) (ProviderWriteS
 	if status.Phase == store.WritePhaseReconnectRequired {
 		if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
 			if runtime.writeSource != nil {
-				status.SessionChanged, _ = runtime.writeSource.Changed(runtime.currentFingerprint())
+				status.SessionChanged, status.SessionCheckErr = runtime.writeSource.Changed(
+					runtime.currentFingerprint(),
+				)
 			}
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -187,6 +188,32 @@ func TestExportDownloadCleansStageWhenTheClientDisconnects(t *testing.T) {
 	entries, readErr := os.ReadDir(filepath.Join(root, "exports", ".tmp"))
 	require.NoError(t, readErr)
 	assert.Empty(t, entries)
+}
+
+func TestExportDownloadThatStopsMidStreamIsLogged(t *testing.T) {
+	server, _, _, _ := exportTestServer(t, false)
+	logged := &lockedBuffer{}
+	server.errorLog = log.New(logged, "", 0)
+	path, err := ProfileAPIPath("/", testProfileID, "export")
+	require.NoError(t, err)
+	body, err := json.Marshal(ExportBody{
+		Version: ExportWireVersion, Format: exporter.FormatCSV,
+		Scope: app.ExportScopeFull, Query: "v=1",
+	})
+	require.NoError(t, err)
+	issued, err := server.security.Issue(testProfileID)
+	require.NoError(t, err)
+	request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", server.security.origin.Origin())
+	request.Header.Set("Sec-Fetch-Site", "same-origin")
+	request.Header.Set(MutationTokenHeader, issued.Value)
+
+	server.Handler().ServeHTTP(&disconnectingResponseWriter{header: make(http.Header)}, request)
+
+	assert.Contains(t, logged.String(),
+		"POST "+path+": the export download stopped after 0 of ")
+	assert.Contains(t, logged.String(), io.ErrClosedPipe.Error())
 }
 
 func TestExportStreamReaderStopsBeforeReadingAfterCancellation(t *testing.T) {

@@ -49,6 +49,32 @@ func TestProfileRegistryCachesByIDAndClosesAfterIdle(t *testing.T) {
 	assert.Equal(t, 1, closes)
 }
 
+func TestProfileRegistryIdleCloseFailureNamesTheProfile(t *testing.T) {
+	t.Parallel()
+	clock := &registryClock{now: time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)}
+	registry, err := NewProfileRegistry(ProfileRegistryConfig{
+		Now: clock.Now, IdleTimeout: 15 * time.Minute,
+		Open: func(context.Context, string) (RegistryProfile, error) {
+			service, serviceErr := app.NewService(nil)
+			return RegistryProfile{
+				ID: registryTestProfileID, Service: service, Paths: home.Paths{Root: t.TempDir()},
+				Close: func() error { return errors.New("synthetic close failure") },
+			}, serviceErr
+		},
+	})
+	require.NoError(t, err)
+	lease, err := registry.Acquire(context.Background(), registryTestProfileID)
+	require.NoError(t, err)
+	require.NoError(t, lease.Release())
+
+	clock.Advance(15 * time.Minute)
+	err = registry.CloseIdle(context.Background())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), registryTestProfileID)
+	assert.Contains(t, err.Error(), "synthetic close failure")
+}
+
 func TestProfileRegistryKeepsTemporaryProfileUntilShutdown(t *testing.T) {
 	t.Parallel()
 	clock := &registryClock{now: time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)}

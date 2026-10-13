@@ -139,11 +139,17 @@ func (server *Server) registerExportEndpoints() {
 			stream.SetHeader("Content-Disposition", exportContentDisposition(download.Filename))
 			stream.SetHeader("X-Moneyflow-Transaction-Count", strconv.Itoa(download.Count))
 			stream.SetHeader("X-Content-Type-Options", "nosniff")
-			if _, copyErr := io.Copy(
+			written, copyErr := io.Copy(
 				stream.BodyWriter(),
 				&exportStreamReader{ctx: stream.Context(), reader: download.Reader},
-			); copyErr != nil {
-				return
+			)
+			if copyErr != nil {
+				// The status line is sent, so only the log can say the file is incomplete.
+				address := stream.URL()
+				server.errorLog.Printf(
+					"%s %s: the export download stopped after %d of %d bytes: %s",
+					stream.Method(), address.Path, written, download.Size, describeCause(copyErr),
+				)
 			}
 		}}, nil
 	})

@@ -726,6 +726,7 @@ type fakeProviderSource struct {
 	reloads          int
 	reloadHook       func()
 	requests         []provider.FetchRequest
+	changedErr       error
 }
 
 type providerStateRaceProfile struct {
@@ -773,6 +774,9 @@ func (*fakeProviderSource) Writer(
 func (source *fakeProviderSource) Changed(previous provider.SessionFingerprint) (bool, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
+	if source.changedErr != nil {
+		return false, source.changedErr
+	}
 	return previous != source.fingerprint, nil
 }
 

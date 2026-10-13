@@ -102,6 +102,7 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
+		server.logSessionCheck(ctx, status.SessionCheckErr)
 		return &providerWriteStatusOutput{Body: providerWriteStatusToWire(
 			revision, generation, status,
 		)}, nil
@@ -248,6 +249,23 @@ func providerWriteReconcileOutput(
 	return &providerWriteOutput{Body: ProviderWriteResponse{
 		Status: status, Projection: &projection, Selection: &selection,
 	}}, nil
+}
+
+// logSessionCheck logs why the saved provider session could not be inspected. Until it can be,
+// a write waiting for a reconnect keeps asking for one even after the user reconnects.
+func (server *Server) logSessionCheck(ctx context.Context, err error) {
+	profile, _ := ctx.Value(resolvedProfileContextKey{}).(resolvedProfile)
+	cause := ""
+	if err != nil {
+		cause = describeCause(err)
+	}
+	previous, _ := server.sessionChecks.Swap(profile.id, cause)
+	if cause != "" && previous != cause {
+		server.errorLog.Printf(
+			"provider write status for %s: the saved provider session could not be inspected: %s",
+			profile.id, cause,
+		)
+	}
 }
 
 func currentProviderWriteStatus(

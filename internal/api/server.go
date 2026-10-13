@@ -64,6 +64,9 @@ type Server struct {
 	resolver            ProfileResolver
 	errorLog            *log.Logger
 	completedOnboarding sync.Map
+	// sessionChecks holds the last logged session-inspection failure per profile ID, so a
+	// status poll every second logs each distinct failure once.
+	sessionChecks sync.Map
 }
 
 type onboardingCompletion struct {
