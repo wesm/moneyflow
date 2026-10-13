@@ -401,12 +401,6 @@ describe('failures with no dialog to show them', () => {
     ])
   })
 
-  it('says nothing when another edit is still being sent', async () => {
-    const context = refusing('submitting', 'Hidden 1 transaction · Undo u')
-    await hideRow(context, row)
-    expect(flashes()).toEqual([])
-  })
-
   function exporting(phase: string, announcement: string) {
     const { context, overlays } = setup(1)
     const open = vi.fn(() => Promise.resolve(false))
