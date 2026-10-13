@@ -167,6 +167,7 @@ describe('onboarding controller', () => {
     const credentials = {
       email: 'user@example.test',
       password: 'synthetic-secret',
+      totp_secret: 'JBSWY3DPEHPK3PXP',
       account_password: 'vault-secret',
       confirmation: 'vault-secret',
     }
