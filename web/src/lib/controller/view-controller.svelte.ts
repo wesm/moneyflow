@@ -425,9 +425,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     if (order <= appliedRecheck) return
     appliedRecheck = order
     if (isAbort(error) || !report()) return
-    // A foreground request on its way, or one that started or failed since, owns the problem
-    // and the Retry.
+    // A foreground failure shown, a foreground request on its way, or one that started or
+    // failed since, owns the problem and the Retry.
     if (
+      (problem !== undefined && !recheckProblem) ||
       loading ||
       generation !== foreground.generation ||
       problemsRecorded !== foreground.failures

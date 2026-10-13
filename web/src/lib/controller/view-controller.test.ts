@@ -2873,6 +2873,33 @@ describe('visible view failures', () => {
     })
   })
 
+  it('keeps a change failure and its Retry when a recheck started after it fails', async () => {
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const transition = vi
+      .fn()
+      .mockRejectedValueOnce(busy())
+      .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '4'))
+    const controller = controllerFor(clientWith({ view, transition }), false)
+    await controller.hydrate()
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    expect(controller.problem?.code).toBe('store_busy')
+
+    await expect(controller.recheck()).resolves.toBeUndefined()
+
+    expect(view).toHaveBeenCalledTimes(2)
+    expect(controller.problem?.code).toBe('store_busy')
+    expect(flashes().map(({ message }) => message)).toEqual([
+      'Moneyflow could not apply that change; the view is unchanged. ' +
+        'The profile is busy. Try again.',
+    ])
+    await controller.retry()
+    expect(transition).toHaveBeenCalledTimes(2)
+    expect(controller.problem).toBeUndefined()
+  })
+
   describe('an older recheck that answers a newer revision', () => {
     function pendingRecheck() {
       let answer!: (next: ViewProjection) => void
