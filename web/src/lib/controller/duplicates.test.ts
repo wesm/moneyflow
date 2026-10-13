@@ -1,3 +1,4 @@
+import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -399,6 +400,28 @@ describe('DuplicateController after a failed reload', () => {
     expect(controller.state.announcement).toBe(
       'The profile changed, and the duplicate list could not be refreshed. Press Retry.',
     )
+  })
+
+  it('leaves a closed review alone when a conflict’s reread ends after it closed', async () => {
+    let answerReread!: (next: ViewProjection | undefined) => void
+    const controller = controllerWith(
+      mutationTransport(conflict()),
+      () => new Promise((resolve) => (answerReread = resolve)),
+    )
+    await controller.open()
+    controller.requestDelete()
+
+    const deleting = controller.confirmDelete()
+    await vi.waitFor(() => expect(answerReread).toBeDefined())
+    controller.close()
+    answerReread(testProjection({ revision: '4' }))
+    await expect(deleting).resolves.toBe(false)
+
+    expect(controller.state.phase).toBe('idle')
+    expect(getFlashes().map(({ message }) => message)).toEqual([
+      'The duplicate change could not be saved. The profile changed.',
+    ])
+    dismissFlash()
   })
 
   it('reports a staged hide whose reload failed as saved, not failed to save', async () => {

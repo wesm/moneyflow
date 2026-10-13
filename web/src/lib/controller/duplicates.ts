@@ -358,14 +358,13 @@ export function createDuplicateController(
     mainSelection: SelectionValue | undefined,
     session: number,
   ): Promise<boolean> {
+    const reloaded = isConflict(error) && (await reload(mainSelection, session))
     if (session !== closings) {
-      // Review is closed, so only the workspace can say the change was not saved.
-      if (isConflict(error)) await reload(mainSelection, session)
+      // Review closed before the refusal could show in it, so only the workspace can say so.
       showFailure(`${changeRefused} ${failureReason(error)}`)
       return false
     }
     if (isConflict(error)) {
-      const reloaded = await reload(mainSelection)
       setState({
         ...state,
         phase: reloaded ? 'conflict' : 'failed',
