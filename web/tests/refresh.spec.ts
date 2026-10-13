@@ -54,6 +54,12 @@ async function failRefresh(page: Page, server: ScenarioServer) {
   return failed
 }
 
+/** The dialog, then the stale banner, shows a failure; no other notice repeats it. */
+async function expectFailureShownOnce(page: Page, reason: string): Promise<void> {
+  await expect(page.locator('.kit-flash-banner')).toHaveCount(0)
+  await expect(page.locator('.provider-status')).not.toContainText(reason)
+}
+
 test('@smoke a due refresh opens the dialog with progress and closes when it succeeds', async ({
   page,
 }, info) => {
@@ -99,7 +105,8 @@ test('Continue after a failure shows the stale banner until refresh is allowed',
 }, info) => {
   await withScenarioServer(info.outputPath('scenario'), async (server) => {
     const failed = await failRefresh(page, server)
-    const reason = await failed.getByRole('alert').textContent()
+    const reason = (await failed.getByRole('alert').textContent()) ?? ''
+    await expectFailureShownOnce(page, reason)
 
     await failed.getByRole('button', { name: 'Continue with data from Oct 15, 2026' }).click()
 
@@ -108,6 +115,7 @@ test('Continue after a failure shows the stale banner until refresh is allowed',
     await expect(notice.getByRole('status')).toHaveText(
       aged('Showing data from 7 hours ago', `. ${reason}`),
     )
+    await expectFailureShownOnce(page, reason)
     await expect(notice.getByRole('button', { name: 'Refresh' })).toBeEnabled()
     await expect(notice).toContainText('Automatic retry at 7:05 PM')
   })

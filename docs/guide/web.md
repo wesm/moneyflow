@@ -58,8 +58,8 @@ The bottom of the sidebar holds:
 - Provider status for Monarch, YNAB, and SimpleFIN profiles: when data was last refreshed, a
   refresh button (`r`), and **Reconnect** when the provider needs it. **Unreleased:** Below the
   button, the sidebar shows why refresh is unavailable, such as a provider write in progress or
-  another process refreshing, and why the last refresh failed, for example
-  `Last refresh failed: The provider is temporarily unavailable.` See
+  another process refreshing. The refresh dialog, and then the
+  [stale data banner](#stale-data-banner), say why a refresh failed. See
   [Refresh provider data](#refresh-provider-data).
 - The theme toggle; see [Themes](#themes).
 

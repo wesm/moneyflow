@@ -602,9 +602,6 @@ input {
   color: var(--text-muted);
   font-size: var(--font-size-2xs);
 }
-.provider-status__failure {
-  color: var(--mf-out-text);
-}
 
 .mf-rail {
   box-sizing: border-box;

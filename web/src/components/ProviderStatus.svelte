@@ -26,15 +26,15 @@
         ? 'full history'
         : 'provider data',
   )
-  // Why refresh is unavailable, who else is refreshing, why the last refresh failed, or what
-  // the last refresh could not do.
+  // Why refresh is unavailable, who else is refreshing, or what the last refresh could not do.
+  // The refresh dialog and the stale banner own refresh failures, so they are not repeated here.
   const notice = $derived.by(() => {
-    const { announcement, capability, phase, status } = controller.state
+    const { capability, status } = controller.state
     if (!available && capability?.reason) return capability.reason
     if (controller.state.dialog?.view === 'other') {
       return `${refreshOwner(status?.owner_renderer)} is refreshing this profile.`
     }
-    return phase === 'failed' && announcement ? announcement : status?.warning
+    return status?.warning
   })
   let now = $state(Date.now())
   const updated = $derived.by(() => {
@@ -106,10 +106,7 @@
       >
     {/if}
     {#if notice}
-      <span
-        class="provider-status__meta"
-        class:provider-status__failure={controller.state.phase === 'failed'}>{notice}</span
-      >
+      <span class="provider-status__meta">{notice}</span>
     {/if}
   </div>
 {/if}

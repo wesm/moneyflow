@@ -39,15 +39,24 @@ describe('ProviderStatus', () => {
     expectVisible('The terminal app (moneyflow tui) is refreshing this profile.')
   })
 
-  it('shows a refresh failure next to the button', () => {
+  // The refresh dialog, and the stale banner after it closes, show the failure once.
+  it.each([
+    ['open', { view: 'failed' as const, startedAt: 0, reason: 'Temporarily unavailable.' }],
+    ['closed', undefined],
+  ])('leaves a refresh failure to the dialog when it is %s', (_, dialog) => {
     vi.useFakeTimers({ now: Date.parse('2026-10-11T12:00:00Z') })
     const controller = stubProvider(true, {
       phase: 'failed',
-      announcement: 'Last refresh failed: The provider is temporarily unavailable.',
-      status: testProviderStatus({ last_success: '2026-10-03T12:00:00Z' }),
+      announcement: 'Refresh failed. Temporarily unavailable.',
+      status: testProviderStatus({
+        last_success: '2026-10-03T12:00:00Z',
+        code: 'provider_unavailable',
+        code_detail: 'Temporarily unavailable.',
+      }),
+      dialog,
     })
     render(ProviderStatus, { controller })
-    expectVisible('Last refresh failed: The provider is temporarily unavailable.')
+    expect(screen.queryByText(/Temporarily unavailable/)).toBeNull()
     expect(screen.getByText('Updated 8d ago')).not.toBeNull()
   })
 
