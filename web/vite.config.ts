@@ -23,6 +23,8 @@ export default defineConfig({
   build: {
     manifest: true,
     sourcemap: false,
+    // budgets.json is the size gate; this sits above the raw size its compressed limits allow.
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
         assetFileNames: 'assets/[name]-[hash][extname]',
