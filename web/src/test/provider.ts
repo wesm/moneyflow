@@ -59,5 +59,7 @@ export function stubProvider(
     refresh: vi.fn(async () => true),
     confirm: vi.fn(async () => true),
     dismissConfirmation: vi.fn(),
+    cancel: vi.fn(),
+    continueStale: vi.fn(),
   }
 }

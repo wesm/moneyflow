@@ -10,6 +10,7 @@ import { OverlayState } from '../../lib/shell/overlay-state.svelte'
 import { testEditingController } from '../../test/editing'
 import { testInsights } from '../../test/insights'
 import { testProjection } from '../../test/projection'
+import { stubProvider } from '../../test/provider'
 
 function bodyActions(
   projection: ReturnType<typeof testProjection>,
@@ -26,6 +27,7 @@ function bodyActions(
     neighbors: [],
     editing: testEditingController(),
     providerWrite: { state: { status: providerPhase ? { phase: providerPhase } : undefined } },
+    provider: stubProvider(true),
     insights,
     recheckNewer: vi.fn(async () => undefined),
     reloadDay: vi.fn(async () => undefined),

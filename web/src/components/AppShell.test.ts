@@ -658,11 +658,24 @@ describe('AppShell', () => {
       const controller = stubController()
       controller.provider.state.phase = 'confirmation'
       controller.provider.state.status = testProviderStatus({ confirmation_token: 'opaque' })
+      controller.provider.state.dialog = { view: 'confirmation', startedAt: 0 }
       render(AppShell, { controller })
       expect(screen.getByRole('dialog', { name: 'Confirm provider refresh' })).not.toBeNull()
     } finally {
       restore()
     }
+  })
+
+  it('makes the workspace inert and keyless while the refresh dialog is open', async () => {
+    const controller = stubController()
+    controller.provider.state.phase = 'refreshing'
+    controller.provider.state.status = testProviderStatus({ provider_kind: 'monarch' })
+    controller.provider.state.dialog = { view: 'progress', startedAt: Date.now() }
+    const { container } = render(AppShell, { controller })
+    expect(screen.getByRole('dialog', { name: 'Refreshing from Monarch' })).not.toBeNull()
+    expect(container.querySelector<HTMLElement>('.app-shell')?.inert).toBe(true)
+    await fireEvent.keyDown(window, { key: 'h' })
+    expect(controller.editing.submit).not.toHaveBeenCalled()
   })
 
   it('routes direct hide, undo, redo, and review keys through the editing surface', async () => {
@@ -1243,6 +1256,8 @@ function stubController(projection = testProjection()): ViewController {
       refresh: vi.fn(),
       confirm: vi.fn(),
       dismissConfirmation: vi.fn(),
+      cancel: vi.fn(),
+      continueStale: vi.fn(),
     },
     providerWrite: testProviderWriteController({
       state: { phase: 'idle', announcement: '' },

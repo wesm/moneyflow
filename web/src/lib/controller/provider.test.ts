@@ -2,7 +2,7 @@ import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ProviderStatus, ViewProjection } from '../api/client'
-import { createProviderController } from './provider'
+import { createProviderController, REFRESH_CANCELED, REFRESH_NOT_CONFIRMED } from './provider'
 import { testProjection } from '../../test/projection'
 
 describe('provider controller', () => {
@@ -57,7 +57,14 @@ describe('provider controller', () => {
     controller.sync(current)
 
     await controller.refresh()
-    expect(controller.state.announcement).toBe(`Provider refresh complete. ${warning}`)
+    expect(controller.state.announcement).toBe(
+      `Refresh complete: 0 imported, 0 removed. ${warning}`,
+    )
+    expect(getFlashes().map(({ message, tone }) => ({ message, tone }))).toEqual([
+      { message: 'Refresh complete: 0 imported, 0 removed.', tone: 'success' },
+      { message: warning, tone: 'warning' },
+    ])
+    expect(controller.state.dialog).toBeUndefined()
   })
 
   it('does not dispatch an unavailable refresh and announces the server reason', async () => {
@@ -121,7 +128,7 @@ describe('provider controller', () => {
 
     expect(host.accept).not.toHaveBeenCalled()
     expect(controller.state.announcement).toBe(
-      'Provider refresh complete. The current view could not be reread.',
+      'Refresh complete: 0 imported, 0 removed. The current view could not be reread.',
     )
   })
 
@@ -209,11 +216,14 @@ describe('provider controller', () => {
     await expect(controller.refresh()).resolves.toBe(false)
 
     expect(controller.state.phase).toBe('failed')
-    expect(controller.state.announcement).toBe('The provider is temporarily unavailable.')
+    expect(controller.state.dialog).toMatchObject({
+      view: 'failed',
+      reason: 'The provider is temporarily unavailable.',
+    })
     expect(controller.state.status).toEqual(failed)
   })
 
-  it('shows a failed refresh in an error banner', async () => {
+  it('keeps a failed refresh in its dialog instead of a passing banner', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const transport = transportStub({
       mutationResponse: problemResponse(
@@ -226,12 +236,8 @@ describe('provider controller', () => {
 
     await controller.refresh()
 
-    expect(getFlashes().map(({ message, tone }) => ({ message, tone }))).toEqual([
-      {
-        message: 'Provider refresh failed: The provider is temporarily unavailable.',
-        tone: 'danger',
-      },
-    ])
+    expect(controller.state.dialog?.view).toBe('failed')
+    expect(getFlashes()).toEqual([])
   })
 
   it('points an unexpected server error to the server log', async () => {
@@ -249,16 +255,13 @@ describe('provider controller', () => {
 
     await controller.refresh()
 
-    const reason =
-      'The request could not be completed. The terminal running moneyflow web shows the cause.'
     expect(controller.state.phase).toBe('failed')
-    expect(controller.state.announcement).toBe(reason)
-    expect(getFlashes().map(({ message }) => message)).toEqual([
-      `Provider refresh failed: ${reason}`,
-    ])
+    expect(controller.state.dialog?.reason).toBe(
+      'The request could not be completed. The terminal running moneyflow web shows the cause.',
+    )
   })
 
-  it('shows a refresh that never reached the server in an error banner', async () => {
+  it('explains a refresh that never reached the server', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const transport = transportStub()
     vi.mocked(transport.mutations.request).mockRejectedValueOnce(new TypeError('Failed to fetch'))
@@ -267,12 +270,12 @@ describe('provider controller', () => {
 
     await controller.refresh()
 
-    expect(getFlashes().map(({ message }) => message)).toEqual([
-      'Provider refresh failed. Press r to try again.',
-    ])
+    expect(controller.state.dialog?.reason).toBe(
+      'Moneyflow could not reach the server. Check the connection and retry.',
+    )
   })
 
-  it('shows a failed background refresh in an error banner', async () => {
+  it('opens the dialog for a background refresh and keeps it open when it fails', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const transport = transportStub({
       status: providerStatus({
@@ -292,10 +295,127 @@ describe('provider controller', () => {
 
     await controller.poll()
 
-    expect(getFlashes().map(({ message }) => message)).toEqual([
-      'Provider refresh failed: The refresh did not finish within 30 minutes, so Moneyflow ' +
-        'stopped it.',
-    ])
+    expect(controller.state.dialog).toMatchObject({
+      view: 'failed',
+      reason: 'The refresh did not finish within 30 minutes, so Moneyflow stopped it.',
+    })
+    await controller.poll()
+    expect(controller.state.dialog?.view).toBe('failed')
+    expect(transport.mutations.request).toHaveBeenCalledOnce()
+  })
+
+  it('continues with stale data under the failure the dialog showed', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({
+      mutationResponse: problemResponse('provider_rate_limited', 'Rate limited.'),
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    await controller.refresh()
+
+    controller.continueStale()
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.staleReason).toBe('Rate limited.')
+  })
+
+  it('retries from the failed dialog with a new manual refresh', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({
+      mutationResponse: problemResponse('provider_unavailable', 'Unavailable.'),
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    await controller.refresh()
+    vi.mocked(transport.mutations.request).mockResolvedValueOnce(
+      Response.json(refreshResponse(current, 'preserved')),
+    )
+
+    await expect(controller.refresh()).resolves.toBe(true)
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.staleReason).toBeUndefined()
+  })
+
+  it('cancels by aborting the request and waits for the server to stop', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({ status: providerStatus({ refreshing: true }) })
+    let signal: AbortSignal | undefined
+    vi.mocked(transport.mutations.request).mockImplementation(async (_path, _body, sent) => {
+      signal = sent
+      return new Promise<Response>((_resolve, reject) =>
+        sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+      )
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    const refreshing = controller.refresh()
+    await vi.waitFor(() => expect(signal).toBeDefined())
+
+    controller.cancel()
+
+    expect(signal?.aborted).toBe(true)
+    await expect(refreshing).resolves.toBe(false)
+    expect(controller.state.dialog?.view).toBe('stopping')
+
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ code: 'provider_unavailable', last_success: '2026-10-03T12:00:00Z' }),
+    )
+    await controller.poll()
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.staleReason).toBe(REFRESH_CANCELED)
+  })
+
+  it('cancels a refresh still waiting for the first view without sending it', async () => {
+    const host = hostStub()
+    host.current.mockReturnValue(undefined as unknown as ViewProjection)
+    const transport = transportStub({
+      status: providerStatus({ provider_kind: 'monarch', refresh_due: 'recent' }),
+    })
+    const controller = createProviderController({ transport, host })
+
+    await controller.poll()
+    expect(controller.state.dialog?.view).toBe('progress')
+    controller.cancel()
+    controller.sync(testProjection({ capabilities: [capability(true)] }))
+
+    expect(transport.mutations.request).not.toHaveBeenCalled()
+    expect(controller.state.staleReason).toBe(REFRESH_CANCELED)
+  })
+
+  it('opens the dialog for a due refresh before the first view arrives', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const host = hostStub(current)
+    host.current.mockReturnValue(undefined as unknown as ViewProjection)
+    const transport = transportStub({
+      status: providerStatus({ provider_kind: 'monarch', refresh_due: 'recent' }),
+      mutationResponse: Response.json(refreshResponse(current, 'preserved')),
+    })
+    const controller = createProviderController({ transport, host })
+
+    await controller.poll()
+    expect(controller.state.dialog?.view).toBe('progress')
+    expect(controller.state.kind).toBe('recent')
+    expect(transport.mutations.request).not.toHaveBeenCalled()
+
+    host.current.mockReturnValue(current)
+    controller.sync(current)
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+    expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(false)
+  })
+
+  it('reports a status request that failed', async () => {
+    const transport = transportStub()
+    vi.mocked(transport.status).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const controller = createProviderController({ transport, host: hostStub() })
+
+    await controller.poll()
+
+    expect(controller.state.statusError).toBe(
+      'Moneyflow could not reach the server. Check the connection and retry.',
+    )
+    await controller.poll()
+    expect(controller.state.statusError).toBeUndefined()
   })
 
   it('asks for confirmation without an error banner', async () => {
@@ -317,7 +437,12 @@ describe('provider controller', () => {
     await controller.refresh()
 
     expect(controller.state.phase).toBe('confirmation')
+    expect(controller.state.dialog?.view).toBe('confirmation')
     expect(getFlashes()).toEqual([])
+
+    controller.dismissConfirmation()
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.staleReason).toBe(REFRESH_NOT_CONFIRMED)
   })
 
   it('reports a failed last attempt from a poll', async () => {
@@ -417,22 +542,51 @@ describe('provider controller', () => {
     }
   })
 
-  it('reports another process progress without starting a competing refresh', async () => {
+  it('follows another interface refresh without starting a competing one', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
+    const host = hostStub(current)
     const transport = transportStub({
       status: providerStatus({
-        code: 'provider_refresh_in_progress',
+        refreshing: true,
+        owner_renderer: 'tui',
+        refresh_due: 'full',
         progress: { fetched: 20, total: 40 },
       }),
     })
-    const controller = createProviderController({ transport, host: hostStub(current) })
+    const controller = createProviderController({ transport, host })
     controller.sync(current)
 
     await controller.poll()
 
     expect(controller.state.phase).toBe('refreshing')
-    expect(controller.state.status?.progress).toEqual({ fetched: 20, total: 40 })
+    expect(controller.state.dialog?.view).toBe('other')
+    expect(controller.state.announcement).toBe(
+      'The terminal app (moneyflow tui) is refreshing this profile.',
+    )
     expect(transport.mutations.request).not.toHaveBeenCalled()
+
+    vi.mocked(transport.status).mockResolvedValueOnce(
+      providerStatus({ generation: '2', summary: { ...emptySummary(), imported_transactions: 7 } }),
+    )
+    await controller.poll()
+    await vi.waitFor(() => expect(controller.state.phase).toBe('idle'))
+    expect(controller.state.dialog).toBeUndefined()
+    expect(host.reload).toHaveBeenCalledOnce()
+    expect(controller.state.announcement).toBe('Refresh complete: 7 imported, 0 removed.')
+  })
+
+  it('closes the dialog when another interface refresh stops without new data', async () => {
+    const transport = transportStub({ status: providerStatus({ refreshing: true }) })
+    const controller = createProviderController({ transport, host: hostStub() })
+    await controller.poll()
+    vi.mocked(transport.status).mockResolvedValueOnce(
+      providerStatus({ code: 'provider_unavailable', last_success: '2026-10-03T12:00:00Z' }),
+    )
+
+    await controller.poll()
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.phase).toBe('failed')
   })
 })
 

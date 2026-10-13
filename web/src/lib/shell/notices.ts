@@ -18,6 +18,11 @@ export function showFailure(message: string): void {
   showFlash(message, { tone: 'danger', durationMs: NOTICE_MS })
 }
 
+/** Shows that a long operation finished, in a success-toned banner. */
+export function showSuccess(message: string): void {
+  showFlash(message, { tone: 'success', durationMs: NOTICE_MS })
+}
+
 /**
  * Shows a change the user did not ask for or an action that had nothing to do, such as a
  * cleared selection, in a warning banner.

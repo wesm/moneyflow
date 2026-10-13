@@ -215,6 +215,8 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
       refresh: vi.fn(async () => true),
       confirm: vi.fn(async () => true),
       dismissConfirmation: vi.fn(),
+      cancel: vi.fn(),
+      continueStale: vi.fn(),
     } as ViewController['provider'],
     providerWrite: testProviderWriteController(),
     duplicates: {} as ViewController['duplicates'],

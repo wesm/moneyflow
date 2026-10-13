@@ -2,7 +2,7 @@
   import { CollapsibleSidebar, FlashBanner, MEDIA } from '@kenn-io/kit-ui'
   import { MediaQuery } from 'svelte/reactivity'
   import { onMount, tick, untrack } from 'svelte'
-  import ProviderConfirmation from './ProviderConfirmation.svelte'
+  import RefreshDialog from './RefreshDialog.svelte'
   import NavDrawer from './shell/NavDrawer.svelte'
   import ShellAnnouncements from './shell/ShellAnnouncements.svelte'
   import ShellCommandBar from './shell/ShellCommandBar.svelte'
@@ -119,12 +119,13 @@
     charts.rescope()
     return () => current.destroy()
   })
+  /** The refresh dialog is modal: the workspace behind it is inert and takes no keys. */
+  const refreshing = $derived(controller.provider.state.dialog !== undefined)
   $effect(() => {
-    if (controller.provider.state.phase !== 'confirmation') return
-    // A refresh pressed in the phone drawer asks for confirmation; the drawer gives way to it.
+    if (!refreshing) return
+    // A refresh pressed in the phone drawer opens the dialog; the drawer gives way to it.
     if (untrack(() => overlays.current) === 'navigation') overlays.close('keep')
-    const popScope = shortcuts?.manager.pushScope('provider-confirmation')
-    return () => popScope?.()
+    return () => void tick().then(() => focusGrid())
   })
   $effect(() => {
     if (controller.providerWrite.state.phase === 'confirmation') overlays.open('write')
@@ -132,7 +133,9 @@
   onMount(() => {
     if (!projection) return
     const keydown = (event: KeyboardEvent) =>
-      shortcuts ? handleMoneyflowKeydown(shortcuts.manager, event) : false
+      shortcuts && !controller.provider.state.dialog
+        ? handleMoneyflowKeydown(shortcuts.manager, event)
+        : false
     window.addEventListener('keydown', keydown)
     focusGrid()
     return () => {
@@ -156,7 +159,7 @@
       {onreconnect}
     />
   {/snippet}
-  <div class="app-shell">
+  <div class="app-shell" inert={refreshing}>
     <CollapsibleSidebar
       hideSidebar={!layout.full}
       sidebarWidth={176}
@@ -197,7 +200,7 @@
           >
             <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
             <div class="app-shell__table" bind:this={grid}>
-              <WorkspaceBody {projection} {actions} onapply={queueSend} {charts} />
+              <WorkspaceBody {projection} {actions} onapply={queueSend} {charts} {onreconnect} />
             </div>
           </main>
           <ShellAnnouncements {controller} />
@@ -230,7 +233,7 @@
   </NavDrawer>
   <!-- After the drawer closes, so the drawer's focus return cannot pull focus out of it. -->
   {#if overlays.current !== 'navigation'}
-    <ProviderConfirmation controller={controller.provider} />
+    <RefreshDialog controller={controller.provider} {onreconnect} />
   {/if}
   <FlashBanner top="calc({workspaceTop}px + var(--space-4))" />
 {/if}

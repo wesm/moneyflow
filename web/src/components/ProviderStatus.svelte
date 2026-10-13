@@ -4,6 +4,7 @@
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw'
 
   import type { ProviderController } from '../lib/controller/provider'
+  import { refreshOwner } from '../lib/controller/refresh-notice'
 
   interface Props {
     controller: ProviderController
@@ -30,8 +31,8 @@
   const notice = $derived.by(() => {
     const { announcement, capability, phase, status } = controller.state
     if (!available && capability?.reason) return capability.reason
-    if (phase === 'refreshing' && status?.code === 'provider_refresh_in_progress') {
-      return status.code_detail
+    if (controller.state.dialog?.view === 'other') {
+      return `${refreshOwner(status?.owner_renderer)} is refreshing this profile.`
     }
     return phase === 'failed' && announcement ? announcement : status?.warning
   })

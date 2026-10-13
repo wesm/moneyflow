@@ -29,16 +29,14 @@ describe('ProviderStatus', () => {
     expectVisible('Finish the provider write before refreshing.')
   })
 
-  it('shows that another process is refreshing', () => {
+  it('names the interface that is refreshing', () => {
     const controller = stubProvider(true, {
       phase: 'refreshing',
-      status: testProviderStatus({
-        code: 'provider_refresh_in_progress',
-        code_detail: 'Another process is refreshing this profile.',
-      }),
+      status: testProviderStatus({ refreshing: true, owner_renderer: 'tui' }),
+      dialog: { view: 'other', startedAt: 0 },
     })
     render(ProviderStatus, { controller })
-    expectVisible('Another process is refreshing this profile.')
+    expectVisible('The terminal app (moneyflow tui) is refreshing this profile.')
   })
 
   it('shows a refresh failure next to the button', () => {
