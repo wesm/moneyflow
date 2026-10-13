@@ -295,26 +295,41 @@ describe('provider write failures the user must see', () => {
   })
 
   it('rereads a view that moved on while the server reconciled, without reporting failure', async () => {
-    const current = testProjection({ canonical_query: 'v=1&group=category' })
+    const merchant = testProjection({ canonical_query: 'v=1&group=merchant' })
+    const category = testProjection({ canonical_query: 'v=1&group=category' })
+    const reread = testProjection({ canonical_query: 'v=1&group=category', revision: '9' })
     const response: ProviderWriteResponse = {
       status: writeStatus(),
       projection: testProjection({ canonical_query: 'v=1&group=merchant', revision: '9' }),
-      selection: { kind: 'cleared', value: current.selection },
+      selection: { kind: 'cleared', value: merchant.selection },
     }
-    const host = hostStub(current)
-    const controller = createProviderWriteController({
-      transport: transportStub({ mutationResponse: Response.json(response) }),
-      host,
-    })
+    let shown = merchant
+    const host = {
+      current: vi.fn(() => shown),
+      accept: vi.fn(),
+      reload: vi.fn(async () => reread),
+    }
+    let answer!: (response: Response) => void
+    const transport = transportStub()
+    transport.mutations.request.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => (answer = resolve)),
+    )
+    const controller = createProviderWriteController({ transport, host })
     controller.install(
       writeStatus({ phase: 'paused', batch_version: '7', actions: ['resume', 'reconcile'] }),
     )
 
-    await expect(controller.reconcile()).resolves.toBe(true)
+    const reconciling = controller.reconcile()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+    const [, rawBody] = transport.mutations.request.mock.calls[0]!
+    expect(JSON.parse(rawBody)).toMatchObject({ query: 'v=1&group=merchant' })
+    shown = category
+    answer(Response.json(response))
 
+    await expect(reconciling).resolves.toBe(true)
     expect(controller.state.phase).toBe('complete')
-    expect(host.accept).not.toHaveBeenCalledWith(response.projection)
     expect(host.reload).toHaveBeenCalledOnce()
+    expect(host.accept.mock.calls).toEqual([[reread]])
   })
 
   it('shows a failed status poll once, without the write drawer open', async () => {
