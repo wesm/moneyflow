@@ -2712,59 +2712,73 @@ describe('visible view failures', () => {
     expect(controller.projection?.selection).toBe(newer)
   })
 
-  it('keeps a selection made while an edit was sent when the server refuses its stale selection', async () => {
-    const refreshed = 'mfsel1.refreshed' as SelectionValue
-    const newer = 'mfsel1.newer' as SelectionValue
-    let answerEdit!: (response: Response) => void
-    let answerSelection!: (next: ViewProjection) => void
-    const view = vi
-      .fn()
-      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
-      .mockImplementation(async (body: ViewBody) =>
-        projection(body.query, 0, 3, '4', body.selection),
+  it.each([
+    ['undo', (controller: ViewController) => controller.editing.undo()],
+    [
+      'deletion',
+      (controller: ViewController) =>
+        controller.editing.submit({
+          action: 'transaction.delete',
+          input: {},
+          target: { kind: 'transaction', identity: 'txn-1' },
+        }),
+    ],
+  ] as const)(
+    'keeps a selection made while %s was sent when the server refuses its stale selection',
+    async (_name, edit) => {
+      const refreshed = 'mfsel1.refreshed' as SelectionValue
+      const newer = 'mfsel1.newer' as SelectionValue
+      let answerEdit!: (response: Response) => void
+      let answerSelection!: (next: ViewProjection) => void
+      const view = vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+        .mockImplementation(async (body: ViewBody) =>
+          projection(body.query, 0, 3, '4', body.selection),
+        )
+      const transition = vi.fn(
+        () => new Promise<ViewProjection>((resolve) => (answerSelection = resolve)),
       )
-    const transition = vi.fn(
-      () => new Promise<ViewProjection>((resolve) => (answerSelection = resolve)),
-    )
-    const controller = controllerFor(
-      clientWith({
-        view,
-        transition,
-        mutations: {
-          request: vi.fn(() => new Promise<Response>((resolve) => (answerEdit = resolve))),
-        },
-      }),
-      false,
-    )
-    await controller.hydrate()
+      const controller = controllerFor(
+        clientWith({
+          view,
+          transition,
+          mutations: {
+            request: vi.fn(() => new Promise<Response>((resolve) => (answerEdit = resolve))),
+          },
+        }),
+        false,
+      )
+      await controller.hydrate()
 
-    const undoing = controller.editing.undo()
-    const selecting = controller.apply({ action: 'selection.toggle-all' })
-    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
-    // The server refuses the selection the edit was sent with and offers a refreshed one.
-    const stale = new MoneyflowProblem({
-      type: 'about:blank',
-      title: 'Conflict',
-      status: 409,
-      detail: 'The selection changed.',
-      code: 'selection_stale',
-      current_revision: '4',
-      selection: { kind: 'refreshed', value: refreshed },
-    }).problem
-    answerEdit(
-      new Response(JSON.stringify(stale), {
+      const editing = edit(controller)
+      const selecting = controller.apply({ action: 'selection.toggle-all' })
+      await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+      // The server refuses the selection the edit was sent with and offers a refreshed one.
+      const stale = new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Conflict',
         status: 409,
-        headers: { 'Content-Type': 'application/problem+json' },
-      }),
-    )
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    answerSelection(projection('v=1', 0, 3, '4', newer))
-    await selecting
-    await expect(undoing).resolves.toBe(false)
+        detail: 'The selection changed.',
+        code: 'selection_stale',
+        current_revision: '4',
+        selection: { kind: 'refreshed', value: refreshed },
+      }).problem
+      answerEdit(
+        new Response(JSON.stringify(stale), {
+          status: 409,
+          headers: { 'Content-Type': 'application/problem+json' },
+        }),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      answerSelection(projection('v=1', 0, 3, '4', newer))
+      await selecting
+      await expect(editing).resolves.toBe(false)
 
-    expect(view.mock.calls.at(-1)?.[0]).toMatchObject({ selection: newer })
-    expect(controller.projection?.selection).toBe(newer)
-  })
+      expect(view.mock.calls.at(-1)?.[0]).toMatchObject({ selection: newer })
+      expect(controller.projection?.selection).toBe(newer)
+    },
+  )
 
   it('does not cut off a view change when a provider write control answers with a view', async () => {
     let answerWrite!: (response: Response) => void
