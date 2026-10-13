@@ -743,11 +743,18 @@ func (service *Service) failProviderRefresh(
 		code = provider.CodeDataInvalid
 		failure = provider.NewError(code)
 	}
+	// The retry delay counts from when the attempt ended. A read can outlast the delay, such as
+	// one stopped at the web time limit, and the next scheduler tick would then start it again.
+	// The SimpleFIN quota floor counts from the attempt itself.
+	endedAt := runtime.now().UTC().Truncate(time.Millisecond)
+	if endedAt.Before(attemptedAt) {
+		endedAt = attemptedAt
+	}
 	nextEligible := time.Time{}
 	if ProviderErrorRetryClass(code) == ProviderBoundedRetry {
-		nextEligible = attemptedAt.Add(5 * time.Minute)
+		nextEligible = endedAt.Add(5 * time.Minute)
 		if retryAfter, hasRetryAfter := provider.RetryAfterOf(failure); hasRetryAfter {
-			nextEligible = attemptedAt.Add(retryAfter)
+			nextEligible = endedAt.Add(retryAfter)
 		}
 	}
 	if runtime.provider == "simplefin" && nextEligible.Before(attemptedAt.Add(time.Hour)) {

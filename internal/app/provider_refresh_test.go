@@ -384,6 +384,73 @@ func TestStoppedProviderRefreshRecordsTheAttemptAndWaitsBeforeRetrying(t *testin
 	}
 }
 
+// A refresh can run far longer than the retry delay before its request stops it, as at the web
+// time limit. The delay counts from when it stopped, or the next tick would start it again.
+func TestLongStoppedProviderRefreshWaitsTheRetryDelayFromWhenItStopped(t *testing.T) {
+	t.Parallel()
+
+	service, _ := newProviderRefreshService(t)
+	start := time.Date(2026, time.August, 15, 18, 45, 0, 0, time.UTC)
+	clock := &providerTestClock{now: start}
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, start, 3), fingerprint: "session-a",
+	}
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "web", InstanceID: "instance-a", Now: clock.Now, Random: &incrementingReader{},
+	}))
+	scheduled := app.ProviderRefreshRequest{
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	}
+	manual := scheduled
+	manual.Manual = true
+	_, err := service.RefreshProvider(context.Background(), manual)
+	require.NoError(t, err)
+	attempted := clock.Advance(31 * 24 * time.Hour)
+
+	ctx, stop := context.WithCancelCause(context.Background())
+	source.setFetchHook(func() error {
+		clock.Advance(31 * time.Minute)
+		stop(context.DeadlineExceeded)
+		return context.Cause(ctx)
+	})
+	_, err = service.RefreshProvider(ctx, scheduled)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	stopped := clock.Now()
+
+	status, err := service.ProviderStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, attempted, status.LastAttempt, "status keeps when the attempt started")
+	assert.Equal(t, stopped.Add(5*time.Minute), status.NextEligible)
+	assert.Equal(t, app.ProviderRefreshNone, status.RefreshDue)
+	source.setFetchHook(nil)
+	fetches := source.fetchCalls()
+	_, err = service.RefreshProvider(context.Background(), scheduled)
+	require.NoError(t, err)
+	assert.Equal(t, fetches, source.fetchCalls(), "the scheduler waits for the retry delay")
+}
+
+// providerTestClock is a provider clock a test moves forward while a refresh runs.
+type providerTestClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (clock *providerTestClock) Now() time.Time {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	return clock.now
+}
+
+// Advance moves the clock forward and returns the new time.
+func (clock *providerTestClock) Advance(delta time.Duration) time.Time {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	clock.now = clock.now.Add(delta)
+	return clock.now
+}
+
 func TestProviderRefreshClearsCompleteSelectionWhenOneIdentityVanishes(t *testing.T) {
 	t.Parallel()
 
