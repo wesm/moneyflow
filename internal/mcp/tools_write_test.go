@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -39,6 +40,57 @@ func TestWriteStatusReportsWhyABackgroundRunStopped(t *testing.T) {
 	require.NotNil(t, status.RunFailure)
 	assert.Equal(t, "The profile is busy. Try again.", status.RunFailure.Detail)
 	assert.Equal(t, string(app.AppStoreBusy), status.RunFailure.Code)
+}
+
+// failingWriteLeaseProfile cannot renew a provider-write lease, so a write run stops while its
+// batch still reads as writing.
+type failingWriteLeaseProfile struct {
+	store.Profile
+}
+
+func (profile failingWriteLeaseProfile) RenewProviderOperationLease(
+	ctx context.Context,
+	owner string,
+	kind store.ProviderOperationKind,
+	expiresAt time.Time,
+	observedAt time.Time,
+) (bool, error) {
+	if kind == store.ProviderOperationWrite {
+		return false, errors.New("synthetic lease renewal failure")
+	}
+	return profile.Profile.RenewProviderOperationLease(ctx, owner, kind, expiresAt, observedAt)
+}
+
+func TestCommitStatusExplainsAWorkerRunThatStopped(t *testing.T) {
+	service, _, closeProfile := providerTestServiceOn(t, 1, "ynab", func(profile store.Profile) store.Profile {
+		return failingWriteLeaseProfile{Profile: profile}
+	})
+	defer closeProfile()
+	client, cleanup := connectWriteTestServer(t, service, true)
+	defer cleanup()
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	staged := callWriteTool(t, client, "update_transaction_category", map[string]any{
+		"expected_revision": strconv.FormatUint(projection.Revision, 10),
+		"transaction_id":    projection.DetailRows[0].Identity, "category_id": string(domain.UncategorizedCategoryID),
+	})
+	require.False(t, staged.IsError, "%v", staged.StructuredContent)
+	revision := staged.StructuredContent.(map[string]any)["revision"]
+	committed := callWriteTool(t, client, "commit_changes", map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	require.False(t, committed.IsError, "%v", committed.StructuredContent)
+
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		status, err := client.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "get_commit_status"})
+		require.NoError(collect, err)
+		require.False(collect, status.IsError, "%v", status.StructuredContent)
+		write := status.StructuredContent.(map[string]any)["write"].(map[string]any)
+		assert.Equal(collect, string(store.WritePhaseWriting), write["phase"])
+		failure, ok := write["run_failure"].(map[string]any)
+		require.True(collect, ok, "status has no run_failure: %v", write)
+		assert.Equal(collect, string(app.AppStoreError), failure["code"])
+	}, 3*time.Second, 10*time.Millisecond)
 }
 
 func TestYNABCategoryClearCommitsThroughMCPWorker(t *testing.T) {

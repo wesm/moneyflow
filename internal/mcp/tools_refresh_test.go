@@ -19,6 +19,7 @@ import (
 	"github.com/wesm/moneyflow/internal/home"
 	amzimport "github.com/wesm/moneyflow/internal/importer/amazon"
 	"github.com/wesm/moneyflow/internal/provider"
+	"github.com/wesm/moneyflow/internal/store"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
@@ -186,11 +187,24 @@ func refreshTestService(t *testing.T, transactionCount int) (*app.Service, *refr
 
 func providerTestService(t *testing.T, transactionCount int, kind string) (*app.Service, *refreshTestSource, func()) {
 	t.Helper()
+	return providerTestServiceOn(t, transactionCount, kind, func(profile store.Profile) store.Profile {
+		return profile
+	})
+}
+
+// providerTestServiceOn builds providerTestService over the profile that wrap returns.
+func providerTestServiceOn(
+	t *testing.T,
+	transactionCount int,
+	kind string,
+	wrap func(store.Profile) store.Profile,
+) (*app.Service, *refreshTestSource, func()) {
+	t.Helper()
 	paths, err := home.ResolveRoot(t.TempDir()+"/profile", nil, "")
 	require.NoError(t, err)
 	profile, err := sqlite.Open(t.Context(), paths, sqlite.DefaultOptions)
 	require.NoError(t, err)
-	service, err := app.NewProfileService(t.Context(), profile)
+	service, err := app.NewProfileService(t.Context(), wrap(profile))
 	require.NoError(t, err)
 	now := time.Date(2026, time.August, 29, 14, 0, 0, 0, time.UTC)
 	source := &refreshTestSource{kind: kind, snapshot: refreshTestSnapshot(t, now, transactionCount)}
