@@ -376,9 +376,10 @@ describe('browser editing controller', () => {
   it('installs a refreshed stale selection and requires explicit reinvocation', async () => {
     const refreshed = 'mfsel1.refreshed' as SelectionValue
     const host = editingHost(testProjection({ revision: '5' }))
+    // As the view controller does, a reread without a chosen selection keeps the one shown.
     host.refresh = vi.fn(async (choose) => {
-      const selection = choose(host.current()!)
-      host.install(testProjection({ revision: '5', selection: selection ?? refreshed }))
+      const shown = host.current()!
+      host.install(testProjection({ revision: '5', selection: choose(shown) ?? shown.selection }))
       return host.current()
     })
     const transport: MutationFetch = {
@@ -394,7 +395,7 @@ describe('browser editing controller', () => {
     await expect(controller.undo()).resolves.toBe(false)
 
     expect(transport.request).toHaveBeenCalledTimes(1)
-    expect(chosenSelection(host)).toBe(refreshed)
+    expect(host.current()?.selection).toBe(refreshed)
     expect(controller.state.phase).toBe('idle')
     expect(controller.state.announcement).toContain('Selection refreshed')
   })

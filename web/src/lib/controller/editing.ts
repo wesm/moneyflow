@@ -213,7 +213,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
           !['selection_stale', 'revision_conflict'].includes(error.problem.code)
         )
           throw error
-        await handleFailure(error)
+        await handleFailure(error, body.selection)
         if (state.phase === 'failed') throw error
       }
     }
@@ -266,7 +266,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
       if (response.provider_write) options.onProviderWrite?.(response.provider_write)
       return true
     } catch (error) {
-      await handleFailure(error)
+      await handleFailure(error, body.selection)
       return false
     }
   }
@@ -328,14 +328,15 @@ export function createEditingController(options: EditingControllerOptions): Edit
     return false
   }
 
-  async function handleFailure(error: unknown): Promise<void> {
+  /** Handles a refused request that was sent with the selection `sent`. */
+  async function handleFailure(error: unknown, sent: string | undefined): Promise<void> {
     if (!(error instanceof MoneyflowProblem)) {
       setState({ ...state, phase: 'failed', announcement: REQUEST_FAILED })
       return
     }
     const code = error.problem.code
     if (code === 'revision_conflict') {
-      if (!(await refreshAfterRejection())) return
+      if (!(await refreshAfterRejection(() => undefined))) return
       setState({
         ...state,
         phase: 'conflict',
@@ -347,7 +348,9 @@ export function createEditingController(options: EditingControllerOptions): Edit
     if (code === 'selection_stale') {
       const disposition = error.problem.selection
       const selection = disposition?.value as SelectionValue | undefined
-      if (!(await refreshAfterRejection(selection))) return
+      // Chosen once view changes on their way have landed, so a selection made since is kept.
+      const choose = (now: ViewProjection) => (now.selection === sent ? selection : undefined)
+      if (!(await refreshAfterRejection(choose))) return
       setState({
         ...state,
         phase: 'idle',
@@ -361,9 +364,11 @@ export function createEditingController(options: EditingControllerOptions): Edit
     setState({ ...state, phase: 'failed', announcement: safeFailureMessage(error.problem) })
   }
 
-  async function refreshAfterRejection(selection?: SelectionValue): Promise<boolean> {
+  async function refreshAfterRejection(
+    choose: (shown: ViewProjection) => SelectionValue | undefined,
+  ): Promise<boolean> {
     try {
-      const projection = await options.host.refresh(() => selection)
+      const projection = await options.host.refresh(choose)
       if (projection) sync(projection)
       return projection !== undefined
     } catch {
