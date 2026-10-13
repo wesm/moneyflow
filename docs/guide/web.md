@@ -56,16 +56,11 @@ The bottom of the sidebar holds:
   (`w`) appears while edits are pending, and **Write** shows an unfinished provider write's
   progress. See [review and commit](editing.md#review-and-commit).
 - Provider status for Monarch, YNAB, and SimpleFIN profiles: when data was last refreshed, a
-  refresh button (`r`), refresh progress, and **Reconnect** when the provider needs it.
-  **Unreleased:** Below the button, the sidebar shows why refresh is unavailable, such as a
-  provider write in progress or another process refreshing, and why the last refresh failed,
-  for example `Last refresh failed: The provider is temporarily unavailable.` While a refresh
-  runs, progress updates every second; for Monarch it names the kind, recent data (last 90
-  days) or full history. **Unreleased:** A failed refresh, including one started in the
-  background, also shows an error banner with the reason. The web app stops a refresh that runs
-  longer than 30 minutes; no data changes, and `moneyflow tui` can run it without that limit.
-  When the server cannot say why a request failed, the banner says so and the terminal running
-  `moneyflow web` logs the cause. See [Monarch refresh](monarch.md#refresh-data).
+  refresh button (`r`), and **Reconnect** when the provider needs it. **Unreleased:** Below the
+  button, the sidebar shows why refresh is unavailable, such as a provider write in progress or
+  another process refreshing, and why the last refresh failed, for example
+  `Last refresh failed: The provider is temporarily unavailable.` See
+  [Refresh provider data](#refresh-provider-data).
 - The theme toggle; see [Themes](#themes).
 
 **Unreleased:** At 1280 px and wider, the **Collapse sidebar** button beside the Moneyflow name
@@ -290,6 +285,67 @@ listener access is not an alternate write origin when an external URL is configu
 The financial web app has no built-in user authentication. Keep it on a trusted private network,
 or put access control in the proxy. A mutation token does not make publicly readable financial
 data private. Do not expose it to the public internet merely because the documentation site is public.
+
+## Refresh provider data
+
+**Unreleased:** Every refresh of a Monarch, YNAB, or SimpleFIN profile opens the refresh dialog,
+whether you pressed `r` or **Refresh**, or the refresh is due in the background. When you open a
+profile and a refresh is due, the dialog opens at once, before you work with older data. While it
+is open, the workspace behind it does not respond.
+
+The dialog shows:
+
+- The provider, such as **Refreshing from Monarch**. For Monarch it also names the kind:
+  **Recent data (last 90 days)** or **Complete history**.
+- Progress, such as `Fetched 120 of 480`. Until the provider reports a total, the bar moves
+  without a count.
+- The elapsed time, and when data was last updated, such as
+  `Last updated 10 days ago (Oct 3, 2026, 9:15 AM)`.
+
+Screen readers hear the progress at most every 10 seconds.
+
+What happens next:
+
+- **Success:** the dialog closes and a notice reports the result, such as
+  `Refresh complete: 40 imported, 0 removed.` A warning, such as an unrecorded full refresh,
+  appears in its own notice and beside **Refresh** in the sidebar.
+- **Cancel (Esc):** Moneyflow stops the refresh. The dialog shows **Stopping…** until the server
+  confirms that it stopped, then closes. No provider data changes.
+- **Failure:** the dialog stays open with the reason. **Retry** tries again at once. **Continue
+  with data from** a date closes the dialog and keeps the older data.
+- **Removals to review:** the dialog shows how many posted transactions the refresh would remove.
+  **Confirm refresh** (Enter) applies the refresh; **Cancel** (Esc) keeps the current data.
+- **Reconnect needed:** the dialog explains that the provider needs you to sign in again.
+  **Reconnect** opens the reconnect form.
+
+When the TUI, an MCP client, or another browser tab is refreshing the profile, the dialog says
+so, for example `The terminal app (moneyflow tui) is refreshing this profile. Cancel it there.`
+It follows that refresh and closes when it ends. It has no **Cancel** button, because only the
+interface that started the refresh can stop it.
+
+The web app stops a refresh that runs longer than 30 minutes; no data changes, and
+`moneyflow tui` can run it without that limit. When the server cannot say why a request failed,
+the dialog says so and the terminal running `moneyflow web` logs the cause.
+
+### Stale data banner
+
+**Unreleased:** When the data you see missed a refresh, a banner above the table says so, for
+example `Showing data from 10 days ago (Oct 3, 2026, 9:15 AM). Refresh was canceled; no provider
+data changed.` It stays until a refresh succeeds. The banner appears when no refresh is running
+and either:
+
+- The last refresh did not finish: it failed, was canceled, was lost when the page reloaded, needs
+  you to reconnect, or would remove transactions that you did not confirm.
+- A refresh is due but cannot run, for example while a YNAB profile's credentials are locked.
+
+The banner's **Refresh** button waits for the provider's retry time after a failure, and shows
+when it becomes available, such as `Available at 10:40 AM`. `r` and **Retry** in the dialog try
+at once, unless the provider limits manual attempts, as
+[SimpleFIN](simplefin.md#refresh-timing) does. When the provider needs you to reconnect, the
+banner offers **Reconnect** instead. If Moneyflow cannot check when data was last refreshed, the
+banner says so and offers **Retry**.
+
+See [Monarch refresh](monarch.md#refresh-data) for when background refresh runs.
 
 ## Reconnect and recovery
 
