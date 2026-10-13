@@ -33,6 +33,7 @@ func TestMCPLoggerNamesAMoneyflowEventAndItsCauseCode(t *testing.T) {
 	logger.LogAttrs(
 		context.Background(), slog.LevelError, "provider write stopped",
 		slog.String(mcp.LogEventKey, "provider write stopped\nforged=line"),
+		slog.String(mcp.LogCauseKey, "store_error"),
 	)
 	assert.Equal(t,
 		"level=ERROR code=provider_write_stopped cause=store_error\n"+
