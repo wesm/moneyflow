@@ -45,7 +45,13 @@ export interface EditingProjectionHost {
    * no view change has started since, and says whether it did.
    */
   claim(): (projection: ViewProjection) => boolean
-  refresh(selection?: SelectionValue, force?: boolean): Promise<ViewProjection | undefined>
+  /**
+   * Rereads the view once view changes on their way have landed, with the selection `choose`
+   * picks from the view shown then; undefined keeps that view's selection.
+   */
+  refresh(
+    choose: (shown: ViewProjection) => SelectionValue | undefined,
+  ): Promise<ViewProjection | undefined>
 }
 
 export interface EditingController {
@@ -283,14 +289,17 @@ export function createEditingController(options: EditingControllerOptions): Edit
       shown.canonical_query === projection.canonical_query ||
       shown.canonical_query === sentQuery
     ) {
-      return install(projection) ? undefined : await reread(undefined)
+      return install(projection) ? undefined : await reread(() => undefined)
     }
-    return await reread(shown.selection === sent ? projection.selection : undefined)
+    // Chosen once view changes on their way have landed, so a selection made since is kept.
+    return await reread((now) => (now.selection === sent ? projection.selection : undefined))
   }
 
-  async function reread(selection: SelectionValue | undefined): Promise<string | undefined> {
+  async function reread(
+    choose: (shown: ViewProjection) => SelectionValue | undefined,
+  ): Promise<string | undefined> {
     try {
-      await options.host.refresh(selection, true)
+      await options.host.refresh(choose)
       return undefined
     } catch {
       return 'The current view could not be refreshed.'
@@ -354,7 +363,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
 
   async function refreshAfterRejection(selection?: SelectionValue): Promise<boolean> {
     try {
-      const projection = await options.host.refresh(selection, true)
+      const projection = await options.host.refresh(() => selection)
       if (projection) sync(projection)
       return projection !== undefined
     } catch {

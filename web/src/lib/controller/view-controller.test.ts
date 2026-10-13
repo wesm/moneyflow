@@ -2653,6 +2653,60 @@ describe('visible view failures', () => {
     expect(controller.editing.state.revision).toBe(5n)
   })
 
+  it('keeps a selection made while an edit was sent when the edit answers for another view', async () => {
+    const cleared = 'mfsel1.cleared' as SelectionValue
+    const newer = 'mfsel1.newer' as SelectionValue
+    let answerEdit!: (response: Response) => void
+    let answerSelection!: (next: ViewProjection) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockImplementation(async (body: ViewBody) =>
+        projection(body.query, 0, 3, '5', body.selection),
+      )
+    const transition = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=2', 0, 3, '4'))
+      .mockImplementationOnce(
+        () => new Promise<ViewProjection>((resolve) => (answerSelection = resolve)),
+      )
+    const edited = projection('v=1', 0, 3, '5', cleared)
+    const controller = controllerFor(
+      clientWith({
+        view,
+        transition,
+        mutations: {
+          request: vi.fn(() => new Promise<Response>((resolve) => (answerEdit = resolve))),
+        },
+      }),
+      false,
+    )
+    await controller.hydrate()
+
+    const undoing = controller.editing.undo()
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    const selecting = controller.apply({ action: 'selection.toggle-all' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledTimes(2))
+    // The edit cleared the selection it was sent with, but a newer selection is on its way.
+    answerEdit(
+      Response.json({
+        version: '1',
+        revision: '5',
+        canonical_query: 'v=1',
+        projection: edited,
+        pending: edited.pending,
+        selection: { kind: 'cleared', value: cleared },
+      }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    answerSelection(projection('v=2', 0, 3, '5', newer))
+    await selecting
+    await expect(undoing).resolves.toBe(true)
+
+    expect(view.mock.calls.at(-1)?.[0]).toMatchObject({ query: 'v=2', selection: newer })
+    expect(controller.projection?.selection).toBe(newer)
+  })
+
   it('does not cut off a view change when a provider write control answers with a view', async () => {
     let answerWrite!: (response: Response) => void
     let answerChange!: (next: ViewProjection) => void

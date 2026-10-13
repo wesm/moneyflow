@@ -232,7 +232,7 @@ describe('browser editing controller', () => {
     await expect(staged).resolves.toBe(true)
     expect(accept).not.toHaveBeenCalled()
     // The selection did not change with the view, so the reread takes the response's.
-    expect(host.refresh).toHaveBeenCalledWith('mfsel1.x', true)
+    expect(chosenSelection(host)).toBe('mfsel1.x')
     expect(host.current()?.canonical_query).toBe('v=1&period=2026-09')
     expect(controller.state.revision).toBe(8n)
   })
@@ -283,7 +283,7 @@ describe('browser editing controller', () => {
     release(jsonResponse(mutationResponse('8', 'mfsel1.cleared' as SelectionValue)))
 
     await expect(staged).resolves.toBe(true)
-    expect(host.refresh).toHaveBeenCalledWith(undefined, true)
+    expect(chosenSelection(host)).toBeUndefined()
   })
 
   it('keeps the newer revision a reread of a moved-on view installed', async () => {
@@ -367,7 +367,7 @@ describe('browser editing controller', () => {
     await expect(controller.redo()).resolves.toBe(false)
 
     expect(transport.request).toHaveBeenCalledTimes(1)
-    expect(host.refresh).toHaveBeenCalledWith(undefined, true)
+    expect(chosenSelection(host)).toBeUndefined()
     expect(controller.state.phase).toBe('conflict')
     expect(controller.state.revision).toBe(4n)
     expect(controller.state.announcement).toContain('changed in another session')
@@ -376,7 +376,8 @@ describe('browser editing controller', () => {
   it('installs a refreshed stale selection and requires explicit reinvocation', async () => {
     const refreshed = 'mfsel1.refreshed' as SelectionValue
     const host = editingHost(testProjection({ revision: '5' }))
-    host.refresh = vi.fn(async (selection) => {
+    host.refresh = vi.fn(async (choose) => {
+      const selection = choose(host.current()!)
       host.install(testProjection({ revision: '5', selection: selection ?? refreshed }))
       return host.current()
     })
@@ -393,7 +394,7 @@ describe('browser editing controller', () => {
     await expect(controller.undo()).resolves.toBe(false)
 
     expect(transport.request).toHaveBeenCalledTimes(1)
-    expect(host.refresh).toHaveBeenCalledWith(refreshed, true)
+    expect(chosenSelection(host)).toBe(refreshed)
     expect(controller.state.phase).toBe('idle')
     expect(controller.state.announcement).toContain('Selection refreshed')
   })
@@ -553,6 +554,13 @@ function editingHost(initial: ReturnType<typeof testProjection>): EditingProject
     },
   }
   return host
+}
+
+/** The selection the edit's one reread chose from the view the fake shows. */
+function chosenSelection(host: ReturnType<typeof editingHost>): SelectionValue | undefined {
+  expect(host.refresh).toHaveBeenCalledOnce()
+  const [choose] = vi.mocked(host.refresh).mock.calls[0]!
+  return choose(host.current()!)
 }
 
 function mutationTransport(body: unknown): MutationFetch {

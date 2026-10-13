@@ -237,8 +237,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       // Undo can answer for the parent of a drilled view that is gone; the address follows it.
       claim: () => claimView((next) => next.canonical_query !== projection?.canonical_query),
       // A reread waits for view changes on their way, so its answer cannot cut them off.
-      refresh: (selection, force = false) =>
-        serially(() => ownedRecheck(selection, force, () => false)),
+      refresh: (choose) =>
+        serially(async () => {
+          while (loading) await foregroundSettling()
+          if (!projection) return undefined
+          return await ownedRecheck(choose(projection), true, () => false)
+        }),
     },
   })
   const duplicates = createDuplicateController({
@@ -321,6 +325,14 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       !loading && generation === started && acceptProfileProjection(next, replaceHistory(next))
   }
 
+  /** Settles with the foreground request on its way; never rejects. */
+  function foregroundSettling(): Promise<void> {
+    return foregroundRequest.then(
+      () => undefined,
+      () => undefined,
+    )
+  }
+
   /** Rereads the view; a failure resolves undefined after `ownedRecheck` handles it. */
   async function reportedRecheck(
     selection: SelectionValue | undefined,
@@ -350,12 +362,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   ): Promise<ViewProjection | undefined> {
     // Awaiting only while a request is on its way keeps a reread started just before a view change
     // from reading after it.
-    while (loading) {
-      await foregroundRequest.then(
-        () => undefined,
-        () => undefined,
-      )
-    }
+    while (loading) await foregroundSettling()
     if (!projection) return undefined
     if (!force && selection === undefined && recheckRequest) return await recheckRequest
     // After a failed recheck, only the server can say the view is current again.
