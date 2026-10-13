@@ -304,6 +304,8 @@ func (service *Service) RefreshProvider(
 			service.Revision(),
 		)
 	}
+	// Status shows this refresh's progress, not the counts the previous refresh ended with.
+	runtime.setProgress(provider.Progress{})
 	if runtime.provider == "simplefin" {
 		// Read again under ownership: an earlier process may have admitted an attempt
 		// after our pre-lease status read, without changing the data generation.

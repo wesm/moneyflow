@@ -388,3 +388,45 @@ func TestStoredProviderStatusIsEmptyForAnUnboundProfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, app.ProviderStatus{}, status)
 }
+
+func TestProviderStatusStartsANewRefreshWithoutTheLastRefreshProgress(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	service, _ := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 16, 9, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 2), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "instance-a")
+	request := app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	}
+	_, err := service.RefreshProvider(ctx, request)
+	require.NoError(t, err)
+	finished, err := service.ProviderStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, finished.Total, "the finished refresh reported its progress")
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	source.setFetchHook(func() error {
+		close(entered)
+		<-release
+		return nil
+	})
+	done := make(chan error, 1)
+	go func() {
+		_, refreshErr := service.RefreshProvider(ctx, request)
+		done <- refreshErr
+	}()
+	<-entered
+	running, err := service.ProviderStatus(ctx)
+	require.NoError(t, err)
+	assert.True(t, running.Refreshing)
+	assert.Zero(t, running.Fetched, "a new refresh has fetched nothing yet")
+	assert.Zero(t, running.Total)
+	close(release)
+	require.NoError(t, <-done)
+}
