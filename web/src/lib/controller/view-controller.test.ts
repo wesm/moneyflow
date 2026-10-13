@@ -2313,6 +2313,49 @@ describe('visible view failures', () => {
     expect(controller.problem).toBeUndefined()
   })
 
+  it('ignores a recheck that fails after a newer transition failed', async () => {
+    let failRecheck!: (error: unknown) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockImplementationOnce(() => new Promise((_, reject) => (failRecheck = reject)))
+    const transition = vi.fn().mockRejectedValueOnce(busy())
+    const controller = controllerFor(clientWith({ view, transition }), false)
+    await controller.hydrate()
+
+    const rechecking = controller.recheck()
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    failRecheck(new TypeError('Failed to fetch'))
+    await expect(rechecking).resolves.toBeUndefined()
+
+    expect(controller.problem?.code).toBe('store_busy')
+    expect(flashes().map(({ message }) => message)).toEqual([
+      'Moneyflow could not apply that change; the view is unchanged. ' +
+        'The profile is busy. Try again.',
+    ])
+    await controller.retry()
+    expect(transition).toHaveBeenCalledTimes(2)
+    expect(view).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores a recheck that fails after a newer transition succeeded', async () => {
+    let failRecheck!: (error: unknown) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockImplementationOnce(() => new Promise((_, reject) => (failRecheck = reject)))
+    const controller = controllerFor(clientWith({ view }), false)
+    await controller.hydrate()
+
+    const rechecking = controller.recheck()
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    failRecheck(new TypeError('Failed to fetch'))
+    await expect(rechecking).resolves.toBeUndefined()
+
+    expect(controller.problem).toBeUndefined()
+    expect(flashes()).toEqual([])
+  })
+
   it('reports a failed recheck for newer insights as a view failure', async () => {
     const view = vi
       .fn()

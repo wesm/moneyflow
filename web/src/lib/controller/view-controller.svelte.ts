@@ -295,13 +295,17 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     selection: SelectionValue | undefined,
     force: boolean,
   ): Promise<ViewProjection | undefined> {
+    const shown = projection
+    const requestGeneration = generation
     try {
       const next = await recheckInternal(selection, force)
       if (recheckProblem) problem = undefined
       recheckProblem = false
       return next
     } catch (error) {
-      if (isAbort(error)) return undefined
+      // A request or view newer than the recheck owns the problem and the retry now.
+      const superseded = requestGeneration !== generation || projection !== shown
+      if (isAbort(error) || superseded) return undefined
       lastRetry = async () => {
         await reportedRecheck(selection, true)
       }
