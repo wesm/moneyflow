@@ -311,8 +311,9 @@ What happens next:
   `Refresh complete: 40 imported, 0 removed.` A warning, such as an unrecorded full refresh,
   appears in its own notice and beside **Refresh** in the sidebar.
 - **Cancel (Esc):** Moneyflow stops the refresh. The dialog shows **Stopping…** until the server
-  confirms that it stopped, then closes. No provider data changes. Automatic refresh then waits
-  5 minutes; **Refresh** or `r` still runs at once.
+  confirms that it stopped, then closes. Cancel normally leaves your data unchanged. A refresh that
+  finished saving before the cancel arrived is reported as complete, like any other success.
+  Automatic refresh then waits 5 minutes; **Refresh** or `r` still runs at once.
 - **Failure:** the dialog stays open with the reason. **Retry** tries again at once. **Continue
   with data from** a date closes the dialog and keeps the older data.
 - **Removals to review:** the dialog shows how many posted transactions the refresh would remove.
@@ -337,7 +338,8 @@ the dialog says so and the terminal running `moneyflow web` logs the cause.
 
 **Unreleased:** When the data you see missed a refresh, a banner above the table says so, for
 example `Showing data from 10 days ago (Oct 3, 2026, 9:15 AM). Refresh was canceled; no provider
-data changed.` It stays until a refresh succeeds. The banner appears when no refresh is running
+data changed.` It stays until a refresh succeeds, in this tab or in another Moneyflow interface.
+The banner appears when no refresh is running
 and either:
 
 - The last refresh did not finish: it failed, was canceled, was lost when the page reloaded, needs
