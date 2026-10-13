@@ -24,7 +24,6 @@
     compactTapAction,
     doubleClickAction,
     pointerHit,
-    tapMoved,
     type CompactTapAction,
     type RowKind,
   } from '../../lib/table/pointer'
@@ -166,8 +165,8 @@
   function tap(row: TableRow, action: CompactTapAction, event: MouseEvent) {
     if (action === 'toggle') return ontoggle(row.identity, kind)
     // On the tapped row first, so Back returns there.
-    const moved = tapMoved(oncursor(row.index))
-    if (action === 'drill') return void moved.then((ok) => ok && onactivate(row.identity, kind))
+    const moved = oncursor(row.index)
+    if (action === 'drill') return void moved.then(() => onactivate(row.identity, kind))
     const opener = event.target instanceof Element && event.target.closest('button')
     if (action === 'information') oninformation(row.identity)
     else if ('merchant' in row && opener) onactions(row, opener)

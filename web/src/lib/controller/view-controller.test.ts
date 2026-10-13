@@ -2216,6 +2216,29 @@ describe('visible view failures', () => {
     expect(flashes()).toEqual([{ message, tone: 'danger' }])
   })
 
+  it('shows why a cursor move to a row outside the loaded window failed', async () => {
+    const client = clientWith({
+      view: vi
+        .fn()
+        .mockImplementationOnce(async () => projection('v=1', 0, 450))
+        .mockRejectedValueOnce(busy()),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await controller.moveCursorTo(250)
+
+    expect(controller.cursorIndex).toBe(0)
+    expect(flashes()).toEqual([
+      {
+        message:
+          'Moneyflow could not apply that change; the view is unchanged. ' +
+          'The profile is busy. Try again.',
+        tone: 'danger',
+      },
+    ])
+  })
+
   it('points an unexpected server error to the server log', async () => {
     const failure = new MoneyflowProblem({
       type: 'about:blank',
