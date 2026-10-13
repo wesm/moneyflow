@@ -239,8 +239,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     mutations: options.client.mutations,
     host: {
       current: () => projection,
-      recheck: recheckInternal,
-      reportRecheckFailure,
+      recheck: async (selection, report) => await reportedRecheck(selection, true, report),
     },
   })
   const exportController = createExportController({ client: options.client })
@@ -302,9 +301,14 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return await reportedRecheck(selection, false)
   }
 
+  /**
+   * Rereads the view. A failure resolves undefined and shows in the workspace when `report()`
+   * allows it and nothing newer owns the workspace problem.
+   */
   async function reportedRecheck(
     selection: SelectionValue | undefined,
     force: boolean,
+    report: () => boolean = () => true,
   ): Promise<ViewProjection | undefined> {
     const claim = claimProblem()
     try {
@@ -315,7 +319,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       }
       return next
     } catch (error) {
-      if (holdsProblem(claim)) reportRecheckFailure(error, selection)
+      if (isAbort(error) || !report() || !holdsProblem(claim)) return undefined
+      lastRetry = async () => {
+        await reportedRecheck(selection, true)
+      }
+      setProblem(error, recheckFailed)
+      recheckProblem = true
       return undefined
     }
   }
@@ -335,19 +344,6 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       claim.problems === problemsRecorded &&
       claim.shown === projection
     )
-  }
-
-  function reportRecheckFailure(
-    error: unknown,
-    selection?: SelectionValue,
-    failure = recheckFailed,
-  ): void {
-    if (isAbort(error)) return
-    lastRetry = async () => {
-      await reportedRecheck(selection, true)
-    }
-    setProblem(error, failure)
-    recheckProblem = true
   }
 
   async function recheckInternal(

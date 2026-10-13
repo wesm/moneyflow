@@ -2520,6 +2520,65 @@ describe('visible view failures', () => {
     expect(controller.problem?.code).toBe('store_busy')
   })
 
+  describe('a duplicate reread after review closed, once a newer change failed', () => {
+    async function rereadAfterNewerFailure(
+      answerReread: (settle: {
+        resolve: (next: ViewProjection) => void
+        reject: (error: unknown) => void
+      }) => void,
+    ) {
+      let reread!: { resolve: (next: ViewProjection) => void; reject: (error: unknown) => void }
+      const view = vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1', 0, 3, '3'))
+        .mockImplementationOnce(
+          () => new Promise<ViewProjection>((resolve, reject) => (reread = { resolve, reject })),
+        )
+      const transition = vi
+        .fn()
+        .mockRejectedValueOnce(busy())
+        .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '3'))
+      const client = clientWith({
+        view,
+        transition,
+        projectDuplicates: vi.fn(async () => testDuplicates()),
+        mutations: { request: vi.fn(async () => Response.json({})) },
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      await controller.duplicates.open()
+      controller.duplicates.requestDelete()
+      const deleting = controller.duplicates.confirmDelete()
+      controller.duplicates.cancelDelete()
+      controller.duplicates.close()
+      await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+
+      await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+      expect(controller.problem?.code).toBe('store_busy')
+      answerReread(reread)
+      await deleting
+      return { controller, transition }
+    }
+
+    it('keeps the newer failure and its Retry when the reread fails', async () => {
+      const { controller, transition } = await rereadAfterNewerFailure(({ reject }) =>
+        reject(new TypeError('Failed to fetch')),
+      )
+
+      expect(controller.problem?.code).toBe('store_busy')
+      await controller.retry()
+      expect(transition).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps the newer failure when the reread answers unchanged', async () => {
+      const { controller } = await rereadAfterNewerFailure(({ resolve }) =>
+        resolve(projection('v=1', 0, 3, '3')),
+      )
+
+      expect(controller.problem?.code).toBe('store_busy')
+    })
+  })
+
   describe('a duplicate change the server refuses', () => {
     const refusal = () =>
       Response.json(
@@ -2533,8 +2592,12 @@ describe('visible view failures', () => {
         { status: 503, headers: { 'Content-Type': 'application/problem+json' } },
       )
 
-    async function openReview(request: MutationFetch['request']) {
+    async function openReview(
+      request: MutationFetch['request'],
+      view: MoneyflowClient['view'] = vi.fn(async () => projection('v=1', 0, 3, '3')),
+    ) {
       const client = clientWith({
+        view,
         projectDuplicates: vi.fn(async () => testDuplicates()),
         mutations: { request },
       })
@@ -2557,7 +2620,6 @@ describe('visible view failures', () => {
       answer(refusal())
       await expect(deleting).resolves.toBe(false)
 
-      expect(controller.problem?.code).toBe('store_busy')
       expect(flashes()).toEqual([
         {
           message: 'The duplicate change could not be saved. The profile is busy. Try again.',
@@ -2565,6 +2627,42 @@ describe('visible view failures', () => {
         },
       ])
       expect(controller.duplicates.state.phase).toBe('idle')
+    })
+
+    it('rereads the view after a conflict once review closed, and reports both failures', async () => {
+      const conflict = Response.json(
+        {
+          type: 'about:blank',
+          title: 'Conflict',
+          status: 409,
+          detail: 'The profile changed.',
+          code: 'revision_conflict',
+          current_revision: '4',
+        },
+        { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+      let answer!: (response: Response) => void
+      const view = vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1', 0, 3, '3'))
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      const controller = await openReview(
+        vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))),
+        view,
+      )
+
+      const deleting = controller.duplicates.confirmDelete()
+      controller.duplicates.cancelDelete()
+      controller.duplicates.close()
+      answer(conflict)
+      await deleting
+
+      expect(controller.problem?.code).toBe('network_error')
+      expect(flashes().map(({ message }) => message)).toEqual([
+        'Moneyflow could not check for newer data; the view may be out of date. ' +
+          'Moneyflow could not reach the server. Check the connection and retry.',
+        'The duplicate change could not be saved. The profile changed.',
+      ])
     })
 
     it('shows the refusal only in review while review is open', async () => {

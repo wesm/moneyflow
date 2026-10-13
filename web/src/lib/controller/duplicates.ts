@@ -11,7 +11,7 @@ import {
   type SelectionValue,
   type ViewProjection,
 } from '../api/client'
-import { problemReason } from '../shell/notices'
+import { failureReason, problemReason, showFailure } from '../shell/notices'
 
 export type DuplicatePhase =
   | 'idle'
@@ -32,12 +32,14 @@ export interface DuplicateState {
 
 export interface DuplicateHost {
   current(): ViewProjection | undefined
-  recheck(selection?: SelectionValue, force?: boolean): Promise<ViewProjection | undefined>
   /**
-   * Shows in the workspace that a reread failed, with a Retry that rereads `selection`.
-   * `failure` names what failed instead when it was not the reread.
+   * Rereads the view with `selection`. A failure resolves undefined; it also shows in the
+   * workspace when `report()` is true by then and nothing newer owns the workspace problem.
    */
-  reportRecheckFailure(error: unknown, selection?: SelectionValue, failure?: string): void
+  recheck(
+    selection: SelectionValue | undefined,
+    report: () => boolean,
+  ): Promise<ViewProjection | undefined>
 }
 
 export interface DuplicateController {
@@ -359,7 +361,7 @@ export function createDuplicateController(
     if (session !== closings) {
       // Review is closed, so only the workspace can say the change was not saved.
       if (isConflict(error)) await reload(mainSelection, session)
-      options.host.reportRecheckFailure(error, mainSelection, changeRefused)
+      showFailure(`${changeRefused} ${failureReason(error)}`)
       return false
     }
     if (isConflict(error)) {
@@ -390,13 +392,7 @@ export function createDuplicateController(
    * failure, because the dialog that would have shown it is gone.
    */
   async function reload(selection?: SelectionValue, session = closings): Promise<boolean> {
-    let refreshed: ViewProjection | undefined
-    try {
-      refreshed = await options.host.recheck(selection, true)
-    } catch (error) {
-      if (session !== closings) options.host.reportRecheckFailure(error, selection)
-      return false
-    }
+    const refreshed = await options.host.recheck(selection, () => session !== closings)
     if (session !== closings) return refreshed !== undefined
     return refreshed !== undefined && (await load(refreshed, undefined, 0, 0))
   }

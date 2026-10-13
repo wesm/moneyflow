@@ -10,7 +10,7 @@ import {
 } from '../api/client'
 import { testDuplicates as duplicates } from '../../test/duplicates'
 import { testProjection } from '../../test/projection'
-import { createDuplicateController } from './duplicates'
+import { createDuplicateController, type DuplicateHost } from './duplicates'
 
 describe('DuplicateController', () => {
   it('keeps selection transient and toggles against a derived detail query', async () => {
@@ -31,7 +31,6 @@ describe('DuplicateController', () => {
       host: {
         current: () => current,
         recheck: vi.fn(async () => current),
-        reportRecheckFailure: vi.fn(),
       },
     })
 
@@ -68,7 +67,6 @@ describe('DuplicateController', () => {
       host: {
         current: () => current,
         recheck: vi.fn(async () => current),
-        reportRecheckFailure: vi.fn(),
       },
     })
     await controller.open()
@@ -109,7 +107,7 @@ describe('DuplicateController', () => {
     const controller = createDuplicateController({
       client,
       mutations: transport,
-      host: { current: () => current, recheck, reportRecheckFailure: vi.fn() },
+      host: { current: () => current, recheck },
     })
 
     await controller.open()
@@ -128,7 +126,7 @@ describe('DuplicateController', () => {
       selection: selection('selected'),
       query: 'mode=detail&v=1',
     })
-    expect(recheck).toHaveBeenCalledWith(current.selection, true)
+    expect(recheck).toHaveBeenCalledWith(current.selection, expect.any(Function))
     expect(controller.state.projection?.total_groups).toBe(0)
     expect(controller.state.announcement).toContain('Staged deletion')
   })
@@ -154,7 +152,7 @@ describe('DuplicateController', () => {
     const controller = createDuplicateController({
       client,
       mutations: transport,
-      host: { current: () => current, recheck, reportRecheckFailure: vi.fn() },
+      host: { current: () => current, recheck },
     })
 
     await controller.open()
@@ -188,7 +186,6 @@ describe('DuplicateController', () => {
       host: {
         current: () => current,
         recheck: vi.fn(async () => current),
-        reportRecheckFailure: vi.fn(),
       },
     })
 
@@ -226,7 +223,6 @@ describe('DuplicateController', () => {
       host: {
         current: () => current,
         recheck: vi.fn(async () => current),
-        reportRecheckFailure: vi.fn(),
       },
     })
 
@@ -266,7 +262,6 @@ describe('DuplicateController', () => {
       host: {
         current: () => current,
         recheck: vi.fn(async () => current),
-        reportRecheckFailure: vi.fn(),
       },
     })
 
@@ -315,7 +310,6 @@ describe('DuplicateController', () => {
       host: {
         current: () => current,
         recheck: vi.fn(async () => current),
-        reportRecheckFailure: vi.fn(),
       },
     })
 
@@ -347,7 +341,6 @@ describe('DuplicateController', () => {
       host: {
         current: () => current,
         recheck: vi.fn(async () => next),
-        reportRecheckFailure: vi.fn(),
       },
     })
 
@@ -389,16 +382,13 @@ describe('DuplicateController after a failed reload', () => {
       mutations: transport,
       host: {
         current: () => current,
-        recheck: vi.fn(recheck) as (s?: SelectionValue) => Promise<ViewProjection | undefined>,
-        reportRecheckFailure: vi.fn(),
+        recheck: vi.fn(recheck) as DuplicateHost['recheck'],
       },
     })
   }
 
   it('leaves the confirmation when a conflict’s reload fails', async () => {
-    const controller = controllerWith(mutationTransport(conflict()), async () => {
-      throw new TypeError('Failed to fetch')
-    })
+    const controller = controllerWith(mutationTransport(conflict()), async () => undefined)
     await controller.open()
     controller.requestDelete()
 
@@ -412,9 +402,7 @@ describe('DuplicateController after a failed reload', () => {
   })
 
   it('reports a staged hide whose reload failed as saved, not failed to save', async () => {
-    const controller = controllerWith(mutationTransport(), async () => {
-      throw new TypeError('Failed to fetch')
-    })
+    const controller = controllerWith(mutationTransport(), async () => undefined)
     await controller.open()
 
     await expect(controller.hideFocused()).resolves.toBe(true)
@@ -430,7 +418,7 @@ describe('DuplicateController after a failed reload', () => {
     let attempts = 0
     const controller = controllerWith(mutationTransport(), async () => {
       attempts += 1
-      if (attempts === 1) throw new TypeError('Failed to fetch')
+      if (attempts === 1) return undefined
       return testProjection({ revision: '4' })
     })
     await controller.open()
@@ -476,7 +464,7 @@ describe('DuplicateController after a failed reload', () => {
     const controller = createDuplicateController({
       client,
       mutations: transport,
-      host: { current: () => shown, recheck, reportRecheckFailure: vi.fn() },
+      host: { current: () => shown, recheck },
     })
     await controller.open()
     controller.requestDelete()
