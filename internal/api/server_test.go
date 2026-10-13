@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"strings"
 	"testing"
 
@@ -428,6 +430,55 @@ func requestJSON(t testing.TB, server *Server, path string, body any) *httptest.
 	data, err := json.Marshal(body)
 	require.NoError(t, err)
 	return requestServer(t, server, http.MethodPost, path, bytes.NewReader(data))
+}
+
+// keepAliveClient serves the API on a real listener and returns its URL with a client that
+// sends every request over one reused connection, as a browser does.
+func keepAliveClient(t testing.TB, server *Server) (string, *http.Client) {
+	t.Helper()
+	listener := httptest.NewServer(server.Handler())
+	t.Cleanup(listener.Close)
+	transport := &http.Transport{MaxConnsPerHost: 1}
+	t.Cleanup(transport.CloseIdleConnections)
+	return listener.URL, &http.Client{Transport: transport}
+}
+
+type keepAliveResponse struct {
+	status int
+	body   string
+	reused bool
+}
+
+// postKeepAlive sends a signed JSON mutation for scope and reports whether it reused the
+// client's earlier connection.
+func postKeepAlive(
+	t testing.TB, client *http.Client, server *Server, url, scope string, body any,
+) keepAliveResponse {
+	t.Helper()
+	data, err := json.Marshal(body)
+	require.NoError(t, err)
+	issued, err := server.security.Issue(scope)
+	require.NoError(t, err)
+	var result keepAliveResponse
+	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
+		result.reused = info.Reused
+	}}
+	request, err := http.NewRequestWithContext(
+		httptrace.WithClientTrace(context.Background(), trace),
+		http.MethodPost, url, bytes.NewReader(data),
+	)
+	require.NoError(t, err)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", server.security.origin.Origin())
+	request.Header.Set("Sec-Fetch-Site", "same-origin")
+	request.Header.Set(MutationTokenHeader, issued.Value)
+	response, err := client.Do(request)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, response.Body.Close()) }()
+	responseBody, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	result.status, result.body = response.StatusCode, string(responseBody)
+	return result
 }
 
 func requestServer(

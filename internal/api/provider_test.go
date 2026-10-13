@@ -335,6 +335,32 @@ func TestRefreshPanicLogsItsCauseWithoutRequestSecrets(t *testing.T) {
 	assertLogOmitsRequestSecrets(t, logged, issued.Value)
 }
 
+// A browser refresh outlives Huma's five-second body read deadline. The refresh, and the next
+// request the browser sends on the same keep-alive connection, must not be cancelled by it.
+func TestProviderRefreshOutlivesTheBodyReadDeadlineOnAKeepAliveConnection(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	baseURL, client := keepAliveClient(t, fixture.server)
+	url := baseURL + "/api/v1/provider/refresh"
+	started := make(chan struct{})
+	release := make(chan struct{})
+	fixture.source.blockNextFetch(started, release)
+	go func() {
+		<-started
+		// A real Monarch history read takes far longer than the deadline.
+		time.Sleep(6 * time.Second)
+		close(release)
+	}()
+	first := postKeepAlive(t, client, fixture.server, url, CatalogMutationScope, manualRefreshBody())
+	assert.Equal(t, http.StatusOK, first.status, first.body)
+
+	second := postKeepAlive(t, client, fixture.server, url, CatalogMutationScope, manualRefreshBody())
+	assert.True(t, second.reused, "the second refresh reuses the connection")
+	assert.Equal(t, http.StatusOK, second.status, "the reused connection: %s", second.body)
+	assert.Empty(t, fixture.errorLog.String())
+}
+
 func manualRefreshBody() ProviderRefreshBody {
 	return ProviderRefreshBody{
 		Version: ProviderSchemaVersion, Manual: true, Query: "v=1",

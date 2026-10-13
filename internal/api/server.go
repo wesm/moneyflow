@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -797,9 +798,26 @@ func requestBodyLimit(next http.Handler, basePath string) http.Handler {
 			}
 			request.Body = io.NopCloser(bytes.NewReader(body))
 			request.ContentLength = int64(len(body))
+			response = bufferedBodyResponse{response}
 		}
 		next.ServeHTTP(response, request)
 	})
+}
+
+// bufferedBodyResponse keeps Huma's body read deadline off a connection whose request body is
+// already in memory. Once the body is read, net/http watches the connection for a client
+// disconnect. A deadline set after that point expires during the handler, and net/http treats
+// the timeout as a disconnect: it cancels this request and every later one on the connection.
+type bufferedBodyResponse struct {
+	http.ResponseWriter
+}
+
+func (bufferedBodyResponse) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (response bufferedBodyResponse) Unwrap() http.ResponseWriter {
+	return response.ResponseWriter
 }
 
 type bufferedResponse struct {
