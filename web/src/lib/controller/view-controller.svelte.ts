@@ -589,7 +589,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     await request
     if (accepted) return 'applied'
     if (requestGeneration !== generation || !problem) return 'superseded'
-    return problem.code === 'network_error' ? 'failed' : 'rejected'
+    return invalidSearchCodes.has(problem.code) ? 'invalid' : { failed: problem.detail }
   }
 
   function commitSearch(snapshot: SearchSnapshot): void {
@@ -1084,6 +1084,9 @@ function showWarnings(next: ViewProjection): void {
     if (warning.code !== auditWarningCode) showWarning(warning.detail)
   }
 }
+
+/** The codes the server answers a search expression it cannot parse with. */
+const invalidSearchCodes = new Set(['invalid_web_request', 'invalid_request'])
 
 function controllerProblem(error: unknown): ControllerProblem {
   if (error instanceof MoneyflowProblem) {

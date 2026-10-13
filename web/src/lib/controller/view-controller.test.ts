@@ -1814,8 +1814,8 @@ describe('browser view controller', () => {
           type: 'about:blank',
           title: 'Bad Request',
           status: 400,
-          detail: 'bad expression',
-          code: 'invalid_request',
+          detail: 'The web view request is invalid.',
+          code: 'invalid_web_request',
         })
       })
       .mockImplementationOnce(() => new Promise<ViewProjection>((resolve) => (release = resolve)))
@@ -1824,14 +1824,14 @@ describe('browser view controller', () => {
     await controller.hydrate()
     controller.beginSearch()
 
-    expect(await controller.previewSearch('[')).toBe('rejected')
+    expect(await controller.previewSearch('[')).toBe('invalid')
     const slow = controller.previewSearch('a')
     expect(await controller.previewSearch('b')).toBe('applied')
     release(projection('v=1&q=a', 0, 1))
     expect(await slow).toBe('superseded')
   })
 
-  it('reports a search preview the network failed as failed, not rejected', async () => {
+  it('reports a search preview the network failed with the connection reason', async () => {
     const transition = vi.fn(async () => {
       throw new TypeError('Failed to fetch')
     })
@@ -1839,8 +1839,29 @@ describe('browser view controller', () => {
     await controller.hydrate()
     controller.beginSearch()
 
-    expect(await controller.previewSearch('coffee')).toBe('failed')
+    expect(await controller.previewSearch('coffee')).toEqual({
+      failed: 'Moneyflow could not reach the server. Check the connection and retry.',
+    })
     expect(controller.problem).toMatchObject({ kind: 'request', code: 'network_error' })
+  })
+
+  it('reports a search preview the server refused for another reason with that reason', async () => {
+    const transition = vi.fn(async () => {
+      throw new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Service Unavailable',
+        status: 503,
+        detail: 'The profile is busy. Retry in a moment.',
+        code: 'store_busy',
+      })
+    })
+    const controller = controllerFor(clientWith({ transition }), false)
+    await controller.hydrate()
+    controller.beginSearch()
+
+    expect(await controller.previewSearch('coffee')).toEqual({
+      failed: 'The profile is busy. Retry in a moment.',
+    })
   })
 
   it('aborts an in-flight search preview when cancel restores its snapshot', async () => {
