@@ -79,6 +79,19 @@ describe('RefreshDialog', () => {
     expect(controller.cancel).not.toHaveBeenCalled()
   })
 
+  it.each(['stopping', 'other'] as const)(
+    'says why the %s dialog cannot follow the refresh and lets the user continue',
+    async (view) => {
+      const controller = open({ view }, { statusError: 'The server did not answer.' })
+      render(RefreshDialog, { controller })
+      expect(screen.getByRole('alert').textContent).toBe('The server did not answer.')
+      await fireEvent.click(
+        screen.getByRole('button', { name: /^Continue with data from Oct [23]/ }),
+      )
+      expect(controller.continueStale).toHaveBeenCalledOnce()
+    },
+  )
+
   it('keeps a failure open with Retry and Continue', async () => {
     const controller = open(
       { view: 'failed', reason: 'The provider is temporarily unavailable.' },

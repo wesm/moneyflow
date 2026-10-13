@@ -186,6 +186,29 @@ describe('refresh notice', () => {
     )
   })
 
+  it('reports a failed status check over cached data with its known age', () => {
+    const status = testProviderStatus({ last_success: '2026-10-03T12:00:00Z' })
+    const notice = staleNotice(
+      idle({ status, statusError: 'The server did not answer.' }),
+      now,
+      'en-US',
+    )
+    expect(notice?.checkFailed).toBe(true)
+    expect(notice?.text).toMatch(
+      /^Showing data from 10 days ago \(Oct [23], 2026, .*\)\. Moneyflow could not check for newer provider data\. The server did not answer\.$/,
+    )
+  })
+
+  it('reports a failed status check over a failure the tab already showed', () => {
+    const status = testProviderStatus({ last_success: '2026-10-03T12:00:00Z' })
+    const notice = staleNotice(
+      idle({ status, staleReason: 'Rate limited.', statusError: 'The server did not answer.' }),
+      now,
+      'en-US',
+    )
+    expect(notice?.checkFailed).toBe(true)
+  })
+
   it('says so when no refresh has completed', () => {
     const status = testProviderStatus({ code: 'provider_unavailable' })
     expect(staleNotice(idle({ status }), now, 'en-US')?.text).toMatch(

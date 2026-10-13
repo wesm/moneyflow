@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ProviderStatus, ViewProjection } from '../api/client'
 import { createProviderController, REFRESH_CANCELED, REFRESH_NOT_CONFIRMED } from './provider'
+import { staleNotice } from './refresh-notice'
 import { testProjection } from '../../test/projection'
 
 describe('provider controller', () => {
@@ -364,6 +365,47 @@ describe('provider controller', () => {
     await controller.poll()
     expect(controller.state.dialog).toBeUndefined()
     expect(controller.state.staleReason).toBe(REFRESH_CANCELED)
+  })
+
+  it('lets the user leave a stopping dialog whose status checks fail', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({
+      status: providerStatus({ refreshing: true, last_success: '2026-10-03T12:00:00Z' }),
+    })
+    vi.mocked(transport.mutations.request).mockImplementation(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    await controller.poll()
+    void controller.refresh()
+    controller.cancel()
+    vi.mocked(transport.status).mockRejectedValue(new TypeError('Failed to fetch'))
+    await controller.poll()
+    expect(controller.state.dialog?.view).toBe('stopping')
+
+    controller.continueStale()
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(staleNotice(controller.state, Date.parse('2026-10-13T12:00:00Z'))?.checkFailed).toBe(
+      true,
+    )
+  })
+
+  it('lets the user leave another interface refresh once status checks fail', async () => {
+    const transport = transportStub({ status: providerStatus({ refreshing: true }) })
+    const controller = createProviderController({ transport, host: hostStub() })
+    await controller.poll()
+    vi.mocked(transport.status).mockRejectedValue(new TypeError('Failed to fetch'))
+    await controller.poll()
+
+    controller.continueStale()
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(staleNotice(controller.state, Date.now())?.checkFailed).toBe(true)
   })
 
   it('cancels a refresh still waiting for the first view without sending it', async () => {

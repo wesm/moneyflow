@@ -323,6 +323,10 @@ so, for example `The terminal app (moneyflow tui) is refreshing this profile. Ca
 It follows that refresh and closes when it ends. It has no **Cancel** button, because only the
 interface that started the refresh can stop it.
 
+If Moneyflow cannot check the refresh status while the dialog shows **Stopping…** or another
+interface's refresh, the dialog shows the error. **Continue with data from** a date closes it, and
+the stale data banner offers **Retry**.
+
 The web app stops a refresh that runs longer than 30 minutes; no data changes, and
 `moneyflow tui` can run it without that limit. When the server cannot say why a request failed,
 the dialog says so and the terminal running `moneyflow web` logs the cause.
@@ -343,8 +347,8 @@ After a failure, the banner shows when Moneyflow retries on its own, such as
 try at once, unless the provider limits manual attempts, as
 [SimpleFIN](simplefin.md#refresh-timing) does. For SimpleFIN, **Refresh** waits and shows when it
 becomes available, such as `Available at 10:40 AM`. When the provider needs you to reconnect, the
-banner offers **Reconnect** instead. If Moneyflow cannot check when data was last refreshed, the
-banner says so and offers **Retry**.
+banner offers **Reconnect** instead. If Moneyflow cannot check for newer provider data, the banner
+says so, keeps the last known data age, and offers **Retry**.
 
 See [Monarch refresh](monarch.md#refresh-data) for when background refresh runs.
 

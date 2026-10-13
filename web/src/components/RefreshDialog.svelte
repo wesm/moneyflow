@@ -25,6 +25,11 @@
   const age = $derived(status?.last_success ? dataAge(status.last_success, now) : undefined)
   const running = $derived(view === 'progress' || view === 'stopping' || view === 'other')
   const title = $derived(titleFor(view))
+  /** Status checks fail, so a running refresh's end cannot be seen; the user may leave. */
+  const unchecked = $derived(
+    (view === 'stopping' || view === 'other') && providerState.statusError !== undefined,
+  )
+  const continueLabel = $derived(age ? `Continue with data from ${age.date}` : 'Continue')
 
   function titleFor(current: RefreshDialogView | undefined): string {
     if (current === 'failed') return `Refresh from ${provider} failed`
@@ -62,8 +67,8 @@
 
   function close(): void {
     if (view === 'progress') controller.cancel()
-    else if (view === 'failed' || view === 'reconnect') controller.continueStale()
     else if (view === 'confirmation') controller.dismissConfirmation()
+    else controller.continueStale()
   }
 
   function reconnect(): void {
@@ -96,6 +101,9 @@
     <div class="mf-refresh" bind:this={body}>
       {#if running}
         <RefreshProgress {controller} {now} />
+        {#if unchecked}
+          <p class="mf-refresh__lead" role="alert">{providerState.statusError}</p>
+        {/if}
       {:else if view === 'confirmation'}
         <p class="mf-refresh__lead">
           This refresh would remove {status?.summary.removed_transactions ?? 0} posted transactions.
@@ -119,12 +127,14 @@
         <Button ariaLabel="Cancel refresh" label="Cancel" onclick={() => controller.cancel()}>
           {#snippet trailing()}<KbdBadge keys={['Esc']} />{/snippet}
         </Button>
+      {:else if unchecked}
+        <Button class="mf-refresh__focus" onclick={() => controller.continueStale()}
+          >{continueLabel}</Button
+        >
       {:else if view === 'stopping'}
         <Button disabled label="Stopping…" />
       {:else if view === 'failed' || view === 'reconnect'}
-        <Button onclick={() => controller.continueStale()}
-          >{age ? `Continue with data from ${age.date}` : 'Continue'}</Button
-        >
+        <Button onclick={() => controller.continueStale()}>{continueLabel}</Button>
         {#if view === 'reconnect' && onreconnect}
           <Button class="mf-refresh__focus" tone="info" surface="solid" onclick={reconnect}
             >Reconnect</Button

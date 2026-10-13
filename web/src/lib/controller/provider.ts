@@ -61,7 +61,10 @@ export interface ProviderController {
   dismissConfirmation(): void
   /** Stops this tab's refresh; the dialog says Stopping… until the server has stopped it. */
   cancel(): void
-  /** Closes a failed refresh's dialog and keeps the data shown, under the stale banner. */
+  /**
+   * Closes a failed refresh's dialog, or one that cannot follow a refresh because status checks
+   * fail, and keeps the data shown under the stale banner.
+   */
   continueStale(): void
 }
 
@@ -480,8 +483,21 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 
   function continueStale(): void {
     const dialog = state.dialog
-    if (dialog?.view !== 'failed' && dialog?.view !== 'reconnect') return
-    setState({ ...state, dialog: undefined, staleReason: dialog.reason })
+    if (dialog?.view === 'failed' || dialog?.view === 'reconnect') {
+      setState({ ...state, dialog: undefined, staleReason: dialog.reason })
+      return
+    }
+    // Without status answers the dialog cannot tell when the refresh ends, so the user may leave
+    // it; the stale banner then reports the failed check and offers Retry.
+    if ((dialog?.view === 'stopping' || dialog?.view === 'other') && state.statusError) {
+      setState({
+        ...state,
+        phase: 'idle',
+        kind: undefined,
+        dialog: undefined,
+        announcement: state.statusError,
+      })
+    }
   }
 
   function dismissConfirmation(): void {

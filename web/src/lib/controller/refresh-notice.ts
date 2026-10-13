@@ -114,22 +114,13 @@ export function staleNotice(
   now: number,
   locale?: string,
 ): StaleNotice | undefined {
-  if (state.dialog || state.phase === 'refreshing') return undefined
+  if (state.dialog) return undefined
   const status = state.status
-  if (!status) {
-    if (!state.statusError) return undefined
-    return {
-      text: `Moneyflow could not check when provider data was last refreshed. ${state.statusError}`,
-      manualWaits: false,
-      reconnect: false,
-      checkFailed: true,
-    }
-  }
+  if (state.statusError) return checkFailed(state.statusError, status, now, locale)
+  if (!status || state.phase === 'refreshing') return undefined
   const reason = state.staleReason ?? statusStaleReason(status)
   if (!reason) return undefined
-  const lead = status.last_success
-    ? showing(dataAge(status.last_success, now, locale))
-    : 'No refresh has completed for this profile.'
+  const lead = dataLead(status, now, locale)
   const eligible = status.next_eligible ? Date.parse(status.next_eligible) : 0
   return {
     text: `${lead} ${reason}`,
@@ -141,6 +132,25 @@ export function staleNotice(
     reconnect: status.code === 'provider_reconnect_required',
     checkFailed: false,
   }
+}
+
+/** The last status request failed, so the age shown is the last one known. */
+function checkFailed(
+  error: string,
+  status: ProviderStatus | undefined,
+  now: number,
+  locale: string | undefined,
+): StaleNotice {
+  const text = status
+    ? `${dataLead(status, now, locale)} Moneyflow could not check for newer provider data. ${error}`
+    : `Moneyflow could not check when provider data was last refreshed. ${error}`
+  return { text, manualWaits: false, reconnect: false, checkFailed: true }
+}
+
+function dataLead(status: ProviderStatus, now: number, locale: string | undefined): string {
+  return status.last_success
+    ? showing(dataAge(status.last_success, now, locale))
+    : 'No refresh has completed for this profile.'
 }
 
 function showing(age: DataAge): string {
