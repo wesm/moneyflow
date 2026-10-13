@@ -431,6 +431,55 @@ func TestLongStoppedProviderRefreshWaitsTheRetryDelayFromWhenItStopped(t *testin
 	assert.Equal(t, fetches, source.fetchCalls(), "the scheduler waits for the retry delay")
 }
 
+// A request can stop after the refresh commits, while the service reloads the saved data. The
+// refresh is saved, so it must report success rather than a stopped request that changed nothing.
+func TestProviderRefreshStoppedAfterItsCommitReportsTheSavedRefresh(t *testing.T) {
+	t.Parallel()
+
+	ctx, stop := context.WithCancelCause(context.Background())
+	paths, err := home.ResolveRoot(t.TempDir(), nil, "")
+	require.NoError(t, err)
+	profileHandle, err := sqlite.Open(context.Background(), paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profileHandle.Close()) })
+	stopping := &stopAfterRefreshCommitProfile{
+		Profile: profileHandle, stop: func() { stop(context.DeadlineExceeded) },
+	}
+	service, err := app.NewProfileService(context.Background(), stopping)
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 15, 18, 45, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 3), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "instance-a")
+
+	result, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	require.Error(t, ctx.Err(), "the request stopped after the commit")
+	assert.Equal(t, uint64(1), result.Status.Generation)
+	assert.NotZero(t, result.Revision)
+	assert.Equal(t, service.Revision(), result.Revision, "the service loaded the saved refresh")
+}
+
+// stopAfterRefreshCommitProfile stops the request right after a provider refresh commits.
+type stopAfterRefreshCommitProfile struct {
+	store.Profile
+	stop func()
+}
+
+func (profile *stopAfterRefreshCommitProfile) ApplyProviderRefresh(
+	ctx context.Context,
+	request store.AtomicRefreshRequest,
+	planner store.RefreshPlanner,
+) (store.RefreshCommit, error) {
+	commit, err := profile.Profile.ApplyProviderRefresh(ctx, request, planner)
+	profile.stop()
+	return commit, err
+}
+
 // providerTestClock is a provider clock a test moves forward while a refresh runs.
 type providerTestClock struct {
 	mu  sync.Mutex

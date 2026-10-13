@@ -858,10 +858,13 @@ func (service *Service) foldProviderCandidate(
 		}
 		return ProviderRefreshResult{}, mapAppError(err, service.Revision())
 	}
-	if err = service.reloadExpected(ctx, commit.Revision); err != nil {
+	// The refresh is saved. A request that stops now must not turn it into a failure, and the
+	// service must still load what was saved, so these local reads ignore the request's end.
+	saved := context.WithoutCancel(ctx)
+	if err = service.reloadExpected(saved, commit.Revision); err != nil {
 		return ProviderRefreshResult{}, err
 	}
-	state, err := service.profile.ProviderState(ctx)
+	state, err := service.profile.ProviderState(saved)
 	if err != nil {
 		return ProviderRefreshResult{}, mapAppError(err, service.Revision())
 	}
