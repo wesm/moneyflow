@@ -403,12 +403,37 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       return
     }
     const phase = statusPhase(status, inFlight || pending !== undefined)
+    const elsewhere = refreshedElsewhere(status)
     setState({
       ...base,
       phase,
       kind: phase === 'refreshing' ? state.kind : undefined,
       announcement: pollAnnouncement(status, phase, state),
+      ...(elsewhere ? { dialog: undefined, staleReason: undefined } : {}),
     })
+    if (elsewhere) void rereadAnnouncingFailure()
+  }
+
+  async function rereadAnnouncingFailure(): Promise<void> {
+    const note = await reread()
+    if (note) setState({ ...state, announcement: note })
+  }
+
+  /**
+   * Another interface committed newer data while this tab had no refresh of its own running, so
+   * a failure this tab shows is obsolete and the view predates that data.
+   */
+  function refreshedElsewhere(status: ProviderStatus): boolean {
+    const known = state.status?.generation
+    const view = state.dialog?.view
+    return (
+      known !== undefined &&
+      status.generation !== known &&
+      !status.refreshing &&
+      !inFlight &&
+      pending === undefined &&
+      (view === undefined || view === 'failed' || view === 'reconnect')
+    )
   }
 
   /** A refresh this tab watched has ended: it committed newer data, or it stopped. */

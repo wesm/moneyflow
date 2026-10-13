@@ -575,6 +575,58 @@ describe('provider controller', () => {
     expect(controller.state.announcement).toBe('Refresh complete: 7 imported, 0 removed.')
   })
 
+  it.each(['open', 'continued'] as const)(
+    'clears a %s failure once another interface refreshes successfully',
+    async (failure) => {
+      const current = testProjection({ capabilities: [capability(true)] })
+      const host = hostStub(current)
+      const failedStatus = providerStatus({
+        code: 'provider_unavailable',
+        last_success: '2026-10-03T12:00:00Z',
+      })
+      const transport = transportStub({
+        mutationResponse: problemResponse('provider_unavailable', 'Unavailable.', failedStatus),
+      })
+      const controller = createProviderController({ transport, host })
+      controller.sync(current)
+      await controller.refresh()
+      if (failure === 'continued') controller.continueStale()
+
+      vi.mocked(transport.status).mockResolvedValue(
+        providerStatus({ generation: '2', last_success: '2026-10-13T12:00:00Z' }),
+      )
+      await controller.poll()
+
+      expect(controller.state.dialog).toBeUndefined()
+      expect(controller.state.staleReason).toBeUndefined()
+      expect(controller.state.phase).toBe('idle')
+      expect(host.reload).toHaveBeenCalledOnce()
+      expect(transport.mutations.request).toHaveBeenCalledOnce()
+    },
+  )
+
+  it('keeps a failure while the status shows no newer data', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const host = hostStub(current)
+    const failedStatus = providerStatus({
+      code: 'provider_unavailable',
+      last_success: '2026-10-03T12:00:00Z',
+    })
+    const transport = transportStub({
+      status: failedStatus,
+      mutationResponse: problemResponse('provider_unavailable', 'Unavailable.', failedStatus),
+    })
+    const controller = createProviderController({ transport, host })
+    controller.sync(current)
+    await controller.refresh()
+    controller.continueStale()
+
+    await controller.poll()
+
+    expect(controller.state.staleReason).toBe('Unavailable.')
+    expect(host.reload).not.toHaveBeenCalled()
+  })
+
   it('closes the dialog when another interface refresh stops without new data', async () => {
     const transport = transportStub({ status: providerStatus({ refreshing: true }) })
     const controller = createProviderController({ transport, host: hostStub() })
