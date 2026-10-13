@@ -18,7 +18,11 @@ test('direct listener reads but canonical-origin policy rejects its mutations', 
     expect(page.url()).not.toContain(token!)
 
     await page.keyboard.press('h')
-    await expect(page.getByText('Open the canonical Moneyflow URL to make changes.')).toBeVisible()
+    await expect(
+      page.locator('.kit-flash-banner', {
+        hasText: 'Open the canonical Moneyflow URL to make changes.',
+      }),
+    ).toBeVisible()
     await expect(page.getByText(/0 pending edit/)).toBeVisible()
 
     const rejected = await page.request.post(`${server.profileAPI}mutations`, {
