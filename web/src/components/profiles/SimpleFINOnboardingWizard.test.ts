@@ -90,3 +90,35 @@ it('confirms money settings before masked input and keeps invalid input for corr
   expect(controller.cancel).toHaveBeenCalledOnce()
   expect(oncancel).not.toHaveBeenCalled()
 })
+
+it('shows why a connect request failed next to the input', () => {
+  const controller: SimpleFINOnboardingController = {
+    state: {
+      snapshot: {
+        protocol_version: 1,
+        profile_id: 'profile_example',
+        attempt_id: 'attempt_example',
+        state_version: 1,
+        state: 'credentials_required',
+        provider_kind: 'simplefin',
+        progress: { fetched: 0, total: 0 },
+        imported_transactions: 0,
+      },
+      busy: false,
+      announcement: '',
+      failure: 'Setup did not continue. The profile is in use. Wait a moment, then retry.',
+    },
+    start: vi.fn(),
+    connect: vi.fn(),
+    retry: vi.fn(),
+    restart: vi.fn(),
+    cancel: vi.fn(),
+    poll: vi.fn(),
+    destroy: vi.fn(),
+  }
+  render(SimpleFINOnboardingWizard, { controller, oncomplete: vi.fn(), oncancel: vi.fn() })
+
+  expect(screen.getByRole('alert').textContent).toBe(
+    'Setup did not continue. The profile is in use. Wait a moment, then retry.',
+  )
+})

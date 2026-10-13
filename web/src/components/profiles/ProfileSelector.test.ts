@@ -135,6 +135,44 @@ describe('profile selector', () => {
     expect(props.onrecover).not.toHaveBeenCalledWith(props.profiles[0]!.id, true)
   })
 
+  it('shows why a profile was not created next to the name it keeps', async () => {
+    const props = syntheticCatalogProps()
+    const rendered = render(ProfileSelector, { props })
+    props.oncreate.mockImplementation(async () => {
+      await rendered.rerender({
+        problem: 'The profile could not be created. The profile name is already in use.',
+      })
+      return undefined
+    })
+
+    await fireEvent.keyDown(window, { key: 'a' })
+    await fireEvent.keyDown(window, { key: 'y' })
+    await fireEvent.input(screen.getByLabelText('Profile name'), { target: { value: 'Alpha' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Create profile' }))
+
+    await vi.waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(
+        'The profile could not be created. The profile name is already in use.',
+      ),
+    )
+    expect((screen.getByLabelText('Profile name') as HTMLInputElement).value).toBe('Alpha')
+  })
+
+  it('shows why the recovery plan did not load instead of waiting for it', async () => {
+    const props = syntheticCatalogProps()
+    props.profiles = [{ ...props.profiles[0]!, status: 'needs_recovery' }]
+    render(ProfileSelector, {
+      props: { ...props, problem: 'The profile could not be recovered. Disk is read-only.' },
+    })
+
+    await fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
+
+    expect(screen.getByRole('alert').textContent).toBe(
+      'The profile could not be recovered. Disk is read-only.',
+    )
+    expect(screen.queryByText('Preparing the exact recovery plan…')).toBeNull()
+  })
+
   it('offers fresh setup after recreating a profile without a provider', async () => {
     const props = syntheticCatalogProps()
     props.profiles = [{ ...props.profiles[0]!, provider_kind: 'local', status: 'needs_recovery' }]

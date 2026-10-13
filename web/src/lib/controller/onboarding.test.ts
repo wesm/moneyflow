@@ -151,6 +151,31 @@ describe('onboarding controller', () => {
     expect(controller.state.problem).toBeUndefined()
   })
 
+  it('says why a setup step failed and keeps the step open', async () => {
+    const transport = stubTransport(status('credentials_required'))
+    transport.submit.mockRejectedValueOnce(
+      new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Unprocessable Entity',
+        status: 422,
+        code: 'credentials_rejected',
+        detail: 'Monarch rejected these credentials.',
+      }),
+    )
+    const controller = createOnboardingController({ profileID, transport })
+    await controller.start()
+
+    await controller.unlock('vault-secret')
+
+    expect(controller.state.failure).toBe(
+      'Setup did not continue. Monarch rejected these credentials.',
+    )
+    expect(controller.state.problem).toBeUndefined()
+    expect(controller.state.snapshot?.state).toBe('credentials_required')
+    await controller.unlock('vault-secret')
+    expect(controller.state.failure).toBeUndefined()
+  })
+
   it('ignores a stale expired poll that races a successful restart', async () => {
     vi.useFakeTimers()
     try {

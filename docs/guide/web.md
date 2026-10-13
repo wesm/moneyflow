@@ -298,6 +298,10 @@ Closing a tab does not discard durable pending work. If a mutation sees a stale 
 the new state and invoke it again deliberately. Provider write batches have their own status and
 recovery controls; see [editing](editing.md).
 
+**Unreleased:** When creating or recovering a profile, or a setup step, fails, the form says why
+and stays open. Moneyflow keeps the profile name and the Monarch email you entered. It clears
+passwords, secrets, tokens, and Access URLs, so enter those again.
+
 ## Limitations
 
 **Unreleased:** These limits apply to the browser workspace:

@@ -2,6 +2,7 @@ import { createSubscriber } from 'svelte/reactivity'
 
 import type { components } from '../api/schema'
 import { createMutationFetch, MoneyflowProblem, requestProfileJSON } from '../api/client'
+import { failureReason } from '../shell/notices'
 import { apiURL } from './base-path'
 
 export type SimpleFINOnboardingStatus = components['schemas']['SimpleFINOnboardingStatusResponse']
@@ -29,6 +30,8 @@ export interface SimpleFINOnboardingState {
   busy: boolean
   announcement: string
   problem?: { kind: 'start' | 'expired'; message: string } | undefined
+  /** Why the last step failed while the attempt stays open; cleared by the next request. */
+  failure?: string | undefined
 }
 
 export interface SimpleFINOnboardingController {
@@ -132,7 +135,13 @@ export function createSimpleFINOnboardingController(options: {
     const requestGeneration = ++generation
     const active = state.snapshot
     const previousProblem = state.problem
-    setState({ ...state, busy: true, announcement: pending, problem: undefined })
+    setState({
+      ...state,
+      busy: true,
+      announcement: pending,
+      problem: undefined,
+      failure: undefined,
+    })
     try {
       const result = await operation()
       if (destroyed || generation !== requestGeneration) return
@@ -153,22 +162,16 @@ export function createSimpleFINOnboardingController(options: {
           // Report the original conflict if the authoritative attempt cannot be recovered.
         }
       }
-      const message = problemMessage(error)
+      const message = failureReason(error)
       const expired =
         error instanceof MoneyflowProblem && error.problem.code === 'onboarding_expired'
-      setState({
-        ...state,
-        busy: false,
-        announcement: message,
-        ...(!active || expired || previousProblem
-          ? {
-              problem: {
-                kind: expired ? ('expired' as const) : (previousProblem?.kind ?? 'start'),
-                message,
-              },
-            }
-          : {}),
-      })
+      if (!active || expired || previousProblem) {
+        const kind = expired ? ('expired' as const) : (previousProblem?.kind ?? 'start')
+        setState({ ...state, busy: false, announcement: message, problem: { kind, message } })
+        return
+      }
+      const failure = `Setup did not continue. ${message}`
+      setState({ ...state, busy: false, announcement: failure, failure })
     }
   }
 
@@ -279,12 +282,6 @@ function announcementFor(snapshot: SimpleFINOnboardingStatus): string {
       'Setup stopped. Reopen this profile to use its saved connection.',
   }
   return names[snapshot.state] ?? 'SimpleFIN setup updated.'
-}
-
-function problemMessage(error: unknown): string {
-  return error instanceof MoneyflowProblem
-    ? error.problem.detail
-    : 'The SimpleFIN onboarding request could not be completed.'
 }
 
 function isStatus(value: unknown): value is SimpleFINOnboardingStatus {

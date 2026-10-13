@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { CatalogClient, ProfileSummary } from '../api/catalog-client'
+import { MoneyflowProblem } from '../api/client'
 import { createCatalogController } from './catalog.svelte'
 
 const profiles: ProfileSummary[] = [
@@ -58,6 +59,40 @@ describe('catalog controller', () => {
     expect(controller.state.recovery?.plan.backup_path).toBe('/synthetic/backup')
     await controller.recovery('profile_aaaaaaaaaaaaaaaaaaaaaaaaaa', true)
     expect(controller.state.announcement).toContain('ready for setup')
+  })
+
+  it('keeps the server reason when a profile cannot be created', async () => {
+    const client = stubCatalog()
+    vi.mocked(client.create).mockRejectedValueOnce(
+      new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Conflict',
+        status: 409,
+        code: 'profile_name_conflict',
+        detail: 'The profile name is already in use.',
+      }),
+    )
+    const controller = createCatalogController({ client })
+
+    await expect(controller.create('Alpha', 'local')).resolves.toBeUndefined()
+
+    expect(controller.state.problem).toBe(
+      'The profile could not be created. The profile name is already in use.',
+    )
+    expect(controller.state.loading).toBe(false)
+  })
+
+  it('says the server was unreachable when a recovery plan cannot be loaded', async () => {
+    const client = stubCatalog()
+    vi.mocked(client.recovery).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const controller = createCatalogController({ client })
+
+    await controller.recovery('profile_aaaaaaaaaaaaaaaaaaaaaaaaaa', false)
+
+    expect(controller.state.problem).toBe(
+      'The profile could not be recovered. ' +
+        'Moneyflow could not reach the server. Check the connection and retry.',
+    )
   })
 
   it('rolls back a newly created artifact-free profile', async () => {

@@ -19,7 +19,13 @@ import type { SearchPreview } from './search'
 import { createProviderController, type ProviderController } from './provider'
 import { createProviderWriteController, type ProviderWriteController } from './provider-write'
 import { createReviewController, type ReviewController } from './review'
-import { problemReason, showFailure, showWarning } from '../shell/notices'
+import {
+  INVALID_RESPONSE,
+  NETWORK_FAILURE,
+  problemReason,
+  showFailure,
+  showWarning,
+} from '../shell/notices'
 import { preserveCursor, startsAtFirstRow, WindowCache } from './windows'
 
 const windowSize = 200
@@ -1098,13 +1104,10 @@ function controllerProblem(error: unknown): ControllerProblem {
     }
   }
   if (error instanceof TypeError) {
-    return { kind: 'request', code: 'network_error', detail: networkFailure }
+    return { kind: 'request', code: 'network_error', detail: NETWORK_FAILURE }
   }
-  return { kind: 'request', code: 'invalid_response', detail: invalidResponse }
+  return { kind: 'request', code: 'invalid_response', detail: INVALID_RESPONSE }
 }
-
-const networkFailure = 'Moneyflow could not reach the server. Check the connection and retry.'
-const invalidResponse = 'The server sent a response Moneyflow could not read.'
 
 /** Why a request failed: the server's reason, or what went wrong without one. */
 function failureReason(error: unknown): string {

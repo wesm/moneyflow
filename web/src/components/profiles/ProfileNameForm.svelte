@@ -3,11 +3,13 @@
 
   interface Props {
     provider: 'monarch' | 'ynab' | 'simplefin' | 'amazon' | 'local'
+    /** Why the last attempt to create the profile failed. */
+    problem?: string | undefined
     onsubmit: (name: string) => void
     onback: () => void
   }
 
-  let { provider, onsubmit, onback }: Props = $props()
+  let { provider, problem, onsubmit, onback }: Props = $props()
   let name = $state('')
   let error = $state('')
 
@@ -43,7 +45,7 @@
   >
     <label for="new-profile-name">Profile name</label>
     <TextInput id="new-profile-name" bind:value={name} block autofocus autocomplete="off" />
-    {#if error}<p role="alert" class="editing-error">{error}</p>{/if}
+    {#if error || problem}<p role="alert" class="editing-error">{error || problem}</p>{/if}
     <div class="profile-actions">
       <Button type="button" onclick={onback}>Back</Button>
       <Button type="submit" tone="info" surface="solid">Create profile</Button>
