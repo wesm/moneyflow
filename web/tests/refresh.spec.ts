@@ -9,8 +9,15 @@ test.use({ timezoneId: 'UTC', locale: 'en-US' })
  * The scenario's last refresh. Seven hours later a recent refresh is due, which reads the six
  * fixture rows in the last 90 days.
  */
-const REFRESHED = 'Oct 15, 2026, 12:00 PM'
+const REFRESHED = String.raw`Oct 15, 2026(?:,| at)\s12:00\sPM`
 const DUE_AT = new Date('2026-10-15T19:00:00Z')
+
+/** Text naming the last refresh time, which WebKit writes as `Oct 15, 2026 at 12:00 PM`. */
+function aged(lead: string, rest = '', whole = true): RegExp {
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = `${escape(lead)} \\(${REFRESHED}\\)${escape(rest)}`
+  return new RegExp(whole ? `^${pattern}$` : pattern)
+}
 
 async function openDue(page: Page, server: ScenarioServer): Promise<void> {
   await server.advance(7 * 3600)
@@ -34,7 +41,7 @@ async function expectBlockedProgress(page: Page): Promise<void> {
     'max',
     '6',
   )
-  await expect(dialog).toContainText(`Last updated 7 hours ago (${REFRESHED})`)
+  await expect(dialog).toContainText(aged('Last updated 7 hours ago', '', false))
   await expect(page.locator('.app-shell')).toHaveAttribute('inert', '')
 }
 
@@ -99,7 +106,7 @@ test('Continue after a failure shows the stale banner until refresh is allowed',
     await expect(failed).toBeHidden()
     const notice = banner(page)
     await expect(notice.getByRole('status')).toHaveText(
-      `Showing data from 7 hours ago (${REFRESHED}). ${reason}`,
+      aged('Showing data from 7 hours ago', `. ${reason}`),
     )
     await expect(notice.getByRole('button', { name: 'Refresh' })).toBeDisabled()
     await expect(notice).toContainText('Available at 7:05 PM')
@@ -117,8 +124,7 @@ test('Cancel stops the server refresh and shows the stale banner', async ({ page
 
     await expect(refreshing(page)).toBeHidden()
     await expect(banner(page).getByRole('status')).toHaveText(
-      `Showing data from 7 hours ago (${REFRESHED}). ` +
-        'Refresh was canceled; no provider data changed.',
+      aged('Showing data from 7 hours ago', '. Refresh was canceled; no provider data changed.'),
     )
     await expect(page.locator('.app-shell')).not.toHaveAttribute('inert')
     expect((await server.observe()).rows).toEqual(before.rows)
@@ -171,8 +177,8 @@ test('reloading during a refresh stops it and shows the stale banner', async ({ 
 
     await page.reload()
 
-    await expect(banner(page).getByRole('status')).toContainText(
-      `Showing data from 7 hours ago (${REFRESHED}). Last refresh failed.`,
+    await expect(banner(page).getByRole('status')).toHaveText(
+      aged('Showing data from 7 hours ago', '. Last refresh failed.', false),
     )
     await expect(refreshing(page)).toBeHidden()
     expect((await server.observe()).rows).toEqual(before.rows)
