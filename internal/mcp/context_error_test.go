@@ -53,6 +53,14 @@ func TestInternalTimeLimitInALiveRequestIsAFailure(t *testing.T) {
 			code: string(app.AppStoreError),
 		},
 		{
+			// A reload stopped by its own time limit, as the profile store reports it.
+			name: "profile reload",
+			err: store.NewError(
+				store.CodeStoreError, fmt.Errorf("load profile: %w", context.DeadlineExceeded),
+			),
+			code: string(app.AppStoreError),
+		},
+		{
 			name: "other step", err: fmt.Errorf("load window: %w", context.DeadlineExceeded),
 			code: "mcp_internal_error", detail: "could not be completed",
 		},
@@ -71,6 +79,7 @@ func TestInternalTimeLimitInALiveRequestIsAFailure(t *testing.T) {
 			tool := result.StructuredContent.(map[string]any)
 			assert.Equal(t, test.code, tool["code"])
 			assert.Contains(t, tool["detail"], test.detail)
+			assert.NotContains(t, tool["detail"], "corrupt")
 
 			read, err := client.ReadResource(t.Context(), &mcpsdk.ReadResourceParams{
 				URI: "moneyflow://test/failing",
