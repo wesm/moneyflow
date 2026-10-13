@@ -63,15 +63,43 @@ func humaErrorText(model *huma.ErrorModel) string {
 	return strings.Join(parts, ": ")
 }
 
-// describeCause renders an error chain. AppError and SafeError keep their cause out of
-// Error(), so the chain is unwrapped explicitly instead of trusting the outer message.
+// describeCause renders a whole error tree, joined branches included. AppError, SafeError, and
+// store.Error keep their cause out of Error(), so every link is unwrapped explicitly instead of
+// trusting an outer message; a message that an earlier one already contains is left out.
 func describeCause(err error) string {
-	message := err.Error()
-	next := errors.Unwrap(err)
-	if next == nil || strings.Contains(message, next.Error()) {
-		return message
+	var messages []string
+	for _, message := range causeMessages(err, nil) {
+		if !containedIn(messages, message) {
+			messages = append(messages, message)
+		}
 	}
-	return message + ": " + describeCause(next)
+	return strings.Join(messages, ": ")
+}
+
+// causeMessages lists the messages of err and everything it wraps, depth first.
+func causeMessages(err error, messages []string) []string {
+	if err == nil {
+		return messages
+	}
+	messages = append(messages, err.Error())
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() error }:
+		return causeMessages(wrapped.Unwrap(), messages)
+	case interface{ Unwrap() []error }:
+		for _, branch := range wrapped.Unwrap() {
+			messages = causeMessages(branch, messages)
+		}
+	}
+	return messages
+}
+
+func containedIn(messages []string, message string) bool {
+	for _, earlier := range messages {
+		if strings.Contains(earlier, message) {
+			return true
+		}
+	}
+	return false
 }
 
 func logServerFailure(logger *log.Logger, request *http.Request, problem *Problem, cause error) {

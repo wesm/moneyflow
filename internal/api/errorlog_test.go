@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 // lockedBuffer collects log output written by background goroutines.
@@ -140,4 +142,30 @@ func TestUnreadableProviderSessionIsLoggedOncePerCause(t *testing.T) {
 	line := "provider write status for " + testProfileID +
 		": the saved provider session could not be inspected: inspect session: permission denied"
 	assert.Equal(t, 2, strings.Count(logged.String(), line))
+}
+
+// A formatted wrapper repeats its storage error's safe text, and the storage error keeps its
+// diagnostic out of Error(), so the log has to keep unwrapping past both.
+func TestServerFailureLogKeepsADiagnosticBehindAFormattedStorageWrapper(t *testing.T) {
+	t.Parallel()
+	storage := store.NewError(store.CodeStoreError, errors.New("disk-private-diagnostic"))
+	cases := map[string]error{
+		"formatted wrapper": fmt.Errorf("save view: %w", storage),
+		"joined errors": errors.Join(errors.New("first-diagnostic"),
+			fmt.Errorf("save view: %w", storage)),
+	}
+	for name, cause := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			output := &bytes.Buffer{}
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/example", http.NoBody)
+
+			logServerFailure(log.New(output, "", 0), request,
+				&Problem{Status: http.StatusInternalServerError, Code: "store_error"}, cause)
+
+			assert.Contains(t, output.String(), "save view: store_error:")
+			assert.Contains(t, output.String(), "disk-private-diagnostic")
+			assert.Equal(t, 1, strings.Count(output.String(), "save view:"))
+		})
+	}
 }
