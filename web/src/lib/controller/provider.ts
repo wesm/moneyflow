@@ -107,7 +107,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   /** A refresh asked for before the first view loaded; it starts with that view. */
   let pending: boolean | undefined
   let request: AbortController | undefined
-  /** The data generation when the dialog opened; a newer one means a refresh committed. */
+  /** The data generation before the watched refresh; a newer one means a refresh committed. */
   let watched: string | undefined
   let settled = 0
   /** Automatic refresh waits until this time after the user canceled one. */
