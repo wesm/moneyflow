@@ -18,7 +18,7 @@ func TestProviderWriteStatusExplainsARunThatStoppedWhileWriting(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	service, _, writer, _ := committedProviderWriteWithFailingHeartbeat(t)
+	service, _, writer, _ := committedProviderWriteWithFailingHeartbeat(t, nil)
 	before, err := service.ProviderWriteStatus(ctx)
 	require.NoError(t, err)
 	require.Nil(t, before.RunFailure)
@@ -41,7 +41,7 @@ func TestProviderWriteRunFailureDoesNotFollowABatchAnotherProcessResumed(t *test
 	t.Parallel()
 
 	ctx := context.Background()
-	service, profileHandle, _, now := committedProviderWriteWithFailingHeartbeat(t)
+	service, profileHandle, _, now := committedProviderWriteWithFailingHeartbeat(t, nil)
 	_, err := service.RunProviderWrite(ctx)
 	require.Error(t, err)
 	stopped, err := service.ProviderWriteStatus(ctx)
@@ -62,16 +62,43 @@ func TestProviderWriteRunFailureDoesNotFollowABatchAnotherProcessResumed(t *test
 	assert.Nil(t, resumed.RunFailure)
 }
 
+// Another process can take over the expired lease before the stopped run records its failure.
+// The batch is then that process's run, so the old failure must not be recorded against it.
+func TestProviderWriteRunFailureIsNotRecordedAgainstATakeover(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	takeover := func(profile store.Profile) {
+		takenAt := time.Date(2026, time.August, 18, 20, 30, 0, 0, time.UTC)
+		_, acquired, err := profile.AcquireProviderOperationLease(ctx, store.ProviderOperationLease{
+			OwnerID: "instance-other", Renderer: "tui", Kind: store.ProviderOperationWrite,
+			ExpiresAt: takenAt.Add(time.Minute),
+		}, takenAt)
+		assert.NoError(t, err)
+		assert.True(t, acquired)
+	}
+	service, _, _, _ := committedProviderWriteWithFailingHeartbeat(t, takeover)
+
+	_, err := service.RunProviderWrite(ctx)
+
+	require.Error(t, err)
+	status, err := service.ProviderWriteStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, store.WritePhaseWriting, status.Phase)
+	assert.Nil(t, status.RunFailure)
+}
+
 // committedProviderWriteWithFailingHeartbeat commits one hide whose provider write run stops when
 // its first lease renewal fails, before any provider call.
 func committedProviderWriteWithFailingHeartbeat(
 	t *testing.T,
+	beforeFail func(store.Profile),
 ) (*app.Service, store.Profile, *scriptedProviderWriter, time.Time) {
 	t.Helper()
 	ctx := context.Background()
 	_, profileHandle := newProviderRefreshService(t)
 	wrapped := &heartbeatErrorProfile{
-		Profile: profileHandle, failAt: 1, failed: make(chan struct{}),
+		Profile: profileHandle, failAt: 1, failed: make(chan struct{}), beforeFail: beforeFail,
 	}
 	service, err := app.NewProfileService(ctx, wrapped)
 	require.NoError(t, err)

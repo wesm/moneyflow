@@ -106,11 +106,20 @@ func (execution *ProviderWriteExecution) Run(ctx context.Context) (ProviderWrite
 	execution.mu.Unlock()
 	defer execution.runtime.endProviderWriteRun()
 	execution.service.setWriteRunFailure(nil)
+	batchID, batchErr := execution.service.activeWriteBatchID(ctx)
 	status, err := execution.service.runProviderWriteOwned(ctx, execution.runtime)
-	if err != nil {
-		execution.service.recordWriteRunFailure(ctx, err)
+	if err != nil && batchErr == nil && batchID != "" {
+		execution.service.recordWriteRunFailure(ctx, execution.runtime.instanceID, batchID, err)
 	}
 	return status, err
+}
+
+func (service *Service) activeWriteBatchID(ctx context.Context) (string, error) {
+	state, err := service.profile.ProviderState(ctx)
+	if err != nil || state.Write == nil {
+		return "", err
+	}
+	return state.Write.ID, nil
 }
 
 // stoppedWriteRun is a run failure together with the batch and lease the run left behind.
@@ -121,11 +130,19 @@ type stoppedWriteRun struct {
 	failure *ProviderWriteRunFailure
 }
 
-// recordWriteRunFailure ties the failure to the batch as the stopped run left it. When that state
-// cannot be read, nothing is recorded, because the failure could not be told apart from later runs.
-func (service *Service) recordWriteRunFailure(ctx context.Context, err error) {
+// recordWriteRunFailure ties the failure to the batch as the stopped run left it. The run started
+// on batchID as owner; when the batch is another one now, or another process holds its lease, the
+// batch is no longer this run's, and nothing is recorded. Nothing is recorded either when the state
+// cannot be read, because the failure could not be told apart from later runs.
+func (service *Service) recordWriteRunFailure(
+	ctx context.Context,
+	owner string,
+	batchID string,
+	err error,
+) {
 	state, stateErr := service.profile.ProviderState(context.WithoutCancel(ctx))
-	if stateErr != nil || state.Write == nil {
+	if stateErr != nil || state.Write == nil || state.Write.ID != batchID ||
+		(state.Lease != nil && state.Lease.OwnerID != owner) {
 		return
 	}
 	stopped := &stoppedWriteRun{
