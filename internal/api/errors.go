@@ -54,6 +54,8 @@ const (
 	CodeProviderMoneyMismatch ErrorCode = "provider_money_mismatch"
 	// CodeProviderDataInvalid rejects provider data that violates domain invariants.
 	CodeProviderDataInvalid ErrorCode = "provider_data_invalid"
+	// CodeProviderRefreshTimeout reports a refresh stopped at the web refresh time limit.
+	CodeProviderRefreshTimeout ErrorCode = "provider_refresh_timeout"
 	// CodeProfileNotFound reports an absent local profile.
 	CodeProfileNotFound ErrorCode = "profile_not_found"
 	// CodeProfileAmbiguous reports a non-unique local profile selector.

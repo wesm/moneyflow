@@ -701,11 +701,27 @@ func invalidOperationReason(code app.AppErrorCode, err error) string {
 	return string(reason)
 }
 
+// providerRefreshTimeoutDetail names the limit and the one interface without it.
+var providerRefreshTimeoutDetail = fmt.Sprintf(
+	"The refresh did not finish within %d minutes, so Moneyflow stopped it. No data changed. "+
+		"Try again, or refresh in the terminal app (moneyflow tui), which has no time limit.",
+	int(ProviderRefreshTimeout.Minutes()),
+)
+
 func problemFromProviderError(
 	err error,
 	result app.ProviderRefreshResult,
 	capability Capability,
 ) *Problem {
+	// The service returns the bare context error when the provider read outlives the request
+	// deadline; it released the lease before folding anything.
+	var application *app.AppError
+	if !errors.As(err, &application) && errors.Is(err, context.DeadlineExceeded) {
+		return newProblem(
+			http.StatusGatewayTimeout, string(CodeProviderRefreshTimeout),
+			providerRefreshTimeoutDetail,
+		)
+	}
 	problem := problemFromError(err)
 	if result.Status.Code != "" || result.Status.ConfirmationToken != "" {
 		revision := result.Revision

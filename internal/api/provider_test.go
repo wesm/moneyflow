@@ -239,6 +239,33 @@ func TestProviderStatusRemainsResponsiveDuringProviderFetch(t *testing.T) {
 	require.NoError(t, <-refreshDone)
 }
 
+func TestProviderRefreshThatRunsOutOfTimeExplainsTheLimit(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	fixture.source.failNextFetch(apiFetchUntilStopped, nil)
+	issued, err := fixture.server.security.Issue(CatalogMutationScope)
+	require.NoError(t, err)
+	// The request deadline stands in for the server's 30-minute refresh limit.
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	response := requestSignedJSONContext(
+		ctx, t, fixture.server, "/api/v1/provider/refresh", manualRefreshBody(), issued.Value,
+	)
+
+	require.Equal(t, http.StatusGatewayTimeout, response.Code, response.Body.String())
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	assert.Equal(t, string(CodeProviderRefreshTimeout), problem.Code)
+	assert.Equal(t, "The refresh did not finish within 30 minutes, so Moneyflow stopped it. "+
+		"No data changed. Try again, or refresh in the terminal app (moneyflow tui), "+
+		"which has no time limit.", problem.Detail)
+	assert.Empty(t, fixture.errorLog.String(), "an explained failure is not an unexpected error")
+
+	retried := requestProtectedJSON(t, fixture.server, "/api/v1/provider/refresh", manualRefreshBody())
+	assert.Equal(t, http.StatusOK, retried.Code, "the stopped refresh released its lease")
+}
+
 func TestUnexpectedRefreshFailureLogsItsCauseWithoutRequestSecrets(t *testing.T) {
 	t.Parallel()
 

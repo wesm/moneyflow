@@ -4330,6 +4330,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
+        "504":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Gateway Timeout
       summary: Refresh one complete provider snapshot
   /api/v1/profiles/{profile_id}/provider/refresh/confirm:
     post:
@@ -4395,6 +4401,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
+        "504":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Gateway Timeout
       summary: Confirm one suspicious provider refresh candidate
   /api/v1/profiles/{profile_id}/provider/status:
     get:

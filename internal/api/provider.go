@@ -136,7 +136,7 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 			huma.Register(server.api, huma.Operation{
 				OperationID: operationID, Method: http.MethodPost, Path: path,
 				Summary: "Confirm one suspicious provider refresh candidate",
-				Errors:  []int{400, 403, 409, 413, 422, 500, 503},
+				Errors:  []int{400, 403, 409, 413, 422, 500, 503, 504},
 			}, func(ctx context.Context, input *providerConfirmationInput) (*providerRefreshOutput, error) {
 				service := profileService(ctx)
 				ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)
@@ -161,7 +161,7 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 		huma.Register(server.api, huma.Operation{
 			OperationID: operationID, Method: http.MethodPost, Path: path,
 			Summary: "Refresh one complete provider snapshot",
-			Errors:  []int{400, 403, 409, 413, 422, 500, 503},
+			Errors:  []int{400, 403, 409, 413, 422, 500, 503, 504},
 		}, func(ctx context.Context, input *providerRefreshInput) (*providerRefreshOutput, error) {
 			service := profileService(ctx)
 			ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)

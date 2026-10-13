@@ -3704,6 +3704,15 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem']
         }
       }
+      /** @description Gateway Timeout */
+      504: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
     }
   }
   confirmProviderRefresh: {
@@ -3786,6 +3795,15 @@ export interface operations {
       }
       /** @description Service Unavailable */
       503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Gateway Timeout */
+      504: {
         headers: {
           [name: string]: unknown
         }
