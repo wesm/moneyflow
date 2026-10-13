@@ -236,25 +236,19 @@ describe('browser editing controller', () => {
     expect(controller.state.revision).toBe(8n)
   })
 
-  it('rereads the view when the server answers an accepted edit for another query', async () => {
-    const host = editingHost(
-      testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' }),
-    )
+  it('rereads the view when undo answers for the parent of a drilled target that is gone', async () => {
+    const drilled = 'v=1&group=merchant&drill=x'
+    const host = editingHost(testProjection({ revision: '7', canonical_query: drilled }))
     const accept = vi.spyOn(host, 'accept')
-    const answered = mutationResponse('8', 'mfsel1.x' as SelectionValue)
-    const controller = createEditingController({
-      transport: {
-        request: vi.fn(async () =>
-          jsonResponse({ ...answered, canonical_query: 'v=1&group=category' }),
-        ),
-      },
-      host,
-    })
+    // Undo removed the drilled target, so the server answers for its parent view.
+    const transport = mutationTransport(mutationResponse('8', 'mfsel1.x' as SelectionValue))
+    const controller = createEditingController({ transport, host })
 
-    await expect(
-      controller.submit({ action: 'transaction.toggle-hidden', input: {} }),
-    ).resolves.toBe(true)
+    await expect(controller.undo()).resolves.toBe(true)
 
+    const [path, rawBody] = vi.mocked(transport.request).mock.calls[0]!
+    expect(path).toBe('api/v1/undo')
+    expect(JSON.parse(rawBody)).toMatchObject({ query: drilled })
     expect(accept).not.toHaveBeenCalled()
     expect(host.refresh).toHaveBeenCalledWith('mfsel1.x', true)
     expect(controller.state.phase).toBe('idle')
