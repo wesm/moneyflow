@@ -745,3 +745,35 @@ test('a recheck on focus that cannot reach the server says the view may be stale
   ).toBeVisible()
   await expect(page.getByRole('contentinfo')).toContainText('Offline')
 })
+
+test('a staged duplicate deletion whose reload fails says it was staged and offers Retry', async ({
+  page,
+}) => {
+  const server = await startE2EServer({
+    fixturePath: 'testdata/fixtures/duplicate_transactions.json',
+  })
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Shift+D')
+    const review = page.getByRole('dialog', { name: 'Duplicate transactions' })
+    await expect(review).toContainText('1 duplicate group')
+    await page.keyboard.press('x')
+    const confirmation = page.getByRole('dialog', { name: 'Confirm deletion' })
+    await expect(confirmation).toBeVisible()
+    await page.route('**/view', (route) => route.abort('connectionrefused'))
+
+    await page.keyboard.press('Enter')
+
+    await expect(confirmation).toBeHidden()
+    await expect(review).toContainText(
+      'Staged deletion for 1 transaction. Press w to review and commit. ' +
+        'The duplicate list could not be refreshed. Press Retry.',
+    )
+    await page.unroute('**/view')
+    await review.getByRole('button', { name: 'Retry' }).click()
+    await expect(review.getByRole('button', { name: 'Retry' })).toBeHidden()
+    await expect(review).toContainText('1 duplicate group')
+  } finally {
+    await server.stop()
+  }
+})

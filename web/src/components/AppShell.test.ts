@@ -1310,6 +1310,7 @@ function stubController(projection = testProjection()): ViewController {
       requestDelete: vi.fn(),
       cancelDelete: vi.fn(),
       confirmDelete: vi.fn(async () => true),
+      retry: vi.fn(async () => true),
     },
     hydrate: vi.fn(),
     recheck: vi.fn(),

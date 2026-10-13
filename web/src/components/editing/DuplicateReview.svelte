@@ -71,7 +71,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-{#if duplicateState.phase === 'confirming' || duplicateState.phase === 'submitting'}
+{#if duplicateState.phase === 'confirming' || (duplicateState.phase === 'submitting' && duplicateState.confirmationCount > 0)}
   <DeleteConfirmation
     count={duplicateState.confirmationCount}
     submitting={duplicateState.phase === 'submitting'}
@@ -156,6 +156,11 @@
     {#if duplicateState.announcement}<p role="status" aria-live="polite">
         {duplicateState.announcement}
       </p>{/if}
+    {#if duplicateState.phase === 'failed'}
+      <Button type="button" tone="info" surface="solid" onclick={() => void controller.retry()}
+        >Retry</Button
+      >
+    {/if}
   </Modal>
 {/if}
 

@@ -338,6 +338,121 @@ describe('DuplicateController', () => {
   })
 })
 
+describe('DuplicateController after a failed reload', () => {
+  const conflict = () =>
+    Response.json(
+      {
+        type: 'about:blank',
+        title: 'Conflict',
+        status: 409,
+        detail: 'The profile changed.',
+        code: 'revision_conflict',
+        current_revision: '4',
+      },
+      { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+    )
+
+  function controllerWith(transport: MutationFetch, recheck: () => Promise<unknown>) {
+    const current = testProjection({ revision: '3' })
+    const client = duplicateClient()
+    vi.mocked(client.projectDuplicates).mockResolvedValue(duplicates())
+    return createDuplicateController({
+      client,
+      mutations: transport,
+      host: {
+        current: () => current,
+        recheck: vi.fn(recheck) as (s?: SelectionValue) => Promise<ViewProjection | undefined>,
+      },
+    })
+  }
+
+  it('leaves the confirmation when a conflict’s reload fails', async () => {
+    const controller = controllerWith(mutationTransport(conflict()), async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    await controller.open()
+    controller.requestDelete()
+
+    await expect(controller.confirmDelete()).resolves.toBe(false)
+
+    expect(controller.state.phase).toBe('failed')
+    expect(controller.state.confirmationCount).toBe(0)
+    expect(controller.state.announcement).toBe(
+      'The profile changed, and the duplicate list could not be refreshed. Press Retry.',
+    )
+  })
+
+  it('reports a staged hide whose reload failed as saved, not failed to save', async () => {
+    const controller = controllerWith(mutationTransport(), async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    await controller.open()
+
+    await expect(controller.hideFocused()).resolves.toBe(true)
+
+    expect(controller.state.phase).toBe('failed')
+    expect(controller.state.announcement).toBe(
+      'Staged visibility change for 1 transaction. The duplicate list could not be refreshed. ' +
+        'Press Retry.',
+    )
+  })
+
+  it('retries the reload and returns to the list', async () => {
+    let attempts = 0
+    const controller = controllerWith(mutationTransport(), async () => {
+      attempts += 1
+      if (attempts === 1) throw new TypeError('Failed to fetch')
+      return testProjection({ revision: '4' })
+    })
+    await controller.open()
+    await controller.hideFocused()
+
+    await expect(controller.retry()).resolves.toBe(true)
+
+    expect(controller.state.phase).toBe('ready')
+    expect(controller.state.announcement).toBe('')
+  })
+
+  it('cancels the confirmation while the deletion is still being sent', async () => {
+    let answer!: (response: Response) => void
+    const transport: MutationFetch = {
+      request: vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))),
+    }
+    const controller = controllerWith(transport, async () => testProjection({ revision: '4' }))
+    await controller.open()
+    controller.requestDelete()
+
+    const pending = controller.confirmDelete()
+    controller.cancelDelete()
+    expect(controller.state.confirmationCount).toBe(0)
+    answer(Response.json({}))
+
+    await expect(pending).resolves.toBe(true)
+    expect(controller.state.phase).toBe('ready')
+  })
+
+  it('names the server’s reason when the change could not be saved', async () => {
+    const busy = Response.json(
+      {
+        type: 'about:blank',
+        title: 'Service Unavailable',
+        status: 503,
+        detail: 'The profile is busy.',
+        code: 'store_busy',
+      },
+      { status: 503, headers: { 'Content-Type': 'application/problem+json' } },
+    )
+    const controller = controllerWith(mutationTransport(busy), async () => undefined)
+    await controller.open()
+
+    await expect(controller.hideFocused()).resolves.toBe(false)
+
+    expect(controller.state.announcement).toBe(
+      'The pending change could not be saved. The profile is busy.',
+    )
+  })
+})
+
 function duplicateClient(): MoneyflowClient {
   return {
     mutations: mutationTransport(),

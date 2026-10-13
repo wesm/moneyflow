@@ -11,6 +11,7 @@ import {
   type SelectionValue,
   type ViewProjection,
 } from '../api/client'
+import { problemReason } from '../shell/notices'
 
 export type DuplicatePhase =
   | 'idle'
@@ -47,8 +48,11 @@ export interface DuplicateController {
   toggleFocused(): Promise<boolean>
   hideFocused(): Promise<boolean>
   requestDelete(): void
+  /** Closes the confirmation, even while its deletion is still being sent. */
   cancelDelete(): void
   confirmDelete(): Promise<boolean>
+  /** Rereads the view and the duplicate list after a failure. */
+  retry(): Promise<boolean>
 }
 
 type DuplicateRow = NonNullable<NonNullable<DuplicateResponse['groups']>[number]['rows']>[number]
@@ -60,6 +64,7 @@ interface DuplicateControllerOptions {
 }
 
 const windowLimit = 200
+const refreshFailed = 'The duplicate list could not be refreshed. Press Retry.'
 
 export function createDuplicateController(
   options: DuplicateControllerOptions,
@@ -276,6 +281,9 @@ export function createDuplicateController(
   function cancelDelete(): void {
     if (state.phase === 'confirming') {
       setState({ ...state, phase: 'ready', confirmationCount: 0, announcement: '' })
+    } else if (state.phase === 'submitting') {
+      // The deletion is already on its way; its outcome shows in the list.
+      setState({ ...state, confirmationCount: 0 })
     }
   }
 
@@ -309,46 +317,64 @@ export function createDuplicateController(
     setState({ ...state, phase: 'submitting', announcement: '' })
     try {
       await requestProfileJSON<MutationResponse>(options.mutations, 'api/v1/mutations', body)
-      const refreshed = await options.host.recheck(mainSelection, true)
-      if (!refreshed || !(await load(refreshed, undefined, 0, 0))) {
-        setState({
-          ...state,
-          phase: 'failed',
-          announcement: 'The current profile could not be loaded.',
-        })
-        return false
-      }
-      setState({
-        ...state,
-        phase: 'ready',
-        announcement:
-          action === 'transaction.delete'
-            ? `Staged deletion for ${count} ${transactionWord(count)}. Press w to review and commit.`
-            : `Staged visibility change for ${count} ${transactionWord(count)}.`,
-        confirmationCount: 0,
-      })
-      return true
     } catch (error) {
-      if (error instanceof MoneyflowProblem && error.problem.code === 'revision_conflict') {
-        const refreshed = await options.host.recheck(mainSelection, true)
-        if (refreshed) await load(refreshed, undefined, 0, 0)
-        setState({
-          ...state,
-          phase: 'conflict',
-          announcement:
-            'The profile changed. Review the refreshed duplicates. Invoke deletion again.',
-          confirmationCount: 0,
-        })
-        return false
-      }
+      return await refused(error, mainSelection)
+    }
+    const staged =
+      action === 'transaction.delete'
+        ? `Staged deletion for ${count} ${transactionWord(count)}. Press w to review and commit.`
+        : `Staged visibility change for ${count} ${transactionWord(count)}.`
+    const reloaded = await reload(mainSelection)
+    setState({
+      ...state,
+      phase: reloaded ? 'ready' : 'failed',
+      // The change is staged either way; pressing h again would reverse it.
+      announcement: reloaded ? staged : `${staged} ${refreshFailed}`,
+      confirmationCount: 0,
+    })
+    return true
+  }
+
+  async function refused(error: unknown, mainSelection: SelectionValue): Promise<boolean> {
+    if (error instanceof MoneyflowProblem && error.problem.code === 'revision_conflict') {
+      const reloaded = await reload(mainSelection)
       setState({
         ...state,
-        phase: 'failed',
-        announcement: 'The pending change could not be saved.',
+        phase: reloaded ? 'conflict' : 'failed',
+        announcement: reloaded
+          ? 'The profile changed. Review the refreshed duplicates. Invoke deletion again.'
+          : 'The profile changed, and the duplicate list could not be refreshed. Press Retry.',
         confirmationCount: 0,
       })
       return false
     }
+    const reason = error instanceof MoneyflowProblem ? ` ${problemReason(error.problem)}` : ''
+    setState({
+      ...state,
+      phase: 'failed',
+      announcement: `The pending change could not be saved.${reason}`,
+      confirmationCount: 0,
+    })
+    return false
+  }
+
+  /** Rereads the view with `selection`, then the duplicate list; false when either fails. */
+  async function reload(selection?: SelectionValue): Promise<boolean> {
+    let refreshed: ViewProjection | undefined
+    try {
+      refreshed = await options.host.recheck(selection, true)
+    } catch {
+      return false
+    }
+    return refreshed !== undefined && (await load(refreshed, undefined, 0, 0))
+  }
+
+  async function retry(): Promise<boolean> {
+    if (state.phase !== 'failed') return false
+    setState({ ...state, phase: 'loading', announcement: '' })
+    if (await reload()) return true
+    setState({ ...state, phase: 'failed', announcement: refreshFailed })
+    return false
   }
 
   function canInteract(): boolean {
@@ -373,6 +399,7 @@ export function createDuplicateController(
     requestDelete,
     cancelDelete,
     confirmDelete,
+    retry,
   }
 }
 
