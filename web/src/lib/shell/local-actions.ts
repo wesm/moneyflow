@@ -230,12 +230,13 @@ export async function hideRow(
 
 /**
  * Shows why an edit from a key, the row actions sheet, or the selection bar did not apply: no
- * dialog is open to show it. An edit refused because another is still being sent says nothing.
+ * dialog is open to show it. An edit refused because another is still being sent says nothing:
+ * the editing controller clears the announcement when an edit starts sending.
  */
 async function reportEdit(context: LocalActionContext, edit: Promise<boolean>): Promise<void> {
   if (await edit) return
   const { phase, announcement } = context.controller.editing.state
-  if (phase === 'submitting' || announcement === '') return
+  if (announcement === '') return
   // A refreshed or cleared selection is applied; the user only has to repeat the action.
   if (phase === 'idle') showWarning(announcement)
   else showFailure(announcement)

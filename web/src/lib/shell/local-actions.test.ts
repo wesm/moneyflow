@@ -401,6 +401,13 @@ describe('failures with no dialog to show them', () => {
     ])
   })
 
+  it('says nothing when another edit is still being sent', async () => {
+    // The editing controller clears the announcement when an edit starts sending.
+    const context = refusing('submitting', '')
+    await hideRow(context, row)
+    expect(flashes()).toEqual([])
+  })
+
   function exporting(phase: string, announcement: string) {
     const { context, overlays } = setup(1)
     const open = vi.fn(() => Promise.resolve(false))
