@@ -318,32 +318,70 @@ func TestProviderRefreshFetchDoesNotHoldSQLiteTransaction(t *testing.T) {
 	assert.Equal(t, "operation_during_provider_fetch", persisted.Journal[0].ID)
 }
 
-func TestProviderRefreshCancellationReleasesLeaseWithoutChangingStatus(t *testing.T) {
+// A refresh that its request stops, by cancellation or by the web time limit, records the
+// attempt. The status shows it, and the scheduler waits out the retry delay instead of starting
+// the same refresh again on its next tick.
+func TestStoppedProviderRefreshRecordsTheAttemptAndWaitsBeforeRetrying(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	service, profileHandle := newProviderRefreshService(t)
-	now := time.Date(2026, time.August, 15, 18, 45, 0, 0, time.UTC)
-	source := &fakeProviderSource{
-		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
-		snapshot: providerSnapshot(t, now, 3), fingerprint: "session-a",
-	}
-	source.setFetchHook(func() error {
-		cancel()
-		return ctx.Err()
-	})
-	configureProviderRefreshService(t, service, source, now, "instance-a")
+	for _, stopped := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(stopped.Error(), func(t *testing.T) {
+			t.Parallel()
+			service, profileHandle := newProviderRefreshService(t)
+			now := time.Date(2026, time.August, 15, 18, 45, 0, 0, time.UTC)
+			source := &fakeProviderSource{
+				identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+				snapshot: providerSnapshot(t, now, 3), fingerprint: "session-a",
+			}
+			require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+				ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
+				Renderer: "web", InstanceID: "instance-a",
+				Now: func() time.Time { return now }, Random: &incrementingReader{},
+			}))
+			scheduled := app.ProviderRefreshRequest{
+				State: app.DefaultViewState(), Selection: app.EmptySelection(),
+			}
+			manual := scheduled
+			manual.Manual = true
+			_, err := service.RefreshProvider(context.Background(), manual)
+			require.NoError(t, err)
+			now = now.Add(31 * 24 * time.Hour)
+			status, err := service.ProviderStatus(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, app.ProviderRefreshFull, status.RefreshDue)
 
-	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
-		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
-	})
-	require.ErrorIs(t, err, context.Canceled)
-	state, stateErr := profileHandle.ProviderState(context.Background())
-	require.NoError(t, stateErr)
-	assert.Nil(t, state.Lease)
-	assert.Equal(t, uint64(0), state.Refresh.Generation)
-	assert.Empty(t, state.Refresh.StatusCode)
-	assert.True(t, state.Refresh.LastAttempt.IsZero())
+			ctx, stop := context.WithCancelCause(context.Background())
+			source.setFetchHook(func() error {
+				stop(stopped)
+				return context.Cause(ctx)
+			})
+			_, err = service.RefreshProvider(ctx, scheduled)
+			require.ErrorIs(t, err, stopped)
+			var failure *app.AppError
+			assert.False(t, errors.As(err, &failure), "the request still reports that it stopped")
+
+			state, err := profileHandle.ProviderState(context.Background())
+			require.NoError(t, err)
+			assert.Nil(t, state.Lease)
+			assert.Equal(t, uint64(1), state.Refresh.Generation, "no data changed")
+			status, err = service.ProviderStatus(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, provider.CodeUnavailable, status.Code)
+			assert.Equal(t, now, status.LastAttempt)
+			assert.Equal(t, now.Add(5*time.Minute), status.NextEligible)
+			assert.Equal(t, app.ProviderRefreshNone, status.RefreshDue)
+
+			source.setFetchHook(nil)
+			fetches := source.fetchCalls()
+			_, err = service.RefreshProvider(context.Background(), scheduled)
+			require.NoError(t, err)
+			assert.Equal(t, fetches, source.fetchCalls(), "the scheduler waits for the retry delay")
+			now = now.Add(5 * time.Minute)
+			status, err = service.ProviderStatus(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, app.ProviderRefreshFull, status.RefreshDue)
+		})
+	}
 }
 
 func TestProviderRefreshClearsCompleteSelectionWhenOneIdentityVanishes(t *testing.T) {

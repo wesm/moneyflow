@@ -330,8 +330,7 @@ func (service *Service) RefreshProvider(
 	)
 	if fetchErr != nil {
 		if errors.Is(fetchErr, context.Canceled) || errors.Is(fetchErr, context.DeadlineExceeded) {
-			_ = service.releaseProviderLease(ctx, runtime.instanceID)
-			return ProviderRefreshResult{}, fetchErr
+			return service.stopProviderRefresh(ctx, runtime, providerState, now, fingerprint, fetchErr)
 		}
 		var storage *store.Error
 		if errors.As(fetchErr, &storage) {
@@ -776,6 +775,29 @@ func (service *Service) failProviderRefresh(
 	return ProviderRefreshResult{Status: status}, newAppError(
 		AppErrorCode(code), service.Revision(), failure,
 	)
+}
+
+// stopProviderRefresh records a provider read that its request stopped, so the status shows the
+// attempt and the scheduler waits out the bounded retry delay instead of restarting the read on
+// its next tick. The profile schema has no stopped-refresh code, so the attempt is recorded as
+// provider_unavailable. The caller still gets the context error, so each interface can say that
+// the request stopped.
+func (service *Service) stopProviderRefresh(
+	ctx context.Context,
+	runtime *providerRuntimeState,
+	state store.ProviderState,
+	attemptedAt time.Time,
+	fingerprint provider.SessionFingerprint,
+	stopErr error,
+) (ProviderRefreshResult, error) {
+	result, err := service.failProviderRefresh(
+		context.WithoutCancel(ctx), runtime, state, attemptedAt, fingerprint,
+		provider.NewError(provider.CodeUnavailable),
+	)
+	if result.Status.Code != provider.CodeUnavailable {
+		return result, err
+	}
+	return result, stopErr
 }
 
 func (service *Service) foldProviderCandidate(
