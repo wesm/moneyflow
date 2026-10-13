@@ -165,6 +165,39 @@ describe('provider controller', () => {
     expect(transport.mutations.request).toHaveBeenCalledTimes(2)
   })
 
+  it.each(['with', 'without'] as const)(
+    'offers reconnect after Continue for a reconnect error %s its provider status',
+    async (sent) => {
+      const current = testProjection({ capabilities: [capability(true)] })
+      const reconnect = providerStatus({
+        provider_kind: 'monarch',
+        code: 'provider_reconnect_required',
+        last_success: '2026-10-03T12:00:00Z',
+      })
+      const transport = transportStub({
+        status: providerStatus({
+          provider_kind: 'monarch',
+          last_success: '2026-10-03T12:00:00Z',
+          next_eligible: '2999-01-01T00:00:00Z',
+        }),
+        mutationResponse: problemResponse(
+          'provider_reconnect_required',
+          'Reconnect through the command line.',
+          sent === 'with' ? reconnect : undefined,
+        ),
+      })
+      const controller = createProviderController({ transport, host: hostStub(current) })
+      controller.sync(current)
+      await controller.poll()
+      await controller.refresh()
+
+      controller.continueStale()
+
+      expect(staleNotice(controller.state, Date.now())?.reconnect).toBe(true)
+      expect(controller.state.status?.code).toBe('provider_reconnect_required')
+    },
+  )
+
   it('requires explicit confirmation and refetches status after an invalid token', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const pending = providerStatus({

@@ -337,23 +337,29 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       setState({ ...state, ...status, phase: 'refreshing', dialog: openDialog('other') })
       return false
     }
-    if (problem.code === 'provider_reconnect_required') {
-      const reason = `${providerLabel(state.status?.provider_kind)} needs you to reconnect.`
-      setState({
-        ...state,
-        phase: 'reconnect',
-        kind: undefined,
-        dialog: openDialog('reconnect', reason),
-        announcement: reason,
-      })
-      return false
-    }
+    if (problem.code === 'provider_reconnect_required') return needsReconnect(problem.provider)
     if (confirmation && problem.code === 'provider_confirmation_invalid') {
       await refreshStatusAfterInvalidConfirmation(problem.detail)
       return false
     }
     setState({ ...state, ...status })
     return failed(problemReason(problem))
+  }
+
+  /** The banner offers Reconnect from the status code, so the status must carry it. */
+  function needsReconnect(sent: ProviderStatus | undefined): boolean {
+    const status =
+      sent ?? (state.status && { ...state.status, code: 'provider_reconnect_required' })
+    const reason = `${providerLabel(status?.provider_kind)} needs you to reconnect.`
+    setState({
+      ...state,
+      ...(status === undefined ? {} : { status }),
+      phase: 'reconnect',
+      kind: undefined,
+      dialog: openDialog('reconnect', reason),
+      announcement: reason,
+    })
+    return false
   }
 
   function failed(reason: string): boolean {
