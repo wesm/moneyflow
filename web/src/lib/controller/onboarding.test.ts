@@ -158,21 +158,29 @@ describe('onboarding controller', () => {
         type: 'about:blank',
         title: 'Unprocessable Entity',
         status: 422,
-        code: 'credentials_rejected',
-        detail: 'Monarch rejected these credentials.',
+        code: 'credential_input_invalid',
+        detail: 'The submitted onboarding input is invalid.',
       }),
     )
     const controller = createOnboardingController({ profileID, transport })
     await controller.start()
+    const credentials = {
+      email: 'user@example.test',
+      password: 'synthetic-secret',
+      account_password: 'vault-secret',
+      confirmation: 'vault-secret',
+    }
 
-    await controller.unlock('vault-secret')
+    await controller.submitCredentials(credentials)
 
     expect(controller.state.failure).toBe(
-      'Setup did not continue. Monarch rejected these credentials.',
+      'Setup did not continue. The submitted onboarding input is invalid.',
     )
     expect(controller.state.problem).toBeUndefined()
     expect(controller.state.snapshot?.state).toBe('credentials_required')
-    await controller.unlock('vault-secret')
+    transport.set(status('authenticating', { state_version: 2 }))
+    await controller.submitCredentials(credentials)
+    expect(controller.state.snapshot?.state).toBe('authenticating')
     expect(controller.state.failure).toBeUndefined()
   })
 
