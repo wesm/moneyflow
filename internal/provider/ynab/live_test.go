@@ -1,3 +1,5 @@
+//go:build ynablive
+
 package ynab
 
 import (

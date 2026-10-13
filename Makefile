@@ -1,4 +1,4 @@
-.PHONY: build clean fmt help install-hooks lint monarch-live-test test test-editing-e2e test-export test-go-quick test-mcp test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
+.PHONY: build clean fmt help install-hooks lint monarch-live-test ynab-live-test test test-editing-e2e test-export test-go-quick test-mcp test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -96,6 +96,11 @@ monarch-live-test:
 	@if [ "$$MONEYFLOW_MONARCH_LIVE" != "1" ]; then printf '%s\n' 'Set MONEYFLOW_MONARCH_LIVE=1 to opt in.' >&2; exit 2; fi
 	@if [ -z "$$MONEYFLOW_MONARCH_LIVE_SESSION_FILE" ]; then printf '%s\n' 'Set MONEYFLOW_MONARCH_LIVE_SESSION_FILE to a current session file.' >&2; exit 2; fi
 	@live_root=$$(mktemp -d); test -n "$$live_root"; trap 'rm -rf "$$live_root"' EXIT INT TERM; MONEYFLOW_HOME="$$live_root" go test -tags=monarchlive ./internal/provider/monarch -run '^TestLiveCharacterization$$' -count=1 -v
+
+ynab-live-test:
+	@if [ "$$MONEYFLOW_YNAB_LIVE" != "1" ]; then printf '%s\n' 'Set MONEYFLOW_YNAB_LIVE=1 to opt in.' >&2; exit 2; fi
+	@if [ -z "$$MONEYFLOW_YNAB_TOKEN" ]; then printf '%s\n' 'Set MONEYFLOW_YNAB_TOKEN to a YNAB personal access token.' >&2; exit 2; fi
+	go test -tags=ynablive ./internal/provider/ynab -run '^TestLiveYNABReadOnlySnapshot$$' -count=1 -v
 
 test-race: web-embed
 	MONEYFLOW_SKIP_PERF=1 go test -race $(GOFLAGS_TEST) ./...
