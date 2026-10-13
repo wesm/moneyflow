@@ -33,6 +33,8 @@ export interface DuplicateState {
 export interface DuplicateHost {
   current(): ViewProjection | undefined
   recheck(selection?: SelectionValue, force?: boolean): Promise<ViewProjection | undefined>
+  /** Shows in the workspace that a reread failed, with a Retry that rereads `selection`. */
+  reportRecheckFailure(error: unknown, selection?: SelectionValue): void
 }
 
 export interface DuplicateController {
@@ -75,6 +77,8 @@ export function createDuplicateController(
     announcement: '',
     confirmationCount: 0,
   }
+  // Counts closings, so a change sent before review closed can tell its dialog is gone.
+  let closings = 0
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
     notify = update
@@ -95,6 +99,7 @@ export function createDuplicateController(
   }
 
   function close(): void {
+    closings += 1
     setState({ phase: 'idle', cursor: 0, announcement: '', confirmationCount: 0 })
   }
 
@@ -303,6 +308,7 @@ export function createDuplicateController(
     const row = focused()
     if (!current || !projection || !row) return false
     const mainSelection = current.selection
+    const session = closings
     const count = projection.selection_count > 0 ? projection.selection_count : 1
     const body: MutationBody = {
       version: '1',
@@ -324,7 +330,8 @@ export function createDuplicateController(
       action === 'transaction.delete'
         ? `Staged deletion for ${count} ${transactionWord(count)}. Press w to review and commit.`
         : `Staged visibility change for ${count} ${transactionWord(count)}.`
-    const reloaded = await reload(unchangedSelection(mainSelection))
+    const reloaded = await reload(unchangedSelection(mainSelection), session)
+    if (session !== closings) return true
     setState({
       ...state,
       phase: reloaded ? 'ready' : 'failed',
@@ -369,14 +376,20 @@ export function createDuplicateController(
     return false
   }
 
-  /** Rereads the view with `selection`, then the duplicate list; false when either fails. */
-  async function reload(selection?: SelectionValue): Promise<boolean> {
+  /**
+   * Rereads the view with `selection`, then the duplicate list; false when either fails. When
+   * review closed after `session` began, only the view is reread, and the workspace reports a
+   * failure, because the dialog that would have shown it is gone.
+   */
+  async function reload(selection?: SelectionValue, session = closings): Promise<boolean> {
     let refreshed: ViewProjection | undefined
     try {
       refreshed = await options.host.recheck(selection, true)
-    } catch {
+    } catch (error) {
+      if (session !== closings) options.host.reportRecheckFailure(error, selection)
       return false
     }
+    if (session !== closings) return refreshed !== undefined
     return refreshed !== undefined && (await load(refreshed, undefined, 0, 0))
   }
 

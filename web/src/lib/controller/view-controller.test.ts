@@ -10,6 +10,7 @@ import {
 import { createViewController, type ViewController } from './view-controller.svelte'
 import type { SelectionValue } from '../api/client'
 import type { MoneyflowHistoryState } from './history'
+import { testDuplicates } from '../../test/duplicates'
 import { testAggregateRow } from '../../test/projection'
 
 describe('browser view controller', () => {
@@ -2459,6 +2460,44 @@ describe('visible view failures', () => {
 
     expect(view).toHaveBeenCalledTimes(3)
     expect(controller.problem?.code).toBe('store_busy')
+  })
+
+  it('shows a failed reread in the workspace when review closed while a deletion was sent', async () => {
+    let answer!: (response: Response) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '3'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+    const client = clientWith({
+      view,
+      projectDuplicates: vi.fn(async () => testDuplicates()),
+      mutations: { request: vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))) },
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.duplicates.open()
+    controller.duplicates.requestDelete()
+
+    const deleting = controller.duplicates.confirmDelete()
+    controller.duplicates.cancelDelete()
+    controller.duplicates.close()
+    answer(Response.json({}))
+    await deleting
+
+    expect(controller.problem?.code).toBe('network_error')
+    expect(flashes()).toEqual([
+      {
+        message:
+          'Moneyflow could not check for newer data; the view may be out of date. ' +
+          'Moneyflow could not reach the server. Check the connection and retry.',
+        tone: 'danger',
+      },
+    ])
+    await controller.retry()
+    expect(view).toHaveBeenCalledTimes(3)
+    expect(controller.projection?.revision).toBe('4')
+    expect(controller.problem).toBeUndefined()
   })
 
   it('does not show a refused search preview in a banner', async () => {

@@ -234,6 +234,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     host: {
       current: () => projection,
       recheck: recheckInternal,
+      reportRecheckFailure,
     },
   })
   const exportController = createExportController({ client: options.client })
@@ -313,14 +314,18 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         requestGeneration !== generation ||
         projection !== shown ||
         problemsRecorded !== priorProblems
-      if (isAbort(error) || superseded) return undefined
-      lastRetry = async () => {
-        await reportedRecheck(selection, true)
-      }
-      setProblem(error, recheckFailed)
-      recheckProblem = true
+      if (!superseded) reportRecheckFailure(error, selection)
       return undefined
     }
+  }
+
+  function reportRecheckFailure(error: unknown, selection?: SelectionValue): void {
+    if (isAbort(error)) return
+    lastRetry = async () => {
+      await reportedRecheck(selection, true)
+    }
+    setProblem(error, recheckFailed)
+    recheckProblem = true
   }
 
   async function recheckInternal(
