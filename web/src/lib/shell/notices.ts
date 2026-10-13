@@ -21,6 +21,6 @@ export function showWarning(message: string): void {
 }
 
 /** The server's reason for `problem`; an unexpected server error points to the server log. */
-export function problemReason(problem: Problem): string {
+export function problemReason(problem: Pick<Problem, 'code' | 'detail'>): string {
   return problem.code === 'internal_error' ? `${problem.detail} ${SERVER_LOG_HINT}` : problem.detail
 }

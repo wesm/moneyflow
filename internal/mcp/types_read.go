@@ -268,6 +268,15 @@ type WriteStatusDocument struct {
 	Failed          int    `json:"failed"`
 	Remaining       int    `json:"remaining"`
 	Overrides       int    `json:"overrides"`
+	// RunFailure says why the last background write stopped while the batch still reads as
+	// writing or reconciling. The batch resumes once its lease expires.
+	RunFailure *RunFailureDocument `json:"run_failure,omitempty"`
+}
+
+// RunFailureDocument is the public code and detail of a stopped background write.
+type RunFailureDocument struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
 }
 
 type AccountDocument struct {
@@ -407,7 +416,7 @@ func refreshSummaryDocument(status app.ProviderStatus) RefreshSummaryDocument {
 }
 
 func writeStatusDocument(status app.ProviderWriteStatus) WriteStatusDocument {
-	return WriteStatusDocument{
+	document := WriteStatusDocument{
 		AuditWarning:   status.AuditWarning,
 		AttentionClass: string(status.AttentionClass), AttentionReason: string(status.AttentionReason),
 		ResumeTarget: string(status.ResumeTarget),
@@ -417,6 +426,12 @@ func writeStatusDocument(status app.ProviderWriteStatus) WriteStatusDocument {
 		Phase:        string(status.Phase), Version: strconv.FormatUint(status.Version, 10), Generation: strconv.FormatUint(status.Generation, 10),
 		Total: status.Total, Completed: status.Completed, Failed: status.Failed, Remaining: status.Remaining, Overrides: status.Overrides,
 	}
+	if status.RunFailure != nil {
+		document.RunFailure = &RunFailureDocument{
+			Code: status.RunFailure.Code, Detail: status.RunFailure.Detail,
+		}
+	}
+	return document
 }
 
 func formatOptionalTime(value time.Time) string {

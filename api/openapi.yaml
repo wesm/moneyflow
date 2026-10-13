@@ -2163,6 +2163,17 @@ components:
       required:
         - status
       type: object
+    ProviderWriteRunFailure:
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+      required:
+        - code
+        - detail
+      type: object
     ProviderWriteStatusResponse:
       additionalProperties: false
       properties:
@@ -2210,6 +2221,8 @@ components:
         revision:
           pattern: ^[0-9]+$
           type: string
+        run_failure:
+          $ref: "#/components/schemas/ProviderWriteRunFailure"
         total:
           format: int64
           type: integer

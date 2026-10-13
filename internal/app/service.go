@@ -42,6 +42,7 @@ type Service struct {
 	amazonMatcher         *AmazonMatchingService
 	auditWarning          string
 	refreshRecordWarning  string
+	writeRunFailure       *ProviderWriteRunFailure
 	now                   func() time.Time
 }
 

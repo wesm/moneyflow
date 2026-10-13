@@ -35,6 +35,15 @@ type ProviderWriteStatusResponse struct {
 	OwnerRenderer   string   `json:"owner_renderer,omitempty"`
 	OwnerInstanceID string   `json:"owner_instance_id,omitempty" maxLength:"128"`
 	Actions         []string `json:"actions"`
+	// RunFailure says why the last background write stopped while the batch still reads as
+	// writing or reconciling. The batch resumes once its lease expires.
+	RunFailure *ProviderWriteRunFailure `json:"run_failure,omitempty"`
+}
+
+// ProviderWriteRunFailure is the problem code and detail of a stopped background write.
+type ProviderWriteRunFailure struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
 }
 
 // ProviderWriteControlBody applies one batch-versioned control.
@@ -277,6 +286,11 @@ func providerWriteStatusToWire(
 	}
 	if !status.CompletedAt.IsZero() {
 		wire.CompletedAt = status.CompletedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if status.RunFailure != nil {
+		wire.RunFailure = &ProviderWriteRunFailure{
+			Code: status.RunFailure.Code, Detail: status.RunFailure.Detail,
+		}
 	}
 	return wire
 }

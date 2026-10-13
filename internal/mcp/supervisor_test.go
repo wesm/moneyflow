@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -393,4 +394,41 @@ func (execution *fakeWriteExecution) Release() {
 	execution.mu.Lock()
 	defer execution.mu.Unlock()
 	execution.releaseCalls++
+}
+
+func TestSupervisorLogsAWriteRunThatStopped(t *testing.T) {
+	supervisor := newSupervisor(time.Now, strings.NewReader(strings.Repeat("l", 128)))
+	var logged strings.Builder
+	var logMu sync.Mutex
+	supervisor.logger = slog.New(slog.NewTextHandler(&lockedWriter{mu: &logMu, out: &logged}, nil))
+	execution := &fakeWriteExecution{run: func(context.Context) (app.ProviderWriteStatus, error) {
+		return app.ProviderWriteStatus{}, errors.New("synthetic store failure")
+	}}
+
+	_, active, err := supervisor.ReserveWrite(
+		func(context.Context) (app.ProviderWriteStatus, providerWriteExecution, error) {
+			return app.ProviderWriteStatus{Version: 1}, execution, nil
+		},
+	)
+
+	require.NoError(t, err)
+	assert.True(t, active)
+	require.Eventually(t, func() bool { return !supervisor.WriteActive() }, time.Second, time.Millisecond)
+	require.NoError(t, supervisor.Close(context.Background()))
+	logMu.Lock()
+	defer logMu.Unlock()
+	assert.Contains(t, logged.String(), "moneyflow_event=provider_write_stopped")
+	assert.Contains(t, logged.String(), "moneyflow_cause=internal_error")
+	assert.NotContains(t, logged.String(), "synthetic store failure")
+}
+
+type lockedWriter struct {
+	mu  *sync.Mutex
+	out *strings.Builder
+}
+
+func (writer *lockedWriter) Write(data []byte) (int, error) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	return writer.out.Write(data)
 }

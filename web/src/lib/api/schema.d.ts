@@ -1553,6 +1553,10 @@ export interface components {
       selection?: components['schemas']['SelectionDisposition']
       status: components['schemas']['ProviderWriteStatusResponse']
     }
+    ProviderWriteRunFailure: {
+      code: string
+      detail: string
+    }
     ProviderWriteStatusResponse: {
       actions: string[] | null
       audit_warning?: string
@@ -1575,6 +1579,7 @@ export interface components {
       /** Format: int64 */
       remaining: number
       revision: string
+      run_failure?: components['schemas']['ProviderWriteRunFailure']
       /** Format: int64 */
       total: number
       version: string

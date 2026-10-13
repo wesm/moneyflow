@@ -391,6 +391,9 @@ func assertMCPStderrAllowlist(t *testing.T, content string, allowStartup bool) {
 		if strings.HasPrefix(line, "level=") && strings.HasSuffix(line, " code=mcp_sdk_event") {
 			continue
 		}
+		if strings.HasPrefix(line, "level=ERROR code=provider_write_stopped cause=") {
+			continue
+		}
 		if allowStartup && (strings.HasPrefix(line, "Moneyflow MCP: http://127.0.0.1:") ||
 			strings.HasPrefix(line, "Bearer token file: ")) {
 			continue

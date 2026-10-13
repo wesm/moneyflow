@@ -42,6 +42,16 @@ type ProviderWriteStatus struct {
 	SessionChanged   bool
 	CanCheckOutcome  bool // Bounded readback can resolve or retry this batch.
 	AuditWarning     string
+	// RunFailure says why the last background run stopped while the batch still reads as
+	// writing or reconciling; nil otherwise.
+	RunFailure *ProviderWriteRunFailure
+}
+
+// ProviderWriteRunFailure is the public reason a background provider-write run stopped
+// without parking its batch, so the batch looks active until its lease expires.
+type ProviderWriteRunFailure struct {
+	Code   string
+	Detail string
 }
 
 // ProviderWriteReconcileRequest preserves renderer state while abandoning a failed batch.
@@ -92,7 +102,41 @@ func (execution *ProviderWriteExecution) Run(ctx context.Context) (ProviderWrite
 	execution.consumed = true
 	execution.mu.Unlock()
 	defer execution.runtime.endProviderWriteRun()
-	return execution.service.runProviderWriteOwned(ctx, execution.runtime)
+	execution.service.setWriteRunFailure(nil)
+	status, err := execution.service.runProviderWriteOwned(ctx, execution.runtime)
+	if err != nil {
+		execution.service.setWriteRunFailure(writeRunFailure(err))
+	}
+	return status, err
+}
+
+func (service *Service) setWriteRunFailure(failure *ProviderWriteRunFailure) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.writeRunFailure = failure
+}
+
+// stuckWriteRunFailure reports the last run failure only while the batch still reads as active;
+// a parked batch already carries its own reason.
+func (service *Service) stuckWriteRunFailure(phase store.WriteBatchPhase) *ProviderWriteRunFailure {
+	if phase != store.WritePhaseWriting && phase != store.WritePhaseReconciling {
+		return nil
+	}
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.writeRunFailure
+}
+
+// writeRunFailure keeps only the public detail of an application error; any other cause reaches
+// only the interface's log.
+func writeRunFailure(err error) *ProviderWriteRunFailure {
+	var application *AppError
+	if errors.As(err, &application) {
+		return &ProviderWriteRunFailure{Code: string(application.Code), Detail: application.Detail}
+	}
+	return &ProviderWriteRunFailure{
+		Code: "internal_error", Detail: "The provider write stopped before it finished.",
+	}
 }
 
 // Release consumes a reservation without starting provider work.
@@ -136,6 +180,7 @@ func (service *Service) ProviderWriteStatus(ctx context.Context) (ProviderWriteS
 		return ProviderWriteStatus{}, err
 	}
 	status.AuditWarning = service.completionAuditWarning()
+	status.RunFailure = service.stuckWriteRunFailure(status.Phase)
 	if status.Phase == store.WritePhaseReconnectRequired {
 		if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
 			if runtime.writeSource != nil {

@@ -28,6 +28,19 @@ func TestCommitStatusReportsQuotaDeadline(t *testing.T) {
 	assert.Equal(t, "2026-09-07T13:00:00Z", status.NextEligible)
 }
 
+func TestWriteStatusReportsWhyABackgroundRunStopped(t *testing.T) {
+	status := writeStatusDocument(app.ProviderWriteStatus{
+		Phase: store.WritePhaseWriting,
+		RunFailure: &app.ProviderWriteRunFailure{
+			Code: string(app.AppStoreBusy), Detail: "The profile is busy. Try again.",
+		},
+	})
+
+	require.NotNil(t, status.RunFailure)
+	assert.Equal(t, "The profile is busy. Try again.", status.RunFailure.Detail)
+	assert.Equal(t, string(app.AppStoreBusy), status.RunFailure.Code)
+}
+
 func TestYNABCategoryClearCommitsThroughMCPWorker(t *testing.T) {
 	service, source, closeProfile := providerTestService(t, 1, "ynab")
 	defer closeProfile()

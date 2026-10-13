@@ -225,6 +225,12 @@ profile changes again, for example with the next edit. A `write` object without 
 `completed_at` means no write finished at the current revision. After `stop_and_reconcile`,
 that means the batch's remaining edits were discarded.
 
+**Unreleased:** If the background write stopped while the batch still reads as writing or
+reconciling, the `write` object carries `run_failure` with the problem `code` and `detail`. The
+batch can be resumed once its lease expires, after 2 minutes. The MCP server also writes
+`level=ERROR code=provider_write_stopped cause=<code>` to standard error. That line carries only
+codes, never error text, request data, or credentials.
+
 For an uncertain Monarch update, `resume_commit` first checks the affected transaction before
 continuing. It can confirm an already-applied edit or retry one that still matches its previous
 value, without fetching the full history. See [write recovery](editing.md#recover-an-interrupted-provider-write).

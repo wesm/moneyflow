@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -25,6 +26,13 @@ const (
 	AttemptReconnectRequired AttemptState = "reconnect_required"
 	// AttemptConfirmationRequired identifies a process-local candidate awaiting confirmation.
 	AttemptConfirmationRequired AttemptState = "deletion_confirmation_required"
+)
+
+// LogEventKey and LogCauseKey name the attributes of a Moneyflow log event: a stable event code
+// and an application error code. A log handler may print these and nothing else.
+const (
+	LogEventKey = "moneyflow_event"
+	LogCauseKey = "moneyflow_cause"
 )
 
 // ErrAttemptNotFound is returned for an unknown or displaced process-local attempt.
@@ -65,6 +73,8 @@ type Supervisor struct {
 	wait   sync.WaitGroup
 	clock  func() time.Time
 	random io.Reader
+	// logger records background failures no tool call returns; nil discards them.
+	logger *slog.Logger
 
 	mu           sync.Mutex
 	closed       bool
@@ -125,12 +135,31 @@ func (supervisor *Supervisor) ReserveWrite(
 	supervisor.wait.Done()
 	go func() {
 		defer supervisor.wait.Done()
-		_, _ = execution.Run(supervisor.ctx)
+		if _, err := execution.Run(supervisor.ctx); err != nil {
+			supervisor.logWriteStopped(err)
+		}
 		supervisor.mu.Lock()
 		supervisor.writeWorkers--
 		supervisor.mu.Unlock()
 	}()
 	return status, true, nil
+}
+
+// logWriteStopped records why a background write stopped. The MCP log carries only stable
+// codes, so it names the application error code, never the error text.
+func (supervisor *Supervisor) logWriteStopped(err error) {
+	if supervisor.logger == nil {
+		return
+	}
+	cause := "internal_error"
+	var application *app.AppError
+	if errors.As(err, &application) {
+		cause = string(application.Code)
+	}
+	supervisor.logger.LogAttrs(
+		supervisor.ctx, slog.LevelError, "provider write stopped",
+		slog.String(LogEventKey, "provider_write_stopped"), slog.String(LogCauseKey, cause),
+	)
 }
 
 // WriteActive reports whether this process currently owns a provider-write execution.
