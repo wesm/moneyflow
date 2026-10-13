@@ -1345,7 +1345,7 @@ func (service *Service) providerProjectionResult(
 		return ProviderRefreshResult{}, newAppError(AppInvalidOperation, service.Revision(), err)
 	}
 	if disposition == SelectionCleared {
-		projection.Status = "The selection changed and was cleared after refresh."
+		projection.Notice = "The selection changed and was cleared after refresh."
 	}
 	return ProviderRefreshResult{
 		Revision: service.Revision(), Generation: status.Generation, Status: status,

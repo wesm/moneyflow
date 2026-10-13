@@ -156,7 +156,10 @@ type WebProjection struct {
 	// AnchorMissing reports a requested anchor that no aggregate row of the result matches.
 	AnchorMissing bool
 	Status        string
-	AuditWarning  string
+	// Notice explains a change the request made that the user did not ask for, such as a view
+	// that returned to its parent because its target is gone.
+	Notice       string
+	AuditWarning string
 	// DrillDepth is the number of drill frames in the current view.
 	DrillDepth int
 	// Root is the view that view.back-to with depth 0 reaches.
