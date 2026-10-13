@@ -22,6 +22,7 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/provider"
+	"github.com/wesm/moneyflow/internal/store"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
@@ -239,6 +240,62 @@ func TestProviderStatusRemainsResponsiveDuringProviderFetch(t *testing.T) {
 	require.NoError(t, <-refreshDone)
 }
 
+func TestProviderStatusReportsTheRefreshThatIsRunning(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	fixture.source.blockNextFetch(started, release)
+	refreshDone := make(chan error, 1)
+	go func() {
+		_, err := fixture.service.RefreshProvider(context.Background(), app.ProviderRefreshRequest{
+			Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		})
+		refreshDone <- err
+	}()
+	<-started
+
+	var status ProviderStatusResponse
+	response := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+	assert.True(t, status.Refreshing)
+	assert.Equal(t, "web", status.OwnerRenderer)
+
+	close(release)
+	require.NoError(t, <-refreshDone)
+	response = requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+	assert.False(t, status.Refreshing)
+	assert.Contains(t, response.Body.String(), `"refreshing":false`, "the field is always present")
+}
+
+func TestProviderStatusReportsDataAgeWhileRefreshIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	unconfigured, err := app.NewProfileService(context.Background(), fixture.profile)
+	require.NoError(t, err)
+	unconfigured.SetClock(func() time.Time { return fixture.now.Add(7 * time.Hour) })
+	origin, err := ResolveOrigin("127.0.0.1:8080", "/", "")
+	require.NoError(t, err)
+	server, err := New(Config{
+		Resolver: resolverForService(testProfileID, unconfigured), LegacyProfileID: testProfileID,
+		BasePath: "/", Version: "test", Origin: origin,
+	})
+	require.NoError(t, err)
+
+	var status ProviderStatusResponse
+	response := requestServer(t, server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+	assert.False(t, status.Capability.Available)
+	assert.Equal(t, "Reconnect the provider through the command line.", status.Capability.Reason)
+	assert.Equal(t, "monarch", status.ProviderKind)
+	assert.Equal(t, fixture.now.Format(time.RFC3339Nano), status.LastSuccess)
+	assert.Equal(t, "recent", status.RefreshDue)
+}
+
 func TestProviderRefreshThatRunsOutOfTimeExplainsTheLimit(t *testing.T) {
 	t.Parallel()
 
@@ -415,6 +472,7 @@ func assertLogOmitsRequestSecrets(t *testing.T, logged string, token string) {
 type providerAPIFixture struct {
 	server   *Server
 	service  *app.Service
+	profile  store.Profile
 	source   *apiProviderSource
 	now      time.Time
 	root     string
@@ -458,8 +516,8 @@ func newProviderAPIFixture(t testing.TB, basePath string, count int) providerAPI
 	})
 	require.NoError(t, err)
 	return providerAPIFixture{
-		server: server, service: service, source: source, now: now, root: paths.Root,
-		errorLog: errorLog,
+		server: server, service: service, profile: profile, source: source, now: now,
+		root: paths.Root, errorLog: errorLog,
 	}
 }
 

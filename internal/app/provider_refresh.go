@@ -124,6 +124,9 @@ type ProviderStatus struct {
 	LastFullRefresh time.Time
 	// RefreshDue is the refresh a scheduler should start now.
 	RefreshDue ProviderRefreshScope
+	// Refreshing reports that a refresh holds the profile's refresh lease now, in this process
+	// or another. OwnerRenderer names the interface that runs it.
+	Refreshing bool
 	// Warning reports a problem that did not stop the refresh, or is empty.
 	Warning string
 }

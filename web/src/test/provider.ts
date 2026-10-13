@@ -20,6 +20,7 @@ export function testProviderStatus(overrides: Partial<ProviderStatus> = {}): Pro
     revision: '1',
     generation: '1',
     refresh_due: 'none',
+    refreshing: false,
     progress: { fetched: 0, total: 0 },
     summary: {
       imported_accounts: 0,

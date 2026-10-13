@@ -2068,6 +2068,9 @@ components:
             - recent
             - full
           type: string
+        refreshing:
+          description: A refresh is running now
+          type: boolean
         revision:
           pattern: ^[0-9]+$
           type: string
@@ -2083,6 +2086,7 @@ components:
         - revision
         - generation
         - refresh_due
+        - refreshing
         - progress
         - summary
         - capability

@@ -476,6 +476,7 @@ function providerStatus(overrides: Partial<ProviderStatus> = {}): ProviderStatus
     revision: '1',
     generation: '1',
     refresh_due: 'none',
+    refreshing: false,
     progress: { fetched: 0, total: 0 },
     summary: emptySummary(),
     capability: capability(true),
