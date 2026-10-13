@@ -35,7 +35,7 @@
           {:else}
             {#if notice.retryAt}
               <span class="mf-stale-banner__wait">
-                {notice.manualWaits ? 'Available' : 'Automatic retry'} at {notice.retryAt}
+                {notice.manualWaits ? 'Available' : 'Retry available'} at {notice.retryAt}
               </span>
             {/if}
             <Button

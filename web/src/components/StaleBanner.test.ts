@@ -36,11 +36,11 @@ describe('StaleBanner', () => {
     expect(controller.refresh).toHaveBeenCalledOnce()
   })
 
-  it('refreshes during the retry delay and says when it retries on its own', async () => {
+  it('refreshes during the retry delay and says when the delay ends', async () => {
     vi.useFakeTimers({ now })
     const controller = failed({ next_eligible: '2026-10-13T12:05:00Z' })
     render(StaleBanner, { controller })
-    expect(screen.getByText(/^Automatic retry at \d{1,2}:05/)).not.toBeNull()
+    expect(screen.getByText(/^Retry available at \d{1,2}:05/)).not.toBeNull()
     await fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     expect(controller.refresh).toHaveBeenCalledOnce()
   })

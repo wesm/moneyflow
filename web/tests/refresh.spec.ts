@@ -117,7 +117,7 @@ test('Continue after a failure shows the stale banner until refresh is allowed',
     )
     await expectFailureShownOnce(page, reason)
     await expect(notice.getByRole('button', { name: 'Refresh' })).toBeEnabled()
-    await expect(notice).toContainText('Automatic retry at 7:05 PM')
+    await expect(notice).toContainText('Retry available at 7:05 PM')
   })
 })
 
