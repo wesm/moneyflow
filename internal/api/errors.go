@@ -160,6 +160,8 @@ type Problem struct {
 	Provider                       *ProviderStatusResponse      `json:"provider,omitempty"`
 	ProviderWrite                  *ProviderWriteStatusResponse `json:"provider_write,omitempty"`
 	ProviderWriteConfirmationToken string                       `json:"provider_write_confirmation_token,omitempty" maxLength:"4096"`
+	// cause explains a server failure in the server log; it is never serialized.
+	cause error
 }
 
 var errUnsupportedProviderVersion = errors.New("unsupported provider request version")
@@ -180,6 +182,12 @@ func (problem *Problem) ContentType(contentType string) string {
 		return "application/problem+json"
 	}
 	return contentType
+}
+
+// withCause keeps the internal error behind a server-failure problem for the server log.
+func (problem *Problem) withCause(cause error) *Problem {
+	problem.cause = cause
+	return problem
 }
 
 func newProblem(status int, code string, detail string) *Problem {

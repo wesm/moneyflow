@@ -1,9 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -236,12 +239,75 @@ func TestProviderStatusRemainsResponsiveDuringProviderFetch(t *testing.T) {
 	require.NoError(t, <-refreshDone)
 }
 
+func TestUnexpectedRefreshFailureLogsItsCauseWithoutRequestSecrets(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	started := make(chan struct{})
+	fixture.source.failNextFetch(apiFetchUntilStopped, started)
+	issued, err := fixture.server.security.Issue(CatalogMutationScope)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-started
+		cancel()
+	}()
+	response := requestSignedJSONContext(
+		ctx, t, fixture.server, "/api/v1/provider/refresh", manualRefreshBody(), issued.Value,
+	)
+
+	require.Equal(t, http.StatusInternalServerError, response.Code, response.Body.String())
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	assert.Equal(t, "internal_error", problem.Code)
+	assert.Equal(t, "The request could not be completed.", problem.Detail)
+	assert.NotContains(t, response.Body.String(), "context canceled", "the response stays generic")
+	logged := fixture.errorLog.String()
+	assert.Contains(t, logged, "POST /api/v1/provider/refresh: 500 internal_error: context canceled")
+	assertLogOmitsRequestSecrets(t, logged, issued.Value)
+}
+
+func TestRefreshPanicLogsItsCauseWithoutRequestSecrets(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	fixture.source.failNextFetch(apiFetchPanics, nil)
+	issued, err := fixture.server.security.Issue(CatalogMutationScope)
+	require.NoError(t, err)
+	response := requestSignedJSON(
+		t, fixture.server, "/api/v1/provider/refresh", manualRefreshBody(), issued.Value,
+	)
+
+	require.Equal(t, http.StatusInternalServerError, response.Code, response.Body.String())
+	assert.NotContains(t, response.Body.String(), "synthetic adapter failure")
+	logged := fixture.errorLog.String()
+	assert.Contains(t, logged, "POST /api/v1/provider/refresh: panic: synthetic adapter failure")
+	assert.Contains(t, logged, "apiProviderReader).FetchSnapshot", "the log locates the panic")
+	assertLogOmitsRequestSecrets(t, logged, issued.Value)
+}
+
+func manualRefreshBody() ProviderRefreshBody {
+	return ProviderRefreshBody{
+		Version: ProviderSchemaVersion, Manual: true, Query: "v=1",
+		Selection: string(app.EmptySelection()), Window: Window{Limit: 200},
+	}
+}
+
+func assertLogOmitsRequestSecrets(t *testing.T, logged string, token string) {
+	t.Helper()
+	assert.NotContains(t, logged, token, "the log omits the mutation token")
+	assert.NotContains(t, logged, "manual", "the log omits the request body")
+	assert.NotContains(t, logged, "v=1", "the log omits the view query")
+	assert.NotContains(t, logged, "Example Merchant", "the log omits financial data")
+}
+
 type providerAPIFixture struct {
-	server  *Server
-	service *app.Service
-	source  *apiProviderSource
-	now     time.Time
-	root    string
+	server   *Server
+	service  *app.Service
+	source   *apiProviderSource
+	now      time.Time
+	root     string
+	errorLog *bytes.Buffer
 }
 
 func newProviderAPIFixture(t testing.TB, basePath string, count int) providerAPIFixture {
@@ -273,13 +339,16 @@ func newProviderAPIFixture(t testing.TB, basePath string, count int) providerAPI
 	require.NoError(t, err)
 	security, err := NewMutationSecurity(origin, nil, func() time.Time { return now })
 	require.NoError(t, err)
+	errorLog := &bytes.Buffer{}
 	server, err := New(Config{
 		Resolver: resolverForService(testProfileID, service), LegacyProfileID: testProfileID,
 		BasePath: basePath, Version: "test", Origin: origin, Security: security,
+		ErrorLog: log.New(errorLog, "", 0),
 	})
 	require.NoError(t, err)
 	return providerAPIFixture{
 		server: server, service: service, source: source, now: now, root: paths.Root,
+		errorLog: errorLog,
 	}
 }
 
@@ -324,6 +393,7 @@ type apiProviderSource struct {
 	fingerprint   provider.SessionFingerprint
 	fetchStarted  chan struct{}
 	fetchRelease  chan struct{}
+	fetchFailure  apiFetchFailure
 	writesEnabled bool
 	writes        int
 }
@@ -380,10 +450,28 @@ func (source *apiProviderSource) blockNextFetch(started, release chan struct{}) 
 	source.fetchRelease = release
 }
 
+// apiFetchFailure makes the next fetch end the way a real provider read can fail.
+type apiFetchFailure int
+
+const (
+	apiFetchSucceeds apiFetchFailure = iota
+	// apiFetchUntilStopped reads until the request context ends.
+	apiFetchUntilStopped
+	// apiFetchPanics fails with a programming error inside the provider adapter.
+	apiFetchPanics
+)
+
+func (source *apiProviderSource) failNextFetch(failure apiFetchFailure, started chan struct{}) {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	source.fetchFailure = failure
+	source.fetchStarted = started
+}
+
 type apiProviderReader apiProviderSource
 
 func (reader *apiProviderReader) FetchSnapshot(
-	_ context.Context,
+	ctx context.Context,
 	_ provider.FetchRequest,
 	progress provider.ProgressFunc,
 ) (provider.SnapshotResult, error) {
@@ -393,9 +481,22 @@ func (reader *apiProviderReader) FetchSnapshot(
 	identity := source.identity
 	started := source.fetchStarted
 	release := source.fetchRelease
+	failure := source.fetchFailure
 	source.fetchStarted = nil
 	source.fetchRelease = nil
+	source.fetchFailure = apiFetchSucceeds
 	source.mu.Unlock()
+	switch failure {
+	case apiFetchUntilStopped:
+		if started != nil {
+			close(started)
+		}
+		<-ctx.Done()
+		return provider.SnapshotResult{}, ctx.Err()
+	case apiFetchPanics:
+		panic(errors.New("synthetic adapter failure"))
+	case apiFetchSucceeds:
+	}
 	if started != nil {
 		close(started)
 		<-release

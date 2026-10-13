@@ -30,6 +30,8 @@ type ServerConfig struct {
 	Origin              api.OriginConfig
 	Security            *api.MutationSecurity
 	WarnNonCanonical    bool
+	// ErrorLog receives the cause of every unexpected server error; nil discards it.
+	ErrorLog *log.Logger
 }
 
 // Server is the composed profile API and embedded browser application.
@@ -68,6 +70,7 @@ func NewServer(config ServerConfig) (*Server, error) {
 		Catalog: config.Catalog, Evictor: config.Evictor, Onboarding: config.Onboarding,
 		SimpleFINOnboarding: config.SimpleFINOnboarding,
 		AmazonImports:       config.AmazonImports, LoadAmazonTaxonomy: config.LoadAmazonTaxonomy,
+		ErrorLog: config.ErrorLog,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("new web server API: %w", err)

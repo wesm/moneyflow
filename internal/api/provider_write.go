@@ -339,10 +339,18 @@ func problemFromProviderWriteError(
 func (server *Server) startProviderWrite(profileID string) {
 	go func() {
 		lease, err := server.resolver.Acquire(context.Background(), profileID)
-		if err != nil || lease == nil || lease.Service() == nil {
+		if err != nil {
+			server.errorLog.Printf(
+				"provider write for %s could not start: %s", profileID, describeCause(err),
+			)
+			return
+		}
+		if lease == nil || lease.Service() == nil {
 			return
 		}
 		defer func() { _ = lease.Release() }()
-		_, _ = lease.Service().RunProviderWrite(context.Background())
+		if _, err = lease.Service().RunProviderWrite(context.Background()); err != nil {
+			server.errorLog.Printf("provider write for %s stopped: %s", profileID, describeCause(err))
+		}
 	}()
 }

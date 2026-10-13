@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -170,11 +171,16 @@ func runWeb(
 		_ = listener.Close()
 		return err
 	}
+	errorOutput := streams.Err
+	if errorOutput == nil {
+		errorOutput = io.Discard
+	}
 	serverConfig := webserver.ServerConfig{
 		Resolver: dependencies.Registry, PreselectedID: dependencies.PreselectedProfileID,
 		DemoProfileID: dependencies.DemoProfileID,
 		BasePath:      options.BasePath, Version: version.Version,
 		Origin: origin, Security: security, WarnNonCanonical: options.ExternalURL != "",
+		ErrorLog: log.New(errorOutput, "moneyflow web: ", 0),
 	}
 	if dependencies.Catalog != nil {
 		serverConfig.Catalog = dependencies.Catalog
@@ -191,7 +197,7 @@ func runWeb(
 		_ = listener.Close()
 		return err
 	}
-	server := application.HTTPServer(listener.Addr().String(), streams.Err)
+	server := application.HTTPServer(listener.Addr().String(), errorOutput)
 	url := origin.Canonical.String()
 	if dependencies.PreselectedProfileID != "" {
 		url += "p/" + dependencies.PreselectedProfileID + "/"

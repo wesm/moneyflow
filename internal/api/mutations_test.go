@@ -507,9 +507,21 @@ func requestSignedJSON(
 	token string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
+	return requestSignedJSONContext(context.Background(), t, server, path, body, token)
+}
+
+func requestSignedJSONContext(
+	ctx context.Context,
+	t testing.TB,
+	server *Server,
+	path string,
+	body any,
+	token string,
+) *httptest.ResponseRecorder {
+	t.Helper()
 	data, err := json.Marshal(body)
 	require.NoError(t, err)
-	request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(data))
+	request := httptest.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewReader(data))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", server.security.origin.Origin())
 	request.Header.Set("Sec-Fetch-Site", "same-origin")

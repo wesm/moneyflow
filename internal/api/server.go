@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -38,6 +39,8 @@ type Config struct {
 	SimpleFINOnboarding SimpleFINOnboardingCoordinator
 	AmazonImports       AmazonImportCoordinator
 	LoadAmazonTaxonomy  func(context.Context, string) (*app.TaxonomyClone, error)
+	// ErrorLog receives the cause of every unexpected server error; nil discards it.
+	ErrorLog *log.Logger
 }
 
 // Health reports non-sensitive process and persistent-profile metadata.
@@ -59,6 +62,7 @@ type Server struct {
 	api                 huma.API
 	security            *MutationSecurity
 	resolver            ProfileResolver
+	errorLog            *log.Logger
 	completedOnboarding sync.Map
 }
 
@@ -137,12 +141,16 @@ func New(config Config) (*Server, error) {
 	humaConfig.DocsPath = ""
 	humaConfig.SchemasPath = ""
 	humaConfig.CreateHooks = nil
-	humaConfig.Transformers = nil
+	humaConfig.Transformers = []huma.Transformer{recordProblemCause}
 	humaConfig.Servers = []*huma.Server{{URL: basePath}}
 	humaAPI := humago.New(mux, humaConfig)
+	errorLog := config.ErrorLog
+	if errorLog == nil {
+		errorLog = log.New(io.Discard, "", 0)
+	}
 	server := &Server{
 		basePath: basePath, version: config.Version, api: humaAPI,
-		security: config.Security, resolver: config.Resolver,
+		security: config.Security, resolver: config.Resolver, errorLog: errorLog,
 	}
 	server.register(config, mux)
 	server.registerMutationEndpoints(config)
@@ -163,12 +171,12 @@ func New(config Config) (*Server, error) {
 
 	var handler http.Handler = mux
 	handler = requestBodyLimit(handler, basePath)
-	handler = resolveProfileRequests(handler, basePath, config.Resolver)
+	handler = resolveProfileRequests(handler, basePath, config.Resolver, server.errorLog)
 	handler = profileMutationSecurity(handler, basePath, config.Security)
 	handler = strictProfileAPIPaths(handler, basePath)
 	handler = legacyProfileRoutes(handler, basePath, config.LegacyProfileID)
-	handler = safeProblemResponses(handler)
-	handler = recoverAPI(handler)
+	handler = safeProblemResponses(handler, server.errorLog)
+	handler = recoverAPI(handler, server.errorLog)
 	handler = noStore(handler)
 	server.handler = handler
 	return server, nil
@@ -438,18 +446,20 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		return &projectionOutput{Body: projectionToWire(projection, canonical, warnings)}, nil
 	})
 
-	mux.HandleFunc("GET "+server.basePath+"openapi.json", func(response http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET "+server.basePath+"openapi.json", func(response http.ResponseWriter, request *http.Request) {
 		data, err := server.OpenAPIJSON()
 		if err != nil {
+			noteProblemCause(request.Context(), err)
 			writeProblem(response, newProblem(500, "internal_error", "The API document is unavailable."))
 			return
 		}
 		response.Header().Set("Content-Type", "application/openapi+json")
 		_, _ = response.Write(data)
 	})
-	mux.HandleFunc("GET "+server.basePath+"openapi.yaml", func(response http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET "+server.basePath+"openapi.yaml", func(response http.ResponseWriter, request *http.Request) {
 		data, err := server.OpenAPIYAML()
 		if err != nil {
+			noteProblemCause(request.Context(), err)
 			writeProblem(response, newProblem(500, "internal_error", "The API document is unavailable."))
 			return
 		}
@@ -571,7 +581,17 @@ func (server *Server) installProblemSchemas() {
 	}
 }
 
+// problemFromError maps an error to its public problem. A server failure keeps the error as its
+// cause, which reaches only the server log.
 func problemFromError(err error) *Problem {
+	problem := publicProblem(err)
+	if problem.Status >= http.StatusInternalServerError {
+		problem.cause = err
+	}
+	return problem
+}
+
+func publicProblem(err error) *Problem {
 	var safe *SafeError
 	if errors.As(err, &safe) {
 		status := http.StatusBadRequest
@@ -825,12 +845,13 @@ func (response *bufferedResponse) Unwrap() http.ResponseWriter {
 	return response.target
 }
 
-func safeProblemResponses(next http.Handler) http.Handler {
+func safeProblemResponses(next http.Handler, logger *log.Logger) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		buffered := &bufferedResponse{
 			target: response, header: make(http.Header), suppressBody: request.Method == http.MethodHead,
 			streaming: isExportStreamRequest(request),
 		}
+		request, cause := withProblemCause(request)
 		next.ServeHTTP(buffered, request)
 		status := buffered.status
 		if status == 0 {
@@ -838,10 +859,14 @@ func safeProblemResponses(next http.Handler) http.Handler {
 		}
 		if status < 400 {
 			if buffered.overflow {
-				writeProblem(response, newProblem(
+				problem := newProblem(
 					http.StatusInternalServerError, "response_too_large",
 					"The response is too large to return.",
+				)
+				logServerFailure(logger, request, problem, fmt.Errorf(
+					"the response exceeded %d bytes", maximumBufferedResponseBytes,
 				))
+				writeProblem(response, problem)
 				return
 			}
 			if !buffered.passthrough {
@@ -854,20 +879,22 @@ func safeProblemResponses(next http.Handler) http.Handler {
 			return
 		}
 		var problem Problem
-		if json.Unmarshal(buffered.body.Bytes(), &problem) == nil && problem.Code != "" {
-			writeProblem(response, &problem)
-			return
+		if json.Unmarshal(buffered.body.Bytes(), &problem) != nil || problem.Code == "" {
+			if bytes.Contains(buffered.body.Bytes(), []byte("request body too large")) {
+				status = http.StatusRequestEntityTooLarge
+			}
+			code := "invalid_request"
+			detail := "The request body is invalid."
+			if status >= 500 {
+				code = "internal_error"
+				detail = "The request could not be completed."
+			}
+			problem = *newProblem(status, code, detail)
 		}
-		if bytes.Contains(buffered.body.Bytes(), []byte("request body too large")) {
-			status = http.StatusRequestEntityTooLarge
+		if problem.Status == http.StatusInternalServerError {
+			logServerFailure(logger, request, &problem, cause.err)
 		}
-		code := "invalid_request"
-		detail := "The request body is invalid."
-		if status >= 500 {
-			code = "internal_error"
-			detail = "The request could not be completed."
-		}
-		writeProblem(response, newProblem(status, code, detail))
+		writeProblem(response, &problem)
 	})
 }
 
@@ -877,10 +904,11 @@ func isExportStreamRequest(request *http.Request) bool {
 		strings.HasSuffix(request.URL.Path, "/export")
 }
 
-func recoverAPI(next http.Handler) http.Handler {
+func recoverAPI(next http.Handler, logger *log.Logger) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		defer func() {
-			if recover() != nil {
+			if recovered := recover(); recovered != nil {
+				logPanic(logger, request, recovered)
 				writeProblem(response, newProblem(
 					http.StatusInternalServerError,
 					"internal_error",

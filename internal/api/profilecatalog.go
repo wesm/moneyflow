@@ -327,7 +327,7 @@ func problemFromCatalogError(err error) *Problem {
 	case profilecatalog.CodeRecoveryUnavailable:
 		status, detail = http.StatusConflict, "This profile cannot be recovered by this Moneyflow version."
 	default:
-		return newProblem(status, "internal_error", detail)
+		return newProblem(status, "internal_error", detail).withCause(err)
 	}
 	return newProblem(status, string(code), detail)
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -42,6 +43,8 @@ func TestServerHealthAndBasePath(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, outside.Code)
 }
 
+var discardLog = log.New(io.Discard, "", 0)
+
 func TestSafeProblemResponsesStreamsSuccessImmediately(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	streamedInsideHandler := false
@@ -54,7 +57,7 @@ func TestSafeProblemResponsesStreamsSuccessImmediately(t *testing.T) {
 		unwrapper, ok := response.(interface{ Unwrap() http.ResponseWriter })
 		require.True(t, ok)
 		assert.Same(t, recorder, unwrapper.Unwrap())
-	}))
+	}), discardLog)
 	handler.ServeHTTP(recorder, httptest.NewRequest(
 		http.MethodPost, "/api/v1/profiles/profile-a/export", http.NoBody,
 	))
@@ -70,7 +73,7 @@ func TestSafeProblemResponsesBuffersOrdinarySuccessUntilHandlerReturns(t *testin
 		_, err := response.Write([]byte("complete"))
 		require.NoError(t, err)
 		visibleInsideHandler = recorder.Body.Len() > 0
-	}))
+	}), discardLog)
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
 	assert.False(t, visibleInsideHandler)
 	assert.Equal(t, "complete", recorder.Body.String())
@@ -113,7 +116,7 @@ func TestSafeProblemResponsesRejectsOversizedSuccess(t *testing.T) {
 				response.Header().Set("Content-Length", fmt.Sprint(len(payload)+len(extra)))
 				_, _ = io.WriteString(response, payload)
 				_, _ = io.WriteString(response, extra)
-			}))
+			}), discardLog)
 			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
 			if extra == "" {
 				require.Equal(t, http.StatusOK, recorder.Code)
@@ -160,7 +163,7 @@ func TestOrdinarySuccessCanStillRecoverPanicWithoutPartialResponse(t *testing.T)
 			_, _ = response.Write([]byte("private partial response"))
 			panic("private panic")
 		},
-	)))
+	), discardLog), discardLog)
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
 	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
 	assert.NotContains(t, recorder.Body.String(), "private")
@@ -172,7 +175,7 @@ func TestSafeProblemResponsesStillSanitizesMaliciousError(t *testing.T) {
 	handler := safeProblemResponses(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		response.WriteHeader(http.StatusInternalServerError)
 		_, _ = response.Write(bytes.Repeat([]byte("private-merchant-name"), 100_000))
-	}))
+	}), discardLog)
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/failure", http.NoBody))
 	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
 	assert.NotContains(t, recorder.Body.String(), "private-merchant-name")
@@ -336,7 +339,7 @@ func TestRecoveryReturnsSafeProblem(t *testing.T) {
 
 	handler := noStore(recoverAPI(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		panic("do-not-echo")
-	})))
+	}), discardLog))
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

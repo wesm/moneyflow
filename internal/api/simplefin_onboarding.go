@@ -234,9 +234,9 @@ func problemFromSimpleFINOnboardingError(err error) *Problem {
 	case "local_only":
 		status, detail = http.StatusConflict, "This local-only profile cannot be connected."
 	case "store_error":
-		return newProblem(status, "internal_error", detail)
+		return newProblem(status, "internal_error", detail).withCause(err)
 	default:
-		return newProblem(status, "internal_error", detail)
+		return newProblem(status, "internal_error", detail).withCause(err)
 	}
 	return newProblem(status, string(code), detail)
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"strings"
 
@@ -83,6 +84,7 @@ func resolveProfileRequests(
 	next http.Handler,
 	basePath string,
 	resolver ProfileResolver,
+	logger *log.Logger,
 ) http.Handler {
 	prefix := basePath + "api/v1/profiles/"
 	resolvedEndpoints := map[string]struct{}{
@@ -111,6 +113,12 @@ func resolveProfileRequests(
 			return
 		}
 		lease, err := resolver.Acquire(request.Context(), profileID)
+		if err != nil {
+			logger.Printf(
+				"%s %s: the profile could not be opened: %s",
+				request.Method, request.URL.Path, describeCause(err),
+			)
+		}
 		if err != nil || lease == nil || lease.Service() == nil {
 			writeProblem(response, newProblem(
 				http.StatusNotFound, "not_found", "The requested profile was not found.",
@@ -163,6 +171,7 @@ func legacyProfileRoutes(next http.Handler, basePath string, profileID string) h
 			if _, ok := endpoints[endpoint]; ok {
 				path, err := ProfileAPIPath(basePath, profileID, endpoint)
 				if err != nil {
+					noteProblemCause(request.Context(), err)
 					writeProblem(response, newProblem(
 						http.StatusInternalServerError, "internal_error",
 						"The request could not be completed.",
