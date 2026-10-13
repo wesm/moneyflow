@@ -83,8 +83,9 @@ test('session expiry enters reconnect without losing analytical URL or cursor st
 
     await server.expire(profileID)
     await page.keyboard.press('r')
-    await expect(page.getByRole('button', { name: 'Reconnect provider' })).toBeVisible()
-    await page.getByRole('button', { name: 'Reconnect provider' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Reconnect Monarch' })
+    await expect(dialog.getByRole('button', { name: 'Reconnect' })).toBeFocused()
+    await dialog.getByRole('button', { name: 'Reconnect' }).click()
     await expect(
       page.getByRole('heading', { name: /Unlock saved credentials|Connect Monarch/ }),
     ).toBeVisible()

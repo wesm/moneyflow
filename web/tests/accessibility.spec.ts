@@ -427,6 +427,11 @@ for (const [colorScheme, width] of [
       await progress.getByRole('button', { name: 'Cancel refresh' }).click()
       const banner = page.locator('.mf-stale-banner')
       await expect(banner).toContainText('Refresh was canceled')
+      // The sidebar Refresh button, shown on wide screens, fades from its disabled colours as the
+      // banner appears; check the colours it ends on.
+      await page.evaluate(() =>
+        Promise.all(document.getAnimations().map((animation) => animation.finished)),
+      )
       await expectNoAxeViolations(page)
 
       await server.refreshFault('fail')
