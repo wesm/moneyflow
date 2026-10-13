@@ -88,7 +88,7 @@ func (server *Server) registerTransactionInformationEndpoint() {
 		}
 		_, canonical, err := DecodeViewQuery(body.Query)
 		if err != nil {
-			return nil, err
+			return nil, problemFromError(err)
 		}
 		info, err := profileService(ctx).TransactionInfo(ctx, app.TransactionInfoRequest{
 			ExpectedRevision: revision, TransactionID: body.Target.Identity,

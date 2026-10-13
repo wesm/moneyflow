@@ -16,6 +16,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/exporter"
 )
 
 func TestViewQueryCanonicalExamples(t *testing.T) {
@@ -508,4 +509,40 @@ func withoutReturns(t testing.TB, query string) string {
 	encoded, err := EncodeViewQuery(state)
 	require.NoError(t, err)
 	return encoded
+}
+
+func TestInvalidViewQueriesAreClientErrors(t *testing.T) {
+	t.Parallel()
+	server, _, _, _ := exportTestServer(t, false)
+	invalidQuery := "v=99"
+	requests := []struct {
+		endpoint  string
+		body      any
+		protected bool
+	}{
+		{"export/preview", ExportPreviewBody{Version: ExportWireVersion, Query: invalidQuery}, false},
+		{"export", ExportBody{
+			Version: ExportWireVersion, Format: exporter.FormatCSV, Scope: app.ExportScopeFull,
+			Query: invalidQuery,
+		}, true},
+		{"transaction-information", TransactionInformationBody{
+			Version: TransactionInformationWireVersion, ExpectedRevision: "1", Query: invalidQuery,
+			Target:      TransitionTarget{Kind: app.IdentityTransaction, Identity: "txn-1"},
+			MatchWindow: Window{Limit: 20}, ItemWindow: Window{Limit: 20},
+		}, false},
+	}
+	for _, request := range requests {
+		path, err := ProfileAPIPath("/", testProfileID, request.endpoint)
+		require.NoError(t, err)
+		var response *httptest.ResponseRecorder
+		if body, ok := request.body.(ExportBody); ok && request.protected {
+			response = protectedExportRequest(t, server, path, body)
+		} else {
+			response = requestJSON(t, server, path, request.body)
+		}
+		require.Equal(t, http.StatusBadRequest, response.Code, request.endpoint)
+		var problem Problem
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem), request.endpoint)
+		assert.Equal(t, string(CodeInvalidViewState), problem.Code, request.endpoint)
+	}
 }

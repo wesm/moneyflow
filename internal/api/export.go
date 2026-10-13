@@ -72,7 +72,7 @@ func (server *Server) registerExportEndpoints() {
 		}
 		state, canonical, err := DecodeViewQuery(input.Body.Query)
 		if err != nil {
-			return nil, err
+			return nil, problemFromError(err)
 		}
 		preview, err := profileService(ctx).PreviewExport(ctx, state)
 		if err != nil {
@@ -114,7 +114,7 @@ func (server *Server) registerExportEndpoints() {
 		}
 		state, canonical, err := DecodeViewQuery(body.Query)
 		if err != nil {
-			return nil, err
+			return nil, problemFromError(err)
 		}
 		if body.Scope == app.ExportScopeFull {
 			canonical = ""
