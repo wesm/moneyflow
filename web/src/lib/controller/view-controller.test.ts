@@ -3315,6 +3315,36 @@ describe('visible view failures', () => {
     })
   })
 
+  it('offers Retry when review opens on a workspace one revision behind', async () => {
+    const behind = new MoneyflowProblem({
+      type: 'about:blank',
+      title: 'Conflict',
+      status: 409,
+      detail: 'The profile changed.',
+      code: 'revision_conflict',
+      current_revision: '4',
+    })
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '3'))
+      .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '4'))
+    const projectDuplicates = vi
+      .fn()
+      .mockRejectedValueOnce(behind)
+      .mockImplementation(async () => testDuplicates({ revision: '4' }))
+    const controller = controllerFor(clientWith({ view, projectDuplicates }), false)
+    await controller.hydrate()
+
+    await expect(controller.duplicates.open()).resolves.toBe(false)
+    expect(controller.duplicates.state.phase).toBe('failed')
+
+    await expect(controller.duplicates.retry()).resolves.toBe(true)
+    expect(controller.projection?.revision).toBe('4')
+    expect(projectDuplicates.mock.calls.at(-1)?.[0]).toMatchObject({ expected_revision: '4' })
+    expect(controller.duplicates.state.phase).toBe('ready')
+    expect(controller.duplicates.state.projection?.total_groups).toBe(1)
+  })
+
   describe('a duplicate change the server refuses', () => {
     const refusal = () =>
       Response.json(

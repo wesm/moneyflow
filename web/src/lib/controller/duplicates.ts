@@ -168,9 +168,10 @@ export function createDuplicateController(
         }
         return accepted
       }
+      // Without a list to review, a conflict can only be retried: Retry rereads the view first.
       setState({
         ...state,
-        phase: isConflict(error) ? 'conflict' : 'failed',
+        phase: isConflict(error) && state.projection ? 'conflict' : 'failed',
         announcement:
           'The duplicate list could not be loaded. Review the current data and try again.',
       })
