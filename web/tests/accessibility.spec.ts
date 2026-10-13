@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright'
 
 import { activeRow, cell, expect, openMoneyflow, test } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
+import { withScenarioServer } from '../scripts/scenario-server'
 
 // kit CollapsibleSidebar renders its resize separator between the sidebar <aside> and the main
 // <section>, outside every landmark. Moneyflow cannot move it without patching kit-ui (upstream gap).
@@ -400,5 +401,47 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.keyboard.press('n')
     await expect(groups.getByRole('button', { name: 'Create' })).toBeVisible()
     await expectNoAxeViolations(page)
+  })
+}
+
+for (const [colorScheme, width] of [
+  ['light', 1280],
+  ['dark', 390],
+] as const) {
+  test(`${colorScheme} refresh dialog and stale banner pass axe at ${width}px`, async ({
+    page,
+  }, info) => {
+    await withScenarioServer(info.outputPath('scenario'), async (server) => {
+      await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+      await page.emulateMedia({ reducedMotion: 'reduce' })
+      await page.setViewportSize({ width, height: 844 })
+      // A recent refresh is due seven hours after the scenario's last one.
+      await server.advance(7 * 3600)
+      await page.clock.setFixedTime(new Date('2026-10-15T19:00:00Z'))
+      await server.refreshFault('block')
+      await page.goto(server.url)
+      const progress = page.getByRole('dialog', { name: 'Refreshing from Monarch' })
+      await expect(progress.locator('.mf-refresh__count')).toHaveText('Fetched 3 of 6')
+      await expectNoAxeViolations(page)
+
+      await progress.getByRole('button', { name: 'Cancel refresh' }).click()
+      const banner = page.locator('.mf-stale-banner')
+      await expect(banner).toContainText('Refresh was canceled')
+      await expectNoAxeViolations(page)
+
+      await server.refreshFault('fail')
+      await page.keyboard.press('r')
+      const failed = page.getByRole('dialog', { name: 'Refresh from Monarch failed' })
+      await expect(failed.getByRole('button', { name: 'Retry' })).toBeFocused()
+      await expectNoAxeViolations(page)
+
+      await server.refreshFault('remove')
+      await page.keyboard.press('Enter')
+      const confirmation = page.getByRole('dialog', { name: 'Confirm provider refresh' })
+      await expect(confirmation).toContainText('posted transactions')
+      await expectNoAxeViolations(page)
+      await page.keyboard.press('Escape')
+      await expect(confirmation).toBeHidden()
+    })
   })
 }
