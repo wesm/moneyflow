@@ -362,6 +362,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       return projection
     }
     const current = projection
+    const claim = claimProblem()
     const request = options.client
       .view(
         viewBody(
@@ -375,7 +376,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         if (next.revision === current.revision && next.selection === current.selection) {
           return projection
         }
-        return acceptProfileProjection(next) ? next : projection
+        // A request started since owns the workspace and brings its own view; installing this
+        // one would abort it.
+        if (generation !== claim.generation) return projection
+        // A newer failure keeps its problem and Retry, even over fresh data.
+        return acceptProfileProjection(next, false, !holdsProblem(claim)) ? next : projection
       })
     if (selection !== undefined) return await request
     recheckRequest = request.finally(() => {
@@ -881,7 +886,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return projection !== undefined && BigInt(cached.revision) < BigInt(projection.revision)
   }
 
-  function acceptProfileProjection(next: ViewProjection, replaceHistory = false): boolean {
+  function acceptProfileProjection(
+    next: ViewProjection,
+    replaceHistory = false,
+    keepProblem = false,
+  ): boolean {
     if (newerThan(next)) return false
     generation += 1
     activeRequest?.abort()
@@ -896,8 +905,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const cursor = preserveCursor(next, cursorIdentity, cursorIndex)
     cursorIdentity = cursor.identity
     cursorIndex = cursor.index
-    announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
-    problem = undefined
+    if (!keepProblem) {
+      announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
+      problem = undefined
+    }
     showWarnings(next)
     if (replaceHistory) replaceOwnedHistory()
     schedulePrefetch(next)

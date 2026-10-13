@@ -2520,6 +2520,70 @@ describe('visible view failures', () => {
     expect(controller.problem?.code).toBe('store_busy')
   })
 
+  describe('an older recheck that answers a newer revision', () => {
+    function pendingRecheck() {
+      let answer!: (next: ViewProjection) => void
+      const view = vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+        .mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))
+      return { view, answer: (next: ViewProjection) => answer(next) }
+    }
+
+    it('installs the new data but keeps a newer recheck failure', async () => {
+      const { view, answer } = pendingRecheck()
+      view.mockRejectedValueOnce(busy())
+      const controller = controllerFor(clientWith({ view }), false)
+      await controller.hydrate()
+
+      const older = controller.recheck()
+      await controller.recheckNewer('5')
+      answer(projection('v=1', 0, 3, '5'))
+      await older
+
+      expect(controller.projection?.revision).toBe('5')
+      expect(controller.problem?.code).toBe('store_busy')
+    })
+
+    it('keeps a newer change failure and its Retry when it answers last', async () => {
+      const { view, answer } = pendingRecheck()
+      const transition = vi
+        .fn()
+        .mockRejectedValueOnce(busy())
+        .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '5'))
+      const controller = controllerFor(clientWith({ view, transition }), false)
+      await controller.hydrate()
+
+      const older = controller.recheck()
+      await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+      answer(projection('v=1', 0, 3, '5'))
+      await older
+
+      expect(controller.problem?.code).toBe('store_busy')
+      await controller.retry()
+      expect(transition).toHaveBeenCalledTimes(2)
+      expect(controller.problem).toBeUndefined()
+    })
+
+    it('does not cut off a newer change still on its way', async () => {
+      const { view, answer } = pendingRecheck()
+      let refuse!: (error: unknown) => void
+      const transition = vi.fn(() => new Promise<ViewProjection>((_, reject) => (refuse = reject)))
+      const controller = controllerFor(clientWith({ view, transition }), false)
+      await controller.hydrate()
+
+      const older = controller.recheck()
+      const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+      await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+      answer(projection('v=1', 0, 3, '5'))
+      await older
+      refuse(busy())
+      await applying
+
+      expect(controller.problem?.code).toBe('store_busy')
+    })
+  })
+
   describe('a duplicate reread after review closed, once a newer change failed', () => {
     async function rereadAfterNewerFailure(
       answerReread: (settle: {
