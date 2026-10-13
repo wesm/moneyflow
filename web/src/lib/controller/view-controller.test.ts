@@ -480,10 +480,10 @@ describe('browser view controller', () => {
     })
   })
 
-  describe('an edit that lands between Esc and its history traversal', () => {
+  describe('a newer revision that lands between Esc and its history traversal', () => {
     const cleared = 'mfsel1.cleared' as SelectionValue
 
-    async function editDuringReturn() {
+    it('rereads the parent once the return lands instead of cutting it off', async () => {
       const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
       const client = clientWith({
         transition: vi.fn(async (body) =>
@@ -502,14 +502,51 @@ describe('browser view controller', () => {
       vi.mocked(client.view).mockImplementation(async (body) =>
         projection(body.query, body.window.offset, 3, '1'),
       )
-      await controller.recheck()
+      vi.mocked(client.view).mockClear()
+
+      const rechecking = controller.recheck()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(client.view).not.toHaveBeenCalled()
+      await controller.restore(new PopStateEvent('popstate', { state: parent }))
+      await Promise.all([back, rechecking])
+
+      expect(client.view).toHaveBeenCalledOnce()
+      expect(client.view).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'v=1', selection: cleared }),
+      )
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect(controller.projection?.revision).toBe('1')
+      expect((history.state as MoneyflowHistoryState).sequence).toBe(parent.sequence)
+    })
+
+    async function newerDuringReturn() {
+      const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+      const client = clientWith({
+        transition: vi.fn(async (body) =>
+          body.action === 'view.back'
+            ? projection('v=1', 0, 3, '0', cleared)
+            : projection('v=1&drill=x', 0, 3),
+        ),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      const parent = history.state as MoneyflowHistoryState
+      await controller.apply({ action: 'view.drill' })
+      const before = go.mock.calls.length
+      const back = controller.apply({ action: 'view.back' })
+      await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
+      vi.mocked(client.view).mockImplementation(async (body) =>
+        projection(body.query, body.window.offset, 3, '1'),
+      )
+      // A reload, such as Reset, reads the drilled view at the edited revision during the return.
+      await controller.hydrate()
       expect(controller.projection?.revision).toBe('1')
       vi.mocked(client.view).mockClear()
       return { client, controller, parent, back }
     }
 
     it('fetches the parent at the edited revision when the popstate arrives', async () => {
-      const { client, controller, parent, back } = await editDuringReturn()
+      const { client, controller, parent, back } = await newerDuringReturn()
 
       await controller.restore(new PopStateEvent('popstate', { state: parent }))
       await back
@@ -523,7 +560,7 @@ describe('browser view controller', () => {
     })
 
     it('fetches the parent with the selection Esc left, not the one history saved', async () => {
-      const { client, controller, parent, back } = await editDuringReturn()
+      const { client, controller, parent, back } = await newerDuringReturn()
       expect(parent.selection).not.toBe(cleared)
 
       await controller.restore(new PopStateEvent('popstate', { state: parent }))
@@ -536,7 +573,7 @@ describe('browser view controller', () => {
     })
 
     it('holds a key pressed during the parent fetch until the parent loads', async () => {
-      const { client, controller, parent, back } = await editDuringReturn()
+      const { client, controller, parent, back } = await newerDuringReturn()
       let release!: (value: ViewProjection) => void
       vi.mocked(client.view).mockImplementationOnce(
         () => new Promise<ViewProjection>((resolve) => (release = resolve)),
@@ -558,7 +595,7 @@ describe('browser view controller', () => {
     })
 
     it('keeps the edited view when the traversal times out', async () => {
-      const { controller, back } = await editDuringReturn()
+      const { controller, back } = await newerDuringReturn()
 
       await back
 
@@ -2723,6 +2760,117 @@ describe('visible view failures', () => {
 
     await expect(applying).resolves.toBe(true)
     expect(controller.projection?.canonical_query).toBe('v=2')
+  })
+
+  describe('a browser Back still on its way', () => {
+    function pendingBack(view: ReturnType<typeof vi.fn>) {
+      let answerBack!: (next: ViewProjection) => void
+      view.mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '5'))
+      view.mockImplementationOnce(() => new Promise((resolve) => (answerBack = resolve)))
+      return (next: ViewProjection) => answerBack(next)
+    }
+
+    function goBack(controller: ViewController) {
+      history.pushState(null, '', '/moneyflow/?v=0')
+      return controller.restore(new PopStateEvent('popstate', { state: null }))
+    }
+
+    it('lands before a finished provider write rereads the view, which then reads it', async () => {
+      const view = vi.fn().mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      const providerWriteStatus = vi.fn(async () => ({
+        version: '1',
+        revision: '5',
+        generation: '1',
+        total: 1,
+        completed: 1,
+        failed: 0,
+        remaining: 0,
+        overrides: 0,
+        actions: [],
+      }))
+      const controller = controllerFor(clientWith({ view, providerWriteStatus }), false)
+      await controller.hydrate()
+      controller.providerWrite.install({
+        version: '1',
+        revision: '4',
+        generation: '1',
+        batch_version: '2',
+        phase: 'writing',
+        total: 1,
+        completed: 0,
+        failed: 0,
+        remaining: 1,
+        overrides: 0,
+        actions: [],
+      })
+      const answerBack = pendingBack(view)
+
+      const restoring = goBack(controller)
+      await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+      const polling = controller.providerWrite.poll()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(controller.loading).toBe(true)
+      answerBack(projection('v=0', 0, 3, '4'))
+      await restoring
+      await polling
+
+      expect(view.mock.calls.at(-1)?.[0]).toMatchObject({ query: 'v=0' })
+      expect(controller.projection?.canonical_query).toBe('v=0')
+      expect(controller.projection?.revision).toBe('5')
+    })
+
+    async function undoDuringBack(order: 'back-first' | 'undo-first') {
+      history.replaceState(null, '', '/moneyflow/?v=1&drill=x')
+      let answerUndo!: (response: Response) => void
+      const parent = projection('v=1', 0, 3, '5')
+      const view = vi.fn().mockResolvedValueOnce(projection('v=1&drill=x', 0, 3, '4'))
+      const mutations = {
+        request: vi.fn(() => new Promise<Response>((resolve) => (answerUndo = resolve))),
+      }
+      const controller = controllerFor(clientWith({ view, mutations }), false)
+      await controller.hydrate()
+      const answerBack = pendingBack(view)
+
+      let restoring: Promise<void>
+      let undoing: Promise<boolean>
+      if (order === 'back-first') {
+        restoring = goBack(controller)
+        await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+        undoing = controller.editing.undo()
+        await vi.waitFor(() => expect(mutations.request).toHaveBeenCalledOnce())
+      } else {
+        undoing = controller.editing.undo()
+        await vi.waitFor(() => expect(mutations.request).toHaveBeenCalledOnce())
+        restoring = goBack(controller)
+        await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+      }
+      // Undo removed the drilled target, so it answers with the drilled view's parent.
+      answerUndo(
+        Response.json({
+          version: '1',
+          revision: '5',
+          canonical_query: 'v=1',
+          projection: parent,
+          pending: parent.pending,
+          selection: { kind: 'preserved', value: parent.selection },
+        }),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(controller.loading).toBe(true)
+      answerBack(projection('v=0', 0, 3, '4'))
+      await restoring
+
+      await expect(undoing).resolves.toBe(true)
+      expect(controller.projection?.canonical_query).toBe('v=0')
+      expect(controller.projection?.revision).toBe('5')
+      expect(location.search).toBe('?v=0')
+      expect(controller.editing.state.phase).toBe('idle')
+      expect(controller.editing.state.revision).toBe(5n)
+    }
+
+    it('lands when undo, sent before it, answers with a parent view', async () => {
+      await undoDuringBack('undo-first')
+    })
   })
 
   describe('an older recheck that answers a newer revision', () => {

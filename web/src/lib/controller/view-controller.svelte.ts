@@ -198,6 +198,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let sequence = existing?.sequence ?? 0
   let generation = 0
   let activeRequest: AbortController | undefined
+  // The foreground request that set `loading` last; a reread waits for it to settle.
+  let foregroundRequest: Promise<unknown> = Promise.resolve()
   let lastRetry: (() => Promise<void>) | undefined
   let searchSnapshot: SearchSnapshot | undefined
   let recheckRequest: Promise<ViewProjection | undefined> | undefined
@@ -332,18 +334,27 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   /**
-   * Rereads the view. Every reread takes this path, and each request gets a sequence number when
-   * it starts. Only an answer newer than the last one applied may change the recheck outcome: a
-   * success clears an older recheck failure, and a failure shows in the workspace when `report()`
-   * allows it and no foreground request owns the problem. An answer installs its view only while
-   * the view it was read for is still shown and no foreground request has started since. Throws
-   * the request's error after handling it.
+   * Rereads the view. Every reread takes this path. A foreground request on its way, such as a
+   * browser Back, settles first, and the reread reads the view it left. Each request gets a
+   * sequence number when it starts. Only an answer newer than the last one applied may change the
+   * recheck outcome: a success clears an older recheck failure, and a failure shows in the
+   * workspace when `report()` allows it and no foreground request owns the problem. An answer
+   * installs its view only while the view it was read for is still shown and no foreground request
+   * has started since. Throws the request's error after handling it.
    */
   async function ownedRecheck(
     selection: SelectionValue | undefined,
     force: boolean,
     report: () => boolean,
   ): Promise<ViewProjection | undefined> {
+    // Awaiting only while a request is on its way keeps a reread started just before a view change
+    // from reading after it.
+    while (loading) {
+      await foregroundRequest.then(
+        () => undefined,
+        () => undefined,
+      )
+    }
     if (!projection) return undefined
     if (!force && selection === undefined && recheckRequest) return await recheckRequest
     // After a failed recheck, only the server can say the view is current again.
@@ -858,6 +869,17 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     onSuccess: (next: ViewProjection) => void | Promise<void>,
     retry: () => Promise<void>,
     report = true,
+  ): Promise<boolean> {
+    const work = foregroundProjection(request, onSuccess, retry, report)
+    foregroundRequest = work
+    return await work
+  }
+
+  async function foregroundProjection(
+    request: () => Promise<ViewProjection>,
+    onSuccess: (next: ViewProjection) => void | Promise<void>,
+    retry: () => Promise<void>,
+    report: boolean,
   ): Promise<boolean> {
     lastRetry = async () => {
       await retry()
