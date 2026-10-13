@@ -108,8 +108,8 @@ test('Continue after a failure shows the stale banner until refresh is allowed',
     await expect(notice.getByRole('status')).toHaveText(
       aged('Showing data from 7 hours ago', `. ${reason}`),
     )
-    await expect(notice.getByRole('button', { name: 'Refresh' })).toBeDisabled()
-    await expect(notice).toContainText('Available at 7:05 PM')
+    await expect(notice.getByRole('button', { name: 'Refresh' })).toBeEnabled()
+    await expect(notice).toContainText('Automatic retry at 7:05 PM')
   })
 })
 

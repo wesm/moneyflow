@@ -152,6 +152,16 @@ describe('refresh notice', () => {
     expect(staleNotice(idle({ status }), now + 300_000, 'en-US')?.retryAt).toBe(undefined)
   })
 
+  it('limits manual refresh during the retry delay only for SimpleFIN', () => {
+    const status = testProviderStatus({
+      code: 'provider_unavailable',
+      last_success: '2026-10-03T12:00:00Z',
+    })
+    expect(staleNotice(idle({ status }), now, 'en-US')?.manualWaits).toBe(false)
+    const simplefin = { ...status, provider_kind: 'simplefin' }
+    expect(staleNotice(idle({ status: simplefin }), now, 'en-US')?.manualWaits).toBe(true)
+  })
+
   it('offers reconnect when the provider needs it', () => {
     const status = testProviderStatus({
       code: 'provider_reconnect_required',

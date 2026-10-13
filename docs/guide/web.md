@@ -338,10 +338,11 @@ and either:
   you to reconnect, or would remove transactions that you did not confirm.
 - A refresh is due but cannot run, for example while a YNAB profile's credentials are locked.
 
-The banner's **Refresh** button waits for the provider's retry time after a failure, and shows
-when it becomes available, such as `Available at 10:40 AM`. `r` and **Retry** in the dialog try
-at once, unless the provider limits manual attempts, as
-[SimpleFIN](simplefin.md#refresh-timing) does. When the provider needs you to reconnect, the
+After a failure, the banner shows when Moneyflow retries on its own, such as
+`Automatic retry at 10:40 AM`. The banner's **Refresh** button, `r`, and **Retry** in the dialog
+try at once, unless the provider limits manual attempts, as
+[SimpleFIN](simplefin.md#refresh-timing) does. For SimpleFIN, **Refresh** waits and shows when it
+becomes available, such as `Available at 10:40 AM`. When the provider needs you to reconnect, the
 banner offers **Reconnect** instead. If Moneyflow cannot check when data was last refreshed, the
 banner says so and offers **Retry**.
 

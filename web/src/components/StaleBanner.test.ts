@@ -36,9 +36,20 @@ describe('StaleBanner', () => {
     expect(controller.refresh).toHaveBeenCalledOnce()
   })
 
-  it('waits out the retry delay and says when refresh is available', () => {
+  it('refreshes during the retry delay and says when it retries on its own', async () => {
     vi.useFakeTimers({ now })
-    render(StaleBanner, { controller: failed({ next_eligible: '2026-10-13T12:05:00Z' }) })
+    const controller = failed({ next_eligible: '2026-10-13T12:05:00Z' })
+    render(StaleBanner, { controller })
+    expect(screen.getByText(/^Automatic retry at \d{1,2}:05/)).not.toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(controller.refresh).toHaveBeenCalledOnce()
+  })
+
+  it('waits out the retry delay for a provider that limits manual refresh', () => {
+    vi.useFakeTimers({ now })
+    render(StaleBanner, {
+      controller: failed({ provider_kind: 'simplefin', next_eligible: '2026-10-13T12:05:00Z' }),
+    })
     expect(screen.getByRole('button', { name: 'Refresh' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByText(/^Available at \d{1,2}:05/)).not.toBeNull()
   })

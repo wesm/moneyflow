@@ -34,11 +34,14 @@
             <Button size="sm" tone="info" surface="solid" onclick={onreconnect}>Reconnect</Button>
           {:else}
             {#if notice.retryAt}
-              <span class="mf-stale-banner__wait">Available at {notice.retryAt}</span>
+              <span class="mf-stale-banner__wait">
+                {notice.manualWaits ? 'Available' : 'Automatic retry'} at {notice.retryAt}
+              </span>
             {/if}
             <Button
               size="sm"
-              disabled={notice.retryAt !== undefined || capability?.available !== true}
+              disabled={(notice.manualWaits && notice.retryAt !== undefined) ||
+                capability?.available !== true}
               title={capability?.reason}
               onclick={() => void controller.refresh()}>Refresh</Button
             >

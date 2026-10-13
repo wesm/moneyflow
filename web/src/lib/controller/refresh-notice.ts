@@ -97,6 +97,8 @@ export interface StaleNotice {
   text: string
   /** When the retry delay ends, while it has not, such as `10:40 AM`. */
   retryAt?: string | undefined
+  /** The provider refuses manual refresh until `retryAt`, as SimpleFIN does. */
+  manualWaits: boolean
   /** The provider needs reconnecting before refresh can run. */
   reconnect: boolean
   /** The status request failed, so retrying it is the action, not a refresh. */
@@ -118,6 +120,7 @@ export function staleNotice(
     if (!state.statusError) return undefined
     return {
       text: `Moneyflow could not check when provider data was last refreshed. ${state.statusError}`,
+      manualWaits: false,
       reconnect: false,
       checkFailed: true,
     }
@@ -134,6 +137,7 @@ export function staleNotice(
       eligible > now
         ? new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(new Date(eligible))
         : undefined,
+    manualWaits: status.provider_kind === 'simplefin',
     reconnect: status.code === 'provider_reconnect_required',
     checkFailed: false,
   }
