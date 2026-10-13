@@ -48,7 +48,11 @@ export interface ProviderWriteTransport {
 
 interface ProviderWriteHost {
   current(): ViewProjection | undefined
-  accept(projection: ViewProjection): void
+  /**
+   * Marks the view a write request starts from. The returned function shows the response's view
+   * only while no view change has started since, and says whether it did.
+   */
+  claim(): (projection: ViewProjection) => boolean
   /** Rereads and shows the view at the newest revision; throws when the reread fails. */
   reload(): Promise<unknown>
 }
@@ -228,6 +232,7 @@ export function createProviderWriteController(
     confirming = false,
   ): Promise<boolean> {
     inFlight = true
+    const show = options.host.claim()
     try {
       const response = await requestProfileJSON<ProviderWriteResponse>(
         options.transport.mutations,
@@ -237,15 +242,14 @@ export function createProviderWriteController(
       install(response.status)
       if (response.projection) {
         const current = options.host.current()
-        // The view moved on while the server reconciled; read it again instead of replacing it.
-        if (current && response.projection.canonical_query !== current.canonical_query) {
-          if (response.status.phase) await refreshView()
-        } else {
-          options.host.accept({
+        const shown =
+          (!current || response.projection.canonical_query === current.canonical_query) &&
+          show({
             ...response.projection,
             selection: response.selection?.value ?? response.projection.selection,
           } as ViewProjection)
-        }
+        // The view moved on while the server worked; read it again instead of replacing it.
+        if (!shown && response.status.phase) await refreshView()
       }
       if (!response.status.phase) await complete(path.includes('/reconcile'))
       return true

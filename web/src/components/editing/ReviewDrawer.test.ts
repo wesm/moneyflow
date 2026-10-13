@@ -503,7 +503,7 @@ describe('ReviewDrawer in write mode', () => {
     const initial = testProviderWriteController().state.status!
     const providerWrite = createProviderWriteController({
       transport: { mutations: { request: vi.fn() }, status: vi.fn() },
-      host: { current: () => undefined, accept: vi.fn(), reload: vi.fn() },
+      host: { current: () => undefined, claim: () => vi.fn(() => true), reload: vi.fn() },
     })
     providerWrite.install(initial)
     setup({ mode: 'write', providerWrite })

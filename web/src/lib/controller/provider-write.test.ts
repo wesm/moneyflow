@@ -304,9 +304,11 @@ describe('provider write failures the user must see', () => {
       selection: { kind: 'cleared', value: merchant.selection },
     }
     let shown = merchant
+    const accept = vi.fn(() => true)
     const host = {
       current: vi.fn(() => shown),
-      accept: vi.fn(),
+      accept,
+      claim: () => accept,
       reload: vi.fn(async () => reread),
     }
     let answer!: (response: Response) => void
@@ -354,9 +356,12 @@ describe('provider write failures the user must see', () => {
 })
 
 function hostStub(current = testProjection()) {
+  const accept = vi.fn<(projection: ViewProjection) => boolean>(() => true)
   return {
     current: vi.fn(() => current),
-    accept: vi.fn(),
+    /** The view-showing function every write request's claim returns. */
+    accept,
+    claim: () => accept,
     reload: vi.fn(async () => current),
   }
 }

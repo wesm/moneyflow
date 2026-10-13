@@ -2567,6 +2567,67 @@ describe('visible view failures', () => {
     })
   })
 
+  it('does not cut off a view change when a provider write control answers with a view', async () => {
+    let answerWrite!: (response: Response) => void
+    let answerChange!: (next: ViewProjection) => void
+    const transition = vi.fn(
+      () => new Promise<ViewProjection>((resolve) => (answerChange = resolve)),
+    )
+    const written = projection('v=1', 0, 3, '5')
+    const controller = controllerFor(
+      clientWith({
+        view: vi.fn(async (body: ViewBody) => projection(body.query, 0, 3, '5')),
+        transition,
+        mutations: {
+          request: vi.fn(() => new Promise<Response>((resolve) => (answerWrite = resolve))),
+        },
+      }),
+      false,
+    )
+    await controller.hydrate()
+    controller.providerWrite.install({
+      version: '1',
+      revision: '4',
+      generation: '1',
+      batch_version: '2',
+      phase: 'paused',
+      total: 1,
+      completed: 0,
+      failed: 0,
+      remaining: 1,
+      overrides: 0,
+      actions: ['reconcile'],
+    })
+
+    const reconciling = controller.providerWrite.reconcile()
+    const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+    answerWrite(
+      Response.json({
+        version: '1',
+        revision: '5',
+        status: {
+          version: '1',
+          revision: '5',
+          generation: '1',
+          total: 1,
+          completed: 1,
+          failed: 0,
+          remaining: 0,
+          overrides: 0,
+          actions: [],
+        },
+        projection: written,
+        selection: { kind: 'preserved', value: written.selection },
+      }),
+    )
+    await reconciling
+    answerChange(projection('v=2', 0, 3, '5'))
+
+    await expect(applying).resolves.toBe(true)
+    expect(controller.projection?.canonical_query).toBe('v=2')
+  })
+
   it('does not cut off a view change when a finished provider write rereads the view', async () => {
     let answerReread!: (next: ViewProjection) => void
     let answerChange!: (next: ViewProjection) => void

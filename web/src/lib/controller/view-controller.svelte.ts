@@ -219,7 +219,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     transport: { mutations: options.client.mutations, status: options.client.providerWriteStatus },
     host: {
       current: () => projection,
-      accept: (next) => acceptProfileProjection(next, true),
+      claim: () => {
+        const started = generation
+        // A view change started since owns the workspace; installing would cut it off.
+        return (next) => generation === started && acceptProfileProjection(next, true)
+      },
       reload: () => ownedRecheck(undefined, true, () => false),
     },
   })
