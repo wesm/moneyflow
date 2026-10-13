@@ -291,7 +291,8 @@ data private. Do not expose it to the public internet merely because the documen
 **Unreleased:** Every refresh of a Monarch, YNAB, or SimpleFIN profile opens the refresh dialog,
 whether you pressed `r` or **Refresh**, or the refresh is due in the background. When you open a
 profile and a refresh is due, the dialog opens at once, before you work with older data. While it
-is open, the workspace behind it does not respond.
+is open, the workspace and any dialog or drawer behind it do not respond, and Esc goes to the
+refresh dialog.
 
 The dialog shows:
 

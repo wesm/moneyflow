@@ -6,12 +6,15 @@
     onconfirm: () => void
     oncancel: () => void
     submitting?: boolean
+    /** True while the refresh dialog covers this overlay; its keys then do nothing here. */
+    suspended?: boolean
   }
 
-  let { count, onconfirm, oncancel, submitting = false }: Props = $props()
+  let { count, onconfirm, oncancel, submitting = false, suspended = false }: Props = $props()
 
   function handleKeydown(event: KeyboardEvent): void {
-    if (submitting || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return
+    if (suspended || submitting || event.repeat || event.altKey || event.ctrlKey || event.metaKey)
+      return
     if (event.target instanceof HTMLButtonElement) return
     if (event.key === 'Enter') {
       event.preventDefault()

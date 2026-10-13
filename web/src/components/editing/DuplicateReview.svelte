@@ -7,10 +7,12 @@
 
   interface Props {
     controller: DuplicateController
+    /** True while the refresh dialog covers this overlay; its keys then do nothing here. */
+    suspended?: boolean
     onclose: () => void
   }
 
-  let { controller, onclose }: Props = $props()
+  let { controller, suspended = false, onclose }: Props = $props()
   let information = $state(false)
   const duplicateState = $derived(controller.state)
   const rows = $derived(
@@ -29,6 +31,7 @@
 
   function handleKeydown(event: KeyboardEvent): void {
     if (
+      suspended ||
       duplicateState.phase === 'confirming' ||
       duplicateState.phase === 'submitting' ||
       event.repeat ||
@@ -74,6 +77,7 @@
 {#if duplicateState.phase === 'confirming' || (duplicateState.phase === 'submitting' && duplicateState.confirmationCount > 0)}
   <DeleteConfirmation
     count={duplicateState.confirmationCount}
+    {suspended}
     submitting={duplicateState.phase === 'submitting'}
     onconfirm={() => void controller.confirmDelete()}
     oncancel={() => controller.cancelDelete()}

@@ -6,10 +6,12 @@
 
   interface Props {
     controller: ExportController
+    /** True while the refresh dialog covers this overlay; its keys then do nothing here. */
+    suspended?: boolean
     onclose: () => void
   }
 
-  let { controller, onclose }: Props = $props()
+  let { controller, suspended = false, onclose }: Props = $props()
   let container = $state<HTMLDivElement | undefined>()
   const exportState = $derived(controller.state)
   const running = $derived(exportState.phase === 'exporting')
@@ -42,7 +44,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
-    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) return
+    if (suspended || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return
     if (event.key === 'Escape') {
       if (running && !exportState.canCancel) return
       event.preventDefault()

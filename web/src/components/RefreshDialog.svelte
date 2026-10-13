@@ -76,6 +76,17 @@
     onreconnect?.()
   }
 
+  /**
+   * Escape belongs to this dialog, the top layer, even when an overlay under it, such as duplicate
+   * review, registered its own window handler first. Taking it during capture keeps it from them.
+   */
+  function escape(event: KeyboardEvent): void {
+    if (!dialog || event.key !== 'Escape') return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    close()
+  }
+
   /** Enter confirms removals from anywhere in the dialog except another button. */
   function keydown(event: KeyboardEvent): void {
     if (view !== 'confirmation' || event.key !== 'Enter' || event.defaultPrevented) return
@@ -88,7 +99,7 @@
   }
 </script>
 
-<svelte:window onkeydown={keydown} />
+<svelte:window onkeydown={keydown} onkeydowncapture={escape} />
 
 {#if dialog}
   <Modal
