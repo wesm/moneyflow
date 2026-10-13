@@ -61,7 +61,11 @@ The bottom of the sidebar holds:
   provider write in progress or another process refreshing, and why the last refresh failed,
   for example `Last refresh failed: The provider is temporarily unavailable.` While a refresh
   runs, progress updates every second; for Monarch it names the kind, recent data (last 90
-  days) or full history. See [Monarch refresh](monarch.md#refresh-data).
+  days) or full history. **Unreleased:** A failed refresh, including one started in the
+  background, also shows an error banner with the reason. The web app stops a refresh that runs
+  longer than 30 minutes; no data changes, and `moneyflow tui` can run it without that limit.
+  When the server cannot say why a request failed, the banner says so and the terminal running
+  `moneyflow web` logs the cause. See [Monarch refresh](monarch.md#refresh-data).
 - The theme toggle; see [Themes](#themes).
 
 **Unreleased:** At 1280 px and wider, the **Collapse sidebar** button beside the Moneyflow name

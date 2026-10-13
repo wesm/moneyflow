@@ -1,9 +1,11 @@
+import { showFlash } from '@kenn-io/kit-ui'
 import { createSubscriber } from 'svelte/reactivity'
 
 import {
   MoneyflowProblem,
   requestProfileJSON,
   type MutationFetch,
+  type Problem,
   type ProviderConfirmationBody,
   type ProviderRefreshBody,
   type ProviderRefreshResponse,
@@ -54,6 +56,10 @@ interface ProviderControllerOptions {
 
 /** Status polling interval while a refresh runs, so progress and the outcome appear promptly. */
 const refreshingPollMillis = 1_000
+/** A failure banner stays long enough to read a full sentence; it can be dismissed sooner. */
+const failureFlashMillis = 12_000
+/** The server logs the cause of an unexpected error; the browser only says where to look. */
+const serverLogHint = 'The terminal running moneyflow web shows the cause.'
 
 export function createProviderController(options: ProviderControllerOptions): ProviderController {
   let state: ProviderState = { phase: 'idle', announcement: '', capability: undefined }
@@ -222,12 +228,9 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 
   async function fail(error: unknown, confirmation: boolean): Promise<boolean> {
     if (!(error instanceof MoneyflowProblem)) {
-      setState({
-        ...state,
-        phase: 'failed',
-        kind: undefined,
-        announcement: 'Provider refresh failed. Press r to try again.',
-      })
+      const announcement = 'Provider refresh failed. Press r to try again.'
+      setState({ ...state, phase: 'failed', kind: undefined, announcement })
+      showFlash(announcement, { tone: 'danger', durationMs: failureFlashMillis })
       return false
     }
     const problem = error.problem
@@ -240,6 +243,10 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       })
       return false
     }
+    showFlash(`Provider refresh failed: ${failureReason(problem)}`, {
+      tone: 'danger',
+      durationMs: failureFlashMillis,
+    })
     if (problem.code === 'provider_reconnect_required') {
       setState({ ...state, phase: 'reconnect', kind: undefined, announcement: problem.detail })
       return false
@@ -253,7 +260,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       phase: 'failed',
       kind: undefined,
       ...(problem.provider === undefined ? {} : { status: problem.provider }),
-      announcement: problem.detail,
+      announcement: failureReason(problem),
     })
     return false
   }
@@ -323,6 +330,10 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     confirm,
     dismissConfirmation,
   }
+}
+
+function failureReason(problem: Problem): string {
+  return problem.code === 'internal_error' ? `${problem.detail} ${serverLogHint}` : problem.detail
 }
 
 function pollAnnouncement(
