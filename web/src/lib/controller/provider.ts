@@ -97,6 +97,7 @@ const refreshingPollMillis = 1_000
  */
 const canceledHoldMillis = 5 * 60_000
 export const REFRESH_CANCELED = 'Refresh was canceled; no provider data changed.'
+export const REFRESH_STOPPED = 'Refresh stopped. The view shows the latest saved data.'
 export const REFRESH_NOT_CONFIRMED = 'Refresh was not confirmed; no provider data changed.'
 
 export function createProviderController(options: ProviderControllerOptions): ProviderController {
@@ -132,8 +133,15 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     notify()
   }
 
+  /**
+   * Records the data generation before this attempt from the newest status the server sent. A
+   * status that shows a refresh running leaves it unknown until a poll reads it.
+   */
+  function startAttempt(): void {
+    watched = state.status?.refreshing ? undefined : state.status?.generation
+  }
+
   function openDialog(view: RefreshDialogView, reason?: string): RefreshDialog {
-    if (!state.dialog) watched = state.status?.refreshing ? undefined : state.status?.generation
     return { view, startedAt: state.dialog?.startedAt ?? now(), reason }
   }
 
@@ -164,6 +172,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     }
     if (inFlight || pending !== undefined) return false
     if (manual) automaticAfter = 0
+    startAttempt()
     setState({
       ...state,
       phase: 'refreshing',
@@ -195,6 +204,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     const current = options.host.current()
     const token = state.status?.confirmation_token
     if (!current || state.phase !== 'confirmation' || !token || inFlight) return false
+    startAttempt()
     setState({
       ...state,
       phase: 'refreshing',
@@ -322,6 +332,8 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       return false
     }
     if (problem.code === 'provider_refresh_in_progress') {
+      // The server read this status before the other refresh could commit.
+      watched = problem.provider?.generation
       setState({ ...state, ...status, phase: 'refreshing', dialog: openDialog('other') })
       return false
     }
@@ -456,13 +468,24 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       void reread().then((note) => succeed(status, note))
       return
     }
-    setState({
+    const ended = {
       ...state,
       phase: statusPhase(status, false),
       status,
       capability: status.capability,
       kind: undefined,
       dialog: undefined,
+    }
+    // Without the generation from before the refresh, it may have saved before it stopped, and
+    // the counts in the status may be an earlier refresh's, so the view is reread and neither a
+    // success nor an unchanged result is claimed.
+    if (watched === undefined) {
+      setState({ ...ended, announcement: canceled ? REFRESH_STOPPED : 'The other refresh ended.' })
+      void rereadAnnouncingFailure()
+      return
+    }
+    setState({
+      ...ended,
       staleReason: canceled ? REFRESH_CANCELED : state.staleReason,
       announcement: canceled ? REFRESH_CANCELED : 'The other refresh ended.',
     })

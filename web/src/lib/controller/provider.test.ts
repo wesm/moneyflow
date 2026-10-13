@@ -464,6 +464,92 @@ describe('provider controller', () => {
     expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(true)
   })
 
+  it('follows a conflicting refresh from the generation the server reported', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const earlier = { ...emptySummary(), imported_transactions: 40 }
+    const transport = transportStub({ status: providerStatus({ summary: earlier }) })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    await controller.poll()
+    vi.mocked(transport.mutations.request).mockResolvedValueOnce(
+      problemResponse(
+        'provider_refresh_in_progress',
+        'Another refresh is running.',
+        providerStatus({ generation: '2', summary: earlier }),
+        503,
+      ),
+    )
+    await controller.refresh()
+    expect(controller.state.dialog?.view).toBe('other')
+
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ generation: '2', code: 'provider_unavailable', summary: earlier }),
+    )
+    await controller.poll()
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.announcement).toBe('The other refresh ended.')
+    expect(getFlashes()).toEqual([])
+  })
+
+  it('compares a retried refresh with the generation before the retry', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const failure = (generation: string) =>
+      problemResponse(
+        'provider_unavailable',
+        'Unavailable.',
+        providerStatus({ generation, code: 'provider_unavailable' }),
+      )
+    const transport = transportStub({ mutationResponse: failure('1') })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    await controller.poll()
+    await controller.refresh()
+    vi.mocked(transport.mutations.request).mockResolvedValueOnce(failure('2'))
+    await controller.refresh()
+    vi.mocked(transport.mutations.request).mockImplementationOnce(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    void controller.refresh()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledTimes(3))
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ generation: '2', code: 'provider_unavailable' }),
+    )
+
+    controller.cancel()
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+
+    expect(controller.state.staleReason).toBe(REFRESH_CANCELED)
+    expect(getFlashes()).toEqual([])
+  })
+
+  it('rereads without claiming no change when a cancel had no known baseline', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const host = hostStub(current)
+    const transport = transportStub({ status: providerStatus({ generation: '2' }) })
+    vi.mocked(transport.mutations.request).mockImplementation(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    const controller = createProviderController({ transport, host })
+    controller.sync(current)
+    void controller.refresh()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+
+    controller.cancel()
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+
+    expect(host.reload).toHaveBeenCalledOnce()
+    expect(controller.state.staleReason).toBeUndefined()
+    expect(controller.state.announcement).not.toContain('no provider data changed')
+    expect(getFlashes()).toEqual([])
+  })
+
   it('cancels a refresh still waiting for the first view without sending it', async () => {
     const host = hostStub()
     host.current.mockReturnValue(undefined as unknown as ViewProjection)
