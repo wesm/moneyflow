@@ -19,6 +19,7 @@
       error = 'Enter a profile name.'
       return
     }
+    error = ''
     onsubmit(value)
   }
 </script>

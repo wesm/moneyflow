@@ -158,6 +158,30 @@ describe('profile selector', () => {
     expect((screen.getByLabelText('Profile name') as HTMLInputElement).value).toBe('Alpha')
   })
 
+  it('shows why a valid name was refused after an empty name was corrected', async () => {
+    const props = syntheticCatalogProps()
+    const rendered = render(ProfileSelector, { props })
+    props.oncreate.mockImplementation(async () => {
+      await rendered.rerender({
+        problem: 'The profile could not be created. The profile name is already in use.',
+      })
+      return undefined
+    })
+
+    await fireEvent.keyDown(window, { key: 'a' })
+    await fireEvent.keyDown(window, { key: 'y' })
+    await fireEvent.click(screen.getByRole('button', { name: 'Create profile' }))
+    expect(screen.getByRole('alert').textContent).toBe('Enter a profile name.')
+    await fireEvent.input(screen.getByLabelText('Profile name'), { target: { value: 'Alpha' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Create profile' }))
+
+    await vi.waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(
+        'The profile could not be created. The profile name is already in use.',
+      ),
+    )
+  })
+
   it('shows why the recovery plan did not load instead of waiting for it', async () => {
     const props = syntheticCatalogProps()
     props.profiles = [{ ...props.profiles[0]!, status: 'needs_recovery' }]
