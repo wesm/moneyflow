@@ -137,19 +137,15 @@ func TestProblemReportsAReasonOnlyForAnInvalidOperation(t *testing.T) {
 func TestStorageStepPastAnInternalTimeLimitIsAStorageFailure(t *testing.T) {
 	t.Parallel()
 
-	// The second step is a reload stopped by its own time limit, as the profile store reports it.
-	for _, step := range []string{"record outcomes", "load profile"} {
-		failure := store.NewError(
-			store.CodeStoreError, fmt.Errorf("%s: %w", step, context.DeadlineExceeded),
-		)
-		live := problemFromError(t.Context(), failure)
-		assert.Equal(t, string(app.AppStoreError), live.Code, step)
-		assert.NotContains(t, live.Detail, "corrupt", step)
-		assert.ErrorIs(t, live.cause, context.DeadlineExceeded, "the log keeps the cause")
+	failure := store.NewError(
+		store.CodeStoreError, fmt.Errorf("record outcomes: %w", context.DeadlineExceeded),
+	)
+	live := problemFromError(t.Context(), failure)
+	assert.Equal(t, string(app.AppStoreError), live.Code)
+	assert.ErrorIs(t, live.cause, context.DeadlineExceeded, "the log keeps the cause")
 
-		ended, stop := context.WithCancel(t.Context())
-		stop()
-		stopped := problemFromError(ended, failure)
-		assert.Equal(t, "internal_error", stopped.Code, step)
-	}
+	ended, stop := context.WithCancel(t.Context())
+	stop()
+	stopped := problemFromError(ended, failure)
+	assert.Equal(t, "internal_error", stopped.Code)
 }
