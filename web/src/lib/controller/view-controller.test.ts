@@ -2436,6 +2436,31 @@ describe('visible view failures', () => {
     expect(flashes().map(({ tone }) => tone)).toEqual(['danger'])
   })
 
+  it('asks the server again when a recheck follows a failed one inside the debounce', async () => {
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockRejectedValueOnce(busy())
+      .mockRejectedValueOnce(busy())
+    const controller = createViewController({
+      basePath: '/moneyflow/',
+      client: clientWith({ view }),
+      history,
+      location: window.location,
+      instance: 'test-instance',
+      prefetch: false,
+      recheckDebounceMillis: 60_000,
+    })
+    await controller.hydrate()
+    await controller.recheckNewer('5')
+    expect(controller.problem?.code).toBe('store_busy')
+
+    await controller.recheck()
+
+    expect(view).toHaveBeenCalledTimes(3)
+    expect(controller.problem?.code).toBe('store_busy')
+  })
+
   it('does not show a refused search preview in a banner', async () => {
     const client = clientWith({ transition: vi.fn().mockRejectedValueOnce(busy()) })
     const controller = controllerFor(client, false)

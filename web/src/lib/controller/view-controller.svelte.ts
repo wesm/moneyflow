@@ -329,8 +329,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   ): Promise<ViewProjection | undefined> {
     if (!projection) return undefined
     if (!force && selection === undefined && recheckRequest) return await recheckRequest
+    // After a failed recheck, only the server can say the view is current again.
     if (
       !force &&
+      !recheckProblem &&
       selection === undefined &&
       Date.now() - lastRevisionObservation < recheckDebounceMillis
     ) {
