@@ -2501,6 +2501,25 @@ describe('visible view failures', () => {
     expect(controller.problem).toBeUndefined()
   })
 
+  it('keeps a newer recheck failure when an older recheck answers unchanged', async () => {
+    let answerOlder!: (next: ViewProjection) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockImplementationOnce(() => new Promise((resolve) => (answerOlder = resolve)))
+      .mockRejectedValueOnce(busy())
+    const controller = controllerFor(clientWith({ view }), false)
+    await controller.hydrate()
+
+    const older = controller.recheck()
+    await controller.recheckNewer('5')
+    expect(controller.problem?.code).toBe('store_busy')
+    answerOlder(projection('v=1', 0, 3, '4'))
+    await older
+
+    expect(controller.problem?.code).toBe('store_busy')
+  })
+
   describe('a duplicate change the server refuses', () => {
     const refusal = () =>
       Response.json(

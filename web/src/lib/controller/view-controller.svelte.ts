@@ -162,6 +162,12 @@ export interface ViewControllerOptions {
   returnTimeoutMillis?: number
 }
 
+interface ProblemClaim {
+  generation: number
+  problems: number
+  shown: ViewProjection | undefined
+}
+
 export function createViewController(options: ViewControllerOptions): ViewController {
   const basePath = normalizeBrowserBasePath(options.basePath)
   const browserHistory = options.history ?? history
@@ -300,23 +306,35 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     selection: SelectionValue | undefined,
     force: boolean,
   ): Promise<ViewProjection | undefined> {
-    const shown = projection
-    const requestGeneration = generation
-    const priorProblems = problemsRecorded
+    const claim = claimProblem()
     try {
       const next = await recheckInternal(selection, force)
-      if (recheckProblem) problem = undefined
-      recheckProblem = false
+      if (holdsProblem(claim)) {
+        if (recheckProblem) problem = undefined
+        recheckProblem = false
+      }
       return next
     } catch (error) {
-      // A request or view newer than the recheck owns the problem and the retry now.
-      const superseded =
-        requestGeneration !== generation ||
-        projection !== shown ||
-        problemsRecorded !== priorProblems
-      if (!superseded) reportRecheckFailure(error, selection)
+      if (holdsProblem(claim)) reportRecheckFailure(error, selection)
       return undefined
     }
+  }
+
+  /** What a request saw when it started; see `holdsProblem`. */
+  function claimProblem(): ProblemClaim {
+    return { generation, problems: problemsRecorded, shown: projection }
+  }
+
+  /**
+   * Whether a request may still set or clear the workspace problem: no newer request, failure,
+   * or view has come since it started. Those own the problem and the Retry now.
+   */
+  function holdsProblem(claim: ProblemClaim): boolean {
+    return (
+      claim.generation === generation &&
+      claim.problems === problemsRecorded &&
+      claim.shown === projection
+    )
   }
 
   function reportRecheckFailure(
