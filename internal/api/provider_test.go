@@ -271,6 +271,42 @@ func TestProviderRefreshThatRunsOutOfTimeExplainsTheLimit(t *testing.T) {
 	assert.Equal(t, http.StatusOK, retried.Code, "the stopped refresh released its lease")
 }
 
+// Only the web refresh limit earns the time-limit message. An adapter's own shorter deadline is
+// the provider failing to answer, and the web request that saw it had time left.
+func TestProviderRefreshAtAnAdapterDeadlineReportsTheProviderUnavailable(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	fixture.source.failNextFetch(apiFetchOwnDeadline, nil)
+
+	response := requestProtectedJSON(
+		t, fixture.server, "/api/v1/provider/refresh", manualRefreshBody(),
+	)
+
+	require.Equal(t, http.StatusServiceUnavailable, response.Code, response.Body.String())
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	assert.Equal(t, string(app.AppProviderUnavailable), problem.Code)
+	require.NotNil(t, problem.Provider)
+	assert.Equal(t, provider.CodeUnavailable, problem.Provider.Code)
+}
+
+func TestOnlyTheHandlerDeadlineIsReportedAsTheRefreshLimit(t *testing.T) {
+	t.Parallel()
+
+	live := context.Background()
+	expired := &expiringContext{Context: context.Background(), done: make(chan struct{})}
+	close(expired.done)
+	failed := problemFromProviderError(
+		live, context.DeadlineExceeded, app.ProviderRefreshResult{}, Capability{},
+	)
+	assert.NotEqual(t, string(CodeProviderRefreshTimeout), failed.Code)
+	timedOut := problemFromProviderError(
+		expired, context.DeadlineExceeded, app.ProviderRefreshResult{}, Capability{},
+	)
+	assert.Equal(t, string(CodeProviderRefreshTimeout), timedOut.Code)
+}
+
 // expiringContext is a request context whose deadline passes when the test closes done.
 type expiringContext struct {
 	context.Context
@@ -534,6 +570,9 @@ const (
 	apiFetchUntilStopped
 	// apiFetchPanics fails with a programming error inside the provider adapter.
 	apiFetchPanics
+	// apiFetchOwnDeadline fails at a deadline of the adapter's own, such as SimpleFIN's
+	// 30-second limit per request, while the web request goes on.
+	apiFetchOwnDeadline
 )
 
 func (source *apiProviderSource) failNextFetch(failure apiFetchFailure, started chan struct{}) {
@@ -570,6 +609,8 @@ func (reader *apiProviderReader) FetchSnapshot(
 		return provider.SnapshotResult{}, ctx.Err()
 	case apiFetchPanics:
 		panic(errors.New("synthetic adapter failure"))
+	case apiFetchOwnDeadline:
+		return provider.SnapshotResult{}, context.DeadlineExceeded
 	case apiFetchSucceeds:
 	}
 	if started != nil {

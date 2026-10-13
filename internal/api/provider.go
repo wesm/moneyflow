@@ -151,7 +151,7 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 				result, err := service.ConfirmProviderRefresh(ctx, request)
 				if err != nil {
 					return nil, problemFromProviderError(
-						err, result, providerRefreshCapability(service),
+						ctx, err, result, providerRefreshCapability(service),
 					)
 				}
 				return providerRefreshOutputFor(result, providerRefreshCapability(service))
@@ -174,7 +174,7 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 			result, err := service.RefreshProvider(ctx, request)
 			if err != nil {
 				return nil, problemFromProviderError(
-					err, result, providerRefreshCapability(service),
+					ctx, err, result, providerRefreshCapability(service),
 				)
 			}
 			return providerRefreshOutputFor(result, providerRefreshCapability(service))

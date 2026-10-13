@@ -787,8 +787,9 @@ func (service *Service) failProviderRefresh(
 // stopProviderRefresh records a provider read that its request stopped, so the status shows the
 // attempt and the scheduler waits out the bounded retry delay instead of restarting the read on
 // its next tick. The profile schema has no stopped-refresh code, so the attempt is recorded as
-// provider_unavailable. The caller still gets the context error, so each interface can say that
-// the request stopped.
+// provider_unavailable. When the request stopped, the caller still gets the context error, so
+// each interface can say so. A context error while the request goes on came from a deadline of
+// the adapter's own, so the caller gets the provider_unavailable failure.
 func (service *Service) stopProviderRefresh(
 	ctx context.Context,
 	runtime *providerRuntimeState,
@@ -801,7 +802,7 @@ func (service *Service) stopProviderRefresh(
 		context.WithoutCancel(ctx), runtime, state, attemptedAt, fingerprint,
 		provider.NewError(provider.CodeUnavailable),
 	)
-	if result.Status.Code != provider.CodeUnavailable {
+	if result.Status.Code != provider.CodeUnavailable || ctx.Err() == nil {
 		return result, err
 	}
 	return result, stopErr

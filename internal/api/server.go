@@ -712,15 +712,20 @@ var providerRefreshTimeoutDetail = fmt.Sprintf(
 	int(ProviderRefreshTimeout.Minutes()),
 )
 
+// problemFromProviderError explains a failed refresh. ctx is the handler's context, which carries
+// the web refresh time limit.
 func problemFromProviderError(
+	ctx context.Context,
 	err error,
 	result app.ProviderRefreshResult,
 	capability Capability,
 ) *Problem {
 	// The service returns the bare context error when the provider read outlives the request
-	// deadline; it released the lease before folding anything.
+	// deadline; it released the lease before folding anything. Only the handler's own expired
+	// deadline is the web limit.
 	var application *app.AppError
-	if !errors.As(err, &application) && errors.Is(err, context.DeadlineExceeded) {
+	if !errors.As(err, &application) && errors.Is(err, context.DeadlineExceeded) &&
+		errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return newProblem(
 			http.StatusGatewayTimeout, string(CodeProviderRefreshTimeout),
 			providerRefreshTimeoutDetail,
