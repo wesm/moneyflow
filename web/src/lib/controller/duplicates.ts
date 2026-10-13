@@ -33,8 +33,11 @@ export interface DuplicateState {
 export interface DuplicateHost {
   current(): ViewProjection | undefined
   recheck(selection?: SelectionValue, force?: boolean): Promise<ViewProjection | undefined>
-  /** Shows in the workspace that a reread failed, with a Retry that rereads `selection`. */
-  reportRecheckFailure(error: unknown, selection?: SelectionValue): void
+  /**
+   * Shows in the workspace that a reread failed, with a Retry that rereads `selection`.
+   * `failure` names what failed instead when it was not the reread.
+   */
+  reportRecheckFailure(error: unknown, selection?: SelectionValue, failure?: string): void
 }
 
 export interface DuplicateController {
@@ -67,6 +70,7 @@ interface DuplicateControllerOptions {
 
 const windowLimit = 200
 const refreshFailed = 'The duplicate list could not be refreshed. Press Retry.'
+const changeRefused = 'The duplicate change could not be saved.'
 
 export function createDuplicateController(
   options: DuplicateControllerOptions,
@@ -156,10 +160,7 @@ export function createDuplicateController(
       }
       setState({
         ...state,
-        phase:
-          error instanceof MoneyflowProblem && error.problem.code === 'revision_conflict'
-            ? 'conflict'
-            : 'failed',
+        phase: isConflict(error) ? 'conflict' : 'failed',
         announcement:
           'The duplicate list could not be loaded. Review the current data and try again.',
       })
@@ -324,7 +325,7 @@ export function createDuplicateController(
     try {
       await requestProfileJSON<MutationResponse>(options.mutations, 'api/v1/mutations', body)
     } catch (error) {
-      return await refused(error, unchangedSelection(mainSelection))
+      return await refused(error, unchangedSelection(mainSelection), session)
     }
     const staged =
       action === 'transaction.delete'
@@ -353,8 +354,15 @@ export function createDuplicateController(
   async function refused(
     error: unknown,
     mainSelection: SelectionValue | undefined,
+    session: number,
   ): Promise<boolean> {
-    if (error instanceof MoneyflowProblem && error.problem.code === 'revision_conflict') {
+    if (session !== closings) {
+      // Review is closed, so only the workspace can say the change was not saved.
+      if (isConflict(error)) await reload(mainSelection, session)
+      options.host.reportRecheckFailure(error, mainSelection, changeRefused)
+      return false
+    }
+    if (isConflict(error)) {
       const reloaded = await reload(mainSelection)
       setState({
         ...state,
@@ -425,6 +433,10 @@ export function createDuplicateController(
     confirmDelete,
     retry,
   }
+}
+
+function isConflict(error: unknown): boolean {
+  return error instanceof MoneyflowProblem && error.problem.code === 'revision_conflict'
 }
 
 function flatten(projection: DuplicateResponse): DuplicateRow[] {

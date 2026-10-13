@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   MoneyflowProblem,
   type MoneyflowClient,
+  type MutationFetch,
   type ViewBody,
   type ViewProjection,
 } from '../api/client'
@@ -2498,6 +2499,66 @@ describe('visible view failures', () => {
     expect(view).toHaveBeenCalledTimes(3)
     expect(controller.projection?.revision).toBe('4')
     expect(controller.problem).toBeUndefined()
+  })
+
+  describe('a duplicate change the server refuses', () => {
+    const refusal = () =>
+      Response.json(
+        {
+          type: 'about:blank',
+          title: 'Service Unavailable',
+          status: 503,
+          detail: 'The profile is busy. Try again.',
+          code: 'store_busy',
+        },
+        { status: 503, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+
+    async function openReview(request: MutationFetch['request']) {
+      const client = clientWith({
+        projectDuplicates: vi.fn(async () => testDuplicates()),
+        mutations: { request },
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      await controller.duplicates.open()
+      controller.duplicates.requestDelete()
+      return controller
+    }
+
+    it('shows the refusal in the workspace when review closed while it was sent', async () => {
+      let answer!: (response: Response) => void
+      const controller = await openReview(
+        vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))),
+      )
+
+      const deleting = controller.duplicates.confirmDelete()
+      controller.duplicates.cancelDelete()
+      controller.duplicates.close()
+      answer(refusal())
+      await expect(deleting).resolves.toBe(false)
+
+      expect(controller.problem?.code).toBe('store_busy')
+      expect(flashes()).toEqual([
+        {
+          message: 'The duplicate change could not be saved. The profile is busy. Try again.',
+          tone: 'danger',
+        },
+      ])
+      expect(controller.duplicates.state.phase).toBe('idle')
+    })
+
+    it('shows the refusal only in review while review is open', async () => {
+      const controller = await openReview(vi.fn(async () => refusal()))
+
+      await expect(controller.duplicates.confirmDelete()).resolves.toBe(false)
+
+      expect(controller.duplicates.state.announcement).toBe(
+        'The pending change could not be saved. The profile is busy. Try again.',
+      )
+      expect(controller.problem).toBeUndefined()
+      expect(flashes()).toEqual([])
+    })
   })
 
   it('does not show a refused search preview in a banner', async () => {

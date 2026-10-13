@@ -319,12 +319,16 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     }
   }
 
-  function reportRecheckFailure(error: unknown, selection?: SelectionValue): void {
+  function reportRecheckFailure(
+    error: unknown,
+    selection?: SelectionValue,
+    failure = recheckFailed,
+  ): void {
     if (isAbort(error)) return
     lastRetry = async () => {
       await reportedRecheck(selection, true)
     }
-    setProblem(error, recheckFailed)
+    setProblem(error, failure)
     recheckProblem = true
   }
 
