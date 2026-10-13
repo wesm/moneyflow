@@ -40,7 +40,11 @@ export interface MutationIntent {
 
 export interface EditingProjectionHost {
   current(): ViewProjection | undefined
-  accept(projection: ViewProjection): void
+  /**
+   * Marks the view an edit is sent from. The returned function shows the edit's view only while
+   * no view change has started since, and says whether it did.
+   */
+  claim(): (projection: ViewProjection) => boolean
   refresh(selection?: SelectionValue, force?: boolean): Promise<ViewProjection | undefined>
 }
 
@@ -217,6 +221,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
   ) {
     if (state.phase === 'submitting') return false
     setState({ ...state, phase: 'submitting', announcement: '' })
+    const install = options.host.claim()
     try {
       const response = await requestProfileJSON<MutationResponse>(options.transport, path, body)
       const selection = response.selection.value as SelectionValue
@@ -229,7 +234,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
         canonical_query: response.canonical_query,
         selection,
       }
-      const viewWarning = await show(projection, body.query, body.selection)
+      const viewWarning = await show(projection, body.query, body.selection, install)
       const auditWarning = projection.warnings?.find(
         (warning) => warning.code === 'audit_completion_failed',
       )?.detail
@@ -263,11 +268,14 @@ export function createEditingController(options: EditingControllerOptions): Edit
   // A view change that finished while the request ran keeps its own query: reread that view at
   // the new revision rather than reinstall the query the mutation was sent with. The reread
   // takes the response's selection, such as a cleared one, unless the selection changed too.
-  // While the view sent is still on screen, the answer is for it, even under another query.
+  // While the view sent is still on screen, the answer is for it, even under another query,
+  // unless a view change started after the edit was sent: that change owns the view, so the
+  // view is reread once it has landed.
   async function show(
     projection: ViewProjection,
     sentQuery: string,
     sent: string | undefined,
+    install: (projection: ViewProjection) => boolean,
   ): Promise<string | undefined> {
     const shown = options.host.current()
     if (
@@ -275,11 +283,14 @@ export function createEditingController(options: EditingControllerOptions): Edit
       shown.canonical_query === projection.canonical_query ||
       shown.canonical_query === sentQuery
     ) {
-      options.host.accept(projection)
-      return undefined
+      return install(projection) ? undefined : await reread(undefined)
     }
+    return await reread(shown.selection === sent ? projection.selection : undefined)
+  }
+
+  async function reread(selection: SelectionValue | undefined): Promise<string | undefined> {
     try {
-      await options.host.refresh(shown.selection === sent ? projection.selection : undefined, true)
+      await options.host.refresh(selection, true)
       return undefined
     } catch {
       return 'The current view could not be refreshed.'

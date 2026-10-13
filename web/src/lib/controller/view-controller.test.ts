@@ -2567,6 +2567,50 @@ describe('visible view failures', () => {
     })
   })
 
+  it('does not cut off a view change when an edit answers with a view', async () => {
+    let answerEdit!: (response: Response) => void
+    let answerChange!: (next: ViewProjection) => void
+    const transition = vi.fn(
+      () => new Promise<ViewProjection>((resolve) => (answerChange = resolve)),
+    )
+    const edited = projection('v=1', 0, 3, '5')
+    const controller = controllerFor(
+      clientWith({
+        view: vi
+          .fn()
+          .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+          .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '5')),
+        transition,
+        mutations: {
+          request: vi.fn(() => new Promise<Response>((resolve) => (answerEdit = resolve))),
+        },
+      }),
+      false,
+    )
+    await controller.hydrate()
+
+    const undoing = controller.editing.undo()
+    const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+    answerEdit(
+      Response.json({
+        version: '1',
+        revision: '5',
+        canonical_query: 'v=1',
+        projection: edited,
+        pending: edited.pending,
+        selection: { kind: 'preserved', value: edited.selection },
+      }),
+    )
+    answerChange(projection('v=2', 0, 3, '5'))
+
+    await expect(applying).resolves.toBe(true)
+    await expect(undoing).resolves.toBe(true)
+    expect(controller.projection?.canonical_query).toBe('v=2')
+    expect(controller.editing.state.phase).toBe('idle')
+    expect(controller.editing.state.revision).toBe(5n)
+  })
+
   it('does not cut off a view change when a provider write control answers with a view', async () => {
     let answerWrite!: (response: Response) => void
     let answerChange!: (next: ViewProjection) => void

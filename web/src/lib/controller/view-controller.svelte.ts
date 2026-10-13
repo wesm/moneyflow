@@ -219,11 +219,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     transport: { mutations: options.client.mutations, status: options.client.providerWriteStatus },
     host: {
       current: () => projection,
-      claim: () => {
-        const started = generation
-        // A view change started since owns the workspace; installing would cut it off.
-        return (next) => generation === started && acceptProfileProjection(next, true)
-      },
+      claim: () => claimView(() => true),
       reload: () => ownedRecheck(undefined, true, () => false),
     },
   })
@@ -236,9 +232,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     host: {
       current: () => projection,
       // Undo can answer for the parent of a drilled view that is gone; the address follows it.
-      accept: (next) =>
-        acceptProfileProjection(next, next.canonical_query !== projection?.canonical_query),
-      refresh: (selection, force = false) => ownedRecheck(selection, force, () => false),
+      claim: () => claimView((next) => next.canonical_query !== projection?.canonical_query),
+      // A reread waits for view changes on their way, so its answer cannot cut them off.
+      refresh: (selection, force = false) =>
+        serially(() => ownedRecheck(selection, force, () => false)),
     },
   })
   const duplicates = createDuplicateController({
@@ -306,6 +303,18 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   async function recheck(selection?: SelectionValue): Promise<ViewProjection | undefined> {
     return await reportedRecheck(selection, false)
+  }
+
+  /**
+   * Marks the view a request starts from. The returned function installs the request's answer
+   * only while no view change has started since, so the answer cannot cut that change off, and
+   * says whether it did.
+   */
+  function claimView(
+    replaceHistory: (next: ViewProjection) => boolean,
+  ): (next: ViewProjection) => boolean {
+    const started = generation
+    return (next) => generation === started && acceptProfileProjection(next, replaceHistory(next))
   }
 
   /** Rereads the view; a failure resolves undefined after `ownedRecheck` handles it. */

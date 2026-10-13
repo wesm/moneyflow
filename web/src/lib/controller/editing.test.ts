@@ -6,6 +6,7 @@ import {
   type MutationFetch,
   type OperationSummary,
   type SelectionValue,
+  type ViewProjection,
 } from '../api/client'
 import { testProjection } from '../../test/projection'
 import { createEditingController, type EditingProjectionHost } from './editing'
@@ -532,19 +533,26 @@ describe('browser editing controller', () => {
 })
 
 function editingHost(initial: ReturnType<typeof testProjection>): EditingProjectionHost & {
+  accept(next: ViewProjection): void
   install(next: ReturnType<typeof testProjection>): void
 } {
   let projection = initial
-  return {
+  const host = {
     current: () => projection,
-    accept: (next) => {
+    /** Shows an edit's view; every claim the fake hands out calls it. */
+    accept: (next: ViewProjection) => {
       projection = next
     },
+    claim: () => (next: ViewProjection) => {
+      host.accept(next)
+      return true
+    },
     refresh: vi.fn(async () => projection),
-    install: (next) => {
+    install: (next: ViewProjection) => {
       projection = next
     },
   }
+  return host
 }
 
 function mutationTransport(body: unknown): MutationFetch {

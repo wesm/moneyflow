@@ -174,7 +174,7 @@ describe('ManagerDrawer', () => {
     const projection = testProjection({ revision: '1' })
     const host = {
       current: () => projection,
-      accept: vi.fn(),
+      claim: () => () => true,
       refresh: vi.fn(async () => projection),
     }
     setup({ controller: createEditingController({ transport, host }) })
@@ -215,7 +215,7 @@ describe('ManagerDrawer', () => {
     const projection = testProjection({ revision: '1' })
     const host = {
       current: () => projection,
-      accept: vi.fn(),
+      claim: () => () => true,
       refresh: vi.fn(async () => projection),
     }
     setup({ controller: createEditingController({ transport, host }) })
