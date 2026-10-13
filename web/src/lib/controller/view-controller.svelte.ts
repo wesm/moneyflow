@@ -162,10 +162,10 @@ export interface ViewControllerOptions {
   returnTimeoutMillis?: number
 }
 
-interface ProblemClaim {
+/** The foreground state a recheck started under; see `failRecheck`. */
+interface ForegroundMark {
   generation: number
-  problems: number
-  shown: ViewProjection | undefined
+  failures: number
 }
 
 export function createViewController(options: ViewControllerOptions): ViewController {
@@ -190,8 +190,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let problem = $state<ControllerProblem | undefined>()
   // The problem shown is a failed recheck, which the next successful recheck clears.
   let recheckProblem = false
-  // Counts recorded failures, so a recheck can tell that a newer request failed meanwhile.
+  // Counts foreground failures, so a recheck can tell that a newer request failed meanwhile.
   let problemsRecorded = 0
+  // Rechecks are numbered as they start; only an answer newer than the last applied one counts.
+  let rechecksStarted = 0
+  let appliedRecheck = 0
   let sequence = existing?.sequence ?? 0
   let generation = 0
   let activeRequest: AbortController | undefined
@@ -217,7 +220,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     host: {
       current: () => projection,
       accept: (next) => acceptProfileProjection(next, true),
-      reload: () => recheckInternal(undefined, true),
+      reload: () => ownedRecheck(undefined, true, () => false),
     },
   })
   const editing = createEditingController({
@@ -231,7 +234,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       // Undo can answer for the parent of a drilled view that is gone; the address follows it.
       accept: (next) =>
         acceptProfileProjection(next, next.canonical_query !== projection?.canonical_query),
-      refresh: recheckInternal,
+      refresh: (selection, force = false) => ownedRecheck(selection, force, () => false),
     },
   })
   const duplicates = createDuplicateController({
@@ -252,7 +255,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     host: {
       current: () => projection,
       accept: (next) => acceptProfileProjection(next, true),
-      reload: () => recheckInternal(undefined, true),
+      reload: () => ownedRecheck(undefined, true, () => false),
       serially: (work) => serially(work),
     },
   })
@@ -301,54 +304,31 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     return await reportedRecheck(selection, false)
   }
 
-  /**
-   * Rereads the view. A failure resolves undefined and shows in the workspace when `report()`
-   * allows it and nothing newer owns the workspace problem.
-   */
+  /** Rereads the view; a failure resolves undefined after `ownedRecheck` handles it. */
   async function reportedRecheck(
     selection: SelectionValue | undefined,
     force: boolean,
     report: () => boolean = () => true,
   ): Promise<ViewProjection | undefined> {
-    const claim = claimProblem()
     try {
-      const next = await recheckInternal(selection, force)
-      if (holdsProblem(claim)) {
-        if (recheckProblem) problem = undefined
-        recheckProblem = false
-      }
-      return next
-    } catch (error) {
-      if (isAbort(error) || !report() || !holdsProblem(claim)) return undefined
-      lastRetry = async () => {
-        await reportedRecheck(selection, true)
-      }
-      setProblem(error, recheckFailed)
-      recheckProblem = true
+      return await ownedRecheck(selection, force, report)
+    } catch {
       return undefined
     }
   }
 
-  /** What a request saw when it started; see `holdsProblem`. */
-  function claimProblem(): ProblemClaim {
-    return { generation, problems: problemsRecorded, shown: projection }
-  }
-
   /**
-   * Whether a request may still set or clear the workspace problem: no newer request, failure,
-   * or view has come since it started. Those own the problem and the Retry now.
+   * Rereads the view. Every reread takes this path, and each request gets a sequence number when
+   * it starts. Only an answer newer than the last one applied may change the recheck outcome: a
+   * success clears an older recheck failure, and a failure shows in the workspace when `report()`
+   * allows it and no foreground request owns the problem. An answer installs its view only while
+   * the view it was read for is still shown and no foreground request has started since. Throws
+   * the request's error after handling it.
    */
-  function holdsProblem(claim: ProblemClaim): boolean {
-    return (
-      claim.generation === generation &&
-      claim.problems === problemsRecorded &&
-      claim.shown === projection
-    )
-  }
-
-  async function recheckInternal(
-    selection?: SelectionValue,
-    force = false,
+  async function ownedRecheck(
+    selection: SelectionValue | undefined,
+    force: boolean,
+    report: () => boolean,
   ): Promise<ViewProjection | undefined> {
     if (!projection) return undefined
     if (!force && selection === undefined && recheckRequest) return await recheckRequest
@@ -362,7 +342,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       return projection
     }
     const current = projection
-    const claim = claimProblem()
+    rechecksStarted += 1
+    const order = rechecksStarted
+    const foreground = { generation, failures: problemsRecorded }
     const request = options.client
       .view(
         viewBody(
@@ -371,22 +353,67 @@ export function createViewController(options: ViewControllerOptions): ViewContro
           alignedOffset(cursorIndex),
         ),
       )
-      .then((next) => {
-        if (projection !== current) return projection
-        if (next.revision === current.revision && next.selection === current.selection) {
-          return projection
-        }
-        // A request started since owns the workspace and brings its own view; installing this
-        // one would abort it.
-        if (generation !== claim.generation) return projection
-        // A newer failure keeps its problem and Retry, even over fresh data.
-        return acceptProfileProjection(next, false, !holdsProblem(claim)) ? next : projection
-      })
+      .then(
+        (next) => settleRecheck(order, foreground, current, next),
+        (error: unknown) => {
+          failRecheck(order, foreground, error, () => reportedRecheck(selection, true), report)
+          throw error
+        },
+      )
     if (selection !== undefined) return await request
     recheckRequest = request.finally(() => {
       recheckRequest = undefined
     })
     return await recheckRequest
+  }
+
+  function settleRecheck(
+    order: number,
+    foreground: ForegroundMark,
+    current: ViewProjection,
+    next: ViewProjection,
+  ): ViewProjection | undefined {
+    if (order > appliedRecheck) {
+      appliedRecheck = order
+      if (recheckProblem) {
+        problem = undefined
+        recheckProblem = false
+      }
+    }
+    // A newer view, or a foreground request started since, owns what the workspace shows;
+    // installing this answer would abort that request.
+    if (projection !== current || generation !== foreground.generation) return projection
+    if (next.revision === current.revision && next.selection === current.selection) {
+      return projection
+    }
+    // A foreground failure keeps its problem and Retry, even over fresh data.
+    return acceptProfileProjection(next, false, problem !== undefined) ? next : projection
+  }
+
+  function failRecheck(
+    order: number,
+    foreground: ForegroundMark,
+    error: unknown,
+    retry: () => Promise<unknown>,
+    report: () => boolean,
+  ): void {
+    if (order <= appliedRecheck) return
+    appliedRecheck = order
+    if (isAbort(error) || !report()) return
+    // A foreground request on its way, or one that started or failed since, owns the problem
+    // and the Retry.
+    if (
+      loading ||
+      generation !== foreground.generation ||
+      problemsRecorded !== foreground.failures
+    ) {
+      return
+    }
+    lastRetry = async () => {
+      await retry()
+    }
+    recordProblem(error, recheckFailed)
+    recheckProblem = true
   }
 
   async function recheckNewer(revision: string): Promise<void> {
@@ -1063,6 +1090,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
    */
   function setProblem(error: unknown, failure: string, report = true): void {
     problemsRecorded += 1
+    recordProblem(error, failure, report)
+  }
+
+  function recordProblem(error: unknown, failure: string, report = true): void {
     problem = controllerProblem(error)
     recheckProblem = false
     announcement =

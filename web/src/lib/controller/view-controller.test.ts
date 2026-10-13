@@ -2520,6 +2520,53 @@ describe('visible view failures', () => {
     expect(controller.problem?.code).toBe('store_busy')
   })
 
+  describe('rechecks that finish out of order', () => {
+    /** Two rechecks in flight at once: a passive one, then a forced one for newer insights. */
+    async function twoRechecks() {
+      const answers: { resolve: (next: ViewProjection) => void; reject: (e: unknown) => void }[] =
+        []
+      const view = vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+        .mockImplementation(
+          () => new Promise<ViewProjection>((resolve, reject) => answers.push({ resolve, reject })),
+        )
+      const controller = controllerFor(clientWith({ view }), false)
+      await controller.hydrate()
+      const older = controller.recheck()
+      const newer = controller.recheckNewer('5')
+      await vi.waitFor(() => expect(answers).toHaveLength(2))
+      return { controller, older: answers[0]!, newer: answers[1]!, settled: [older, newer] }
+    }
+
+    it('keeps the workspace connected when an older recheck fails after a newer one answered', async () => {
+      const { controller, older, newer, settled } = await twoRechecks()
+
+      newer.resolve(projection('v=1', 0, 3, '4'))
+      older.reject(new TypeError('Failed to fetch'))
+      await Promise.all(settled)
+
+      expect(controller.problem).toBeUndefined()
+      expect(flashes()).toEqual([])
+    })
+
+    it.each([
+      ['a newer revision', '5'],
+      ['the same revision', '4'],
+    ])('clears an older failure when a newer recheck answers %s', async (_, revision) => {
+      const { controller, older, newer, settled } = await twoRechecks()
+
+      older.reject(new TypeError('Failed to fetch'))
+      await settled[0]
+      expect(controller.problem?.code).toBe('network_error')
+      newer.resolve(projection('v=1', 0, 3, revision))
+      await settled[1]
+
+      expect(controller.projection?.revision).toBe(revision)
+      expect(controller.problem).toBeUndefined()
+    })
+  })
+
   describe('an older recheck that answers a newer revision', () => {
     function pendingRecheck() {
       let answer!: (next: ViewProjection) => void
