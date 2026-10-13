@@ -220,7 +220,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     host: {
       current: () => projection,
       claim: () => claimView(() => true),
-      reload: () => ownedRecheck(undefined, true, () => false),
+      // A reread waits for view changes on their way, so its answer cannot cut them off.
+      reload: () => serially(() => ownedRecheck(undefined, true, () => false)),
     },
   })
   const editing = createEditingController({

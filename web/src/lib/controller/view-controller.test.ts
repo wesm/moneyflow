@@ -2620,7 +2620,10 @@ describe('visible view failures', () => {
     const written = projection('v=1', 0, 3, '5')
     const controller = controllerFor(
       clientWith({
-        view: vi.fn(async (body: ViewBody) => projection(body.query, 0, 3, '5')),
+        view: vi
+          .fn()
+          .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+          .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '5')),
         transition,
         mutations: {
           request: vi.fn(() => new Promise<Response>((resolve) => (answerWrite = resolve))),
@@ -2665,10 +2668,10 @@ describe('visible view failures', () => {
         selection: { kind: 'preserved', value: written.selection },
       }),
     )
-    await reconciling
     answerChange(projection('v=2', 0, 3, '5'))
 
     await expect(applying).resolves.toBe(true)
+    await expect(reconciling).resolves.toBe(true)
     expect(controller.projection?.canonical_query).toBe('v=2')
   })
 
@@ -2712,9 +2715,10 @@ describe('visible view failures', () => {
     const polling = controller.providerWrite.poll()
     await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
     const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
-    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
     answerReread(projection('v=1', 0, 3, '5'))
     await polling
+    // The view change runs once the reread has landed, so neither cuts the other off.
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
     answerChange(projection('v=2', 0, 3, '5'))
 
     await expect(applying).resolves.toBe(true)
