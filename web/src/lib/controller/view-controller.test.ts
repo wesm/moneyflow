@@ -1693,14 +1693,15 @@ describe('browser view controller', () => {
     expect(vi.mocked(client.view).mock.calls[0]?.[1]?.aborted).toBe(true)
   })
 
-  it('cannot install an older foreground response after accepting a mutation', async () => {
+  it('lets a foreground request land before an edit, then rereads at the edited revision', async () => {
     let release!: (value: ViewProjection) => void
     const delayed = new Promise<ViewProjection>((resolve) => (release = resolve))
     const client = clientWith({
       view: vi
         .fn()
         .mockResolvedValueOnce(projection('v=1', 0, 3, '1'))
-        .mockImplementationOnce(async () => await delayed),
+        .mockImplementationOnce(async () => await delayed)
+        .mockResolvedValueOnce(projection('v=1', 0, 3, '2')),
       mutations: {
         request: vi.fn(async () => {
           const next = projection('v=1', 0, 3, '2')
@@ -1719,12 +1720,16 @@ describe('browser view controller', () => {
     await controller.hydrate()
 
     const stale = controller.hydrate()
-    await expect(controller.editing.undo()).resolves.toBe(true)
+    const undoing = controller.editing.undo()
+    await vi.waitFor(() => expect(client.mutations.request).toHaveBeenCalledOnce())
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(vi.mocked(client.view).mock.calls[1]?.[1]?.aborted).toBe(false)
     release(projection('v=1', 0, 3, '1'))
     await stale
+    await expect(undoing).resolves.toBe(true)
 
+    expect(client.view).toHaveBeenCalledTimes(3)
     expect(controller.projection?.revision).toBe('2')
-    expect(vi.mocked(client.view).mock.calls[1]?.[1]?.aborted).toBe(true)
   })
 
   it('retains the last good projection on bounded errors and supports retry', async () => {
@@ -2819,33 +2824,33 @@ describe('visible view failures', () => {
       expect(controller.projection?.revision).toBe('5')
     })
 
-    async function undoDuringBack(order: 'back-first' | 'undo-first') {
+    async function moveDuringBack(move: 'undo' | 'redo', order: 'back-first' | 'move-first') {
       history.replaceState(null, '', '/moneyflow/?v=1&drill=x')
-      let answerUndo!: (response: Response) => void
+      let answerMove!: (response: Response) => void
       const parent = projection('v=1', 0, 3, '5')
       const view = vi.fn().mockResolvedValueOnce(projection('v=1&drill=x', 0, 3, '4'))
       const mutations = {
-        request: vi.fn(() => new Promise<Response>((resolve) => (answerUndo = resolve))),
+        request: vi.fn(() => new Promise<Response>((resolve) => (answerMove = resolve))),
       }
       const controller = controllerFor(clientWith({ view, mutations }), false)
       await controller.hydrate()
       const answerBack = pendingBack(view)
 
       let restoring: Promise<void>
-      let undoing: Promise<boolean>
+      let moving: Promise<boolean>
       if (order === 'back-first') {
         restoring = goBack(controller)
         await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
-        undoing = controller.editing.undo()
+        moving = controller.editing[move]()
         await vi.waitFor(() => expect(mutations.request).toHaveBeenCalledOnce())
       } else {
-        undoing = controller.editing.undo()
+        moving = controller.editing[move]()
         await vi.waitFor(() => expect(mutations.request).toHaveBeenCalledOnce())
         restoring = goBack(controller)
         await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
       }
-      // Undo removed the drilled target, so it answers with the drilled view's parent.
-      answerUndo(
+      // The move removed the drilled target, so it answers with the drilled view's parent.
+      answerMove(
         Response.json({
           version: '1',
           revision: '5',
@@ -2860,7 +2865,7 @@ describe('visible view failures', () => {
       answerBack(projection('v=0', 0, 3, '4'))
       await restoring
 
-      await expect(undoing).resolves.toBe(true)
+      await expect(moving).resolves.toBe(true)
       expect(controller.projection?.canonical_query).toBe('v=0')
       expect(controller.projection?.revision).toBe('5')
       expect(location.search).toBe('?v=0')
@@ -2868,9 +2873,19 @@ describe('visible view failures', () => {
       expect(controller.editing.state.revision).toBe(5n)
     }
 
-    it('lands when undo, sent before it, answers with a parent view', async () => {
-      await undoDuringBack('undo-first')
-    })
+    it.each(['undo', 'redo'] as const)(
+      'lands when %s, sent after it, answers with a parent view',
+      async (move) => {
+        await moveDuringBack(move, 'back-first')
+      },
+    )
+
+    it.each(['undo', 'redo'] as const)(
+      'lands when %s, sent before it, answers with a parent view',
+      async (move) => {
+        await moveDuringBack(move, 'move-first')
+      },
+    )
   })
 
   it('keeps a change failure and its Retry when a recheck started after it fails', async () => {

@@ -310,14 +310,15 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   /**
    * Marks the view a request starts from. The returned function installs the request's answer
-   * only while no view change has started since, so the answer cannot cut that change off, and
-   * says whether it did.
+   * only while no view change is on its way or has started since, so the answer cannot cut that
+   * change off, and says whether it did.
    */
   function claimView(
     replaceHistory: (next: ViewProjection) => boolean,
   ): (next: ViewProjection) => boolean {
     const started = generation
-    return (next) => generation === started && acceptProfileProjection(next, replaceHistory(next))
+    return (next) =>
+      !loading && generation === started && acceptProfileProjection(next, replaceHistory(next))
   }
 
   /** Rereads the view; a failure resolves undefined after `ownedRecheck` handles it. */
