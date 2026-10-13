@@ -311,7 +311,8 @@ What happens next:
   `Refresh complete: 40 imported, 0 removed.` A warning, such as an unrecorded full refresh,
   appears in its own notice and beside **Refresh** in the sidebar.
 - **Cancel (Esc):** Moneyflow stops the refresh. The dialog shows **Stopping…** until the server
-  confirms that it stopped, then closes. No provider data changes.
+  confirms that it stopped, then closes. No provider data changes. Automatic refresh then waits
+  5 minutes; **Refresh** or `r` still runs at once.
 - **Failure:** the dialog stays open with the reason. **Retry** tries again at once. **Continue
   with data from** a date closes the dialog and keeps the older data.
 - **Removals to review:** the dialog shows how many posted transactions the refresh would remove.

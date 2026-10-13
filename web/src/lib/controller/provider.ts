@@ -90,6 +90,12 @@ interface ProviderControllerOptions {
 
 /** Status polling interval while a refresh runs, so progress and the outcome appear promptly. */
 const refreshingPollMillis = 1_000
+/**
+ * How long a canceled refresh holds off automatic refresh. It matches the server's retry delay
+ * after a stopped refresh, which the server cannot apply to a cancel that arrived before it took
+ * the refresh.
+ */
+const canceledHoldMillis = 5 * 60_000
 export const REFRESH_CANCELED = 'Refresh was canceled; no provider data changed.'
 export const REFRESH_NOT_CONFIRMED = 'Refresh was not confirmed; no provider data changed.'
 
@@ -103,6 +109,8 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   /** The data generation when the dialog opened; a newer one means a refresh committed. */
   let watched: string | undefined
   let settled = 0
+  /** Automatic refresh waits until this time after the user canceled one. */
+  let automaticAfter = 0
   let refreshingPoll: ReturnType<typeof setInterval> | undefined
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
@@ -155,6 +163,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       return false
     }
     if (inFlight || pending !== undefined) return false
+    if (manual) automaticAfter = 0
     setState({
       ...state,
       phase: 'refreshing',
@@ -377,7 +386,8 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       state.dialog ||
       state.phase === 'reconnect' ||
       !status.capability.available ||
-      status.refresh_due === 'none'
+      status.refresh_due === 'none' ||
+      now() < automaticAfter
     )
       return
     await refresh(false)
@@ -460,6 +470,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 
   function cancel(): void {
     if (state.dialog?.view !== 'progress') return
+    automaticAfter = now() + canceledHoldMillis
     if (pending !== undefined) {
       pending = undefined
       setState({

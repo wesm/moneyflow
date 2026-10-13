@@ -408,6 +408,62 @@ describe('provider controller', () => {
     expect(staleNotice(controller.state, Date.now())?.checkFailed).toBe(true)
   })
 
+  it('does not restart a due refresh the user canceled before the server took it', async () => {
+    let clock = Date.parse('2026-10-13T12:00:00Z')
+    const current = testProjection({ capabilities: [capability(true)] })
+    const due = providerStatus({ provider_kind: 'monarch', refresh_due: 'recent' })
+    const transport = transportStub({ status: due })
+    vi.mocked(transport.mutations.request).mockImplementation(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    const controller = createProviderController({
+      transport,
+      host: hostStub(current),
+      now: () => clock,
+    })
+    controller.sync(current)
+
+    void controller.poll()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+    controller.cancel()
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+    await controller.poll()
+
+    expect(transport.mutations.request).toHaveBeenCalledOnce()
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.staleReason).toBe(REFRESH_CANCELED)
+
+    clock += 5 * 60_000
+    void controller.poll()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledTimes(2))
+    controller.cancel()
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+  })
+
+  it('refreshes on request right after a canceled automatic refresh', async () => {
+    const host = hostStub()
+    host.current.mockReturnValue(undefined as unknown as ViewProjection)
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({
+      status: providerStatus({ provider_kind: 'monarch', refresh_due: 'recent' }),
+      mutationResponse: Response.json(refreshResponse(current, 'preserved')),
+    })
+    const controller = createProviderController({ transport, host })
+
+    await controller.poll()
+    controller.cancel()
+    host.current.mockReturnValue(current)
+    controller.sync(current)
+    await controller.poll()
+    expect(transport.mutations.request).not.toHaveBeenCalled()
+
+    await expect(controller.refresh()).resolves.toBe(true)
+    expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(true)
+  })
+
   it('cancels a refresh still waiting for the first view without sending it', async () => {
     const host = hostStub()
     host.current.mockReturnValue(undefined as unknown as ViewProjection)
