@@ -9,6 +9,11 @@ import (
 	"github.com/wesm/moneyflow/internal/store"
 )
 
+// afterCommitTimeout bounds the reload and audit work that runs after a commit
+// even when the request was canceled. One wait for a busy profile can take the
+// whole SQLite busy timeout (5 seconds), so the limit leaves room for several.
+const afterCommitTimeout = 30 * time.Second
+
 // reloadAfterAuditedCommit distinguishes a saved edit from a failed completion
 // log entry. Keep the warning for later status polls of background writes.
 func (service *Service) reloadAfterAuditedCommit(ctx context.Context, revision uint64, commitErr error) error {
@@ -24,7 +29,7 @@ func (service *Service) reloadAfterAuditedCommit(ctx context.Context, revision u
 	service.mu.Unlock()
 	// Once COMMIT succeeds, request cancellation must not leave the display at
 	// the old revision with edits that are no longer pending.
-	reloadContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	reloadContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), afterCommitTimeout)
 	defer cancel()
 	return service.reloadExpected(reloadContext, revision)
 }
@@ -45,7 +50,7 @@ func (service *Service) auditProviderWriteOutcomes(ctx context.Context, outcomes
 	}
 	// A canceled request can still have reached the provider. Preserve the
 	// responses already received before returning cancellation to the caller.
-	auditContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	auditContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), afterCommitTimeout)
 	defer cancel()
 	return service.profile.RecordProviderWriteOutcomes(auditContext, observations)
 }
