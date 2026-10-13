@@ -219,15 +219,14 @@ export function createEditingController(options: EditingControllerOptions): Edit
     setState({ ...state, phase: 'submitting', announcement: '' })
     try {
       const response = await requestProfileJSON<MutationResponse>(options.transport, path, body)
-      if (response.canonical_query !== body.query) {
-        throw new Error('The mutation changed analytical browser state.')
-      }
       const selection = response.selection.value as SelectionValue
+      // An answer for another query than the one sent still saved the edit; show() then
+      // rereads the view on screen instead of installing that answer.
       const projection: ViewProjection = {
         ...response.projection,
         revision: response.revision,
         pending: response.pending,
-        canonical_query: body.query,
+        canonical_query: response.canonical_query,
         selection,
       }
       const viewWarning = await show(projection, body.selection)

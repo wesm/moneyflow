@@ -236,6 +236,31 @@ describe('browser editing controller', () => {
     expect(controller.state.revision).toBe(8n)
   })
 
+  it('rereads the view when the server answers an accepted edit for another query', async () => {
+    const host = editingHost(
+      testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' }),
+    )
+    const accept = vi.spyOn(host, 'accept')
+    const answered = mutationResponse('8', 'mfsel1.x' as SelectionValue)
+    const controller = createEditingController({
+      transport: {
+        request: vi.fn(async () =>
+          jsonResponse({ ...answered, canonical_query: 'v=1&group=category' }),
+        ),
+      },
+      host,
+    })
+
+    await expect(
+      controller.submit({ action: 'transaction.toggle-hidden', input: {} }),
+    ).resolves.toBe(true)
+
+    expect(accept).not.toHaveBeenCalled()
+    expect(host.refresh).toHaveBeenCalledWith('mfsel1.x', true)
+    expect(controller.state.phase).toBe('idle')
+    expect(controller.state.revision).toBe(8n)
+  })
+
   it('keeps a selection made while the request ran when rereading a moved-on view', async () => {
     let release!: (response: Response) => void
     const response = new Promise<Response>((resolve) => (release = resolve))
