@@ -1693,15 +1693,14 @@ describe('browser view controller', () => {
     expect(vi.mocked(client.view).mock.calls[0]?.[1]?.aborted).toBe(true)
   })
 
-  it('lets a foreground request land before an edit, then rereads at the edited revision', async () => {
+  it('lets a foreground request land before an edit, then shows the edit’s view', async () => {
     let release!: (value: ViewProjection) => void
     const delayed = new Promise<ViewProjection>((resolve) => (release = resolve))
     const client = clientWith({
       view: vi
         .fn()
         .mockResolvedValueOnce(projection('v=1', 0, 3, '1'))
-        .mockImplementationOnce(async () => await delayed)
-        .mockResolvedValueOnce(projection('v=1', 0, 3, '2')),
+        .mockImplementationOnce(async () => await delayed),
       mutations: {
         request: vi.fn(async () => {
           const next = projection('v=1', 0, 3, '2')
@@ -1728,7 +1727,8 @@ describe('browser view controller', () => {
     await stale
     await expect(undoing).resolves.toBe(true)
 
-    expect(client.view).toHaveBeenCalledTimes(3)
+    // The request left the view the edit was sent from, so the edit's own answer shows.
+    expect(client.view).toHaveBeenCalledTimes(2)
     expect(controller.projection?.revision).toBe('2')
   })
 
@@ -2780,6 +2780,53 @@ describe('visible view failures', () => {
     },
   )
 
+  it('keeps the selection a bulk edit cleared when a sort was on its way', async () => {
+    const sent = 'mfsel1.sent' as SelectionValue
+    const cleared = 'mfsel1.cleared' as SelectionValue
+    let answerEdit!: (response: Response) => void
+    let answerSort!: (next: ViewProjection) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4', sent))
+      .mockImplementation(async (body: ViewBody) =>
+        projection(body.query, 0, 3, '5', body.selection),
+      )
+    const transition = vi.fn(() => new Promise<ViewProjection>((resolve) => (answerSort = resolve)))
+    const edited = projection('v=1', 0, 3, '5', cleared)
+    const controller = controllerFor(
+      clientWith({
+        view,
+        transition,
+        mutations: {
+          request: vi.fn(() => new Promise<Response>((resolve) => (answerEdit = resolve))),
+        },
+      }),
+      false,
+    )
+    await controller.hydrate()
+
+    const editing = controller.editing.submit({ action: 'transaction.toggle-hidden', input: {} })
+    const sorting = controller.apply({ action: 'view.sort', sort_field: 'amount' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+    answerEdit(
+      Response.json({
+        version: '1',
+        revision: '5',
+        canonical_query: 'v=1',
+        projection: edited,
+        pending: edited.pending,
+        selection: { kind: 'cleared', value: cleared },
+      }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    answerSort(projection('sort=amount&v=1', 0, 3, '5', sent))
+    await sorting
+    await expect(editing).resolves.toBe(true)
+
+    expect(controller.projection?.canonical_query).toBe('sort=amount&v=1')
+    expect(controller.projection?.selection).toBe(cleared)
+  })
+
   it('does not cut off a view change when a provider write control answers with a view', async () => {
     let answerWrite!: (response: Response) => void
     let answerChange!: (next: ViewProjection) => void
@@ -2954,6 +3001,64 @@ describe('visible view failures', () => {
       expect(view.mock.calls.at(-1)?.[0]).toMatchObject({ query: 'v=0' })
       expect(controller.projection?.canonical_query).toBe('v=0')
       expect(controller.projection?.revision).toBe('5')
+    })
+
+    it('shows the parent undo answered with when Back fails, and redo works after', async () => {
+      history.replaceState(null, '', '/moneyflow/?v=1&drill=x')
+      let answerMove!: (response: Response) => void
+      let failBack!: (error: unknown) => void
+      // The server cannot project the drilled view once undo removed its target.
+      const stale = new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Conflict',
+        status: 409,
+        detail: 'The selected view target is no longer available.',
+        code: 'stale_view_target',
+      })
+      const view = vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1&drill=x', 0, 3, '4'))
+        .mockImplementationOnce(() => new Promise((_, reject) => (failBack = reject)))
+        .mockImplementation(async (body: ViewBody) => {
+          if (body.query.includes('drill')) throw stale
+          return projection(body.query, 0, 3, '5')
+        })
+      const moved = (revision: string) => {
+        const answer = projection('v=1', 0, 3, revision)
+        return Response.json({
+          version: '1',
+          revision,
+          canonical_query: 'v=1',
+          projection: answer,
+          pending: answer.pending,
+          selection: { kind: 'preserved', value: answer.selection },
+        })
+      }
+      const mutations = {
+        request: vi
+          .fn()
+          .mockImplementationOnce(() => new Promise<Response>((resolve) => (answerMove = resolve)))
+          .mockImplementationOnce(async () => moved('6')),
+      }
+      const controller = controllerFor(clientWith({ view, mutations }), false)
+      await controller.hydrate()
+
+      const restoring = goBack(controller)
+      await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+      const undoing = controller.editing.undo()
+      await vi.waitFor(() => expect(mutations.request).toHaveBeenCalledOnce())
+      answerMove(moved('5'))
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      failBack(busy())
+      await restoring
+
+      await expect(undoing).resolves.toBe(true)
+      expect(controller.projection?.canonical_query).toBe('v=1')
+      expect(controller.projection?.revision).toBe('5')
+      expect(controller.editing.state.revision).toBe(5n)
+      await expect(controller.editing.redo()).resolves.toBe(true)
+      expect(controller.editing.state.phase).toBe('idle')
+      expect(controller.projection?.revision).toBe('6')
     })
 
     async function moveDuringBack(move: 'undo' | 'redo', order: 'back-first' | 'move-first') {

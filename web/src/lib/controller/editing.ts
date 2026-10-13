@@ -45,6 +45,8 @@ export interface EditingProjectionHost {
    * no view change has started since, and says whether it did.
    */
   claim(): (projection: ViewProjection) => boolean
+  /** Resolves once view changes queued or on their way have settled. */
+  settled(): Promise<void>
   /**
    * Rereads the view once view changes on their way have landed, with the selection `choose`
    * picks from the view shown then; undefined keeps that view's selection.
@@ -275,8 +277,9 @@ export function createEditingController(options: EditingControllerOptions): Edit
   // the new revision rather than reinstall the query the mutation was sent with. The reread
   // takes the response's selection, such as a cleared one, unless the selection changed too.
   // While the view sent is still on screen, the answer is for it, even under another query,
-  // unless a view change started after the edit was sent: that change owns the view, so the
-  // view is reread once it has landed.
+  // unless a view change is on its way: that change owns the view until it settles. If it left
+  // the view and selection the edit was sent with, such as a Back that failed, the answer is
+  // still for what is shown; otherwise the view is reread by the same rule.
   async function show(
     projection: ViewProjection,
     sentQuery: string,
@@ -289,7 +292,12 @@ export function createEditingController(options: EditingControllerOptions): Edit
       shown.canonical_query === projection.canonical_query ||
       shown.canonical_query === sentQuery
     ) {
-      return install(projection) ? undefined : await reread(() => undefined)
+      if (install(projection)) return undefined
+      await options.host.settled()
+      const now = options.host.current()
+      if (now?.canonical_query === sentQuery && now.selection === sent) {
+        if (options.host.claim()(projection)) return undefined
+      }
     }
     // Chosen once view changes on their way have landed, so a selection made since is kept.
     return await reread((now) => (now.selection === sent ? projection.selection : undefined))

@@ -236,6 +236,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       current: () => projection,
       // Undo can answer for the parent of a drilled view that is gone; the address follows it.
       claim: () => claimView((next) => next.canonical_query !== projection?.canonical_query),
+      settled: () =>
+        serially(async () => {
+          while (loading) await foregroundSettling()
+        }),
       // A reread waits for view changes on their way, so its answer cannot cut them off.
       refresh: (choose) =>
         serially(async () => {

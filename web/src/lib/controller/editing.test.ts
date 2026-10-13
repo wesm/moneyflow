@@ -549,6 +549,7 @@ function editingHost(initial: ReturnType<typeof testProjection>): EditingProject
       host.accept(next)
       return true
     },
+    settled: async () => undefined,
     refresh: vi.fn(async () => projection),
     install: (next: ViewProjection) => {
       projection = next
