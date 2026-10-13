@@ -110,7 +110,7 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 	}, func(ctx context.Context, _ *providerStatusInput) (*providerStatusOutput, error) {
 		service := profileService(ctx)
 		if _, err := service.Refresh(ctx); err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		capability := providerRefreshCapability(service)
 		if !capability.Available {
@@ -120,7 +120,7 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 		}
 		status, err := service.ProviderStatus(ctx)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		body := providerStatusToWire(service.Revision(), status)
 		body.Capability = capability
@@ -144,7 +144,7 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 				body := input.Body
 				request, err := providerRefreshRequest(body.ProviderRefreshBody)
 				if err != nil {
-					return nil, problemFromError(err)
+					return nil, problemFromError(ctx, err)
 				}
 				request.Manual = body.Manual
 				request.ConfirmationToken = body.ConfirmationToken
@@ -154,7 +154,7 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 						ctx, err, result, providerRefreshCapability(service),
 					)
 				}
-				return providerRefreshOutputFor(result, providerRefreshCapability(service))
+				return providerRefreshOutputFor(ctx, result, providerRefreshCapability(service))
 			})
 			return
 		}
@@ -168,7 +168,7 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 			defer cancel()
 			request, err := providerRefreshRequest(input.Body)
 			if err != nil {
-				return nil, problemFromError(err)
+				return nil, problemFromError(ctx, err)
 			}
 			request.Manual = input.Body.Manual
 			result, err := service.RefreshProvider(ctx, request)
@@ -177,7 +177,7 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 					ctx, err, result, providerRefreshCapability(service),
 				)
 			}
-			return providerRefreshOutputFor(result, providerRefreshCapability(service))
+			return providerRefreshOutputFor(ctx, result, providerRefreshCapability(service))
 		})
 	}
 	registerRefresh("refreshProvider", refreshPath, false)
@@ -203,12 +203,13 @@ func providerRefreshRequest(body ProviderRefreshBody) (app.ProviderRefreshReques
 }
 
 func providerRefreshOutputFor(
+	ctx context.Context,
 	result app.ProviderRefreshResult,
 	capability Capability,
 ) (*providerRefreshOutput, error) {
 	canonical, err := EncodeViewQuery(result.Projection.State)
 	if err != nil {
-		return nil, problemFromError(err)
+		return nil, problemFromError(ctx, err)
 	}
 	status := providerStatusToWire(result.Revision, result.Status)
 	status.Capability = capability

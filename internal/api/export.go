@@ -66,17 +66,17 @@ func (server *Server) registerExportEndpoints() {
 		Errors: []int{400, 404, 413, 422, 500},
 	}, func(ctx context.Context, input *exportPreviewInput) (*exportPreviewOutput, error) {
 		if input.Body.Version != ExportWireVersion {
-			return nil, problemFromError(invalidExportRequest(
+			return nil, problemFromError(ctx, invalidExportRequest(
 				errors.New("unsupported export preview version"),
 			))
 		}
 		state, canonical, err := DecodeViewQuery(input.Body.Query)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		preview, err := profileService(ctx).PreviewExport(ctx, state)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &exportPreviewOutput{Body: ExportPreviewResponse{
 			Version: ExportWireVersion, Revision: strconv.FormatUint(preview.Revision, 10),
@@ -110,11 +110,11 @@ func (server *Server) registerExportEndpoints() {
 		body := input.Body
 		if body.Version != ExportWireVersion || !validExportFormat(body.Format) ||
 			(body.Scope != app.ExportScopeFull && body.Scope != app.ExportScopeFiltered) {
-			return nil, problemFromError(invalidExportRequest(errors.New("unsupported export request")))
+			return nil, problemFromError(ctx, invalidExportRequest(errors.New("unsupported export request")))
 		}
 		state, canonical, err := DecodeViewQuery(body.Query)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		if body.Scope == app.ExportScopeFull {
 			canonical = ""
@@ -130,7 +130,7 @@ func (server *Server) registerExportEndpoints() {
 			},
 		})
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &huma.StreamResponse{Body: func(stream huma.Context) {
 			defer func() { _ = download.Close() }()

@@ -76,7 +76,7 @@ func (server *Server) registerDuplicateEndpoint(_ Config) {
 		body := input.Body
 		state, canonical, selection, expected, err := duplicateContext(body)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		projection, err := profileService(ctx).ProjectDuplicates(
 			ctx, expected, state, selection,
@@ -86,7 +86,7 @@ func (server *Server) registerDuplicateEndpoint(_ Config) {
 			},
 		)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &duplicateOutput{Body: duplicateToWire(projection, canonical)}, nil
 	})

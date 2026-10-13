@@ -135,14 +135,14 @@ func (server *Server) registerMutationEndpoints(_ Config) {
 				body.Version, body.ExpectedRevision, body.Query, body.Selection,
 			)
 			if err != nil {
-				return nil, problemFromError(err)
+				return nil, problemFromError(ctx, err)
 			}
 			window := app.WindowRequest{Offset: body.Window.Offset, Limit: body.Window.Limit}
 			result, err := handler(ctx, profileService(ctx), expected, state, selection, window)
 			if err != nil {
-				return nil, problemFromError(err)
+				return nil, problemFromError(ctx, err)
 			}
-			return mutationOutputFor(result, selection)
+			return mutationOutputFor(ctx, result, selection)
 		})
 	}
 
@@ -153,13 +153,13 @@ func (server *Server) registerMutationEndpoints(_ Config) {
 	}, func(ctx context.Context, input *mutationInput) (*mutationOutput, error) {
 		request, _, selection, err := mutationToApp(input.Body)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		result, err := profileService(ctx).Mutate(ctx, request)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
-		return mutationOutputFor(result, selection)
+		return mutationOutputFor(ctx, result, selection)
 	})
 
 	register("undoProfile", server.profilePath("undo"), func(
@@ -185,11 +185,11 @@ func (server *Server) registerMutationEndpoints(_ Config) {
 			body.Version, body.ExpectedRevision, body.Query, body.Selection,
 		)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		reviewed, err := parseRevision(body.ReviewedRevision)
 		if err != nil {
-			return nil, problemFromError(invalidMutationRequest(err))
+			return nil, problemFromError(ctx, invalidMutationRequest(err))
 		}
 		result, err := profileService(ctx).Commit(ctx, app.CommitRequest{
 			ExpectedRevision: expected, ReviewedRevision: reviewed,
@@ -197,9 +197,9 @@ func (server *Server) registerMutationEndpoints(_ Config) {
 			Window: app.WindowRequest{Offset: body.Window.Offset, Limit: body.Window.Limit},
 		})
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
-		output, err := mutationOutputFor(result, selection)
+		output, err := mutationOutputFor(ctx, result, selection)
 		if err != nil {
 			return nil, err
 		}
@@ -266,6 +266,7 @@ func mutationContext(
 }
 
 func mutationOutputFor(
+	ctx context.Context,
 	result app.MutationResult,
 	requestedSelection app.SelectionValue,
 ) (*mutationOutput, error) {
@@ -277,7 +278,7 @@ func mutationOutputFor(
 	}
 	canonical, err := EncodeViewQuery(result.State)
 	if err != nil {
-		return nil, problemFromError(err)
+		return nil, problemFromError(ctx, err)
 	}
 	return &mutationOutput{Body: MutationResponse{
 		Version: MutationSchemaVersion, Revision: strconv.FormatUint(result.Revision, 10),

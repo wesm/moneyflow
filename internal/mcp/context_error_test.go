@@ -16,9 +16,29 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
+// A context error says the request stopped only when the request's own context ended.
 func TestRequestThatStopsOnItsContextSaysWhy(t *testing.T) {
+	expired, expire := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	t.Cleanup(expire)
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	failure := fmt.Errorf("load window: %w", context.DeadlineExceeded)
+
+	timedOut := failureDocument(expired, failure, 3, "internal")
+	assert.Equal(t, "mcp_request_timeout", timedOut.Code)
+	assert.Contains(t, timedOut.Detail, "ran out of time")
+	stopped := failureDocument(canceled, fmt.Errorf("load window: %w", context.Canceled), 3, "internal")
+	assert.Equal(t, "mcp_request_canceled", stopped.Code)
+	assert.Contains(t, stopped.Detail, "was canceled")
+}
+
+// A time limit inside Moneyflow, such as the bounded audit write after a provider write, can end
+// a step while the request goes on. The request did not time out, so the client must not be told
+// it did.
+func TestInternalTimeLimitInALiveRequestIsAFailure(t *testing.T) {
 	tests := []struct {
 		name   string
 		err    error
@@ -26,12 +46,15 @@ func TestRequestThatStopsOnItsContextSaysWhy(t *testing.T) {
 		detail string
 	}{
 		{
-			name: "deadline", err: fmt.Errorf("load window: %w", context.DeadlineExceeded),
-			code: "mcp_request_timeout", detail: "ran out of time",
+			name: "storage step",
+			err: store.NewError(
+				store.CodeStoreError, fmt.Errorf("record outcomes: %w", context.DeadlineExceeded),
+			),
+			code: string(app.AppStoreError),
 		},
 		{
-			name: "canceled", err: fmt.Errorf("load window: %w", context.Canceled),
-			code: "mcp_request_canceled", detail: "was canceled",
+			name: "other step", err: fmt.Errorf("load window: %w", context.DeadlineExceeded),
+			code: "mcp_internal_error", detail: "could not be completed",
 		},
 		{
 			name: "unexpected", err: errors.New("unexpected failure"),

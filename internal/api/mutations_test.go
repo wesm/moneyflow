@@ -77,7 +77,7 @@ func TestMutationOutputUsesAuthoritativeResultState(t *testing.T) {
 		Projection: app.WebProjection{Revision: 7},
 	}
 
-	output, err := mutationOutputFor(result, app.EmptySelection())
+	output, err := mutationOutputFor(t.Context(), result, app.EmptySelection())
 	require.NoError(t, err)
 	expected, err := EncodeViewQuery(resultState)
 	require.NoError(t, err)

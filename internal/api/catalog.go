@@ -56,14 +56,14 @@ func (server *Server) registerEditorCatalogEndpoint(_ Config) {
 	}, func(ctx context.Context, input *editorCatalogInput) (*editorCatalogOutput, error) {
 		expected, err := reviewRevision(input.Body.Version, input.Body.ExpectedRevision)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		catalog, err := profileService(ctx).EditorCatalogAt(ctx, expected)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		if len(catalog.Merchants) > editorCatalogLimit || len(catalog.Categories) > editorCatalogLimit || len(catalog.Groups) > editorCatalogLimit {
-			return nil, problemFromError(invalidMutationRequest(errEditorCatalogTooLarge))
+			return nil, problemFromError(ctx, invalidMutationRequest(errEditorCatalogTooLarge))
 		}
 		return &editorCatalogOutput{Body: EditorCatalogResponse{
 			Version: MutationSchemaVersion, Revision: strconv.FormatUint(expected, 10),

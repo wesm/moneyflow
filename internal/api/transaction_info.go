@@ -80,15 +80,15 @@ func (server *Server) registerTransactionInformationEndpoint() {
 	}, func(ctx context.Context, input *transactionInformationInput) (*transactionInformationOutput, error) {
 		body := input.Body
 		if body.Version != TransactionInformationWireVersion || body.Target.Kind != app.IdentityTransaction {
-			return nil, problemFromError(invalidMutationRequest(errors.New("invalid transaction information request")))
+			return nil, problemFromError(ctx, invalidMutationRequest(errors.New("invalid transaction information request")))
 		}
 		revision, err := parseRevision(body.ExpectedRevision)
 		if err != nil {
-			return nil, problemFromError(invalidMutationRequest(err))
+			return nil, problemFromError(ctx, invalidMutationRequest(err))
 		}
 		_, canonical, err := DecodeViewQuery(body.Query)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		info, err := profileService(ctx).TransactionInfo(ctx, app.TransactionInfoRequest{
 			ExpectedRevision: revision, TransactionID: body.Target.Identity,
@@ -96,7 +96,7 @@ func (server *Server) registerTransactionInformationEndpoint() {
 			ItemOffset: body.ItemWindow.Offset, ItemLimit: body.ItemWindow.Limit,
 		})
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &transactionInformationOutput{Body: transactionInformationToWire(info, canonical)}, nil
 	})

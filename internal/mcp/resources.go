@@ -52,7 +52,7 @@ func addResource(
 			document, err := project(ctx)
 			if err != nil {
 				document = failureDocument(
-					err, serverRevision(server), "The Moneyflow MCP resource could not be read.",
+					ctx, err, serverRevision(server), "The Moneyflow MCP resource could not be read.",
 				)
 			}
 			canonical, _, encodeErr := encodeDocument(document)

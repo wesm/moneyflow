@@ -342,7 +342,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		}
 		service := profileService(ctx)
 		if _, refreshErr := service.Refresh(ctx); refreshErr != nil {
-			return nil, problemFromError(refreshErr)
+			return nil, problemFromError(ctx, refreshErr)
 		}
 		body, bootstrapErr := newBootstrap(
 			config.Version, config.Origin, service.Revision(), config.Security,
@@ -365,7 +365,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	}, func(ctx context.Context, _ *profileBootstrapInput) (*healthOutput, error) {
 		service := profileService(ctx)
 		if _, err := service.Refresh(ctx); err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &healthOutput{Body: Health{
 			Version: config.Version, APISchemaVersion: APISchemaVersion,
@@ -381,11 +381,11 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	}, func(ctx context.Context, input *viewInput) (*projectionOutput, error) {
 		service := profileService(ctx)
 		if _, err := service.Refresh(ctx); err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		state, canonical, err := DecodeViewQuery(input.Body.Query)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		selection := app.SelectionValue(input.Body.Selection)
 		if selection == "" {
@@ -403,7 +403,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 			warnings = selectionResetWarnings()
 		}
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &projectionOutput{Body: projectionToWire(projection, canonical, warnings)}, nil
 	})
@@ -415,11 +415,11 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	}, func(ctx context.Context, input *transitionInput) (*projectionOutput, error) {
 		service := profileService(ctx)
 		if _, err := service.Refresh(ctx); err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		state, _, err := DecodeViewQuery(input.Body.Query)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		selection := app.SelectionValue(input.Body.Selection)
 		if selection == "" {
@@ -427,7 +427,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		}
 		transition, err := transitionToApp(input.Body)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		window := app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit}
 		transit := func(selection app.SelectionValue) (app.ViewState, app.WebProjection, error) {
@@ -441,11 +441,11 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 			warnings = selectionResetWarnings()
 		}
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		canonical, err := EncodeViewQuery(nextState)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		return &projectionOutput{Body: projectionToWire(projection, canonical, warnings)}, nil
 	})
@@ -586,9 +586,14 @@ func (server *Server) installProblemSchemas() {
 }
 
 // problemFromError maps an error to its public problem. A server failure keeps the error as its
-// cause, which reaches only the server log.
-func problemFromError(err error) *Problem {
-	problem := publicProblem(err)
+// cause, which reaches only the server log. ctx is the request's context: a context error means
+// the request stopped only once ctx ended, which app.RequestFailure decides.
+func problemFromError(ctx context.Context, err error) *Problem {
+	revision := uint64(0)
+	if service := profileService(ctx); service != nil {
+		revision = service.Revision()
+	}
+	problem := publicProblem(app.RequestFailure(ctx, err, revision))
 	if problem.Status >= http.StatusInternalServerError {
 		problem.cause = err
 	}
@@ -731,7 +736,7 @@ func problemFromProviderError(
 			providerRefreshTimeoutDetail,
 		)
 	}
-	problem := problemFromError(err)
+	problem := problemFromError(ctx, err)
 	if result.Status.Code != "" || result.Status.ConfirmationToken != "" {
 		revision := result.Revision
 		if revision == 0 {

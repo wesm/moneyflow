@@ -209,7 +209,7 @@ func registerTool[Input any](
 		if err != nil {
 			isError = true
 			document = failureDocument(
-				err, serverRevision(server), "The Moneyflow MCP request could not be completed.",
+				ctx, err, serverRevision(server), "The Moneyflow MCP request could not be completed.",
 			)
 		} else if failure, ok := document.(ErrorDocument); ok {
 			isError = failure.Status == StatusError

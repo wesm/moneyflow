@@ -81,8 +81,12 @@ func ApplicationErrorDocument(err error, revision uint64) (ErrorDocument, bool) 
 
 // failureDocument describes a failed tool call or resource read. An application error keeps its
 // code. A request stopped by its deadline or by cancellation says so, so a client can tell it
-// apart from a server fault. Anything else is an internal error with the given detail.
-func failureDocument(err error, revision uint64, internalDetail string) ErrorDocument {
+// apart from a server fault; ctx is the request's context, and only its end is a stop. Anything
+// else is an internal error with the given detail.
+func failureDocument(
+	ctx context.Context, err error, revision uint64, internalDetail string,
+) ErrorDocument {
+	err = app.RequestFailure(ctx, err, revision)
 	if document, ok := ApplicationErrorDocument(err, revision); ok {
 		return document
 	}
@@ -90,6 +94,7 @@ func failureDocument(err error, revision uint64, internalDetail string) ErrorDoc
 		Header: NewHeader(StatusError, revision), Code: "mcp_internal_error", Detail: internalDetail,
 	}
 	switch {
+	case ctx.Err() == nil:
 	case errors.Is(err, context.DeadlineExceeded):
 		document.Code = "mcp_request_timeout"
 		document.Detail = "The Moneyflow MCP request ran out of time before it finished. " +

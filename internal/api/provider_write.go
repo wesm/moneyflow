@@ -100,7 +100,7 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 		service := profileService(ctx)
 		status, revision, generation, err := currentProviderWriteStatus(ctx, service)
 		if err != nil {
-			return nil, problemFromError(err)
+			return nil, problemFromError(ctx, err)
 		}
 		server.logSessionCheck(ctx, status.SessionCheckErr)
 		return &providerWriteStatusOutput{Body: providerWriteStatusToWire(
@@ -120,7 +120,7 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 		}, func(ctx context.Context, input *providerWriteControlInput) (*providerWriteOutput, error) {
 			expected, err := providerWriteControlVersion(input.Body)
 			if err != nil {
-				return nil, problemFromError(err)
+				return nil, problemFromError(ctx, err)
 			}
 			service := profileService(ctx)
 			status, err := action(ctx, service, expected)
@@ -129,7 +129,7 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 			}
 			_, revision, generation, err := currentProviderWriteStatus(ctx, service)
 			if err != nil {
-				return nil, problemFromError(err)
+				return nil, problemFromError(ctx, err)
 			}
 			return &providerWriteOutput{Body: ProviderWriteResponse{Status: providerWriteStatusToWire(
 				revision, generation, status,
@@ -159,7 +159,7 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 					input.Body.ProviderWriteReconcileBody, input.Body.ConfirmationToken,
 				)
 				if err != nil {
-					return nil, problemFromError(err)
+					return nil, problemFromError(ctx, err)
 				}
 				return providerWriteReconcileOutput(ctx, profileService(ctx), request, true)
 			})
@@ -170,7 +170,7 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 		) (*providerWriteOutput, error) {
 			request, err := providerWriteReconcileRequest(input.Body, "")
 			if err != nil {
-				return nil, problemFromError(err)
+				return nil, problemFromError(ctx, err)
 			}
 			return providerWriteReconcileOutput(ctx, profileService(ctx), request, false)
 		})
@@ -235,12 +235,12 @@ func providerWriteReconcileOutput(
 	}
 	currentStatus, revision, generation, statusErr := currentProviderWriteStatus(ctx, service)
 	if statusErr != nil {
-		return nil, problemFromError(statusErr)
+		return nil, problemFromError(ctx, statusErr)
 	}
 	status := providerWriteStatusToWire(revision, generation, currentStatus)
 	canonical, encodeErr := EncodeViewQuery(result.Projection.State)
 	if encodeErr != nil {
-		return nil, problemFromError(encodeErr)
+		return nil, problemFromError(ctx, encodeErr)
 	}
 	projection := projectionToWire(result.Projection, canonical, nil)
 	selection := SelectionDisposition{
@@ -354,7 +354,7 @@ func problemFromProviderWriteError(
 	err error,
 	result app.ProviderWriteResult,
 ) *Problem {
-	problem := problemFromError(err)
+	problem := problemFromError(ctx, err)
 	problem.ProviderWriteConfirmationToken = result.ConfirmationToken
 	status, revision, _, statusErr := currentProviderWriteStatus(ctx, service)
 	if statusErr != nil {
