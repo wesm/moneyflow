@@ -12,6 +12,7 @@ import { createEditingController, type EditingProjectionHost } from './editing'
 
 describe('browser editing controller', () => {
   beforeEach(() => history.replaceState({ safe: true }, '', '/moneyflow/?v=1&group=merchant'))
+  afterEach(() => dismissFlash())
 
   it('submits exact revisions and installs the server projection without browser history writes', async () => {
     const localStorageWrite = vi.fn()
@@ -190,6 +191,8 @@ describe('browser editing controller', () => {
       await controller.submit({ action: 'transaction.toggle-hidden', input: {}, target })
 
       expect(controller.state.announcement).toBe(`Hidden 2 transactions · Undo u ${warning}`)
+      // The server repeats the warning until the next commit, so only a commit shows it.
+      expect(getFlashes().map(({ message }) => message)).toEqual(['Hidden 2 transactions · Undo u'])
     })
   })
 
@@ -312,6 +315,10 @@ describe('browser editing controller', () => {
     ).resolves.toBe(true)
     expect(controller.state.phase).toBe('idle')
     expect(controller.state.announcement).toContain('The current view could not be refreshed.')
+    expect(getFlashes().map(({ message, tone }) => ({ message, tone }))).toContainEqual({
+      message: 'The current view could not be refreshed.',
+      tone: 'warning',
+    })
   })
 
   it('rejects a mutation when the displayed projection and editing revision differ', async () => {
@@ -452,6 +459,9 @@ describe('browser editing controller', () => {
     expect(controller.state.phase).toBe('idle')
     expect(controller.state.announcement).toContain('Changes saved in Moneyflow.')
     expect(controller.state.announcement).toContain(warning)
+    expect(getFlashes().map(({ message, tone }) => ({ message, tone }))).toEqual([
+      { message: warning, tone: 'warning' },
+    ])
   })
 
   it('loads bounded editor choices at the exact current revision', async () => {

@@ -36,7 +36,11 @@ describe('Moneyflow application scaffold', () => {
   it('renders a safe invalid-link shell with a reset action', async () => {
     const controller = stubController({
       loading: false,
-      problem: { kind: 'invalid-view', code: 'invalid_view_state' },
+      problem: {
+        kind: 'invalid-view',
+        code: 'invalid_view_state',
+        detail: 'The view URL is invalid.',
+      },
     })
     render(App, { basePath: '/moneyflow/', controller })
 

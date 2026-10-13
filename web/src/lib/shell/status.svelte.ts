@@ -1,19 +1,23 @@
 import type { ProviderWriteStatus } from '../api/client'
 import type { ControllerProblem } from '../controller/view-controller.svelte'
 
-export type Connection = 'connected' | 'updating' | 'offline'
+export type Connection = 'connected' | 'updating' | 'offline' | 'failed'
 
 export interface WriteProgress {
   completed: number
   total: number
 }
 
-/** Reports the server connection: offline after a network error, updating while loading. */
+/**
+ * Reports the server connection: offline after a network error, failed after the server refused
+ * or could not answer the last view request, and updating while loading.
+ */
 export function connectionState(
   problem: ControllerProblem | undefined,
   loading: boolean,
 ): Connection {
   if (problem?.code === 'network_error') return 'offline'
+  if (problem && !loading) return 'failed'
   return loading ? 'updating' : 'connected'
 }
 

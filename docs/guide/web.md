@@ -83,10 +83,19 @@ The status line at the bottom shows:
 
 - Up to six keys for the current view, such as `↵ Open` and `/ Search`. A short notice, such as
   why a key did nothing, takes their place for four seconds or until your next action.
-- The connection: **Connected**, **Updating…** for requests slower than 300 ms, or **Offline**
-  with **Retry**.
+- The connection: **Connected**, **Updating…** for requests slower than 300 ms, **Offline**
+  with **Retry**, or **Unreleased:** **Not updated** with **Retry** after the server refused the
+  last view request or the browser could not read its answer.
 - The profile revision, except at phone width.
 - The pending-edits text, when the sidebar card is not shown.
+
+**Unreleased:** When an action or a background check fails, an error banner below the command
+bar says what failed and gives the server's reason. Examples are a view change the server
+refuses, a recheck when the window regains focus, an undo or a hide from a key, transaction
+information, and the export preview. A warning banner reports a change you did not ask for, such
+as a cleared selection or a view that returned to its parent, and an export with no data.
+Banners stay for 12 seconds; the close button removes one sooner. Screen readers hear the same
+messages.
 
 ## Charts
 

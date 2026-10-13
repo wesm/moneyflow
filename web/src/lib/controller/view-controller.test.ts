@@ -1,3 +1,4 @@
+import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -1510,7 +1511,7 @@ describe('browser view controller', () => {
       await controller.hydrate()
 
       await controller.showIndex(250)
-      expect(controller.problem).toEqual({ kind: 'request', code: 'network_error' })
+      expect(controller.problem).toMatchObject({ kind: 'request', code: 'network_error' })
       expect(controller.projection?.window.offset).toBe(0)
 
       await controller.retry()
@@ -1535,7 +1536,7 @@ describe('browser view controller', () => {
       await vi.waitFor(() => expect(requests).toBe(1))
 
       await controller.showIndex(250)
-      expect(controller.problem).toEqual({ kind: 'request', code: 'network_error' })
+      expect(controller.problem).toMatchObject({ kind: 'request', code: 'network_error' })
       prefetched(projection('v=1', 200, 450))
       await vi.waitFor(() =>
         expect(controller.neighbors.map((loaded) => loaded.window.offset)).toEqual([200]),
@@ -1692,7 +1693,7 @@ describe('browser view controller', () => {
       type: 'about:blank',
       title: 'Conflict',
       status: 409,
-      detail: 'oversized private detail',
+      detail: 'The selection is too large.',
       code: 'selection_too_large',
     })
     const client = clientWith({
@@ -1707,7 +1708,7 @@ describe('browser view controller', () => {
 
     await controller.apply({ action: 'selection.toggle-all' })
     expect(controller.projection).toBe(prior)
-    expect(controller.announcement).not.toContain('private')
+    expect(controller.announcement).toContain('The selection is too large.')
     await controller.retry()
     expect(client.transition).toHaveBeenCalledTimes(2)
   })
@@ -1839,7 +1840,7 @@ describe('browser view controller', () => {
     controller.beginSearch()
 
     expect(await controller.previewSearch('coffee')).toBe('failed')
-    expect(controller.problem).toEqual({ kind: 'request', code: 'network_error' })
+    expect(controller.problem).toMatchObject({ kind: 'request', code: 'network_error' })
   })
 
   it('aborts an in-flight search preview when cancel restores its snapshot', async () => {
@@ -1875,8 +1876,8 @@ describe('browser view controller', () => {
 
     await controller.hydrate()
 
-    expect(controller.problem).toEqual({ kind: 'invalid-view', code: 'invalid_view_state' })
-    expect(controller.announcement).not.toContain('raw URL')
+    expect(controller.problem).toMatchObject({ kind: 'invalid-view', code: 'invalid_view_state' })
+    expect(controller.announcement).toBe('This Moneyflow link is invalid.')
   })
 
   describe('the cursor after a transition', () => {
@@ -2153,6 +2154,179 @@ describe('browser view controller', () => {
 
     await expect(controller.providerWrite.reconcile()).resolves.toBe(true)
     expect(controller.editing.state.revision).toBe(2n)
+  })
+})
+
+describe('visible view failures', () => {
+  beforeEach(() => {
+    history.replaceState(null, '', '/moneyflow/?v=1')
+    dismissFlash()
+  })
+  afterEach(() => dismissFlash())
+
+  const flashes = () => getFlashes().map(({ message, tone }) => ({ message, tone }))
+  const busy = () =>
+    new MoneyflowProblem({
+      type: 'about:blank',
+      title: 'Service Unavailable',
+      status: 503,
+      detail: 'The profile is busy. Try again.',
+      code: 'store_busy',
+    })
+
+  it('shows a refused view change with the server’s reason and keeps the view', async () => {
+    const client = clientWith({ transition: vi.fn().mockRejectedValueOnce(busy()) })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    const prior = controller.projection
+
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+
+    expect(controller.projection).toBe(prior)
+    expect(controller.problem).toEqual({
+      kind: 'request',
+      code: 'store_busy',
+      detail: 'The profile is busy. Try again.',
+    })
+    const message =
+      'Moneyflow could not apply that change; the view is unchanged. ' +
+      'The profile is busy. Try again.'
+    expect(controller.announcement).toBe(message)
+    expect(flashes()).toEqual([{ message, tone: 'danger' }])
+  })
+
+  it('points an unexpected server error to the server log', async () => {
+    const failure = new MoneyflowProblem({
+      type: 'about:blank',
+      title: 'Internal Server Error',
+      status: 500,
+      detail: 'The request could not be completed.',
+      code: 'internal_error',
+    })
+    const client = clientWith({ transition: vi.fn().mockRejectedValueOnce(failure) })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+
+    expect(controller.problem?.detail).toBe(
+      'The request could not be completed. The terminal running moneyflow web shows the cause.',
+    )
+  })
+
+  it('tells an unreadable answer from a network failure', async () => {
+    const client = clientWith({
+      transition: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('The Moneyflow API returned an invalid response.'))
+        .mockRejectedValueOnce(new TypeError('Failed to fetch')),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    expect(controller.problem).toEqual({
+      kind: 'request',
+      code: 'invalid_response',
+      detail: 'The server sent a response Moneyflow could not read.',
+    })
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    expect(controller.problem?.code).toBe('network_error')
+  })
+
+  it('leaves a failed first load to the page that replaces the workspace', async () => {
+    const client = clientWith({ view: vi.fn().mockRejectedValueOnce(busy()) })
+    const controller = controllerFor(client, false)
+
+    await controller.hydrate()
+
+    expect(controller.problem?.detail).toBe('The profile is busy. Try again.')
+    expect(flashes()).toEqual([])
+  })
+
+  it('reports a failed recheck, and a retry that succeeds clears it', async () => {
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+    const controller = controllerFor(clientWith({ view }), false)
+    await controller.hydrate()
+
+    await expect(controller.recheck()).resolves.toBeUndefined()
+
+    expect(controller.problem?.code).toBe('network_error')
+    expect(flashes()).toEqual([
+      {
+        message:
+          'Moneyflow could not check for newer data; the view may be out of date. ' +
+          'Moneyflow could not reach the server. Check the connection and retry.',
+        tone: 'danger',
+      },
+    ])
+    await controller.retry()
+    expect(view).toHaveBeenCalledTimes(3)
+    expect(controller.problem).toBeUndefined()
+  })
+
+  it('reports a failed recheck for newer insights as a view failure', async () => {
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockRejectedValueOnce(busy())
+    const controller = controllerFor(clientWith({ view }), false)
+    await controller.hydrate()
+
+    await controller.recheckNewer('5')
+
+    expect(controller.problem?.code).toBe('store_busy')
+    expect(flashes().map(({ tone }) => tone)).toEqual(['danger'])
+  })
+
+  it('does not show a refused search preview in a banner', async () => {
+    const client = clientWith({ transition: vi.fn().mockRejectedValueOnce(busy()) })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    controller.beginSearch()
+
+    await controller.previewSearch('coffee')
+
+    expect(flashes()).toEqual([])
+  })
+
+  it('shows the warnings of a view the user now sees, except the audit warning', async () => {
+    const client = clientWith({
+      transition: vi.fn(async (body) => ({
+        ...projection(body.query, 0, 3),
+        warnings: [
+          { code: 'view_notice', detail: 'The selection changed and was cleared after refresh.' },
+          { code: 'audit_completion_failed', detail: 'Changes saved, but the audit failed.' },
+        ],
+      })),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+
+    expect(flashes()).toEqual([
+      { message: 'The selection changed and was cleared after refresh.', tone: 'warning' },
+    ])
+  })
+
+  it('shows why transaction information did not load', async () => {
+    const client = clientWith({ transactionInformation: vi.fn().mockRejectedValueOnce(busy()) })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    await expect(controller.transactionInformation?.('row-0')).resolves.toBeUndefined()
+
+    expect(flashes()).toEqual([
+      {
+        message: 'Transaction information could not be loaded. The profile is busy. Try again.',
+        tone: 'danger',
+      },
+    ])
   })
 })
 

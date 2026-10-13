@@ -123,7 +123,29 @@ test('pending warnings, empty bypass, and failures remain keyboard safe', async 
     })
     await page.keyboard.press('Shift+E')
     await expect(page.getByRole('dialog', { name: 'Export transactions' })).toBeHidden()
-    await expect(page.getByText('No data to export.')).toBeAttached()
+    await expect(page.locator('.kit-flash-banner', { hasText: 'No data to export.' })).toBeVisible()
+    await page.unroute(`${server.profileAPI}export/preview`)
+
+    await page.route(`${server.profileAPI}export/preview`, async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/problem+json',
+        json: {
+          type: 'about:blank',
+          title: 'Service Unavailable',
+          status: 503,
+          detail: 'The profile is busy. Try again.',
+          code: 'store_busy',
+        },
+      })
+    })
+    await page.keyboard.press('Shift+E')
+    await expect(page.getByRole('dialog', { name: 'Export transactions' })).toBeHidden()
+    await expect(
+      page.locator('.kit-flash-banner', {
+        hasText: 'The export preview could not be loaded. The profile is busy. Try again.',
+      }),
+    ).toBeVisible()
     await page.unroute(`${server.profileAPI}export/preview`)
 
     await page.keyboard.press('Shift+E')

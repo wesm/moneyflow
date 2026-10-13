@@ -68,6 +68,9 @@
           {:else if shown === 'offline'}
             <StatusDot status="unclean" label="" />Offline
             <Button size="sm" onclick={onretry}>Retry</Button>
+          {:else if shown === 'failed'}
+            <StatusDot status="unclean" label="" />Not updated
+            <Button size="sm" onclick={onretry}>Retry</Button>
           {:else}
             <StatusDot status="idle" label="" />Connected
           {/if}

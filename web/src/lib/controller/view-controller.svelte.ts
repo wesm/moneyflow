@@ -19,11 +19,16 @@ import type { SearchPreview } from './search'
 import { createProviderController, type ProviderController } from './provider'
 import { createProviderWriteController, type ProviderWriteController } from './provider-write'
 import { createReviewController, type ReviewController } from './review'
+import { problemReason, showFailure, showWarning } from '../shell/notices'
 import { preserveCursor, startsAtFirstRow, WindowCache } from './windows'
 
 const windowSize = 200
 // Browsers limit history writes (Safari: 100 in 10 seconds), so cursor moves wait for a pause.
 const defaultHistoryDebounceMillis = 300
+const changeFailed = 'Moneyflow could not apply that change; the view is unchanged.'
+const recheckFailed = 'Moneyflow could not check for newer data; the view may be out of date.'
+/** The editing controller reports this warning with the commit that caused it. */
+const auditWarningCode = 'audit_completion_failed'
 
 export interface TransitionAction {
   action: TransitionBody['action']
@@ -54,7 +59,10 @@ interface ReturnInProgress {
 
 export interface ControllerProblem {
   kind: 'invalid-view' | 'request'
+  /** The server's problem code, `network_error`, or `invalid_response` for an unreadable answer. */
   code: string
+  /** Why the request failed, in words the user can read. */
+  detail: string
 }
 
 export interface SearchSnapshot {
@@ -82,6 +90,10 @@ export interface ViewController {
   readonly provider: ProviderController
   readonly providerWrite: ProviderWriteController
   hydrate(): Promise<void>
+  /**
+   * Rereads the view when the profile may have changed elsewhere. A failure shows a banner and
+   * the problem, and resolves `undefined`.
+   */
   recheck(selection?: SelectionValue): Promise<ViewProjection | undefined>
   moveCursor(delta: -1 | 1): Promise<void>
   moveCursorTo(index: number): Promise<void>
@@ -164,6 +176,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let cursorIdentity = $state<string | undefined>()
   let cursorIndex = $state(0)
   let problem = $state<ControllerProblem | undefined>()
+  // The problem shown is a failed recheck, which the next successful recheck clears.
+  let recheckProblem = false
   let sequence = existing?.sequence ?? 0
   let generation = 0
   let activeRequest: AbortController | undefined
@@ -268,7 +282,27 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function recheck(selection?: SelectionValue): Promise<ViewProjection | undefined> {
-    return await recheckInternal(selection, false)
+    return await reportedRecheck(selection, false)
+  }
+
+  async function reportedRecheck(
+    selection: SelectionValue | undefined,
+    force: boolean,
+  ): Promise<ViewProjection | undefined> {
+    try {
+      const next = await recheckInternal(selection, force)
+      if (recheckProblem) problem = undefined
+      recheckProblem = false
+      return next
+    } catch (error) {
+      if (isAbort(error)) return undefined
+      lastRetry = async () => {
+        await reportedRecheck(selection, true)
+      }
+      setProblem(error, recheckFailed)
+      recheckProblem = true
+      return undefined
+    }
   }
 
   async function recheckInternal(
@@ -310,7 +344,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   async function recheckNewer(revision: string): Promise<void> {
     await serially(async () => {
       if (!projection || BigInt(revision) <= BigInt(projection.revision)) return
-      await recheckInternal(undefined, true)
+      await reportedRecheck(undefined, true)
     })
   }
 
@@ -506,10 +540,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         item_window: { offset: 0, limit: 20 },
       })
     } catch (error) {
-      announcement =
-        error instanceof MoneyflowProblem
-          ? error.problem.detail
-          : 'Transaction information could not be loaded.'
+      announcement = `Transaction information could not be loaded. ${failureReason(error)}`
+      showFailure(announcement)
       return undefined
     }
   }
@@ -550,6 +582,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         accepted = true
       },
       () => previewSearch(search).then(() => undefined),
+      // The search field shows why a preview failed; a banner per keystroke would bury it.
+      false,
     )
     const requestGeneration = generation
     await request
@@ -689,7 +723,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     } catch (error) {
       if (isAbort(error) || request.superseded()) return
       lastRetry = () => showIndex(request.index)
-      setProblem(error)
+      setProblem(error, changeFailed)
     } finally {
       if (showing === request) showing = undefined
     }
@@ -734,6 +768,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     request: () => Promise<ViewProjection>,
     onSuccess: (next: ViewProjection) => void | Promise<void>,
     retry: () => Promise<void>,
+    report = true,
   ): Promise<boolean> {
     lastRetry = async () => {
       await retry()
@@ -751,7 +786,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       return true
     } catch (error) {
       if (requestGeneration !== generation || isAbort(error)) return false
-      setProblem(error)
+      setProblem(error, changeFailed, report)
       return false
     } finally {
       if (requestGeneration === generation) loading = false
@@ -779,6 +814,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     cursorIndex = cursor.index
     announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
     problem = undefined
+    showWarnings(next)
 
     if (historyMode === 'none') {
       schedulePrefetch(next)
@@ -819,6 +855,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     cursorIndex = cursor.index
     announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
     problem = undefined
+    showWarnings(next)
     if (replaceHistory) replaceOwnedHistory()
     schedulePrefetch(next)
     void openInBusiestCurrency()
@@ -966,17 +1003,18 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     )
   }
 
-  function setProblem(error: unknown): void {
-    if (error instanceof MoneyflowProblem) {
-      const invalid = error.problem.code === 'invalid_view_state'
-      problem = { kind: invalid ? 'invalid-view' : 'request', code: error.problem.code }
-      announcement = invalid
+  /**
+   * Records why a request failed. Once a view is on screen, a banner says so too; before that,
+   * the page that replaces the workspace does.
+   */
+  function setProblem(error: unknown, failure: string, report = true): void {
+    problem = controllerProblem(error)
+    recheckProblem = false
+    announcement =
+      problem.kind === 'invalid-view'
         ? 'This Moneyflow link is invalid.'
-        : 'Moneyflow could not apply that change. Your previous view is unchanged.'
-      return
-    }
-    problem = { kind: 'request', code: 'network_error' }
-    announcement = 'Moneyflow could not load this view. Check the connection and retry.'
+        : `${failure} ${failureReason(error)}`
+    if (report && projection) showFailure(announcement)
   }
 
   return {
@@ -1038,6 +1076,36 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     reset,
     transactionInformation,
   }
+}
+
+/** Shows the warnings of a view the user now sees, except the one editing reports itself. */
+function showWarnings(next: ViewProjection): void {
+  for (const warning of next.warnings ?? []) {
+    if (warning.code !== auditWarningCode) showWarning(warning.detail)
+  }
+}
+
+function controllerProblem(error: unknown): ControllerProblem {
+  if (error instanceof MoneyflowProblem) {
+    const invalid = error.problem.code === 'invalid_view_state'
+    return {
+      kind: invalid ? 'invalid-view' : 'request',
+      code: error.problem.code,
+      detail: problemReason(error.problem),
+    }
+  }
+  if (error instanceof TypeError) {
+    return { kind: 'request', code: 'network_error', detail: networkFailure }
+  }
+  return { kind: 'request', code: 'invalid_response', detail: invalidResponse }
+}
+
+const networkFailure = 'Moneyflow could not reach the server. Check the connection and retry.'
+const invalidResponse = 'The server sent a response Moneyflow could not read.'
+
+/** Why a request failed: the server's reason, or what went wrong without one. */
+function failureReason(error: unknown): string {
+  return controllerProblem(error).detail
 }
 
 function viewBody(query: string, selection: SelectionValue | undefined, offset: number): ViewBody {

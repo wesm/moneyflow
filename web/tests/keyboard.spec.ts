@@ -692,3 +692,56 @@ test('duplicate review remains keyboard driven and restores the finance grid', a
     await server.stop()
   }
 })
+
+test('a view change the server refuses shows why and offers a retry', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const status = page.getByRole('contentinfo')
+  await expect(status).toContainText('Connected')
+  await page.route('**/view/transition', async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/problem+json',
+      json: {
+        type: 'about:blank',
+        title: 'Service Unavailable',
+        status: 503,
+        detail: 'The profile is busy. Try again.',
+        code: 'store_busy',
+      },
+    })
+  })
+
+  await page.keyboard.press('2')
+
+  await expect(
+    page.locator('.kit-flash-banner', {
+      hasText:
+        'Moneyflow could not apply that change; the view is unchanged. ' +
+        'The profile is busy. Try again.',
+    }),
+  ).toBeVisible()
+  await expect(status).toContainText('Not updated')
+  await page.unroute('**/view/transition')
+  await status.getByRole('button', { name: 'Retry' }).click()
+  await expect(status).toContainText('Connected')
+  await expect(breadcrumb(page)).toHaveText('Categories')
+})
+
+test('a recheck on focus that cannot reach the server says the view may be stale', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page.route('**/view', (route) => route.abort('connectionrefused'))
+  // A recheck within half a second of the last answer reuses it instead of asking again.
+  await page.waitForTimeout(600)
+
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+
+  await expect(
+    page.locator('.kit-flash-banner', {
+      hasText: 'Moneyflow could not check for newer data; the view may be out of date.',
+    }),
+  ).toBeVisible()
+  await expect(page.getByRole('contentinfo')).toContainText('Offline')
+})

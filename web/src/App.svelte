@@ -243,7 +243,7 @@
       }
     }
     const recheck = () => {
-      void controller.recheck().catch(() => undefined)
+      void controller.recheck()
       pollProvider()
     }
     const visible = () => {

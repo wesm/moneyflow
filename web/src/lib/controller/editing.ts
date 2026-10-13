@@ -20,6 +20,7 @@ import {
 } from '../api/client'
 import { LABEL_TAKEN } from '../editing/manager'
 import { toastMessage, type ToastAction } from '../editing/toasts'
+import { showWarning } from '../shell/notices'
 
 export type MutationPhase = 'idle' | 'submitting' | 'conflict' | 'failed'
 
@@ -237,6 +238,9 @@ export function createEditingController(options: EditingControllerOptions): Edit
       // the persistent announcement repeats it.
       const toasted = toast && toastMessage(response.operation, toast)
       if (toasted) showFlash(toasted)
+      // The server repeats the audit warning until the next commit; it belongs to this one.
+      if (auditWarning && path === 'api/v1/commit') showWarning(auditWarning)
+      if (viewWarning) showWarning(viewWarning)
       setState({
         ...newestRevision(response),
         phase: 'idle',
