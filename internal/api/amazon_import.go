@@ -12,6 +12,7 @@ import (
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/importer/amazon"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
 
 // AmazonImportWireVersion identifies the browser attempt contract.
@@ -98,17 +99,17 @@ func (server *Server) registerAmazonImportEndpoints(config Config) {
 		}
 		if input.Body.Version != AmazonImportWireVersion ||
 			!domain.IsValidCurrency(domain.Currency(input.Body.Currency)) || input.Body.Scale > 9 {
-			return nil, amazonImportProblem(errors.New("invalid start request"))
+			return nil, amazonRequestInvalid()
 		}
 		var clone *app.TaxonomyClone
 		var err error
 		if input.Body.TaxonomySourceID != "" {
 			if config.LoadAmazonTaxonomy == nil {
-				return nil, amazonImportProblem(errors.New("taxonomy source unavailable"))
+				return nil, amazonTaxonomyProblem(errors.New("taxonomy source loader is not configured"))
 			}
 			clone, err = config.LoadAmazonTaxonomy(ctx, input.Body.TaxonomySourceID)
 			if err != nil {
-				return nil, amazonImportProblem(err)
+				return nil, amazonTaxonomyProblem(err)
 			}
 		}
 		snapshot, err := config.AmazonImports.Start(ctx, amazonimport.StartRequest{ProfileID: input.ProfileID, Settings: amazon.Settings{Currency: domain.Currency(input.Body.Currency), Scale: input.Body.Scale}, TaxonomyClone: clone})
@@ -126,11 +127,11 @@ func (server *Server) registerAmazonImportEndpoints(config Config) {
 		}
 		form := input.RawBody.Data()
 		if form == nil || form.Version != AmazonImportWireVersion {
-			return nil, amazonImportProblem(errors.New("invalid upload request"))
+			return nil, amazonRequestInvalid()
 		}
 		expected, err := strconv.ParseUint(form.ExpectedStateVersion, 10, 64)
 		if err != nil {
-			return nil, amazonImportProblem(err)
+			return nil, amazonRequestInvalid()
 		}
 		uploads := make([]amazonimport.Upload, 0, len(form.Files))
 		for _, file := range form.Files {
@@ -149,7 +150,7 @@ func (server *Server) registerAmazonImportEndpoints(config Config) {
 		}
 		expected, err := amazonAttemptVersion(input.Body)
 		if err != nil {
-			return nil, amazonImportProblem(err)
+			return nil, amazonRequestInvalid()
 		}
 		snapshot, err := config.AmazonImports.Execute(ctx, amazonimport.ExecuteRequest{ProfileID: input.ProfileID, AttemptID: input.AttemptID, ExpectedStateVersion: expected})
 		if err != nil {
@@ -177,7 +178,7 @@ func (server *Server) registerAmazonImportEndpoints(config Config) {
 		}
 		expected, err := amazonAttemptVersion(input.Body)
 		if err != nil {
-			return nil, amazonImportProblem(err)
+			return nil, amazonRequestInvalid()
 		}
 		snapshot, err := config.AmazonImports.Cancel(ctx, amazonimport.CancelRequest{ProfileID: input.ProfileID, AttemptID: input.AttemptID, ExpectedStateVersion: expected})
 		if err != nil {
@@ -210,41 +211,83 @@ func amazonSnapshotOutput(snapshot amazonimport.Snapshot, coordinate *amazon.Coo
 	return &amazonImportOutput{Body: response}
 }
 
+type amazonProblem struct {
+	status int
+	code   ErrorCode
+	detail string
+}
+
+var amazonImportProblems = map[amazonimport.Code]amazonProblem{
+	amazonimport.CodeImportBusy: {
+		http.StatusConflict, CodeAmazonImportBusy, "Another Amazon import is in progress.",
+	},
+	amazonimport.CodeImportTooLarge: {
+		http.StatusRequestEntityTooLarge, CodeAmazonImportTooLarge,
+		"The Amazon import is too large.",
+	},
+	amazonimport.CodeImportEmpty: {
+		http.StatusUnprocessableEntity, CodeAmazonImportEmpty,
+		"The Amazon import contains no orders.",
+	},
+	amazonimport.CodeImportInvalid: {
+		http.StatusUnprocessableEntity, CodeAmazonImportInvalid,
+		"The Amazon import request is invalid.",
+	},
+	amazonimport.CodeImportStorage: {
+		http.StatusInternalServerError, CodeAmazonImportStorage,
+		"Moneyflow could not save the Amazon import on this computer. " +
+			"Check that the disk has free space, then retry.",
+	},
+	amazonimport.CodeProfileChanged: {
+		http.StatusConflict, CodeAmazonProfileChanged,
+		"The profile changed while the Amazon import was being saved. Retry the import.",
+	},
+	amazonimport.CodeCurrencyMismatch: {
+		http.StatusUnprocessableEntity, CodeAmazonCurrencyMismatch,
+		"The Amazon import currency does not match the profile.",
+	},
+	amazonimport.CodeProfileInvalid: {
+		http.StatusUnprocessableEntity, CodeAmazonProfileInvalid,
+		"The Amazon profile is unavailable.",
+	},
+	amazonimport.CodeAttemptStale: {
+		http.StatusConflict, CodeAmazonImportStale, "The Amazon import state changed.",
+	},
+	amazonimport.CodeAttemptInvalid: {
+		http.StatusNotFound, CodeAmazonImportExpired, "The Amazon import attempt is unavailable.",
+	},
+	amazonimport.CodeImportCanceled: {
+		http.StatusConflict, CodeImportCancelled, "The Amazon import was canceled.",
+	},
+}
+
+// amazonImportProblem names a coordinator failure. A failure without a code is unexpected, so
+// the browser gets a generic problem and the server log gets the cause.
 func amazonImportProblem(err error) *Problem {
-	code := amazonimport.CodeOf(err)
-	status := http.StatusUnprocessableEntity
-	apiCode := CodeAmazonImportInvalid
-	detail := "The Amazon import request is invalid."
-	switch code {
-	case amazonimport.CodeImportBusy:
-		status = http.StatusConflict
-		apiCode = CodeAmazonImportBusy
-		detail = "Another Amazon import is in progress."
-	case amazonimport.CodeImportTooLarge:
-		status = http.StatusRequestEntityTooLarge
-		apiCode = CodeAmazonImportTooLarge
-		detail = "The Amazon import is too large."
-	case amazonimport.CodeImportEmpty:
-		apiCode = CodeAmazonImportEmpty
-		detail = "The Amazon import contains no orders."
-	case amazonimport.CodeCurrencyMismatch:
-		apiCode = CodeAmazonCurrencyMismatch
-		detail = "The Amazon import currency does not match the profile."
-	case amazonimport.CodeProfileInvalid:
-		apiCode = CodeAmazonProfileInvalid
-		detail = "The Amazon profile is unavailable."
-	case amazonimport.CodeAttemptStale:
-		status = http.StatusConflict
-		apiCode = CodeAmazonImportStale
-		detail = "The Amazon import state changed."
-	case amazonimport.CodeAttemptInvalid:
-		status = http.StatusNotFound
-		apiCode = CodeAmazonImportExpired
-		detail = "The Amazon import attempt is unavailable."
-	case amazonimport.CodeImportCanceled:
-		status = http.StatusConflict
-		apiCode = CodeImportCancelled
-		detail = "The Amazon import was canceled."
+	known, ok := amazonImportProblems[amazonimport.CodeOf(err)]
+	if !ok {
+		return newProblem(
+			http.StatusInternalServerError, "internal_error", "The Amazon import stopped unexpectedly.",
+		).withCause(err)
 	}
-	return newProblem(status, string(apiCode), detail)
+	return newProblem(known.status, string(known.code), known.detail).withCause(err)
+}
+
+func amazonRequestInvalid() *Problem {
+	known := amazonImportProblems[amazonimport.CodeImportInvalid]
+	return newProblem(known.status, string(known.code), known.detail)
+}
+
+// amazonTaxonomyProblem says why the category source profile could not be copied.
+func amazonTaxonomyProblem(err error) *Problem {
+	switch profilecatalog.CodeOf(err) {
+	case profilecatalog.CodeProfileNotFound, profilecatalog.CodeProfileAmbiguous:
+		return newProblem(http.StatusUnprocessableEntity, string(CodeAmazonTaxonomySourceInvalid),
+			"The profile chosen to copy categories from was not found. "+
+				"Choose another profile, or import without copying categories.")
+	default:
+		return newProblem(http.StatusInternalServerError, string(CodeAmazonTaxonomySourceInvalid),
+			"Moneyflow could not read the categories from the chosen profile. "+
+				"Choose another profile, or import without copying categories.").withCause(err)
+	}
 }

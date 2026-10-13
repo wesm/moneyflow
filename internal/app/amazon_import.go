@@ -63,6 +63,10 @@ func (service *Service) ImportAmazon(ctx context.Context, request AmazonImportRe
 	return result, nil
 }
 
+// ErrAmazonSettingsMismatch reports an import whose currency or scale differs from the profile's
+// earlier Amazon imports.
+var ErrAmazonSettingsMismatch = errors.New("amazon import settings do not match the profile")
+
 // ImportAmazonProfile imports into a durable profile before a first application service can load it.
 func ImportAmazonProfile(ctx context.Context, profile store.Profile, request AmazonImportRequest) (AmazonImportResult, error) {
 	if profile == nil {
@@ -196,7 +200,7 @@ func validateAmazonSettings(current *store.AmazonSettings, request AmazonImportR
 		return nil
 	}
 	if current.Currency != request.Settings.Currency || current.Scale != request.Settings.Scale {
-		return errors.New("amazon import settings do not match the profile")
+		return ErrAmazonSettingsMismatch
 	}
 	if request.TaxonomyClone != nil {
 		return errors.New("amazon taxonomy can only be cloned during first import")

@@ -120,6 +120,12 @@ const (
 	CodeAmazonCurrencyMismatch ErrorCode = "amazon_currency_mismatch"
 	// CodeAmazonProfileInvalid rejects an unusable Amazon target profile.
 	CodeAmazonProfileInvalid ErrorCode = "amazon_profile_invalid"
+	// CodeAmazonImportStorage reports staged files or profile data that could not be written.
+	CodeAmazonImportStorage ErrorCode = "amazon_import_storage"
+	// CodeAmazonProfileChanged reports a profile that changed while the import was saved.
+	CodeAmazonProfileChanged ErrorCode = "amazon_profile_changed"
+	// CodeAmazonTaxonomySourceInvalid reports a category source profile that could not be read.
+	CodeAmazonTaxonomySourceInvalid ErrorCode = "amazon_taxonomy_source_invalid"
 	// CodeAmazonImportStale reports an attempt state-version conflict.
 	CodeAmazonImportStale ErrorCode = "amazon_import_stale"
 	// CodeAmazonImportExpired reports an unavailable process-local attempt.

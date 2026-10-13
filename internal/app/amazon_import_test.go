@@ -77,6 +77,32 @@ func TestAmazonImportInstallsPristineSQLiteProfileAndReopens(t *testing.T) {
 	assert.Equal(t, first.Revision, second.Revision)
 }
 
+func TestAmazonImportReportsACurrencyThatDiffersFromEarlierImports(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := t.TempDir()
+	profile, err := sqlite.Open(ctx, home.Paths{Root: root, Database: filepath.Join(root, "moneyflow.db")}, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	now := time.Date(2026, time.August, 20, 18, 30, 0, 0, time.UTC)
+	row := amazonIncomingRow("order-a", "ASIN-A", amazonDigest("b"), "orders.csv", 2)
+	row.FullFingerprint = amazonDigest("c")
+	request := AmazonImportRequest{
+		Candidate: amazon.Candidate{
+			Rows: []amazon.Row{row}, ObservedOrderIDs: []string{"order-a"},
+			FileCount: 1, LogicalRecordCount: 1, Digest: amazonDigest("d"),
+		},
+		Settings: amazon.Settings{Currency: "USD", Scale: 2}, ImportedAt: now,
+	}
+	_, err = ImportAmazonProfile(ctx, profile, request)
+	require.NoError(t, err)
+
+	request.Settings = amazon.Settings{Currency: "EUR", Scale: 2}
+	_, err = ImportAmazonProfile(ctx, profile, request)
+
+	require.ErrorIs(t, err, ErrAmazonSettingsMismatch)
+}
+
 func TestAmazonImportUnchangedCandidateIsSemanticNoOp(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.August, 20, 18, 0, 0, 0, time.UTC)

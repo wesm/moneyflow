@@ -54,14 +54,14 @@ func stageUploads(
 	}
 	parent, err := home.EnsurePrivateSubdirectory(root, managedStageDirectory)
 	if err != nil {
-		return nil, "", newError(CodeImportInvalid, err)
+		return nil, "", newError(CodeImportStorage, err)
 	}
 	if err = removeStaleStages(parent, now.Add(-attemptIdleLimit)); err != nil {
-		return nil, "", newError(CodeImportInvalid, err)
+		return nil, "", newError(CodeImportStorage, err)
 	}
 	stageDir, err := home.EnsurePrivateSubdirectory(parent, attemptID)
 	if err != nil {
-		return nil, "", newError(CodeImportInvalid, err)
+		return nil, "", newError(CodeImportStorage, err)
 	}
 	clean := false
 	defer func() {
@@ -83,17 +83,20 @@ func stageUploads(
 		//nolint:gosec
 		file, openErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if openErr != nil {
-			return nil, "", newError(CodeImportInvalid, openErr)
+			return nil, "", newError(CodeImportStorage, openErr)
 		}
 		digest := sha256.New()
+		source := &contextUploadReader{ctx: ctx, source: upload.Reader}
 		written, copyErr := io.Copy(
-			io.MultiWriter(file, digest),
-			io.LimitReader(&contextUploadReader{ctx: ctx, source: upload.Reader}, limits.BytesPerFile+1),
+			io.MultiWriter(file, digest), io.LimitReader(source, limits.BytesPerFile+1),
 		)
 		syncErr := file.Sync()
 		closeErr := file.Close()
+		if source.failure != nil {
+			return nil, "", newError(CodeImportInvalid, source.failure)
+		}
 		if copyErr != nil || syncErr != nil || closeErr != nil {
-			return nil, "", newError(CodeImportInvalid, errors.Join(copyErr, syncErr, closeErr))
+			return nil, "", newError(CodeImportStorage, errors.Join(copyErr, syncErr, closeErr))
 		}
 		if written > limits.BytesPerFile || total > limits.TotalBytes-written {
 			return nil, "", newError(CodeImportTooLarge, errors.New("upload bytes exceed limit"))
@@ -147,14 +150,22 @@ func removeStaleStages(parent string, cutoff time.Time) error {
 	return nil
 }
 
+// contextUploadReader stops at cancellation and remembers a failure to read the upload, so a
+// broken upload is told apart from a failure to write the private copy.
 type contextUploadReader struct {
-	ctx    context.Context
-	source io.Reader
+	ctx     context.Context
+	source  io.Reader
+	failure error
 }
 
 func (reader *contextUploadReader) Read(buffer []byte) (int, error) {
 	if err := reader.ctx.Err(); err != nil {
+		reader.failure = err
 		return 0, err
 	}
-	return reader.source.Read(buffer)
+	count, err := reader.source.Read(buffer)
+	if err != nil && !errors.Is(err, io.EOF) {
+		reader.failure = err
+	}
+	return count, err
 }

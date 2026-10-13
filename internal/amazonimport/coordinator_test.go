@@ -3,6 +3,7 @@ package amazonimport
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -344,4 +345,86 @@ func newTestCoordinator(
 	})
 	require.NoError(t, err)
 	return coordinator
+}
+
+func TestCoordinatorStageReportsADiskFailureAsStorage(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, managedStageDirectory), nil, 0o600))
+	coordinator := newTestCoordinator(t, root, time.Now(), nil, nil, nil)
+	started, err := coordinator.Start(context.Background(), StartRequest{
+		ProfileID: "profile-a", Settings: amazon.Settings{Currency: "USD", Scale: 2},
+	})
+	require.NoError(t, err)
+
+	_, err = coordinator.Stage(context.Background(), StageRequest{
+		ProfileID: started.ProfileID, AttemptID: started.AttemptID,
+		ExpectedStateVersion: started.StateVersion,
+		Files: []Upload{{
+			RelativeName: "Retail.OrderHistory.1.csv", Reader: strings.NewReader("header\n"),
+		}},
+	})
+
+	assert.Equal(t, CodeImportStorage, CodeOf(err))
+}
+
+func TestCoordinatorExecuteNamesWhyTheInstallFailed(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		code Code
+	}{
+		{
+			name: "currency differs from the profile",
+			err:  fmt.Errorf("plan: %w", app.ErrAmazonSettingsMismatch),
+			code: CodeCurrencyMismatch,
+		},
+		{
+			name: "profile changed during the import",
+			err:  &app.AppError{Code: app.AppStoreBusy, Detail: "The profile is busy."},
+			code: CodeProfileChanged,
+		},
+		{
+			name: "profile changed revision",
+			err:  &app.AppError{Code: app.AppRevisionConflict, Detail: "The profile changed."},
+			code: CodeProfileChanged,
+		},
+		{
+			name: "profile could not be written",
+			err:  &app.AppError{Code: app.AppStoreError, Detail: "The profile could not be saved."},
+			code: CodeImportStorage,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			coordinator := newTestCoordinator(t, t.TempDir(), time.Now(), nil, func(
+				context.Context, []amazon.SourceFile, amazon.Settings, amazon.Limits,
+				amazon.ObserveFunc,
+			) (amazon.Candidate, error) {
+				return amazon.Candidate{Digest: "candidate", ObservedOrderIDs: []string{"order"}}, nil
+			}, func(context.Context, app.AmazonImportRequest) (app.AmazonImportResult, error) {
+				return app.AmazonImportResult{}, test.err
+			})
+			started, err := coordinator.Start(context.Background(), StartRequest{
+				ProfileID: "profile-a", Settings: amazon.Settings{Currency: "USD", Scale: 2},
+			})
+			require.NoError(t, err)
+			staged, err := coordinator.Stage(context.Background(), StageRequest{
+				ProfileID: "profile-a", AttemptID: started.AttemptID,
+				ExpectedStateVersion: started.StateVersion,
+				Files: []Upload{{
+					RelativeName: "Retail.OrderHistory.1.csv", Reader: strings.NewReader("header\n"),
+				}},
+			})
+			require.NoError(t, err)
+
+			snapshot, err := coordinator.Execute(context.Background(), ExecuteRequest{
+				ProfileID: "profile-a", AttemptID: staged.AttemptID,
+				ExpectedStateVersion: staged.StateVersion,
+			})
+
+			assert.Equal(t, test.code, CodeOf(err))
+			assert.Equal(t, StateFailed, snapshot.State)
+			assert.Equal(t, test.code, snapshot.Failure.Code)
+		})
+	}
 }
