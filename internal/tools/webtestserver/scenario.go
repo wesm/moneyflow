@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
+	"github.com/wesm/moneyflow/internal/store"
 	"github.com/wesm/moneyflow/internal/uitest"
 	scenario "github.com/wesm/moneyflow/internal/uitest/runtime"
 	webserver "github.com/wesm/moneyflow/internal/web"
@@ -139,33 +141,8 @@ func runScenario(ctx context.Context, root, descriptorPath, listen, basePath str
 		mutex.Lock()
 		run := active
 		mutex.Unlock()
-		var result any
-		var controlErr error
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/__moneyflow_scenario/observe":
-			result, controlErr = run.Observe(r.Context())
-		case r.Method == http.MethodPost && r.URL.Path == "/__moneyflow_scenario/fault":
-			var request struct {
-				Fault uitest.Fault `json:"fault"`
-			}
-			controlErr = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&request)
-			if controlErr == nil {
-				controlErr = run.Provider.SetFault(request.Fault)
-			}
-		case r.Method == http.MethodPost && r.URL.Path == "/__moneyflow_scenario/release":
-			run.Provider.Release()
-		case r.Method == http.MethodPost && r.URL.Path == "/__moneyflow_scenario/advance":
-			var request struct {
-				Seconds int `json:"seconds"`
-			}
-			controlErr = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&request)
-			if controlErr == nil && (request.Seconds < 0 || request.Seconds > 86400) {
-				controlErr = errors.New("clock advance out of bounds")
-			}
-			if controlErr == nil {
-				controlErr = run.Provider.Advance(time.Duration(request.Seconds) * time.Second)
-			}
-		default:
+		result, found, controlErr := controlScenario(w, r, run)
+		if !found {
 			http.NotFound(w, r)
 			return
 		}
@@ -190,4 +167,83 @@ func runScenario(ctx context.Context, root, descriptorPath, listen, basePath str
 		defer cancel()
 		return errors.Join(server.Shutdown(shutdown), registry.Close(shutdown))
 	}
+}
+
+// controlScenario runs one test control request against the open profile and its synthetic
+// provider. found is false for an unknown control.
+func controlScenario(w http.ResponseWriter, r *http.Request, run *scenario.Runtime) (any, bool, error) {
+	if r.Method == http.MethodGet && r.URL.Path == "/__moneyflow_scenario/observe" {
+		result, err := run.Observe(r.Context())
+		return result, true, err
+	}
+	if r.Method != http.MethodPost {
+		return nil, false, nil
+	}
+	body := http.MaxBytesReader(w, r.Body, 1024)
+	switch r.URL.Path {
+	case "/__moneyflow_scenario/fault":
+		var request struct {
+			Fault uitest.Fault `json:"fault"`
+		}
+		if err := json.NewDecoder(body).Decode(&request); err != nil {
+			return nil, true, err
+		}
+		return nil, true, run.Provider.SetFault(request.Fault)
+	case "/__moneyflow_scenario/refresh-fault":
+		var request struct {
+			Fault uitest.RefreshFault `json:"fault"`
+		}
+		if err := json.NewDecoder(body).Decode(&request); err != nil {
+			return nil, true, err
+		}
+		return nil, true, run.Provider.SetRefreshFault(request.Fault)
+	case "/__moneyflow_scenario/release":
+		run.Provider.Release()
+		return nil, true, nil
+	case "/__moneyflow_scenario/advance":
+		return nil, true, advanceScenario(body, run)
+	case "/__moneyflow_scenario/other-refresh":
+		return nil, true, holdOtherRefresh(r.Context(), body, run)
+	default:
+		return nil, false, nil
+	}
+}
+
+func advanceScenario(body io.Reader, run *scenario.Runtime) error {
+	var request struct {
+		Seconds int `json:"seconds"`
+	}
+	if err := json.NewDecoder(body).Decode(&request); err != nil {
+		return err
+	}
+	if request.Seconds < 0 || request.Seconds > 86400 {
+		return errors.New("clock advance out of bounds")
+	}
+	return run.Provider.Advance(time.Duration(request.Seconds) * time.Second)
+}
+
+// otherRefreshOwner is the lease owner that stands in for another interface's refresh.
+const otherRefreshOwner = "scenario-other-interface"
+
+// holdOtherRefresh takes or releases the profile's refresh lease as another interface would,
+// so a browser test can watch a refresh it did not start.
+func holdOtherRefresh(ctx context.Context, body io.Reader, run *scenario.Runtime) error {
+	var request struct {
+		Renderer string `json:"renderer"`
+		Hold     bool   `json:"hold"`
+	}
+	if err := json.NewDecoder(body).Decode(&request); err != nil {
+		return err
+	}
+	if !request.Hold {
+		return run.Profile.ReleaseRefreshLease(ctx, otherRefreshOwner)
+	}
+	now := run.Provider.Now()
+	_, acquired, err := run.Profile.AcquireRefreshLease(ctx, store.RefreshLease{
+		OwnerID: otherRefreshOwner, Renderer: request.Renderer, ExpiresAt: now.Add(time.Hour),
+	}, now)
+	if err == nil && !acquired {
+		err = errors.New("another refresh holds the lease")
+	}
+	return err
 }
