@@ -2567,6 +2567,55 @@ describe('visible view failures', () => {
     })
   })
 
+  it('does not cut off a view change when a finished provider write rereads the view', async () => {
+    let answerReread!: (next: ViewProjection) => void
+    let answerChange!: (next: ViewProjection) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockImplementationOnce(() => new Promise((resolve) => (answerReread = resolve)))
+    const transition = vi.fn(
+      () => new Promise<ViewProjection>((resolve) => (answerChange = resolve)),
+    )
+    const providerWriteStatus = vi.fn(async () => ({
+      version: '1',
+      revision: '5',
+      generation: '1',
+      total: 1,
+      completed: 1,
+      failed: 0,
+      remaining: 0,
+      overrides: 0,
+      actions: [],
+    }))
+    const controller = controllerFor(clientWith({ view, transition, providerWriteStatus }), false)
+    await controller.hydrate()
+    controller.providerWrite.install({
+      version: '1',
+      revision: '4',
+      generation: '1',
+      batch_version: '2',
+      phase: 'writing',
+      total: 1,
+      completed: 0,
+      failed: 0,
+      remaining: 1,
+      overrides: 0,
+      actions: [],
+    })
+
+    const polling = controller.providerWrite.poll()
+    await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+    const applying = controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+    answerReread(projection('v=1', 0, 3, '5'))
+    await polling
+    answerChange(projection('v=2', 0, 3, '5'))
+
+    await expect(applying).resolves.toBe(true)
+    expect(controller.projection?.canonical_query).toBe('v=2')
+  })
+
   describe('an older recheck that answers a newer revision', () => {
     function pendingRecheck() {
       let answer!: (next: ViewProjection) => void

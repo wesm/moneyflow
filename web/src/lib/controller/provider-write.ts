@@ -49,7 +49,8 @@ export interface ProviderWriteTransport {
 interface ProviderWriteHost {
   current(): ViewProjection | undefined
   accept(projection: ViewProjection): void
-  reload(): Promise<ViewProjection | undefined>
+  /** Rereads and shows the view at the newest revision; throws when the reread fails. */
+  reload(): Promise<unknown>
 }
 
 interface ProviderWriteControllerOptions {
@@ -297,8 +298,7 @@ export function createProviderWriteController(
   /** Rereads the view at the newest revision; false when that request fails. */
   async function refreshView(): Promise<boolean> {
     try {
-      const projection = await options.host.reload()
-      if (projection) options.host.accept(projection)
+      await options.host.reload()
       return true
     } catch {
       return false

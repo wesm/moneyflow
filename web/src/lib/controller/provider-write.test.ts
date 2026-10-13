@@ -329,7 +329,7 @@ describe('provider write failures the user must see', () => {
     await expect(reconciling).resolves.toBe(true)
     expect(controller.state.phase).toBe('complete')
     expect(host.reload).toHaveBeenCalledOnce()
-    expect(host.accept.mock.calls).toEqual([[reread]])
+    expect(host.accept).not.toHaveBeenCalled()
   })
 
   it('shows a failed status poll once, without the write drawer open', async () => {
