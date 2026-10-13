@@ -18,6 +18,57 @@ func TestProviderWriteStatusExplainsARunThatStoppedWhileWriting(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	service, _, writer, _ := committedProviderWriteWithFailingHeartbeat(t)
+	before, err := service.ProviderWriteStatus(ctx)
+	require.NoError(t, err)
+	require.Nil(t, before.RunFailure)
+
+	_, err = service.RunProviderWrite(ctx)
+
+	require.Error(t, err)
+	status, err := service.ProviderWriteStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, store.WritePhaseWriting, status.Phase)
+	require.NotNil(t, status.RunFailure)
+	assert.Equal(t, string(app.AppStoreError), status.RunFailure.Code)
+	assert.NotEmpty(t, status.RunFailure.Detail)
+	assert.Zero(t, writer.callCount())
+}
+
+// A run that stopped explains only its own batch. Once another process resumes the batch after
+// the lease expired, the batch is that process's run, and the old reason no longer applies.
+func TestProviderWriteRunFailureDoesNotFollowABatchAnotherProcessResumed(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle, _, now := committedProviderWriteWithFailingHeartbeat(t)
+	_, err := service.RunProviderWrite(ctx)
+	require.Error(t, err)
+	stopped, err := service.ProviderWriteStatus(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, stopped.RunFailure)
+
+	resumedAt := now.Add(2 * time.Minute)
+	_, acquired, err := profileHandle.AcquireProviderOperationLease(ctx, store.ProviderOperationLease{
+		OwnerID: "instance-other", Renderer: "tui", Kind: store.ProviderOperationWrite,
+		ExpiresAt: resumedAt.Add(time.Minute),
+	}, resumedAt)
+	require.NoError(t, err)
+	require.True(t, acquired)
+
+	resumed, err := service.ProviderWriteStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, store.WritePhaseWriting, resumed.Phase)
+	assert.Nil(t, resumed.RunFailure)
+}
+
+// committedProviderWriteWithFailingHeartbeat commits one hide whose provider write run stops when
+// its first lease renewal fails, before any provider call.
+func committedProviderWriteWithFailingHeartbeat(
+	t *testing.T,
+) (*app.Service, store.Profile, *scriptedProviderWriter, time.Time) {
+	t.Helper()
+	ctx := context.Background()
 	_, profileHandle := newProviderRefreshService(t)
 	wrapped := &heartbeatErrorProfile{
 		Profile: profileHandle, failAt: 1, failed: make(chan struct{}),
@@ -58,18 +109,5 @@ func TestProviderWriteStatusExplainsARunThatStoppedWhileWriting(t *testing.T) {
 		State: app.DefaultViewState(), Selection: app.EmptySelection(),
 	})
 	require.NoError(t, err)
-	before, err := service.ProviderWriteStatus(ctx)
-	require.NoError(t, err)
-	require.Nil(t, before.RunFailure)
-
-	_, err = service.RunProviderWrite(ctx)
-
-	require.Error(t, err)
-	status, err := service.ProviderWriteStatus(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, store.WritePhaseWriting, status.Phase)
-	require.NotNil(t, status.RunFailure)
-	assert.Equal(t, string(app.AppStoreError), status.RunFailure.Code)
-	assert.NotEmpty(t, status.RunFailure.Detail)
-	assert.Zero(t, writer.callCount())
+	return service, profileHandle, writer, now
 }

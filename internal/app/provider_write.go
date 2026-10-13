@@ -108,26 +108,69 @@ func (execution *ProviderWriteExecution) Run(ctx context.Context) (ProviderWrite
 	execution.service.setWriteRunFailure(nil)
 	status, err := execution.service.runProviderWriteOwned(ctx, execution.runtime)
 	if err != nil {
-		execution.service.setWriteRunFailure(writeRunFailure(err))
+		execution.service.recordWriteRunFailure(ctx, err)
 	}
 	return status, err
 }
 
-func (service *Service) setWriteRunFailure(failure *ProviderWriteRunFailure) {
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	service.writeRunFailure = failure
+// stoppedWriteRun is a run failure together with the batch and lease the run left behind.
+type stoppedWriteRun struct {
+	batchID string
+	version uint64
+	lease   *store.ProviderOperationLease
+	failure *ProviderWriteRunFailure
 }
 
-// stuckWriteRunFailure reports the last run failure only while the batch still reads as active;
-// a parked batch already carries its own reason.
-func (service *Service) stuckWriteRunFailure(phase store.WriteBatchPhase) *ProviderWriteRunFailure {
+// recordWriteRunFailure ties the failure to the batch as the stopped run left it. When that state
+// cannot be read, nothing is recorded, because the failure could not be told apart from later runs.
+func (service *Service) recordWriteRunFailure(ctx context.Context, err error) {
+	state, stateErr := service.profile.ProviderState(context.WithoutCancel(ctx))
+	if stateErr != nil || state.Write == nil {
+		return
+	}
+	stopped := &stoppedWriteRun{
+		batchID: state.Write.ID, version: state.Write.Version, failure: writeRunFailure(err),
+	}
+	if state.Lease != nil {
+		lease := *state.Lease
+		stopped.lease = &lease
+	}
+	service.setWriteRunFailure(stopped)
+}
+
+func (service *Service) setWriteRunFailure(stopped *stoppedWriteRun) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.writeRunFailure = stopped
+}
+
+// stuckWriteRunFailure reports the last run failure only while the batch still reads as active
+// and is the same batch, at the same version, under the same lease the stopped run left. A parked
+// batch already carries its own reason, and a batch another process resumed is that run's work.
+func (service *Service) stuckWriteRunFailure(state store.ProviderState) *ProviderWriteRunFailure {
+	if state.Write == nil {
+		return nil
+	}
+	phase := state.Write.Phase
 	if phase != store.WritePhaseWriting && phase != store.WritePhaseReconciling {
 		return nil
 	}
 	service.mu.RLock()
-	defer service.mu.RUnlock()
-	return service.writeRunFailure
+	stopped := service.writeRunFailure
+	service.mu.RUnlock()
+	if stopped == nil || stopped.batchID != state.Write.ID || stopped.version != state.Write.Version ||
+		!sameProviderOperationLease(stopped.lease, state.Lease) {
+		return nil
+	}
+	return stopped.failure
+}
+
+func sameProviderOperationLease(left, right *store.ProviderOperationLease) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.OwnerID == right.OwnerID && left.Renderer == right.Renderer &&
+		left.Kind == right.Kind && left.ExpiresAt.Equal(right.ExpiresAt)
 }
 
 // writeRunFailure keeps only the public detail of an application error; any other cause reaches
@@ -178,12 +221,16 @@ func (service *Service) ProviderWriteStatus(ctx context.Context) (ProviderWriteS
 			AppInvalidOperation, service.Revision(), errors.New("provider write requires a profile"),
 		)
 	}
-	status, err := service.writeStatus(ctx, nil)
+	state, err := service.profile.ProviderState(ctx)
+	if err != nil {
+		return ProviderWriteStatus{}, mapAppError(err, service.Revision())
+	}
+	status, err := service.writeStatusOf(ctx, state, nil)
 	if err != nil {
 		return ProviderWriteStatus{}, err
 	}
 	status.AuditWarning = service.completionAuditWarning()
-	status.RunFailure = service.stuckWriteRunFailure(status.Phase)
+	status.RunFailure = service.stuckWriteRunFailure(state)
 	if status.Phase == store.WritePhaseReconnectRequired {
 		if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
 			if runtime.writeSource != nil {
@@ -1211,7 +1258,16 @@ func (service *Service) writeStatus(
 	if err != nil {
 		return ProviderWriteStatus{}, mapAppError(err, service.Revision())
 	}
+	return service.writeStatusOf(ctx, state, failure)
+}
+
+func (service *Service) writeStatusOf(
+	ctx context.Context,
+	state store.ProviderState,
+	failure error,
+) (ProviderWriteStatus, error) {
 	status := providerWriteStatusFromState(state)
+	var err error
 	if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
 		clearExpiredProviderWriteOwner(&status, state, runtime.now().UTC().Truncate(time.Millisecond))
 		status.CanCheckOutcome, err = service.canCheckProviderWriteOutcome(ctx, runtime, status)
