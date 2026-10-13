@@ -2612,9 +2612,11 @@ describe('visible view failures', () => {
   it('does not cut off a view change when an edit answers with a view', async () => {
     let answerEdit!: (response: Response) => void
     let answerChange!: (next: ViewProjection) => void
-    const transition = vi.fn(
-      () => new Promise<ViewProjection>((resolve) => (answerChange = resolve)),
-    )
+    let changeSignal: AbortSignal | undefined
+    const transition = vi.fn((...[, signal]: Parameters<MoneyflowClient['transition']>) => {
+      changeSignal = signal
+      return new Promise<ViewProjection>((resolve) => (answerChange = resolve))
+    })
     const edited = projection('v=1', 0, 3, '5')
     const controller = controllerFor(
       clientWith({
@@ -2644,6 +2646,9 @@ describe('visible view failures', () => {
         selection: { kind: 'preserved', value: edited.selection },
       }),
     )
+    // The answer is handled while the view change is still on its way, which it must not abort.
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(changeSignal?.aborted).toBe(false)
     answerChange(projection('v=2', 0, 3, '5'))
 
     await expect(applying).resolves.toBe(true)
@@ -2710,9 +2715,11 @@ describe('visible view failures', () => {
   it('does not cut off a view change when a provider write control answers with a view', async () => {
     let answerWrite!: (response: Response) => void
     let answerChange!: (next: ViewProjection) => void
-    const transition = vi.fn(
-      () => new Promise<ViewProjection>((resolve) => (answerChange = resolve)),
-    )
+    let changeSignal: AbortSignal | undefined
+    const transition = vi.fn((...[, signal]: Parameters<MoneyflowClient['transition']>) => {
+      changeSignal = signal
+      return new Promise<ViewProjection>((resolve) => (answerChange = resolve))
+    })
     const written = projection('v=1', 0, 3, '5')
     const controller = controllerFor(
       clientWith({
@@ -2764,6 +2771,9 @@ describe('visible view failures', () => {
         selection: { kind: 'preserved', value: written.selection },
       }),
     )
+    // The answer is handled while the view change is still on its way, which it must not abort.
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(changeSignal?.aborted).toBe(false)
     answerChange(projection('v=2', 0, 3, '5'))
 
     await expect(applying).resolves.toBe(true)
