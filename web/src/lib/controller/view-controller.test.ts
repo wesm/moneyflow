@@ -2313,6 +2313,48 @@ describe('visible view failures', () => {
     expect(controller.problem).toBeUndefined()
   })
 
+  it('shows the parent view undo returned to when the drilled target is gone', async () => {
+    history.replaceState(null, '', '/moneyflow/?v=1&drill=x')
+    const notice = 'The previous view target is unavailable; returned to its parent.'
+    const parent = {
+      ...projection('v=1', 0, 3, '5'),
+      warnings: [{ code: 'view_notice', detail: notice }],
+    }
+    // The server cannot project the drilled view any more, so a reread of it fails.
+    const stale = new MoneyflowProblem({
+      type: 'about:blank',
+      title: 'Conflict',
+      status: 409,
+      detail: 'The selected view target is no longer available.',
+      code: 'stale_view_target',
+    })
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1&drill=x', 0, 3, '4'))
+      .mockRejectedValue(stale)
+    const mutations = {
+      request: vi.fn(async () =>
+        Response.json({
+          version: '1',
+          revision: '5',
+          canonical_query: 'v=1',
+          projection: parent,
+          pending: parent.pending,
+          selection: { kind: 'preserved', value: parent.selection },
+        }),
+      ),
+    }
+    const controller = controllerFor(clientWith({ view, mutations }), false)
+    await controller.hydrate()
+
+    await expect(controller.editing.undo()).resolves.toBe(true)
+
+    expect(controller.projection?.canonical_query).toBe('v=1')
+    expect(controller.projection?.revision).toBe('5')
+    expect(location.search).toBe('?v=1')
+    expect(flashes().map(({ message }) => message)).toEqual([notice])
+  })
+
   it('ignores a recheck that fails after a newer transition failed', async () => {
     let failRecheck!: (error: unknown) => void
     const view = vi

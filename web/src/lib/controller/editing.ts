@@ -220,8 +220,8 @@ export function createEditingController(options: EditingControllerOptions): Edit
     try {
       const response = await requestProfileJSON<MutationResponse>(options.transport, path, body)
       const selection = response.selection.value as SelectionValue
-      // An answer for another query than the one sent still saved the edit; show() then
-      // rereads the view on screen instead of installing that answer.
+      // An answer can name another query than the one sent, such as the parent view undo
+      // returns to when its drilled target is gone. show() decides which view to install.
       const projection: ViewProjection = {
         ...response.projection,
         revision: response.revision,
@@ -229,7 +229,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
         canonical_query: response.canonical_query,
         selection,
       }
-      const viewWarning = await show(projection, body.selection)
+      const viewWarning = await show(projection, body.query, body.selection)
       const auditWarning = projection.warnings?.find(
         (warning) => warning.code === 'audit_completion_failed',
       )?.detail
@@ -263,12 +263,18 @@ export function createEditingController(options: EditingControllerOptions): Edit
   // A view change that finished while the request ran keeps its own query: reread that view at
   // the new revision rather than reinstall the query the mutation was sent with. The reread
   // takes the response's selection, such as a cleared one, unless the selection changed too.
+  // While the view sent is still on screen, the answer is for it, even under another query.
   async function show(
     projection: ViewProjection,
+    sentQuery: string,
     sent: string | undefined,
   ): Promise<string | undefined> {
     const shown = options.host.current()
-    if (!shown || shown.canonical_query === projection.canonical_query) {
+    if (
+      !shown ||
+      shown.canonical_query === projection.canonical_query ||
+      shown.canonical_query === sentQuery
+    ) {
       options.host.accept(projection)
       return undefined
     }

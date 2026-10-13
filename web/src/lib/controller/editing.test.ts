@@ -236,7 +236,7 @@ describe('browser editing controller', () => {
     expect(controller.state.revision).toBe(8n)
   })
 
-  it('rereads the view when undo answers for the parent of a drilled target that is gone', async () => {
+  it('installs the parent view undo answers with when the drilled target is gone', async () => {
     const drilled = 'v=1&group=merchant&drill=x'
     const host = editingHost(testProjection({ revision: '7', canonical_query: drilled }))
     const accept = vi.spyOn(host, 'accept')
@@ -249,8 +249,9 @@ describe('browser editing controller', () => {
     const [path, rawBody] = vi.mocked(transport.request).mock.calls[0]!
     expect(path).toBe('api/v1/undo')
     expect(JSON.parse(rawBody)).toMatchObject({ query: drilled })
-    expect(accept).not.toHaveBeenCalled()
-    expect(host.refresh).toHaveBeenCalledWith('mfsel1.x', true)
+    expect(accept).toHaveBeenCalledOnce()
+    expect(host.current()?.canonical_query).toBe('v=1&group=merchant')
+    expect(host.refresh).not.toHaveBeenCalled()
     expect(controller.state.phase).toBe('idle')
     expect(controller.state.revision).toBe(8n)
   })

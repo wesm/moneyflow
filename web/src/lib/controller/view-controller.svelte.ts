@@ -222,7 +222,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     },
     host: {
       current: () => projection,
-      accept: acceptProfileProjection,
+      // Undo can answer for the parent of a drilled view that is gone; the address follows it.
+      accept: (next) =>
+        acceptProfileProjection(next, next.canonical_query !== projection?.canonical_query),
       refresh: recheckInternal,
     },
   })
