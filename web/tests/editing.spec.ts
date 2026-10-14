@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import { activeAggregateCount, activeRow, cell, openMoneyflow } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
@@ -230,12 +230,7 @@ test('an undo and a category edit during a closed editor request are both refuse
     await openMoneyflow(page, server)
     await page.keyboard.press('Enter')
     await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
-    const edits: string[] = []
-    page.on('request', (request) => {
-      const url = request.url()
-      if (url.endsWith('/undo')) edits.push('undo')
-      else if (url.endsWith('/mutations')) edits.push(String(request.postDataJSON().action))
-    })
+    const edits = recordEdits(page)
     await page.keyboard.press('m')
     const rename = await renameThenEscape(page)
     await page.keyboard.press('u')
@@ -267,12 +262,7 @@ test('u pressed while a dialog edit saves is refused at once, even behind a slow
     await openMoneyflow(page, server)
     await page.keyboard.press('Enter')
     await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
-    const edits: string[] = []
-    page.on('request', (request) => {
-      const url = request.url()
-      if (url.endsWith('/undo')) edits.push('undo')
-      else if (url.endsWith('/mutations')) edits.push(String(request.postDataJSON().action))
-    })
+    const edits = recordEdits(page)
     await page.keyboard.press('m')
     const rename = await renameThenEscape(page)
     // i holds the shell's queue while its answer is delayed, so u waits behind it.
@@ -318,6 +308,105 @@ test('u pressed while a dialog edit saves is refused at once, even behind a slow
       'transaction.toggle-hidden',
     ])
     await expect(page.getByText(/3 pending edit/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
+/** Opens Manage categories and stages renaming Dining to Dining Out. Returns the manager. */
+async function renameDining(page: Page): Promise<Locator> {
+  await page.keyboard.press('Shift+C')
+  const manager = page.getByRole('dialog', { name: 'Manage categories' })
+  await expect(manager.getByLabel('Filter categories')).toBeFocused()
+  await page.keyboard.type('din')
+  await expect(manager.getByRole('listbox').getByRole('option')).toHaveCount(1)
+  await page.keyboard.press('ArrowDown')
+  await expect(manager.getByRole('listbox')).toBeFocused()
+  await page.keyboard.press('r')
+  await expect(manager.getByRole('textbox', { name: 'Name' })).toBeFocused()
+  await page.keyboard.type(' Out')
+  await page.keyboard.press('Enter')
+  return manager
+}
+
+/** Presses Esc until the manager closes: it steps out of an open step, then clears the filter. */
+async function closeManager(page: Page, manager: Locator): Promise<void> {
+  await expect(async () => {
+    await page.keyboard.press('Escape')
+    await expect(manager).toBeHidden({ timeout: 250 })
+  }).toPass()
+}
+
+/** Records the edits the server is sent, in order: mutation actions and undo. */
+function recordEdits(page: Page): string[] {
+  const edits: string[] = []
+  page.on('request', (request) => {
+    const url = request.url()
+    if (url.endsWith('/undo')) edits.push('undo')
+    else if (url.endsWith('/mutations')) edits.push(String(request.postDataJSON().action))
+  })
+  return edits
+}
+
+test('a category edit made while u waits behind a slow key is refused', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    const edits = recordEdits(page)
+    await page.keyboard.press('h')
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    // i holds the shell's queue while its answer is delayed, so u waits behind it.
+    const information = await holdRequest(page, 'transaction-information')
+    await page.keyboard.press('i')
+    await information.sent
+    await page.keyboard.press('u')
+    const manager = await renameDining(page)
+    await expect.soft(manager.getByText(WAIT)).toBeVisible()
+    await closeManager(page, manager)
+    const undone = page.waitForRequest('**/api/v1/profiles/*/undo')
+    information.release()
+    await undone
+    // u undoes the hide made before it was pressed, not an edit made while it waited.
+    expect(edits).toEqual(['transaction.toggle-hidden', 'undo'])
+    await expect(page.getByRole('status').filter({ hasText: /^Undid / })).toHaveText(
+      'Undid hide · 1 transaction · Redo U',
+    )
+  } finally {
+    await server.stop()
+  }
+})
+
+test('u pressed while a category edit could save, behind a queued key, never undoes it', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    const edits = recordEdits(page)
+    await page.keyboard.press('h')
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    const information = await holdRequest(page, 'transaction-information')
+    await page.keyboard.press('i')
+    await information.sent
+    // Nothing is undone yet, so this redo waits behind i and then has nothing to redo.
+    await page.keyboard.press('Shift+U')
+    const category = await holdRequest(page, 'mutations')
+    const manager = await renameDining(page)
+    await expect.soft(manager.getByText(WAIT)).toBeVisible()
+    await closeManager(page, manager)
+    await page.keyboard.press('u')
+    category.release()
+    const undone = page.waitForRequest('**/api/v1/profiles/*/undo')
+    information.release()
+    await undone
+    expect(edits).toEqual(['transaction.toggle-hidden', 'undo'])
+    await expect(page.getByRole('status').filter({ hasText: /^Undid / })).toHaveText(
+      'Undid hide · 1 transaction · Redo U',
+    )
   } finally {
     await server.stop()
   }

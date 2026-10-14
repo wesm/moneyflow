@@ -153,10 +153,11 @@ show no message; the staged values in the table and the pending-edits card alrea
 that edit, so `h` then `u`, or `u` then `U`, works however quickly you press them. A key whose
 action is unavailable says why, such as `No pending edit to undo.` or `No undone edit to redo.`
 
-Edits from dialogs do not wait. An edit confirmed in a dialog while another edit is still saving
-is not sent, and the dialog shows `Wait for the previous edit to finish, then try again.` An
-editing key pressed while a dialog's edit is still saving, such as after closing an editor with
-Esc before its change finished, shows the same message and does nothing.
+Edits from dialogs do not wait. An edit confirmed in a dialog while another edit is still saving,
+or while an editing key is still waiting for its turn, is not sent, and the dialog shows
+`Wait for the previous edit to finish, then try again.` An editing key pressed while a dialog's
+edit is still saving, such as after closing an editor with Esc before its change finished, shows
+the same message and does nothing.
 
 ### Manage categories and groups
 
