@@ -1053,26 +1053,34 @@ func (profiles holdRefusingProfiles) Acquire(
 }
 
 // A profile can become unavailable between a call and the work it starts. The work then fails, and
-// the only hold ever taken is the call's own, which the call releases.
+// the only hold ever taken is the call's own, which the call releases. Each call is one the work
+// would otherwise finish, so only the refused hold can fail it.
 func TestSupervisedWorkFailsWhenItsProfileCannotBeHeld(t *testing.T) {
 	tests := map[string]struct {
 		tool      string
-		arguments map[string]any
-		state     func(*Supervisor) (AttemptState, error)
+		arguments func(*testing.T, *app.Service) map[string]any
+		status    func(*Supervisor) (AttemptStatus, error)
 	}{
 		"refresh": {
-			tool: "refresh_data",
-			state: func(supervisor *Supervisor) (AttemptState, error) {
-				status, err := supervisor.RefreshStatus("")
-				return status.State, err
+			tool:      "refresh_data",
+			arguments: func(*testing.T, *app.Service) map[string]any { return nil },
+			status: func(supervisor *Supervisor) (AttemptStatus, error) {
+				return supervisor.RefreshStatus("")
 			},
 		},
 		"reconcile": {
-			tool:      "stop_and_reconcile",
-			arguments: map[string]any{"expected_revision": "1", "batch_version": "1"},
-			state: func(supervisor *Supervisor) (AttemptState, error) {
-				status, err := supervisor.ReconcileStatus("")
-				return status.State, err
+			tool: "stop_and_reconcile",
+			// A separate server, which can hold the profile, leaves a batch that only a reconcile
+			// can finish, and closes before the reconcile starts.
+			arguments: func(t *testing.T, service *app.Service) map[string]any {
+				t.Helper()
+				client, closeServer := connectWriteTestServer(t, service, true)
+				commitRejectedDeletion(t, client, service)
+				closeServer()
+				return reconcileArguments(t, service, map[string]any{})
+			},
+			status: func(supervisor *Supervisor) (AttemptStatus, error) {
+				return supervisor.ReconcileStatus("")
 			},
 		},
 	}
@@ -1080,17 +1088,22 @@ func TestSupervisedWorkFailsWhenItsProfileCannotBeHeld(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			service, _, closeProfile := providerTestService(t, 1, "monarch")
 			defer closeProfile()
+			arguments := test.arguments(t, service)
 			profiles := holdRefusingProfiles{testProfiles: newTestProfiles(
 				t, map[string]*app.Service{"profile-a": service}, "profile-a")}
 			supervisor := profiles.entries["profile-a"].Supervisor
 			client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
 
-			callRefreshTool(t, client, test.tool, test.arguments)
+			callRefreshTool(t, client, test.tool, arguments)
 
+			var status AttemptStatus
 			require.Eventually(t, func() bool {
-				state, err := test.state(supervisor)
-				return err == nil && state == AttemptFailed
+				var err error
+				status, err = test.status(supervisor)
+				return err == nil && status.State != AttemptRunning
 			}, 3*time.Second, 10*time.Millisecond)
+			assert.Equal(t, AttemptFailed, status.State)
+			assert.Equal(t, "mcp_internal_error", status.Code)
 			assert.Zero(t, profiles.leases.Load())
 		})
 	}
