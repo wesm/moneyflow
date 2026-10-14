@@ -60,6 +60,11 @@ It starts two servers on `127.0.0.1` and stops both when you press Ctrl-C:
   It forwards `/api/`, `/openapi.json`, `/openapi.yaml`, and `/demo/` to Go.
 - [air](https://github.com/air-verse/air) builds and runs the Go server on port 8081.
 
+`make dev` refuses to start if either port is in use. If either server exits, it stops the
+other and exits with an error. air itself keeps running when the Go server crashes, and
+rebuilds on the next change. `scripts/dev.sh` runs both servers; `make dev-backend` and
+`make dev-web` run one each.
+
 Open the `Moneyflow web:` URL that the Go server prints, for example
 `http://127.0.0.1:5173/p/profile_…/`. `http://127.0.0.1:5173/` shows the profile chooser.
 

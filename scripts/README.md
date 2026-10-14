@@ -1,8 +1,10 @@
-# Release scripts
+# Scripts
 
 - `release-build.sh` builds the six Go archives and checksums without publishing.
 - `install.sh` installs a selected release on Linux or macOS.
 - `install.ps1` installs a selected release on Windows.
+- `dev.sh` runs the `make dev` servers. See
+  [live development](../docs/development/developing.md#live-development).
 
 See [releases](../docs/development/releases.md) for packaging and publication.
 The Go tests in this directory exercise extracted binaries and installers with temporary

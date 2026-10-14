@@ -13,6 +13,7 @@ DEV_WEB_PORT ?= 5173
 DEV_BACKEND_PORT ?= 8081
 DEV_HOME := $(CURDIR)/tmp/dev-home
 DEV_URL := http://127.0.0.1:$(DEV_WEB_PORT)/
+DEV_ENV = DEV_WEB_PORT=$(DEV_WEB_PORT) DEV_BACKEND_PORT=$(DEV_BACKEND_PORT) DEV_HOME="$(DEV_HOME)"
 ifeq ($(OS),Windows_NT)
 BINARY := bin/moneyflow.exe
 endif
@@ -192,12 +193,15 @@ verify-web: ## Run every browser, API, and embedded-asset check
 	$(MAKE) web-check web-test web-audit web-embed-check test-editing-go web-e2e
 	go test ./internal/api -run 'Test(Projection|DuplicateProjection)Performance100K' -count=1
 
-dev: web-install web-embed dev-profile ## Run Go under air behind Vite with live reload
+# Run the steps in order even when MAKEFLAGS includes -j, as verify-web does.
+dev: ## Run Go under air behind Vite with live reload
+	@$(MAKE) web-install
+	@$(MAKE) web-embed dev-profile
 	@printf '\n%s\n%s\n%s\n\n' \
 		'make dev: open the "Moneyflow web:" URL that the backend prints when it starts.' \
 		'$(DEV_URL) shows the profile chooser. Logs are in tmp/logs.' \
 		'Press Ctrl-C to stop both servers.'
-	@$(MAKE) -j2 dev-backend dev-web
+	@$(DEV_ENV) bash scripts/dev.sh
 
 dev-profile: ## Seed the synthetic dev profile in tmp/dev-home if it is missing
 	@mkdir -p -m 700 tmp
@@ -209,20 +213,15 @@ dev-reset: ## Delete the dev profile; the next make dev seeds a fresh one
 	rm -rf tmp/dev-home
 
 dev-backend: dev-profile ## Run only the Go server under air; needs web-embed once
-	@mkdir -p tmp/logs
-	MONEYFLOW_HOME="$(DEV_HOME)" air -c .air.toml -- web --open=false --profile Moneyflow \
-		--listen 127.0.0.1:$(DEV_BACKEND_PORT) --external-url $(DEV_URL) 2>&1 | tee tmp/logs/backend.log
+	@$(DEV_ENV) bash scripts/dev.sh backend
 
 dev-web: ## Run only the Vite dev server
-	@mkdir -p -m 700 tmp
-	@mkdir -p tmp/logs
-	MONEYFLOW_DEV_WEB_PORT=$(DEV_WEB_PORT) MONEYFLOW_DEV_BACKEND_PORT=$(DEV_BACKEND_PORT) \
-		bun run --cwd web dev 2>&1 | tee tmp/logs/web.log
+	@$(DEV_ENV) bash scripts/dev.sh web
 
 clean: ## Remove build, test, and documentation outputs; keeps tmp/dev-home
-	rm -rf bin coverage.out .cache/golangci-lint .cache/web-e2e .cache/ui-harness internal/web/dist \
-		web/dist web/.vite web/coverage web/test-results web/playwright-report $(RELEASE_DIR) \
-		docs/.site-work site tmp/air tmp/logs
+	rm -rf -- bin coverage.out .cache/golangci-lint .cache/web-e2e .cache/ui-harness \
+		internal/web/dist web/dist web/.vite web/coverage web/test-results web/playwright-report \
+		"$(RELEASE_DIR)" docs/.site-work site tmp/air tmp/logs
 
 .PHONY: test-amazon test-amazon-e2e docs-check
 test-amazon: web-embed ## Run the Amazon import tests
