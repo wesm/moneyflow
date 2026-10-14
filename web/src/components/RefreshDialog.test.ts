@@ -147,14 +147,20 @@ describe('RefreshDialog', () => {
     expect(controller.dismissConfirmation).toHaveBeenCalledOnce()
   })
 
-  it('announces progress at most every ten seconds', async () => {
+  it('shows progress at once and announces it at most every ten seconds', async () => {
     vi.useFakeTimers({ now })
-    const controller = open({})
-    controller.state.status!.progress = { fetched: 1, total: 40 }
-    render(RefreshDialog, { controller })
+    const progressed = (fetched: number) => {
+      const controller = open({})
+      controller.state.status!.progress = { fetched, total: 40 }
+      return controller
+    }
+    const view = render(RefreshDialog, { controller: progressed(1) })
     const live = screen.getByTestId('refresh-live')
+    const count = () => document.querySelector('.mf-refresh__count')?.textContent?.trim()
     expect(live.textContent).toBe('Fetched 1 of 40')
-    controller.state.status!.progress = { fetched: 30, total: 40 }
+
+    await view.rerender({ controller: progressed(30) })
+    expect(count()).toBe('Fetched 30 of 40')
     await vi.advanceTimersByTimeAsync(5_000)
     expect(live.textContent).toBe('Fetched 1 of 40')
     await vi.advanceTimersByTimeAsync(5_000)
