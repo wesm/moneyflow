@@ -21,7 +21,9 @@ import (
 
 const (
 	defaultRefreshLeaseDuration = 2 * time.Minute
-	defaultConfirmationTTL      = 10 * time.Minute
+	// ProviderConfirmationTTL is how long a parked deletion candidate stays confirmable when its
+	// runtime sets no ConfirmationTTL.
+	ProviderConfirmationTTL = 10 * time.Minute
 )
 
 // ProviderRuntime supplies the process-local dependencies for provider refresh orchestration.
@@ -199,7 +201,7 @@ func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
 		runtime.LeaseDuration = defaultRefreshLeaseDuration
 	}
 	if runtime.ConfirmationTTL == 0 {
-		runtime.ConfirmationTTL = defaultConfirmationTTL
+		runtime.ConfirmationTTL = ProviderConfirmationTTL
 	}
 	if runtime.HeartbeatInterval == 0 {
 		runtime.HeartbeatInterval = runtime.LeaseDuration / 3

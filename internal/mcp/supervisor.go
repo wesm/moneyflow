@@ -10,6 +10,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/provider"
 )
 
 // AttemptState is one process-local supervised operation phase.
@@ -63,29 +64,67 @@ type AttemptStatus struct {
 	StartedAt         time.Time
 	FinishedAt        time.Time
 	ConfirmationToken string
+	// Err is the error a refresh's work returned, or nil.
+	Err error
 }
 
-// Supervisor owns explicit MCP background work for one profile process. It is not a scheduler.
+// errWorkPanicked replaces the result of supervised work that panicked.
+var errWorkPanicked = errors.New("moneyflow background work stopped unexpectedly")
+
+// Supervisor owns explicit MCP background work for one profile. It is not a scheduler.
 type Supervisor struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	once   sync.Once
-	wait   sync.WaitGroup
-	clock  func() time.Time
-	random io.Reader
+	ctx       context.Context
+	cancel    context.CancelFunc
+	once      sync.Once
+	wait      sync.WaitGroup
+	clock     func() time.Time
+	random    io.Reader
+	onFailure func(error)
 	// logger records background failures no tool call returns; nil discards them.
 	logger *slog.Logger
 
 	mu           sync.Mutex
 	closed       bool
 	writeWorkers int
-	refreshNow   *AttemptStatus
+	refreshNow   *refreshAttempt
 	reconcileNow *AttemptStatus
 }
 
-func newSupervisor(clock func() time.Time, random io.Reader) *Supervisor {
-	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // Close owns cancellation
-	return &Supervisor{ctx: ctx, cancel: cancel, clock: clock, random: random}
+// refreshAttempt is one refresh and the channel its waiters watch. A waiter keeps the attempt it
+// joined, so it reads that attempt's outcome even after a newer refresh replaces it.
+type refreshAttempt struct {
+	AttemptStatus
+	done chan struct{} // closed when the attempt stops running
+}
+
+// NewSupervisor creates a supervisor whose work stops when parent ends or Close runs. A panic in
+// supervised work fails that attempt; onFailure, when set, receives the error.
+func NewSupervisor(
+	parent context.Context,
+	clock func() time.Time,
+	random io.Reader,
+	onFailure func(error),
+) *Supervisor {
+	ctx, cancel := context.WithCancel(parent)
+	return &Supervisor{ctx: ctx, cancel: cancel, clock: clock, random: random, onFailure: onFailure}
+}
+
+// recovered runs one unit of supervised work and turns a panic into errWorkPanicked.
+func recovered[T any](
+	supervisor *Supervisor,
+	run func(context.Context) (T, error),
+) (result T, err error) {
+	defer func() {
+		if recover() == nil {
+			return
+		}
+		var zero T
+		result, err = zero, errWorkPanicked
+		if supervisor.onFailure != nil {
+			supervisor.onFailure(err)
+		}
+	}()
+	return run(supervisor.ctx)
 }
 
 // ReserveWrite authoritatively reserves provider work through the application and transfers any
@@ -135,7 +174,7 @@ func (supervisor *Supervisor) ReserveWrite(
 	supervisor.wait.Done()
 	go func() {
 		defer supervisor.wait.Done()
-		if _, err := execution.Run(supervisor.ctx); err != nil {
+		if _, err := recovered(supervisor, execution.Run); err != nil {
 			supervisor.logWriteStopped(err)
 		}
 		supervisor.mu.Lock()
@@ -172,7 +211,8 @@ func (supervisor *Supervisor) WriteActive() bool {
 	return supervisor.writeWorkers > 0
 }
 
-// StartRefresh starts one server-owned explicit refresh or returns the active attempt.
+// StartRefresh starts one supervised refresh or returns the attempt that is running or waits for
+// confirmation.
 func (supervisor *Supervisor) StartRefresh(
 	run func(context.Context) (app.ProviderRefreshResult, error),
 ) (AttemptStatus, error) {
@@ -184,10 +224,11 @@ func (supervisor *Supervisor) StartRefresh(
 		supervisor.mu.Unlock()
 		return AttemptStatus{}, context.Canceled
 	}
+	supervisor.expireRefreshLocked()
 	if supervisor.refreshNow != nil &&
 		(supervisor.refreshNow.State == AttemptRunning ||
 			supervisor.refreshNow.State == AttemptConfirmationRequired) {
-		status := *supervisor.refreshNow
+		status := supervisor.refreshNow.AttemptStatus
 		supervisor.mu.Unlock()
 		return status, nil
 	}
@@ -196,33 +237,35 @@ func (supervisor *Supervisor) StartRefresh(
 		supervisor.mu.Unlock()
 		return AttemptStatus{}, err
 	}
-	status := AttemptStatus{
-		ID: id, State: AttemptRunning,
-		StartedAt: supervisor.clock().UTC().Truncate(time.Millisecond),
+	attempt := &refreshAttempt{
+		AttemptStatus: AttemptStatus{
+			ID: id, State: AttemptRunning,
+			StartedAt: supervisor.clock().UTC().Truncate(time.Millisecond),
+		},
+		done: make(chan struct{}),
 	}
-	stored := status
-	supervisor.refreshNow = &stored
+	supervisor.refreshNow = attempt
+	status := attempt.AttemptStatus
 	supervisor.wait.Add(1)
 	supervisor.mu.Unlock()
 	go func() {
 		defer supervisor.wait.Done()
-		result, runErr := run(supervisor.ctx)
-		supervisor.finishRefresh(id, result, runErr)
+		result, runErr := recovered(supervisor, run)
+		supervisor.finishRefresh(attempt, result, runErr)
 	}()
 	return status, nil
 }
 
+// finishRefresh records the attempt's outcome, wakes its waiters and returns the outcome. A running
+// attempt is never replaced, so the attempt is still the current refresh here.
 func (supervisor *Supervisor) finishRefresh(
-	id string,
+	attempt *refreshAttempt,
 	result app.ProviderRefreshResult,
 	err error,
-) {
+) AttemptStatus {
 	supervisor.mu.Lock()
 	defer supervisor.mu.Unlock()
-	if supervisor.refreshNow == nil || supervisor.refreshNow.ID != id {
-		return
-	}
-	status := supervisor.refreshNow
+	status := &attempt.AttemptStatus
 	status.Revision = result.Revision
 	status.Generation = result.Generation
 	if status.Revision == 0 {
@@ -238,6 +281,9 @@ func (supervisor *Supervisor) finishRefresh(
 	status.FinishedAt = supervisor.clock().UTC().Truncate(time.Millisecond)
 	status.ConfirmationToken = result.Status.ConfirmationToken
 	status.State, status.Code = attemptOutcome(err, status.ConfirmationToken)
+	status.Err = err
+	close(attempt.done)
+	return *status
 }
 
 // RefreshStatus returns the named attempt or the current retained refresh when ID is empty.
@@ -247,14 +293,46 @@ func (supervisor *Supervisor) RefreshStatus(id string) (AttemptStatus, error) {
 	}
 	supervisor.mu.Lock()
 	defer supervisor.mu.Unlock()
+	supervisor.expireRefreshLocked()
 	if supervisor.refreshNow == nil || (id != "" && supervisor.refreshNow.ID != id) {
 		return AttemptStatus{}, ErrAttemptNotFound
 	}
-	return *supervisor.refreshNow, nil
+	return supervisor.refreshNow.AttemptStatus, nil
+}
+
+// WaitRefresh waits until the named refresh stops running and returns it; a refresh that waits
+// for confirmation has stopped. The refresh must be the current one when the wait starts. A newer
+// refresh that replaces it during the wait does not change the result. It returns ctx.Err() when
+// ctx ends first.
+func (supervisor *Supervisor) WaitRefresh(ctx context.Context, id string) (AttemptStatus, error) {
+	if supervisor == nil {
+		return AttemptStatus{}, ErrAttemptNotFound
+	}
+	supervisor.mu.Lock()
+	supervisor.expireRefreshLocked()
+	attempt := supervisor.refreshNow
+	if attempt == nil || attempt.ID != id {
+		supervisor.mu.Unlock()
+		return AttemptStatus{}, ErrAttemptNotFound
+	}
+	for {
+		status, done := attempt.AttemptStatus, attempt.done
+		supervisor.mu.Unlock()
+		if status.State != AttemptRunning {
+			return status, nil
+		}
+		select {
+		case <-ctx.Done():
+			return AttemptStatus{}, ctx.Err()
+		case <-done:
+		}
+		supervisor.mu.Lock()
+	}
 }
 
 // ConfirmRefresh consumes one matching process-local candidate and runs its authoritative fold
-// under the server lifetime. Close therefore waits for the fold instead of racing it.
+// under the server lifetime. Close therefore waits for the fold instead of racing it. It returns
+// the fold's outcome itself, because a new refresh can replace this one as soon as the fold ends.
 func (supervisor *Supervisor) ConfirmRefresh(
 	id string,
 	token string,
@@ -264,25 +342,43 @@ func (supervisor *Supervisor) ConfirmRefresh(
 		return AttemptStatus{}, ErrAttemptNotFound
 	}
 	supervisor.mu.Lock()
-	if supervisor.closed || supervisor.refreshNow == nil || supervisor.refreshNow.ID != id ||
-		supervisor.refreshNow.State != AttemptConfirmationRequired ||
-		supervisor.refreshNow.ConfirmationToken == "" ||
-		supervisor.refreshNow.ConfirmationToken != token {
+	supervisor.expireRefreshLocked()
+	attempt := supervisor.refreshNow
+	if supervisor.closed || attempt == nil || attempt.ID != id ||
+		attempt.State != AttemptConfirmationRequired ||
+		attempt.ConfirmationToken == "" || attempt.ConfirmationToken != token {
 		supervisor.mu.Unlock()
 		return AttemptStatus{}, ErrAttemptNotFound
 	}
-	supervisor.refreshNow.State = AttemptRunning
-	supervisor.refreshNow.ConfirmationToken = ""
+	attempt.State = AttemptRunning
+	attempt.ConfirmationToken = ""
+	attempt.Err = nil
+	attempt.done = make(chan struct{})
 	supervisor.wait.Add(1)
 	supervisor.mu.Unlock()
-	result, err := run(supervisor.ctx)
-	supervisor.finishRefresh(id, result, err)
+	result, err := recovered(supervisor, run)
+	status := supervisor.finishRefresh(attempt, result, err)
 	supervisor.wait.Done()
-	status, statusErr := supervisor.RefreshStatus(id)
-	if statusErr != nil {
-		return AttemptStatus{}, statusErr
-	}
 	return status, err
+}
+
+// expireRefreshLocked fails a parked refresh once the service's default confirmation lifetime
+// has passed since it parked. The service has dropped the candidate by then, so its stale token
+// cannot keep a new refresh from starting.
+func (supervisor *Supervisor) expireRefreshLocked() {
+	attempt := supervisor.refreshNow
+	if attempt == nil || attempt.State != AttemptConfirmationRequired ||
+		supervisor.clock().Before(attempt.FinishedAt.Add(app.ProviderConfirmationTTL)) {
+		return
+	}
+	attempt.State = AttemptFailed
+	attempt.Code = string(app.AppProviderConfirmationInvalid)
+	attempt.ConfirmationToken = ""
+	attempt.Refresh.ConfirmationToken = ""
+	attempt.Err = &app.AppError{
+		Code: app.AppProviderConfirmationInvalid, CurrentRevision: attempt.Revision,
+		Detail: app.ProviderErrorDetail(provider.CodeConfirmationInvalid),
+	}
 }
 
 // StartReconcile starts one server-owned stop-and-reconcile attempt or returns the active one.
@@ -330,7 +426,7 @@ func (supervisor *Supervisor) StartReconcile(
 	supervisor.mu.Unlock()
 	go func() {
 		defer supervisor.wait.Done()
-		result, runErr := run(supervisor.ctx)
+		result, runErr := recovered(supervisor, run)
 		supervisor.finishReconcile(id, result, runErr)
 	}()
 	return status, nil
@@ -410,7 +506,7 @@ func (supervisor *Supervisor) ConfirmReconcile(
 	supervisor.reconcileNow.ConfirmationToken = ""
 	supervisor.wait.Add(1)
 	supervisor.mu.Unlock()
-	result, err := run(supervisor.ctx)
+	result, err := recovered(supervisor, run)
 	supervisor.finishReconcile(id, result, err)
 	supervisor.wait.Done()
 	status, statusErr := supervisor.ReconcileStatus(id)
