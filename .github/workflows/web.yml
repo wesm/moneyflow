@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -34,11 +34,36 @@ jobs:
         with:
           bun-version: 1.3.14
 
+      - name: Cache Bun packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install frozen frontend dependencies
         run: make web-install
 
+      - name: Read pinned Playwright version
+        id: playwright
+        run: |
+          version="$(jq -er '.devDependencies["@playwright/test"]' web/package.json)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+
       - name: Install pinned Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: bun run --cwd web playwright install --with-deps chromium firefox webkit
+
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: bun run --cwd web playwright install-deps chromium firefox webkit
 
       - name: Check frontend and run browser workflows
         env:
