@@ -982,13 +982,131 @@ func TestSecondReservationWhileAWriteRunsHoldsNothingExtra(t *testing.T) {
 		"a second reservation must not start a worker that has nothing to run")
 }
 
-func TestReleasingAnUnrunWriteGivesTheProfileBack(t *testing.T) {
-	var released atomic.Int32
-	held := heldExecution{release: func() { released.Add(1) }}
+// resumeHookProfile runs a function right after the store resumes a provider write, which is the
+// last store call a reservation makes before it hands back its execution.
+type resumeHookProfile struct {
+	store.Profile
+	afterResume atomic.Pointer[func()]
+}
 
-	held.Release()
+func (profile *resumeHookProfile) ResumeProviderWrite(
+	ctx context.Context,
+	request store.ResumeProviderWriteRequest,
+) (store.WriteBatch, error) {
+	batch, err := profile.Profile.ResumeProviderWrite(ctx, request)
+	if hook := profile.afterResume.Swap(nil); hook != nil {
+		(*hook)()
+	}
+	return batch, err
+}
 
-	assert.Equal(t, int32(1), released.Load())
+// A supervisor that closes after a reservation has succeeded starts no worker. It releases the
+// execution, which gives back the profile and the reservation.
+func TestSupervisorClosedDuringAReservationGivesTheProfileBack(t *testing.T) {
+	var hooked *resumeHookProfile
+	service, source, closeProfile := providerTestServiceOn(t, 1, "monarch",
+		func(profile store.Profile) store.Profile {
+			hooked = &resumeHookProfile{Profile: profile}
+			return hooked
+		})
+	defer closeProfile()
+	source.deleteFailure = provider.NewWriteFailure(provider.WriteResponseIncomplete)
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	supervisor := profiles.entries["profile-a"].Supervisor
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+	revision := stageDeletion(t, client, service)
+	callRefreshTool(t, client, "commit_changes",
+		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	status := awaitParkedWrite(t, service, profiles)
+	ended, end := context.WithCancel(t.Context())
+	end()
+	// Close marks the supervisor closed before it waits, and the ended context stops that wait.
+	closeSupervisor := func() { _ = supervisor.Close(ended) }
+	hooked.afterResume.Store(&closeSupervisor)
+
+	result := callRefreshToolResult(t, client, "resume_commit",
+		map[string]any{"batch_version": strconv.FormatUint(status.Version, 10)})
+
+	require.True(t, result.IsError)
+	assert.Zero(t, profiles.leases.Load(), "the closed supervisor kept the profile held")
+	closing, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	assert.NoError(t, supervisor.Close(closing), "Close is still waiting for the reservation")
+	_, again, err := service.ReserveProviderWriteExecution(t.Context(), 0)
+	require.NoError(t, err)
+	require.NotNil(t, again, "the closed supervisor kept the write reserved")
+	again.Release()
+}
+
+// holdRefusingProfiles resolves the profile a call names, but refuses the Acquire by ID that Hold
+// makes for the work a call starts.
+type holdRefusingProfiles struct{ testProfiles }
+
+func (profiles holdRefusingProfiles) Acquire(
+	ctx context.Context,
+	profile string,
+) (Dependencies, func(), error) {
+	if profile != "" {
+		return Dependencies{}, nil, UnavailableError{Reason: "profile_busy: held"}
+	}
+	return profiles.testProfiles.Acquire(ctx, profile)
+}
+
+// A profile can become unavailable between a call and the work it starts. The work then fails, and
+// the only hold ever taken is the call's own, which the call releases.
+func TestSupervisedWorkFailsWhenItsProfileCannotBeHeld(t *testing.T) {
+	tests := map[string]struct {
+		tool      string
+		arguments map[string]any
+		state     func(*Supervisor) (AttemptState, error)
+	}{
+		"refresh": {
+			tool: "refresh_data",
+			state: func(supervisor *Supervisor) (AttemptState, error) {
+				status, err := supervisor.RefreshStatus("")
+				return status.State, err
+			},
+		},
+		"reconcile": {
+			tool:      "stop_and_reconcile",
+			arguments: map[string]any{"expected_revision": "1", "batch_version": "1"},
+			state: func(supervisor *Supervisor) (AttemptState, error) {
+				status, err := supervisor.ReconcileStatus("")
+				return status.State, err
+			},
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			service, _, closeProfile := providerTestService(t, 1, "monarch")
+			defer closeProfile()
+			profiles := holdRefusingProfiles{testProfiles: newTestProfiles(
+				t, map[string]*app.Service{"profile-a": service}, "profile-a")}
+			supervisor := profiles.entries["profile-a"].Supervisor
+			client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+
+			callRefreshTool(t, client, test.tool, test.arguments)
+
+			require.Eventually(t, func() bool {
+				state, err := test.state(supervisor)
+				return err == nil && state == AttemptFailed
+			}, 3*time.Second, 10*time.Millisecond)
+			assert.Zero(t, profiles.leases.Load())
+		})
+	}
+}
+
+func TestWriteReservationFailsWhenItsProfileCannotBeHeld(t *testing.T) {
+	service, _, closeProfile := providerTestService(t, 1, "monarch")
+	defer closeProfile()
+	profiles := holdRefusingProfiles{testProfiles: newTestProfiles(
+		t, map[string]*app.Service{"profile-a": service}, "profile-a")}
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+
+	result := callRefreshToolResult(t, client, "resume_commit", map[string]any{"batch_version": "1"})
+
+	require.True(t, result.IsError)
+	assert.Zero(t, profiles.leases.Load())
 }
 
 func TestReconcileHoldsItsProfileAfterTheToolCallReturns(t *testing.T) {
