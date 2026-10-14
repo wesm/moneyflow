@@ -430,11 +430,7 @@ func loadRowsError(rows *sql.Rows) error {
 }
 
 // loadFailure maps a failed snapshot read. Data the store cannot read back is corrupt, but a load
-// its context stopped, such as a reload past its own time limit, says nothing about the data.
+// its context stopped, such as a reload past its own time limit, is a storage failure.
 func loadFailure(err error) error {
-	wrapped := fmt.Errorf("load profile: %w", err)
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return store.NewError(store.CodeStoreError, wrapped)
-	}
-	return mapDriverError(wrapped, store.CodeStoreCorrupt)
+	return mapDriverError(fmt.Errorf("load profile: %w", err), store.CodeStoreCorrupt)
 }
