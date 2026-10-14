@@ -165,6 +165,80 @@ func TestProviderDeletionConfirmationUsesOpaqueProtectedSecondRequest(t *testing
 	assert.Equal(t, string(CodeProviderConfirmationInvalid), problem.Code)
 }
 
+func TestProviderDeletionConfirmationIncludesConcurrentEditRevision(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 10)
+	fixture.source.setSnapshot(apiProviderSnapshot(t, fixture.now.Add(time.Minute), 5))
+	paths, err := home.ResolveRoot(fixture.root, nil, "")
+	require.NoError(t, err)
+	otherProfile, err := sqlite.Open(t.Context(), paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, otherProfile.Close()) })
+	other, err := app.NewProfileService(t.Context(), otherProfile)
+	require.NoError(t, err)
+	projection, err := other.ProjectView(app.DefaultViewState(), app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	require.NotEmpty(t, projection.AggregateRows)
+
+	started, release := make(chan struct{}), make(chan struct{})
+	releaseFetch := sync.OnceFunc(func() { close(release) })
+	defer releaseFetch()
+	fixture.source.blockNextFetch(started, release)
+	body := ProviderRefreshBody{
+		Version: ProviderSchemaVersion, Manual: true, Query: "v=1",
+		Selection: string(app.EmptySelection()), Window: Window{Limit: 200},
+	}
+	responseDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		responseDone <- requestProtectedJSON(t, fixture.server, "/api/v1/provider/refresh", body)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("provider fetch did not start")
+	}
+
+	_, err = other.Mutate(t.Context(), app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: 1, State: app.DefaultViewState(),
+		Selection: app.EmptySelection(),
+		Target: &app.RowTarget{
+			Kind: app.IdentityAggregate, Identity: projection.AggregateRows[0].Identity,
+		},
+		Input: app.EditInput{Scope: app.EditScopeEntity, Label: "Updated Merchant"},
+	})
+	require.NoError(t, err)
+	polled := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.Equal(t, http.StatusOK, polled.Code, polled.Body.String())
+	var status ProviderStatusResponse
+	require.NoError(t, json.Unmarshal(polled.Body.Bytes(), &status))
+	require.Equal(t, "2", status.Revision)
+	require.True(t, status.Refreshing)
+
+	releaseFetch()
+	response := <-responseDone
+	require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	require.Equal(t, string(CodeProviderDeletionConfirmationRequired), problem.Code)
+	require.NotNil(t, problem.Provider)
+	assert.Equal(t, "2", problem.Provider.Revision)
+	assert.Equal(t, "1", problem.Provider.Generation)
+	require.NotEmpty(t, problem.Provider.ConfirmationToken)
+	assert.Equal(t, 5, problem.Provider.Summary.RemovedTransactions)
+
+	// The parked candidate must be confirmable without another provider download.
+	fixture.source.failNextFetch(apiFetchPanics, nil)
+	confirmed := requestProtectedJSON(t, fixture.server, "/api/v1/provider/refresh/confirm", ProviderConfirmationBody{
+		ProviderRefreshBody: body, ConfirmationToken: problem.Provider.ConfirmationToken,
+	})
+	require.Equal(t, http.StatusOK, confirmed.Code, confirmed.Body.String())
+	var result ProviderRefreshResponse
+	require.NoError(t, json.Unmarshal(confirmed.Body.Bytes(), &result))
+	assert.Equal(t, "2", result.Generation)
+	assert.Equal(t, 5, result.Status.Summary.ImportedTransactions)
+}
+
 func TestProviderTypesNeverExposeRemoteRowsOrIdentifiers(t *testing.T) {
 	t.Parallel()
 

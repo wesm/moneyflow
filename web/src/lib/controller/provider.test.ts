@@ -929,6 +929,52 @@ describe('provider controller', () => {
     },
   )
 
+  it.each(['success', 'later failure'] as const)(
+    'clears a continued failure when a watched refresh saves data, then polls %s during reread',
+    async (outcome) => {
+      const current = testProjection({ revision: '1', capabilities: [capability(true)] })
+      const host = hostStub(current)
+      const reread = Promise.withResolvers<undefined>()
+      host.reload.mockReturnValueOnce(reread.promise)
+      const transport = transportStub({
+        status: providerStatus({ revision: '1' }),
+        mutationResponse: problemResponse('provider_rate_limited', 'Rate limited.'),
+      })
+      const controller = createProviderController({ transport, host })
+      controller.sync(current)
+      await controller.poll()
+      await controller.refresh()
+      controller.continueStale()
+      expect(staleNotice(controller.state, Date.now())?.text).toContain('Rate limited.')
+
+      transport.status.mockResolvedValue(providerStatus({ refreshing: true, revision: '1' }))
+      await controller.poll()
+      expect(controller.state.dialog?.view).toBe('other')
+      transport.status.mockResolvedValue(providerStatus({ generation: '2', revision: '2' }))
+      await controller.poll()
+      transport.status.mockResolvedValue(
+        providerStatus({
+          generation: '2',
+          revision: '2',
+          ...(outcome === 'later failure' ? { code: 'provider_unavailable' } : {}),
+        }),
+      )
+      await controller.poll()
+
+      host.current.mockReturnValue(testProjection({ revision: '2' }))
+      reread.resolve(undefined)
+      await settle()
+
+      const notice = staleNotice(controller.state, Date.now())
+      if (outcome === 'later failure') {
+        expect(notice?.text).toContain('Last refresh failed.')
+        expect(notice?.text).not.toContain('Rate limited.')
+      } else {
+        expect(notice).toBeUndefined()
+      }
+    },
+  )
+
   it('keeps newer status when a watched refresh finishes rereading', async () => {
     const host = hostStub(testProjection({ revision: '1' }))
     const reread = Promise.withResolvers<undefined>()
@@ -1124,11 +1170,11 @@ describe('provider controller', () => {
   })
 
   it.each(['running', 'finished'] as const)(
-    'offers deletion confirmation after polling the %s refresh',
+    'offers deletion confirmation after an external edit and polling the %s refresh',
     async (phase) => {
-      const current = testProjection({ capabilities: [capability(true)] })
+      const current = testProjection({ revision: '1', capabilities: [capability(true)] })
       const transport = transportStub({
-        status: providerStatus({ last_attempt: '2026-10-13T12:00:00Z' }),
+        status: providerStatus({ revision: '1', last_attempt: '2026-10-13T12:00:00Z' }),
       })
       const response = Promise.withResolvers<Response>()
       transport.mutations.request.mockReturnValueOnce(response.promise)
@@ -1137,12 +1183,13 @@ describe('provider controller', () => {
       await controller.poll()
       const refresh = controller.refresh()
       transport.status.mockResolvedValue(
-        providerStatus({ refreshing: true, last_attempt: '2026-10-13T12:00:00Z' }),
+        providerStatus({ revision: '2', refreshing: true, last_attempt: '2026-10-13T12:00:00Z' }),
       )
       await controller.poll()
       if (phase === 'finished') {
         transport.status.mockResolvedValue(
           providerStatus({
+            revision: '2',
             code: 'provider_deletion_confirmation_required',
             last_attempt: '2026-10-13T12:01:00Z',
           }),
@@ -1154,6 +1201,7 @@ describe('provider controller', () => {
           'provider_deletion_confirmation_required',
           'Confirm removals.',
           providerStatus({
+            revision: '2',
             code: 'provider_deletion_confirmation_required',
             last_attempt: '2026-10-13T12:01:00Z',
             confirmation_token: 'candidate-after-progress',

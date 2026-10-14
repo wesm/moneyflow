@@ -642,7 +642,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   /** A refresh this tab watched has ended: it committed newer data, or it stopped. */
   function finishWatched(status: ProviderStatus, canceled: boolean): void {
     if (watched !== undefined && BigInt(status.generation) > BigInt(watched)) {
-      setState({ ...state, status, dialog: undefined })
+      setState({ ...state, status, dialog: undefined, staleReason: undefined })
       void finishCommitted(status, attempt)
       return
     }

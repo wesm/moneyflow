@@ -336,7 +336,7 @@ func (service *Service) RefreshProvider(
 	)
 	if fetchErr != nil {
 		if errors.Is(fetchErr, context.Canceled) || errors.Is(fetchErr, context.DeadlineExceeded) {
-			return service.stopProviderRefresh(ctx, runtime, providerState, now, fingerprint, fetchErr)
+			return service.stopProviderRefresh(ctx, runtime, now, fingerprint, fetchErr)
 		}
 		var storage *store.Error
 		if errors.As(fetchErr, &storage) {
@@ -347,10 +347,10 @@ func (service *Service) RefreshProvider(
 			_ = service.releaseProviderLease(ctx, runtime.instanceID)
 			return ProviderRefreshResult{}, providerAppError(code, service.Revision())
 		}
-		return service.failProviderRefresh(ctx, runtime, providerState, now, fingerprint, fetchErr)
+		return service.failProviderRefresh(ctx, runtime, now, fingerprint, fetchErr)
 	}
 	if err = validateRefreshIdentity(runtime, providerState.Binding, remoteIdentity); err != nil {
-		return service.failProviderRefresh(ctx, runtime, providerState, now, fingerprint, err)
+		return service.failProviderRefresh(ctx, runtime, now, fingerprint, err)
 	}
 	existing, removed := 0, 0
 	if runtime.provider != "simplefin" {
@@ -385,7 +385,6 @@ func (service *Service) RefreshProvider(
 		result, failErr := service.failProviderRefresh(
 			ctx,
 			runtime,
-			providerState,
 			now,
 			fingerprint,
 			failure,
@@ -739,7 +738,6 @@ func normalizeProviderError(err error) error {
 func (service *Service) failProviderRefresh(
 	ctx context.Context,
 	runtime *providerRuntimeState,
-	state store.ProviderState,
 	attemptedAt time.Time,
 	fingerprint provider.SessionFingerprint,
 	failure error,
@@ -770,6 +768,10 @@ func (service *Service) failProviderRefresh(
 		OwnerID: runtime.instanceID, Code: string(code), AttemptedAt: attemptedAt,
 		NextEligible: nextEligible,
 	})
+	// Read after recording the failure, while this attempt still owns the lease. Edits may
+	// have advanced the revision during the download; another refresh must not replace this
+	// attempt's outcome before its status is read.
+	state, stateErr := service.profile.ProviderState(ctx)
 	releaseErr := service.releaseProviderLease(ctx, runtime.instanceID)
 	if recordErr != nil {
 		return ProviderRefreshResult{}, mapAppError(recordErr, service.Revision())
@@ -777,16 +779,16 @@ func (service *Service) failProviderRefresh(
 	if releaseErr != nil {
 		return ProviderRefreshResult{}, mapAppError(releaseErr, service.Revision())
 	}
+	if stateErr != nil {
+		return ProviderRefreshResult{}, mapAppError(stateErr, service.Revision())
+	}
 	if code == provider.CodeReconnectRequired {
 		runtime.setFingerprint(fingerprint, true)
 	}
+	state.Lease = nil // The lease was released after reading this attempt's status.
 	status := providerStatusFromState(state, runtime.provider)
-	status.LastAttempt = attemptedAt
-	status.Code = code
-	status.NextEligible = nextEligible
-	status.Generation = state.Refresh.Generation
 	return ProviderRefreshResult{Status: status}, newAppError(
-		AppErrorCode(code), service.Revision(), failure,
+		AppErrorCode(code), state.Revision, failure,
 	)
 }
 
@@ -799,13 +801,12 @@ func (service *Service) failProviderRefresh(
 func (service *Service) stopProviderRefresh(
 	ctx context.Context,
 	runtime *providerRuntimeState,
-	state store.ProviderState,
 	attemptedAt time.Time,
 	fingerprint provider.SessionFingerprint,
 	stopErr error,
 ) (ProviderRefreshResult, error) {
 	result, err := service.failProviderRefresh(
-		context.WithoutCancel(ctx), runtime, state, attemptedAt, fingerprint,
+		context.WithoutCancel(ctx), runtime, attemptedAt, fingerprint,
 		provider.NewError(provider.CodeUnavailable),
 	)
 	if result.Status.Code != provider.CodeUnavailable || ctx.Err() == nil {
@@ -829,7 +830,7 @@ func (service *Service) foldProviderCandidate(
 	// A candidate can outlive its credential file, especially while awaiting
 	// deletion confirmation. Validate its own generation, not the latest fetch's.
 	if changed, err := runtime.readSource.Changed(fingerprint); err != nil || changed {
-		return service.failProviderRefresh(ctx, runtime, providerState, runtime.now(), fingerprint, provider.NewError(provider.CodeReconnectRequired))
+		return service.failProviderRefresh(ctx, runtime, runtime.now(), fingerprint, provider.NewError(provider.CodeReconnectRequired))
 	}
 	binding := providerState.Binding
 	if binding == nil {
