@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -69,7 +68,7 @@ func TestClientAppliesTransactionRangeToVisibleAndHiddenPages(t *testing.T) {
 	endpoint, err := url.Parse(server.URL)
 	require.NoError(t, err)
 	client, err := NewClient(Options{
-		HTTPClient:           &http.Client{Timeout: time.Second},
+		HTTPClient:           testHTTPClient(t),
 		GraphQLURL:           endpoint,
 		TransactionStartDate: "2026-08-01",
 		TransactionEndDate:   "2026-08-15",

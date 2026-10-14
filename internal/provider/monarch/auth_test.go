@@ -371,15 +371,25 @@ func newTestAuthenticator(t *testing.T, serverURL string) *Authenticator {
 func testClientOptions(t *testing.T, serverURL string) Options {
 	t.Helper()
 	if serverURL == "" {
-		return Options{HTTPClient: &http.Client{Timeout: time.Second}}
+		return Options{HTTPClient: testHTTPClient(t)}
 	}
 	base, err := url.Parse(serverURL)
 	require.NoError(t, err)
 	login := base.ResolveReference(&url.URL{Path: "/auth/login/"})
 	graphql := base.ResolveReference(&url.URL{Path: "/graphql"})
 	return Options{
-		HTTPClient: &http.Client{Timeout: time.Second}, LoginURL: login, GraphQLURL: graphql,
+		HTTPClient: testHTTPClient(t), LoginURL: login, GraphQLURL: graphql,
 	}
+}
+
+// testHTTPClient gives each test its own connection pool. Every httptest.Server.Close
+// calls http.DefaultTransport.CloseIdleConnections, which can break a POST that a
+// parallel test is sending on a reused default-transport connection.
+func testHTTPClient(t *testing.T) *http.Client {
+	t.Helper()
+	transport := &http.Transport{}
+	t.Cleanup(transport.CloseIdleConnections)
+	return &http.Client{Timeout: time.Second, Transport: transport}
 }
 
 func writeSubscriptionResponse(
