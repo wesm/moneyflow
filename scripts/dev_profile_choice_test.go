@@ -37,12 +37,15 @@ func TestDevBackendOpensTheNamedRealProfileFromTheUsualHome(t *testing.T) {
 }
 
 func TestMakeDevBackendPassesTheProfileNameUnchanged(t *testing.T) {
-	name := `Example "quoted" ` + "`echo changed`" + ` $HOME $$ $(shell echo changed) Monarch's`
+	marker := filepath.Join(t.TempDir(), "expanded")
+	name := `Example "quoted" ` + "`echo changed`" + ` $HOME $$ $(shell touch ` + marker +
+		`) Monarch's`
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	home, args, _ := runDev(t, makeDevBackend(t, "PROFILE="+name), "MONEYFLOW_HOME="+userHome)
 
 	require.Equal(t, userHome, home)
 	require.Equal(t, name, profileArgument(t, args))
+	require.NoFileExists(t, marker, "make expanded the profile name")
 }
 
 func TestMakeDevBackendIgnoresAnExportedProfile(t *testing.T) {

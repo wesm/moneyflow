@@ -15,12 +15,14 @@ DEV_HOME := $(CURDIR)/tmp/dev-home
 # `make dev PROFILE=<name>` opens that real profile instead of the synthetic one. Only the
 # command line sets it, even under `make -e`, so an exported PROFILE cannot open a real profile
 # by accident. dev.sh gets the name through the environment as written, without make or shell
-# expansion.
+# expansion. Make would expand an exported PROFILE when it builds each recipe's environment, so
+# PROFILE itself is not exported; sub-makes still get it through MAKEFLAGS.
 ifneq ($(origin PROFILE),command line)
 override PROFILE :=
 endif
 override DEV_PROFILE = $(value PROFILE)
 export DEV_PROFILE
+unexport PROFILE
 DEV_URL := http://127.0.0.1:$(DEV_WEB_PORT)/
 DEV_ENV = DEV_WEB_PORT=$(DEV_WEB_PORT) DEV_BACKEND_PORT=$(DEV_BACKEND_PORT) DEV_HOME="$(DEV_HOME)"
 ifeq ($(OS),Windows_NT)
