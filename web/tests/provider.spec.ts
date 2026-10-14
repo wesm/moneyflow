@@ -99,7 +99,8 @@ test('keyboard-only deletion confirmation applies only after explicit Enter', as
     await page.keyboard.press('Enter')
 
     await expect(dialog).toBeHidden()
-    expect(fixture.confirmBodies).toHaveLength(1)
+    // The confirmed refresh reads the status before it sends the confirmation.
+    await expect.poll(() => fixture.confirmBodies.length).toBe(1)
     expect(fixture.confirmBodies[0]).toMatchObject({
       manual: true,
       confirmation_token: 'opaque-confirmation',
