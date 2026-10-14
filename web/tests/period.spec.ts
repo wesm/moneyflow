@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
 
+import type { E2EServer } from '../scripts/e2e-server'
 import { cell, expect, openMoneyflow, test } from './fixtures'
 
 const grid = (page: Page) => page.getByRole('grid', { name: 'Financial results' })
@@ -8,6 +9,13 @@ const periodLabel = (page: Page) =>
 const segment = (page: Page, name: string) =>
   page.getByRole('radiogroup', { name: 'Period', exact: true }).getByRole('radio', { name })
 const chooser = (page: Page) => page.getByRole('dialog', { name: 'Choose period' })
+
+// A link can carry a period with no transactions; the workspace then shows its empty state.
+async function openEmptyPeriod(page: Page, server: E2EServer, from: string, to: string) {
+  await page.goto(`${server.url}?cur=USD%3A2&from=${from}&to=${to}&v=1`)
+  const workspace = page.getByRole('main', { name: 'Moneyflow workspace' })
+  await expect(workspace.getByText(/^No transactions in /)).toBeVisible()
+}
 
 async function rowCount(page: Page, merchant: string) {
   const row = page
@@ -140,6 +148,39 @@ test('c picks custom endpoints with arrows and Enter', async ({ page, server }) 
   await expect(chooser(page)).toContainText('Oct 1, 2026')
   await expect(chooser(page).getByRole('button', { name: 'Apply' })).toBeEnabled()
   await expect(periodLabel(page)).toHaveAccessibleName('All time')
+})
+
+test('a period before the data opens the chooser on the first year with data', async ({
+  page,
+  server,
+}) => {
+  await openEmptyPeriod(page, server, '2020-03-01', '2020-03-31')
+  await expect(periodLabel(page)).toHaveAccessibleName('Mar 2020')
+  await periodLabel(page).focus()
+  await page.keyboard.press('t')
+  const focused = chooser(page).locator('button:focus')
+  await expect(focused).toBeEnabled()
+  await expect(focused).toHaveAccessibleName('Jan 2024')
+
+  await page.keyboard.press('y')
+  await expect(chooser(page).getByRole('radio', { name: 'Year' })).toBeChecked()
+  await expect(chooser(page).getByRole('button', { name: '2024' })).toBeFocused()
+  await page.keyboard.press('m')
+  await expect(chooser(page).getByRole('button', { name: 'Jan 2024' })).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Enter')
+  await expect(periodLabel(page)).toHaveAccessibleName('Feb 2024')
+})
+
+test('a period after the data opens the chooser on the latest month', async ({ page, server }) => {
+  await openEmptyPeriod(page, server, '2030-05-01', '2030-05-31')
+  await periodLabel(page).focus()
+  await page.keyboard.press('t')
+  await expect(chooser(page).getByRole('button', { name: 'Oct 2026' })).toBeFocused()
+  await page.keyboard.press('d')
+  await expect(
+    chooser(page).getByRole('button', { name: 'Oct 7, 2026', exact: true }),
+  ).toBeFocused()
 })
 
 test('from the tabs, Left and Right switch and Down or Enter moves into the body', async ({

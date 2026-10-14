@@ -5,6 +5,7 @@ import {
   anchorDate,
   calendarStep,
   canShiftPeriod,
+  clampDate,
   chooserTab,
   customDraft,
   emptyScope,
@@ -118,6 +119,15 @@ describe('gridStep', () => {
 
   it('ignores other keys', () => {
     expect(gridStep('Enter', 1, none, 3)).toBeUndefined()
+  })
+})
+
+describe('clampDate', () => {
+  it('keeps a date inside first to latest and moves one outside to the nearer end', () => {
+    expect(clampDate('2025-06-15', '2024-01-05', '2026-10-07')).toBe('2025-06-15')
+    expect(clampDate('2024-01-05', '2024-01-05', '2026-10-07')).toBe('2024-01-05')
+    expect(clampDate('2020-03-31', '2024-01-05', '2026-10-07')).toBe('2024-01-05')
+    expect(clampDate('2030-05-31', '2024-01-05', '2026-10-07')).toBe('2026-10-07')
   })
 })
 

@@ -175,6 +175,8 @@ choose how to pick:
 The chooser opens on the current period's tab; all time and custom ranges open on Month.
 Focus starts inside the tab, on the selected month, year, or day. Without one, it starts at
 the period's last day, or at your newest transaction for all time or a period that contains it.
+A period outside your transactions starts at your first or newest transaction, whichever is
+nearer.
 
 - Arrow keys move between months and years.
 - On a calendar, Left and Right move a day and Up and Down move a week. Moving past the

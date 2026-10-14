@@ -162,6 +162,12 @@ export function gridStep(
   return index
 }
 
+/** Moves a date outside first to latest, inclusive, to the nearer end. */
+export function clampDate(date: string, first: string, latest: string): string {
+  if (date < first) return first
+  return date > latest ? latest : date
+}
+
 const dayStepKeys: Record<string, number> = {
   ArrowLeft: -1,
   ArrowRight: 1,

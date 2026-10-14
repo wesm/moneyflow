@@ -20,6 +20,7 @@
     CHOOSER_KEYS,
     chooserTab,
     chooserTabForKey,
+    clampDate,
     customDraft,
     periodContaining,
     scopeKind,
@@ -43,8 +44,14 @@
 
   let { anchor, range, first, latest, onpick, ondismiss }: Props = $props()
 
-  const initial = untrack(() => ({ range, latest }))
-  const start = anchorDate(initial.range, initial.latest) ?? initial.latest
+  const initial = untrack(() => ({ range, first, latest }))
+  // A link or a currency switch can leave the period outside the data, where every cell is
+  // disabled; the chooser then starts from the nearest day that has data.
+  const start = clampDate(
+    anchorDate(initial.range, initial.latest) ?? initial.latest,
+    initial.first,
+    initial.latest,
+  )
   let tab = $state<ChooserTab>(chooserTab(scopeKind(initial.range)))
   let dayMonth = $state(start)
   let monthYear = $state(Number(start.slice(0, 4)))
@@ -100,20 +107,24 @@
   function calendarFocus(): string {
     let date = draft.to || draft.from || start
     if (tab === 'day') date = kind === 'day' && range ? range.from : start
-    if (date < first) return first
-    return date > latest ? latest : date
+    return clampDate(date, first, latest)
   }
 
-  /** Focuses the most relevant cell of the current tab. */
+  /**
+   * Focuses the most relevant cell of the current tab, or the tab itself when no cell can take
+   * focus, so the chooser's keys keep working.
+   */
   async function focusBody(): Promise<void> {
     await tick()
     if (tab === 'month' || tab === 'year') {
       body?.querySelector<HTMLElement>('[role="group"] button[tabindex="0"]')?.focus()
-      return
+    } else {
+      const date = calendarFocus()
+      const month = shownMonth()
+      await focusDay(date, date.slice(0, 7) === month.slice(0, 7) ? month : date)
     }
-    const date = calendarFocus()
-    const month = shownMonth()
-    await focusDay(date, date.slice(0, 7) === month.slice(0, 7) ? month : date)
+    if (body?.contains(document.activeElement)) return
+    panel?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus()
   }
 
   function stepDay(event: KeyboardEvent): boolean {
