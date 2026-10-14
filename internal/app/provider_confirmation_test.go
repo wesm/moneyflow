@@ -120,6 +120,7 @@ func TestProviderConfirmationExpiresAndIsInvalidatedByAnotherFold(t *testing.T) 
 				Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 			})
 			assertProviderAppCode(t, err, provider.CodeDeletionConfirmationRequired)
+			assert.Equal(t, current.Add(time.Minute), blocked.Status.ConfirmationExpiresAt)
 
 			if mode == "expiry" {
 				current = current.Add(2 * time.Minute)

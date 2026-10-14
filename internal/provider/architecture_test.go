@@ -222,7 +222,7 @@ func TestMCPDependencyBoundary(t *testing.T) {
 	assertNoInternalImport(t, mcpDir, func(_ string, imported string) bool {
 		if strings.HasPrefix(imported, "github.com/wesm/moneyflow/internal/") {
 			for _, allowed := range []string{
-				"app", "domain", "provider", "httpsecurity", "home", "version", "exporter",
+				"access", "app", "domain", "provider", "httpsecurity", "home", "version", "exporter",
 			} {
 				if importsPackageTree(imported, "github.com/wesm/moneyflow/internal/"+allowed) {
 					return true

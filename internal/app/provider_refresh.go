@@ -120,7 +120,9 @@ type ProviderStatus struct {
 	Fetched           int
 	Total             int
 	ConfirmationToken string
-	Summary           store.RefreshSummary
+	// ConfirmationExpiresAt is when ConfirmationToken stops being accepted, or zero without one.
+	ConfirmationExpiresAt time.Time
+	Summary               store.RefreshSummary
 	// LastFullRefresh is the advisory time of the last complete-history refresh, or zero.
 	LastFullRefresh time.Time
 	// RefreshDue is the refresh a scheduler should start now.
@@ -305,6 +307,7 @@ func (service *Service) RefreshProvider(
 			service.Revision(),
 		)
 	}
+	defer service.releaseLeaseOnPanic(ctx, runtime.instanceID, store.ProviderOperationRefresh)
 	// Status shows this refresh's progress, not the counts the previous refresh ended with.
 	runtime.setProgress(provider.Progress{})
 	if runtime.provider == "simplefin" {
@@ -366,7 +369,7 @@ func (service *Service) RefreshProvider(
 		return ProviderRefreshResult{}, newAppError(AppStoreError, service.Revision(), err)
 	}
 	if ProviderDeletionConfirmationRequired(existing, removed) {
-		token, tokenErr := service.parkProviderConfirmation(
+		token, expiresAt, tokenErr := service.parkProviderConfirmation(
 			runtime,
 			fingerprint,
 			providerState.Refresh.Generation,
@@ -390,6 +393,7 @@ func (service *Service) RefreshProvider(
 			failure,
 		)
 		result.Status.ConfirmationToken = token
+		result.Status.ConfirmationExpiresAt = expiresAt
 		result.Status.Summary = store.RefreshSummary{
 			ImportedAccounts: len(candidate.Accounts), ImportedMerchants: len(candidate.Merchants),
 			ImportedGroups: len(candidate.Groups), ImportedCategories: len(candidate.Categories),
@@ -469,6 +473,7 @@ func (service *Service) ConfirmProviderRefresh(
 			service.Revision(),
 		)
 	}
+	defer service.releaseLeaseOnPanic(ctx, runtime.instanceID, store.ProviderOperationRefresh)
 	return service.foldProviderCandidate(
 		ctx,
 		runtime,
@@ -587,10 +592,16 @@ func (service *Service) fetchProviderCandidateWithOperationHeartbeat(
 	request provider.FetchRequest,
 ) (domain.ImportSnapshot, provider.ProfileIdentity, provider.SessionFingerprint, error) {
 	fetchContext, cancel := context.WithCancelCause(ctx)
-	defer cancel(nil)
 	heartbeatDone := make(chan error, 1)
 	stopHeartbeat := make(chan struct{})
-	go func() {
+	var heartbeat sync.WaitGroup
+	// Stop the heartbeat and wait for it on every way out, a panic in the fetch included, so no
+	// lease renewal runs after this call.
+	defer func() {
+		cancel(nil)
+		heartbeat.Wait()
+	}()
+	heartbeat.Go(func() {
 		defer func() {
 			if recover() != nil {
 				failure := provider.NewError(staleCode)
@@ -634,7 +645,7 @@ func (service *Service) fetchProviderCandidateWithOperationHeartbeat(
 				}
 			}
 		}
-	}()
+	})
 	candidate, identity, fingerprint, fetchErr := service.fetchProviderCandidate(
 		fetchContext,
 		runtime,
@@ -937,6 +948,22 @@ func (service *Service) releaseProviderLease(ctx context.Context, ownerID string
 	return service.profile.ReleaseRefreshLease(context.WithoutCancel(ctx), ownerID)
 }
 
+// releaseLeaseOnPanic gives back this process's provider operation lease of kind when a panic
+// passes through, then panics again with the same value. Defer it right after the lease is
+// acquired: a lease left behind turns every retry away until it expires.
+func (service *Service) releaseLeaseOnPanic(
+	ctx context.Context,
+	ownerID string,
+	kind store.ProviderOperationKind,
+) {
+	failure := recover()
+	if failure == nil {
+		return
+	}
+	_ = service.profile.ReleaseProviderOperationLease(context.WithoutCancel(ctx), ownerID, kind)
+	panic(failure)
+}
+
 func buildProviderRefreshPlan(
 	inputs store.RefreshInputs,
 ) (store.RefreshPlan, []RebaseDetail, error) {
@@ -1218,10 +1245,10 @@ func (service *Service) parkProviderConfirmation(
 	remoteProfileID string,
 	existing int,
 	now time.Time,
-) (string, error) {
+) (string, time.Time, error) {
 	material := make([]byte, 24)
 	if _, err := io.ReadFull(runtime.random, material); err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	token := base64.RawURLEncoding.EncodeToString(material)
 	runtime.mu.Lock()
@@ -1231,15 +1258,16 @@ func (service *Service) parkProviderConfirmation(
 			delete(runtime.confirmations, candidateToken)
 		}
 	}
+	expiresAt := now.Add(runtime.confirmationTTL)
 	runtime.confirmations[token] = providerConfirmation{
 		fingerprint: fingerprint,
-		owner:       runtime.instanceID, expiresAt: now.Add(runtime.confirmationTTL),
+		owner:       runtime.instanceID, expiresAt: expiresAt,
 		generation: generation, candidate: candidate.Clone(),
 		proposedIDs:      cloneProviderIDs(proposedIDs),
 		proposedSuffixes: cloneProviderStrings(proposedSuffixes),
 		remoteProfileID:  remoteProfileID, existingPostedRows: existing,
 	}
-	return token, nil
+	return token, expiresAt, nil
 }
 
 func (runtime *providerRuntimeState) takeConfirmation(

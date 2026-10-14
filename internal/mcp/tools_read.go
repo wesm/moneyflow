@@ -6,59 +6,57 @@ import (
 	"strconv"
 	"time"
 
-	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
-func registerReadTools(server *Server, dependencies Dependencies) {
+func registerReadTools(server *Server) {
 	registerTool(server, "search_transactions", "Search effective transactions with literal text matching.", true,
-		func(ctx context.Context, input SearchTransactionsInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input SearchTransactionsInput) (any, error) {
 			return searchTransactionsDocument(ctx, dependencies.Service, input)
 		})
 	registerTool(server, "get_transactions", "Return a filtered effective transaction window.", true,
-		func(ctx context.Context, input GetTransactionsInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input GetTransactionsInput) (any, error) {
 			return getTransactionsDocument(ctx, dependencies.Service, input)
 		})
 	registerTool(server, "get_spending_summary", "Summarize effective expenses by category or merchant.", true,
-		func(ctx context.Context, input SpendingSummaryInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input SpendingSummaryInput) (any, error) {
 			return spendingDocument(ctx, dependencies.Service, dependencies.Clock, input)
 		})
 	registerTool(server, "get_insights", insightsDescription, true,
-		func(ctx context.Context, input GetInsightsInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input GetInsightsInput) (any, error) {
 			return insightsDocument(ctx, dependencies.Service, input)
 		})
 	registerTool(server, "get_categories", "List active category groups and categories.", true,
-		func(ctx context.Context, input CategoriesInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input CategoriesInput) (any, error) {
 			return categoriesDocument(ctx, dependencies.Service, input)
 		})
 	registerTool(server, "get_merchants", "List active merchants and exact totals.", true,
-		func(ctx context.Context, input WindowInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input WindowInput) (any, error) {
 			return merchantsDocument(ctx, dependencies.Service, input)
 		})
 	registerTool(server, "get_account_info", "Return credential-blind local profile information.", true,
-		func(ctx context.Context, input AccountInfoInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input AccountInfoInput) (any, error) {
 			return accountDocument(ctx, dependencies, input)
 		})
 	registerTool(server, "get_uncategorized_transactions", "Return effective uncategorized transactions.", true,
-		func(ctx context.Context, input UncategorizedInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input UncategorizedInput) (any, error) {
 			return uncategorizedDocument(ctx, dependencies.Service, input)
 		})
 	registerTool(server, "get_amazon_order_details", "Return bounded Amazon enrichment for one transaction.", true,
-		func(ctx context.Context, input TransactionDetailsInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input TransactionDetailsInput) (any, error) {
 			return transactionInfoDocument(ctx, dependencies.Service, input)
 		})
 	registerTool(server, "get_transaction_details", "Return committed details for one transaction.", true,
-		func(ctx context.Context, input TransactionDetailsInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input TransactionDetailsInput) (any, error) {
 			return transactionInfoDocument(ctx, dependencies.Service, input)
 		})
 	registerTool(server, "review_changes", "Return bounded active and redo journal summaries.", true,
-		func(ctx context.Context, input ReviewChangesInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input ReviewChangesInput) (any, error) {
 			return reviewDocument(ctx, dependencies.Service, input)
 		})
 	registerTool(server, "get_commit_status", "Return the durable provider-write status without provider I/O.", true,
-		func(ctx context.Context, _ EmptyInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, _ EmptyInput) (any, error) {
 			account, err := dependencies.Service.AccountProjection(ctx, app.AccountProjectionRequest{
 				Partitions: app.CollectionWindowRequest{Limit: 1},
 			})
@@ -68,47 +66,54 @@ func registerReadTools(server *Server, dependencies Dependencies) {
 			return CommitStatusDocument{Header: NewHeader(StatusOK, account.Revision), Write: writeStatusDocument(account.Write)}, nil
 		})
 	registerTool(server, "refresh_data", "Start one explicit provider refresh when available.", false,
-		func(ctx context.Context, _ EmptyInput) (any, error) {
-			return refreshDataDocument(ctx, server)
+		func(ctx context.Context, dependencies Dependencies, _ EmptyInput) (any, error) {
+			return refreshDataDocument(ctx, dependencies)
 		})
 	registerTool(server, "get_refresh_status", "Return process-local provider refresh status.", true,
-		func(_ context.Context, input RefreshStatusInput) (any, error) {
-			return refreshStatusDocument(server, input)
+		func(_ context.Context, dependencies Dependencies, input RefreshStatusInput) (any, error) {
+			return refreshStatusDocument(dependencies, input)
 		})
 	registerTool(server, "confirm_refresh_deletions", "Confirm one process-local provider deletion candidate.", false,
-		func(ctx context.Context, input ConfirmRefreshInput) (any, error) {
-			return confirmRefreshDocument(ctx, server, input)
+		func(ctx context.Context, dependencies Dependencies, input ConfirmRefreshInput) (any, error) {
+			return confirmRefreshDocument(ctx, dependencies, input)
 		})
 }
 
-func refreshDataDocument(ctx context.Context, server *Server) (any, error) {
-	connection, err := server.service.ProviderConnection(ctx)
+func refreshDataDocument(ctx context.Context, dependencies Dependencies) (any, error) {
+	connection, err := dependencies.Service.ProviderConnection(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if server.service.ProfileKind() == "amazon" {
+	if dependencies.Service.ProfileKind() == "amazon" {
 		return capabilityUnavailable(
-			server.service,
+			dependencies.Service,
 			"Amazon import requires the TUI, web, or provider import command.",
 		), nil
 	}
 	if !connection.Bound {
-		return capabilityUnavailable(server.service, "This local profile has no provider to refresh."), nil
+		return capabilityUnavailable(
+			dependencies.Service, "This local profile has no provider to refresh.",
+		), nil
 	}
 	if connection.Kind != "monarch" && connection.Kind != "ynab" && connection.Kind != "simplefin" {
 		return capabilityUnavailable(
-			server.service,
+			dependencies.Service,
 			"This provider has no MCP refresh operation.",
 		), nil
 	}
-	for _, capability := range server.service.Capabilities() {
+	for _, capability := range dependencies.Service.Capabilities() {
 		if capability.Action == app.ActionRefreshProvider && !capability.Available {
-			return capabilityUnavailable(server.service, capability.Reason), nil
+			return capabilityUnavailable(dependencies.Service, capability.Reason), nil
 		}
 	}
-	attempt, err := server.supervisor.StartRefresh(
+	attempt, err := dependencies.Supervisor.StartRefresh(
 		func(workerContext context.Context) (app.ProviderRefreshResult, error) {
-			return server.service.RefreshProvider(workerContext, app.ProviderRefreshRequest{
+			service, release, err := dependencies.Hold(workerContext)
+			if err != nil {
+				return app.ProviderRefreshResult{}, err
+			}
+			defer release()
+			return service.RefreshProvider(workerContext, app.ProviderRefreshRequest{
 				Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 				Window: app.WindowRequest{Limit: 1},
 			})
@@ -117,29 +122,29 @@ func refreshDataDocument(ctx context.Context, server *Server) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return refreshAttemptDocument(attempt, server.service.Revision(), false), nil
+	return refreshAttemptDocument(attempt, dependencies.Service.Revision(), false), nil
 }
 
-func refreshStatusDocument(server *Server, input RefreshStatusInput) (any, error) {
-	attempt, err := server.supervisor.RefreshStatus(input.AttemptID)
+func refreshStatusDocument(dependencies Dependencies, input RefreshStatusInput) (any, error) {
+	attempt, err := dependencies.Supervisor.RefreshStatus(input.AttemptID)
 	if err != nil {
 		if errors.Is(err, ErrAttemptNotFound) {
-			return attemptNotFoundDocument(server.service.Revision()), nil
+			return attemptNotFoundDocument(dependencies.Service.Revision()), nil
 		}
 		return nil, err
 	}
-	return refreshAttemptDocument(attempt, server.service.Revision(), true), nil
+	return refreshAttemptDocument(attempt, dependencies.Service.Revision(), true), nil
 }
 
 func confirmRefreshDocument(
 	_ context.Context,
-	server *Server,
+	dependencies Dependencies,
 	input ConfirmRefreshInput,
 ) (any, error) {
-	attempt, confirmErr := server.supervisor.ConfirmRefresh(
+	attempt, confirmErr := dependencies.Supervisor.ConfirmRefresh(
 		input.AttemptID, input.ConfirmationToken,
 		func(workerContext context.Context) (app.ProviderRefreshResult, error) {
-			return server.service.ConfirmProviderRefresh(workerContext, app.ProviderRefreshRequest{
+			return dependencies.Service.ConfirmProviderRefresh(workerContext, app.ProviderRefreshRequest{
 				Manual: true, ConfirmationToken: input.ConfirmationToken,
 				State: app.DefaultViewState(), Selection: app.EmptySelection(),
 				Window: app.WindowRequest{Limit: 1},
@@ -147,12 +152,12 @@ func confirmRefreshDocument(
 		},
 	)
 	if errors.Is(confirmErr, ErrAttemptNotFound) {
-		return confirmationInvalidDocument(server.service.Revision()), nil
+		return confirmationInvalidDocument(dependencies.Service.Revision()), nil
 	}
 	if confirmErr != nil {
 		return nil, confirmErr
 	}
-	return refreshAttemptDocument(attempt, server.service.Revision(), false), nil
+	return refreshAttemptDocument(attempt, dependencies.Service.Revision(), false), nil
 }
 
 func refreshAttemptDocument(
@@ -191,39 +196,6 @@ func refreshAttemptGuidance(status AttemptStatus) string {
 	default:
 		return ""
 	}
-}
-
-func registerTool[Input any](
-	server *Server,
-	name, description string,
-	readOnly bool,
-	handler func(context.Context, Input) (any, error),
-) {
-	destructive := name == "commit_changes" || name == "confirm_reconcile" || name == "confirm_refresh_deletions"
-	mcpsdk.AddTool[Input, any](server.SDK, &mcpsdk.Tool{
-		Name: name, Description: description,
-		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: readOnly, DestructiveHint: &destructive},
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input Input) (*mcpsdk.CallToolResult, any, error) {
-		document, err := handler(ctx, input)
-		isError := false
-		if err != nil {
-			isError = true
-			document = failureDocument(
-				ctx, err, serverRevision(server), "The Moneyflow MCP request could not be completed.",
-			)
-		} else if failure, ok := document.(ErrorDocument); ok {
-			isError = failure.Status == StatusError
-		}
-		result, encodeErr := ToolResult(document, isError)
-		return result, nil, encodeErr
-	})
-}
-
-func serverRevision(server *Server) uint64 {
-	if server == nil || server.service == nil {
-		return 0
-	}
-	return server.service.Revision()
 }
 
 func searchTransactionsDocument(ctx context.Context, service *app.Service, input SearchTransactionsInput) (TransactionWindowDocument, error) {

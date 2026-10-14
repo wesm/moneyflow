@@ -10,65 +10,69 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
-func registerWriteTools(server *Server, dependencies Dependencies) {
-	registerTransactionEditTools(server, dependencies)
-	registerTaxonomyTools(server, dependencies)
+func registerWriteTools(server *Server) {
+	registerTransactionEditTools(server)
+	registerTaxonomyTools(server)
 	registerTool(server, "update_transaction_category", "Stage one exact transaction category change.", false,
-		func(ctx context.Context, input UpdateTransactionCategoryInput) (any, error) {
+		func(
+			ctx context.Context, dependencies Dependencies, input UpdateTransactionCategoryInput,
+		) (any, error) {
 			return categoryMutationDocument(ctx, dependencies.Service, []string{input.TransactionID}, input.ExpectedRevision, input.CategoryID, input.CategoryLabel, input.DryRun)
 		})
 	registerTool(server, "batch_update_category", "Stage one atomic category change for up to 100 transactions.", false,
-		func(ctx context.Context, input BatchUpdateCategoryInput) (any, error) {
+		func(
+			ctx context.Context, dependencies Dependencies, input BatchUpdateCategoryInput,
+		) (any, error) {
 			return categoryMutationDocument(ctx, dependencies.Service, input.TransactionIDs, input.ExpectedRevision, input.CategoryID, input.CategoryLabel, input.DryRun)
 		})
 	registerTool(server, "undo_changes", "Move the durable journal cursor back by one operation.", false,
-		func(ctx context.Context, input CursorMutationInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input CursorMutationInput) (any, error) {
 			return cursorMutationDocument(ctx, dependencies.Service, input.ExpectedRevision, false)
 		})
 	registerTool(server, "redo_changes", "Move the durable journal cursor forward by one operation.", false,
-		func(ctx context.Context, input CursorMutationInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input CursorMutationInput) (any, error) {
 			return cursorMutationDocument(ctx, dependencies.Service, input.ExpectedRevision, true)
 		})
 	registerTool(server, "commit_changes", "Commit one explicitly reviewed journal revision.", false,
-		func(ctx context.Context, input CommitChangesInput) (any, error) {
-			return commitChangesDocument(ctx, server, input)
+		func(ctx context.Context, dependencies Dependencies, input CommitChangesInput) (any, error) {
+			return commitChangesDocument(ctx, dependencies, input)
 		})
 	registerTool(server, "pause_commit", "Pause one durable provider write batch.", false,
-		func(ctx context.Context, input BatchVersionInput) (any, error) {
-			return pauseCommitDocument(ctx, server, input)
+		func(ctx context.Context, dependencies Dependencies, input BatchVersionInput) (any, error) {
+			return pauseCommitDocument(ctx, dependencies, input)
 		})
 	registerTool(server, "resume_commit", "Resume one durable provider write batch.", false,
-		func(ctx context.Context, input BatchVersionInput) (any, error) {
-			return resumeCommitDocument(ctx, server, input)
+		func(ctx context.Context, dependencies Dependencies, input BatchVersionInput) (any, error) {
+			return resumeCommitDocument(ctx, dependencies, input)
 		})
 	registerTool(server, "stop_and_reconcile", "Abandon an unfinished write prefix and reconcile provider truth.", false,
-		func(_ context.Context, input StopReconcileInput) (any, error) {
-			return stopAndReconcileDocument(server, input)
+		func(_ context.Context, dependencies Dependencies, input StopReconcileInput) (any, error) {
+			return stopAndReconcileDocument(dependencies, input)
 		})
 	registerTool(server, "get_reconcile_status", "Return one process-local reconciliation attempt.", true,
-		func(_ context.Context, input ReconcileStatusInput) (any, error) {
-			return reconcileStatusDocument(server, input)
+		func(_ context.Context, dependencies Dependencies, input ReconcileStatusInput) (any, error) {
+			return reconcileStatusDocument(dependencies, input)
 		})
 	registerTool(server, "confirm_reconcile", "Confirm one process-local reconciliation candidate.", false,
-		func(ctx context.Context, input ConfirmReconcileInput) (any, error) {
-			return confirmReconcileDocument(ctx, server, input)
+		func(ctx context.Context, dependencies Dependencies, input ConfirmReconcileInput) (any, error) {
+			return confirmReconcileDocument(ctx, dependencies, input)
 		})
 }
 
 func commitChangesDocument(
 	ctx context.Context,
-	server *Server,
+	dependencies Dependencies,
 	input CommitChangesInput,
 ) (CommitDocument, error) {
-	expected, err := parseMutationRevision(server.service, input.ExpectedRevision)
+	expected, err := parseMutationRevision(dependencies.Service, input.ExpectedRevision)
 	if err != nil {
 		return CommitDocument{}, err
 	}
-	reviewed, err := parseMutationRevision(server.service, input.ReviewedRevision)
+	reviewed, err := parseMutationRevision(dependencies.Service, input.ReviewedRevision)
 	if err != nil {
 		return CommitDocument{}, err
 	}
-	result, err := server.service.Commit(ctx, app.CommitRequest{
+	result, err := dependencies.Service.Commit(ctx, app.CommitRequest{
 		ExpectedRevision: expected, ReviewedRevision: reviewed,
 		State: app.DefaultViewState(), Selection: app.EmptySelection(),
 		Window: app.WindowRequest{Limit: 1},
@@ -83,117 +87,127 @@ func commitChangesDocument(
 	if result.ProviderWrite == nil {
 		return document, nil
 	}
-	status, active, reserveErr := server.supervisor.ReserveWrite(
+	status, active, reserveErr := dependencies.Supervisor.ReserveWrite(
 		func(workerContext context.Context) (
 			app.ProviderWriteStatus, providerWriteExecution, error,
 		) {
-			return server.service.ReserveProviderWriteExecution(
-				workerContext, result.ProviderWrite.Version,
-			)
+			return reserveHeldWrite(workerContext, dependencies, result.ProviderWrite.Version)
 		},
 	)
 	if reserveErr != nil {
 		return CommitDocument{}, reserveErr
 	}
 	document.Write = writeStatusDocument(status)
-	document.BackgroundActive = active || server.supervisor.WriteActive()
+	document.BackgroundActive = active || dependencies.Supervisor.WriteActive()
 	return document, nil
 }
 
 func pauseCommitDocument(
 	ctx context.Context,
-	server *Server,
+	dependencies Dependencies,
 	input BatchVersionInput,
 ) (BatchControlDocument, error) {
-	version, err := parseMutationRevision(server.service, input.BatchVersion)
+	version, err := parseMutationRevision(dependencies.Service, input.BatchVersion)
 	if err != nil {
 		return BatchControlDocument{}, err
 	}
-	status, err := server.service.PauseProviderWrite(ctx, version)
+	status, err := dependencies.Service.PauseProviderWrite(ctx, version)
 	if err != nil {
 		return BatchControlDocument{}, err
 	}
 	return BatchControlDocument{
-		Header:           NewHeader(StatusOK, server.service.Revision()),
-		BackgroundActive: server.supervisor.WriteActive(), Write: writeStatusDocument(status),
+		Header:           NewHeader(StatusOK, dependencies.Service.Revision()),
+		BackgroundActive: dependencies.Supervisor.WriteActive(), Write: writeStatusDocument(status),
 	}, nil
 }
 
 func resumeCommitDocument(
 	_ context.Context,
-	server *Server,
+	dependencies Dependencies,
 	input BatchVersionInput,
 ) (BatchControlDocument, error) {
-	version, err := parseMutationRevision(server.service, input.BatchVersion)
+	version, err := parseMutationRevision(dependencies.Service, input.BatchVersion)
 	if err != nil {
 		return BatchControlDocument{}, err
 	}
-	status, active, err := server.supervisor.ReserveWrite(
+	status, active, err := dependencies.Supervisor.ReserveWrite(
 		func(workerContext context.Context) (
 			app.ProviderWriteStatus, providerWriteExecution, error,
 		) {
-			return server.service.ReserveProviderWriteExecution(workerContext, version)
+			return reserveHeldWrite(workerContext, dependencies, version)
 		},
 	)
 	if err != nil {
 		return BatchControlDocument{}, err
 	}
 	return BatchControlDocument{
-		Header:           NewHeader(StatusOK, server.service.Revision()),
-		BackgroundActive: active || server.supervisor.WriteActive(), Write: writeStatusDocument(status),
+		Header:           NewHeader(StatusOK, dependencies.Service.Revision()),
+		BackgroundActive: active || dependencies.Supervisor.WriteActive(),
+		Write:            writeStatusDocument(status),
 	}, nil
 }
 
-func stopAndReconcileDocument(server *Server, input StopReconcileInput) (AttemptDocument, error) {
-	expected, err := parseMutationRevision(server.service, input.ExpectedRevision)
+func stopAndReconcileDocument(
+	dependencies Dependencies,
+	input StopReconcileInput,
+) (AttemptDocument, error) {
+	expected, err := parseMutationRevision(dependencies.Service, input.ExpectedRevision)
 	if err != nil {
 		return AttemptDocument{}, err
 	}
-	version, err := parseMutationRevision(server.service, input.BatchVersion)
+	version, err := parseMutationRevision(dependencies.Service, input.BatchVersion)
 	if err != nil {
 		return AttemptDocument{}, err
 	}
-	attempt, err := server.supervisor.StartReconcile(expected, version, func(ctx context.Context) (app.ProviderWriteResult, error) {
-		return server.service.StopAndReconcileProviderWrite(ctx, app.ProviderWriteReconcileRequest{
-			ExpectedRevision: expected, ExpectedVersion: version,
-			State: app.DefaultViewState(), Selection: app.EmptySelection(),
-			Window: app.WindowRequest{Limit: 1},
-		})
-	})
+	attempt, err := dependencies.Supervisor.StartReconcile(
+		expected, version,
+		func(ctx context.Context) (app.ProviderWriteResult, error) {
+			service, release, err := dependencies.Hold(ctx)
+			if err != nil {
+				return app.ProviderWriteResult{}, err
+			}
+			defer release()
+			return service.StopAndReconcileProviderWrite(ctx, app.ProviderWriteReconcileRequest{
+				ExpectedRevision: expected, ExpectedVersion: version,
+				State: app.DefaultViewState(), Selection: app.EmptySelection(),
+				Window: app.WindowRequest{Limit: 1},
+			})
+		},
+	)
 	if err != nil {
 		return AttemptDocument{}, err
 	}
-	return attemptDocument(attempt, server.service.Revision(), false), nil
+	return attemptDocument(attempt, dependencies.Service.Revision(), false), nil
 }
 
-func reconcileStatusDocument(server *Server, input ReconcileStatusInput) (any, error) {
-	attempt, err := server.supervisor.ReconcileStatus(input.AttemptID)
+func reconcileStatusDocument(dependencies Dependencies, input ReconcileStatusInput) (any, error) {
+	attempt, err := dependencies.Supervisor.ReconcileStatus(input.AttemptID)
 	if err != nil {
 		if errors.Is(err, ErrAttemptNotFound) {
-			return attemptNotFoundDocument(server.service.Revision()), nil
+			return attemptNotFoundDocument(dependencies.Service.Revision()), nil
 		}
 		return nil, err
 	}
-	return attemptDocument(attempt, server.service.Revision(), true), nil
+	return attemptDocument(attempt, dependencies.Service.Revision(), true), nil
 }
 
 func confirmReconcileDocument(
 	_ context.Context,
-	server *Server,
+	dependencies Dependencies,
 	input ConfirmReconcileInput,
 ) (any, error) {
-	expected, err := parseMutationRevision(server.service, input.ExpectedRevision)
+	expected, err := parseMutationRevision(dependencies.Service, input.ExpectedRevision)
 	if err != nil {
 		return nil, err
 	}
-	version, err := parseMutationRevision(server.service, input.BatchVersion)
+	version, err := parseMutationRevision(dependencies.Service, input.BatchVersion)
 	if err != nil {
 		return nil, err
 	}
-	attempt, confirmErr := server.supervisor.ConfirmReconcile(
+	attempt, confirmErr := dependencies.Supervisor.ConfirmReconcile(
 		input.AttemptID, input.ConfirmationToken,
 		func(workerContext context.Context) (app.ProviderWriteResult, error) {
-			return server.service.ConfirmProviderWriteReconcile(
+			return dependencies.Service.ConfirmProviderWriteReconcile(
 				workerContext, app.ProviderWriteReconcileRequest{
 					ExpectedRevision: expected, ExpectedVersion: version,
 					ConfirmationToken: input.ConfirmationToken,
@@ -204,12 +218,12 @@ func confirmReconcileDocument(
 		},
 	)
 	if errors.Is(confirmErr, ErrAttemptNotFound) {
-		return confirmationInvalidDocument(server.service.Revision()), nil
+		return confirmationInvalidDocument(dependencies.Service.Revision()), nil
 	}
 	if confirmErr != nil {
 		return nil, confirmErr
 	}
-	return attemptDocument(attempt, server.service.Revision(), false), nil
+	return attemptDocument(attempt, dependencies.Service.Revision(), false), nil
 }
 
 func attemptDocument(status AttemptStatus, currentRevision uint64, includeToken bool) AttemptDocument {
@@ -398,4 +412,47 @@ func mutationDetailState() app.ViewState {
 	state := app.DefaultViewState()
 	state.Current.Mode = domain.ResultModeDetail
 	return state
+}
+
+// reserveHeldWrite reserves a provider write on a profile it holds until the write's execution
+// stops, because the execution runs after the tool call has released its own hold. When the
+// reservation fails, panics or has nothing to run, it gives the profile back and returns no
+// execution, so no worker starts.
+func reserveHeldWrite(
+	ctx context.Context,
+	dependencies Dependencies,
+	version uint64,
+) (app.ProviderWriteStatus, providerWriteExecution, error) {
+	service, release, err := dependencies.Hold(ctx)
+	if err != nil {
+		return app.ProviderWriteStatus{}, nil, err
+	}
+	handedOver := false
+	defer func() {
+		if !handedOver {
+			release()
+		}
+	}()
+	status, execution, err := service.ReserveProviderWriteExecution(ctx, version)
+	if err != nil || execution == nil {
+		return status, nil, err
+	}
+	handedOver = true
+	return status, heldExecution{execution: execution, release: release}, nil
+}
+
+// heldExecution releases its profile once the provider write runs or is released.
+type heldExecution struct {
+	execution *app.ProviderWriteExecution
+	release   func()
+}
+
+func (held heldExecution) Run(ctx context.Context) (app.ProviderWriteStatus, error) {
+	defer held.release()
+	return held.execution.Run(ctx)
+}
+
+func (held heldExecution) Release() {
+	defer held.release()
+	held.execution.Release()
 }

@@ -5,12 +5,126 @@ import (
 	"testing"
 	"time"
 
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/store"
 )
+
+// A provider read that panics during a reconcile fails the attempt and gives the reconcile lease
+// back, so a new reconcile starts at once.
+func TestMCPReconcileStartsAgainAfterAProviderPanic(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "monarch")
+	t.Cleanup(closeProfile)
+	client, supervisor := connectSupervisedServer(t, service, time.Now)
+	commitRejectedDeletion(t, client, service, supervisor)
+	source.panicOnNextFetch()
+
+	failed := awaitReconcileTool(t, client, service, supervisor)
+	retried := awaitReconcileTool(t, client, service, supervisor)
+
+	assert.Equal(t, string(AttemptFailed), failed["state"])
+	assert.Equal(t, "mcp_internal_error", failed["code"])
+	assert.Equal(t, string(AttemptCompleted), retried["state"], "%v", retried)
+}
+
+// A reconcile confirmation fold that panics gives the reconcile lease back as well.
+func TestMCPReconcileStartsAgainAfterAConfirmationPanic(t *testing.T) {
+	var folds *foldPanicProfile
+	service, source, closeProfile := providerTestServiceOn(t, 1, "monarch",
+		func(profile store.Profile) store.Profile {
+			folds = &foldPanicProfile{Profile: profile}
+			return folds
+		})
+	t.Cleanup(closeProfile)
+	client, supervisor := connectSupervisedServer(t, service, time.Now)
+	commitRejectedDeletion(t, client, service, supervisor)
+	source.setTransactionCount(0)
+	parked := awaitReconcileTool(t, client, service, supervisor)
+	require.Equal(t, string(AttemptConfirmationRequired), parked["state"])
+	folds.armed.Store(true)
+
+	confirmed := callWriteTool(t, client, "confirm_reconcile",
+		reconcileArguments(t, service, map[string]any{
+			"attempt_id": parked["attempt_id"], "confirmation_token": parked["confirmation_token"],
+		}))
+	retried := awaitReconcileTool(t, client, service, supervisor)
+
+	require.True(t, confirmed.IsError)
+	assert.Equal(t, "mcp_internal_error", confirmed.StructuredContent.(map[string]any)["code"])
+	assert.Equal(t, string(AttemptConfirmationRequired), retried["state"], "%v", retried)
+}
+
+// A parked reconcile fails at the service's confirmation deadline, and a new reconcile can then
+// start.
+func TestMCPReconcileStartsAgainAfterItsConfirmationExpires(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "monarch")
+	t.Cleanup(closeProfile)
+	client, supervisor, advance := connectClockedServer(t, service, source, 0)
+	commitRejectedDeletion(t, client, service, supervisor)
+	source.setTransactionCount(0)
+	parked := awaitReconcileTool(t, client, service, supervisor)
+	require.Equal(t, string(AttemptConfirmationRequired), parked["state"])
+
+	advance(10 * time.Minute)
+	expired := callRefreshTool(t, client, "get_reconcile_status",
+		map[string]any{"attempt_id": parked["attempt_id"]})
+	assert.Equal(t, string(AttemptFailed), expired["state"])
+	assert.Equal(t, "provider_confirmation_invalid", expired["code"])
+	retried := awaitReconcileTool(t, client, service, supervisor)
+
+	assert.NotEqual(t, parked["attempt_id"], retried["attempt_id"])
+	assert.Equal(t, string(AttemptConfirmationRequired), retried["state"], "%v", retried)
+}
+
+// commitRejectedDeletion commits a deletion that the provider rejects and waits until the work of
+// supervisor ends. That leaves a write batch that only a reconcile can finish.
+func commitRejectedDeletion(
+	t *testing.T,
+	client *mcpsdk.ClientSession,
+	service *app.Service,
+	supervisor *Supervisor,
+) {
+	t.Helper()
+	revision := stageDeletion(t, client, service)
+	callRefreshTool(t, client, "commit_changes",
+		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	supervisor.wait.Wait()
+	status, err := service.ProviderWriteStatus(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
+}
+
+// reconcileArguments adds the current revision and write batch version to arguments.
+func reconcileArguments(
+	t *testing.T,
+	service *app.Service,
+	arguments map[string]any,
+) map[string]any {
+	t.Helper()
+	status, err := service.ProviderWriteStatus(t.Context())
+	require.NoError(t, err)
+	arguments["expected_revision"] = strconv.FormatUint(service.Revision(), 10)
+	arguments["batch_version"] = strconv.FormatUint(status.Version, 10)
+	return arguments
+}
+
+// awaitReconcileTool starts a reconcile and returns its status once the work of supervisor ends.
+func awaitReconcileTool(
+	t *testing.T,
+	client *mcpsdk.ClientSession,
+	service *app.Service,
+	supervisor *Supervisor,
+) map[string]any {
+	t.Helper()
+	started := callRefreshTool(t, client, "stop_and_reconcile",
+		reconcileArguments(t, service, map[string]any{}))
+	supervisor.wait.Wait()
+	return callRefreshTool(t, client, "get_reconcile_status",
+		map[string]any{"attempt_id": started["attempt_id"]})
+}
 
 func TestMCPCommitStatusReportsRetryableAttentionWithoutRevisionChange(t *testing.T) {
 	service, source, closeProfile := providerTestService(t, 1, "monarch")

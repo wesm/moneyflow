@@ -78,6 +78,8 @@ type ProviderWriteResult struct {
 	SelectionDisposition SelectionDisposition
 	Projection           WebProjection
 	ConfirmationToken    string
+	// ConfirmationExpiresAt is when ConfirmationToken stops being accepted, or zero without one.
+	ConfirmationExpiresAt time.Time
 }
 
 // ProviderWriteExecution is one process-local reservation for an already-authorized durable
@@ -398,8 +400,10 @@ func (service *Service) prepareProviderWrite(
 
 // ReserveProviderWriteExecution performs the authoritative resume transition and reserves the
 // single process-local worker. Explicit resume can first read an uncertain transaction
-// to verify whether another attempt is needed. A nil execution means another local
-// worker already owns the reservation.
+// to verify whether another attempt is needed. A nil execution with a nil error means there is
+// nothing to run: another local worker already owns the reservation, or the profile has no write
+// batch. A batch that cannot run, such as one with a stale version or one that parked, returns an
+// error and a nil execution.
 func (service *Service) ReserveProviderWriteExecution(
 	ctx context.Context,
 	expectedVersion uint64,
@@ -1525,6 +1529,7 @@ func (service *Service) StopAndReconcileProviderWrite(
 	if err != nil {
 		return ProviderWriteResult{}, mapAppError(err, service.Revision())
 	}
+	defer service.releaseLeaseOnPanic(ctx, runtime.instanceID, store.ProviderOperationReconcile)
 	providerState, err := service.profile.ProviderState(ctx)
 	if err != nil {
 		return ProviderWriteResult{}, mapAppError(err, service.Revision())
@@ -1550,8 +1555,9 @@ func (service *Service) StopAndReconcileProviderWrite(
 		return ProviderWriteResult{}, newAppError(AppStoreError, service.Revision(), err)
 	}
 	if ProviderDeletionConfirmationRequired(existing, removed) {
+		expiresAt := now.Add(runtime.confirmationTTL)
 		token, tokenErr := runtime.parkWriteConfirmation(providerWriteConfirmation{
-			owner: runtime.instanceID, expiresAt: now.Add(runtime.confirmationTTL),
+			owner: runtime.instanceID, expiresAt: expiresAt,
 			batchID: batch.ID, batchVersion: batch.Version + 1,
 			generation:      providerState.Refresh.Generation,
 			remoteProfileID: identity.RemoteID, candidate: candidate.Clone(),
@@ -1576,7 +1582,7 @@ func (service *Service) StopAndReconcileProviderWrite(
 		return ProviderWriteResult{
 			Revision: service.Revision(), Status: providerWriteStatusFromState(store.ProviderState{
 				Write: &parked,
-			}), ConfirmationToken: token,
+			}), ConfirmationToken: token, ConfirmationExpiresAt: expiresAt,
 		}, providerAppError(provider.CodeDeletionConfirmationRequired, service.Revision())
 	}
 	return service.foldProviderWriteReconcile(
@@ -1639,6 +1645,7 @@ func (service *Service) ConfirmProviderWriteReconcile(
 			provider.NewError(provider.CodeConfirmationInvalid), service.Revision(),
 		)
 	}
+	defer service.releaseLeaseOnPanic(ctx, runtime.instanceID, store.ProviderOperationReconcile)
 	return service.foldProviderWriteReconcile(
 		ctx, runtime, batch, providerState, confirmation.candidate,
 		confirmation.proposedIDs, confirmation.proposedSuffixes, request,

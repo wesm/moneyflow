@@ -9,20 +9,23 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
-type EmptyInput struct{}
+type EmptyInput struct{ ProfileArgument }
 
 type AccountInfoInput struct {
+	ProfileArgument
 	PartitionOffset int  `json:"partition_offset,omitempty"`
 	PartitionLimit  *int `json:"partition_limit,omitempty"`
 }
 
 type SearchTransactionsInput struct {
+	ProfileArgument
 	Query  string `json:"query" jsonschema:"literal text to find in merchant, category, or notes"`
 	Offset int    `json:"offset,omitempty" jsonschema:"zero-based result offset"`
 	Limit  *int   `json:"limit,omitempty" jsonschema:"result count, from 1 through 1000"`
 }
 
 type GetTransactionsInput struct {
+	ProfileArgument
 	TransactionFilterInput
 	Offset int  `json:"offset,omitempty"`
 	Limit  *int `json:"limit,omitempty"`
@@ -43,6 +46,7 @@ type TransactionFilterInput struct {
 }
 
 type SpendingSummaryInput struct {
+	ProfileArgument
 	StartDate string `json:"start_date,omitempty"`
 	EndDate   string `json:"end_date,omitempty"`
 	GroupBy   string `json:"group_by,omitempty"`
@@ -53,6 +57,7 @@ type SpendingSummaryInput struct {
 // GetInsightsInput describes one analytical view. ID filters become drill-downs in the order
 // merchant, category, group, account; group_by groups the rows below them.
 type GetInsightsInput struct {
+	ProfileArgument
 	StartDate string `json:"start_date,omitempty" jsonschema:"inclusive ISO date; omit both for All"`
 	EndDate   string `json:"end_date,omitempty" jsonschema:"inclusive ISO date; omit both for All"`
 	Currency  string `json:"currency,omitempty" jsonschema:"ISO code; needed with several currencies"`
@@ -72,6 +77,7 @@ type GetInsightsInput struct {
 }
 
 type CategoriesInput struct {
+	ProfileArgument
 	GroupOffset    int  `json:"group_offset,omitempty"`
 	GroupLimit     *int `json:"group_limit,omitempty"`
 	CategoryOffset int  `json:"category_offset,omitempty"`
@@ -79,17 +85,20 @@ type CategoriesInput struct {
 }
 
 type WindowInput struct {
+	ProfileArgument
 	Offset int  `json:"offset,omitempty"`
 	Limit  *int `json:"limit,omitempty"`
 }
 
 type UncategorizedInput struct {
+	ProfileArgument
 	Merchant string `json:"merchant,omitempty"`
 	Offset   int    `json:"offset,omitempty"`
 	Limit    *int   `json:"limit,omitempty"`
 }
 
 type TransactionDetailsInput struct {
+	ProfileArgument
 	TransactionID string `json:"transaction_id"`
 	MatchOffset   int    `json:"match_offset,omitempty"`
 	MatchLimit    *int   `json:"match_limit,omitempty"`
@@ -98,6 +107,7 @@ type TransactionDetailsInput struct {
 }
 
 type ReviewChangesInput struct {
+	ProfileArgument
 	ExpectedRevision string `json:"expected_revision"`
 	OperationID      string `json:"operation_id,omitempty"`
 	OperationOffset  int    `json:"operation_offset,omitempty"`
@@ -107,10 +117,12 @@ type ReviewChangesInput struct {
 }
 
 type RefreshStatusInput struct {
+	ProfileArgument
 	AttemptID string `json:"attempt_id,omitempty"`
 }
 
 type ConfirmRefreshInput struct {
+	ProfileArgument
 	AttemptID         string `json:"attempt_id"`
 	ConfirmationToken string `json:"confirmation_token"`
 }

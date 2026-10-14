@@ -94,7 +94,7 @@ func connectFailingServer(t *testing.T, failure error) *mcpsdk.ClientSession {
 	}, Options{})
 	require.NoError(t, err)
 	registerTool(server, "failing_tool", "Fails with a fixed error.", true,
-		func(context.Context, struct{}) (any, error) { return nil, failure })
+		func(context.Context, Dependencies, EmptyInput) (any, error) { return nil, failure })
 	addResource(server, "moneyflow://test/failing", "failing", "Fails with a fixed error.",
 		func(context.Context) (any, error) { return nil, failure })
 	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()

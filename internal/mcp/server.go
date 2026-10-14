@@ -9,11 +9,13 @@ import (
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/wesm/moneyflow/internal/access"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/version"
 )
 
-// Dependencies are the renderer-neutral values owned by one profile-scoped MCP process.
+// Dependencies are the renderer-neutral values one tool call uses for its profile.
 type Dependencies struct {
 	Service     *app.Service
 	ProfileID   string
@@ -22,6 +24,12 @@ type Dependencies struct {
 	Clock       func() time.Time
 	Random      io.Reader
 	Logger      *slog.Logger
+	// Supervisor owns the profile's refresh, reconcile and write attempts. New creates one for a
+	// standalone server; a Profiles implementation returns the same one on every call.
+	Supervisor *Supervisor
+	// Hold acquires the profile again for supervised work that outlives the tool call and
+	// returns its service and the function that releases it. Each tool call sets it.
+	Hold func(context.Context) (*app.Service, func(), error)
 }
 
 // Options controls the registered MCP surface.
@@ -29,12 +37,15 @@ type Options struct {
 	AllowWrite bool
 }
 
-// Server owns one SDK server and all process-lifetime background work.
+// Server registers tools on one SDK server. A standalone server also owns its profile's
+// background work.
 type Server struct {
-	SDK          *mcpsdk.Server
-	service      *app.Service
-	dependencies Dependencies
-	supervisor   *Supervisor
+	SDK        *mcpsdk.Server
+	profiles   profileAcquirer
+	prefix     string
+	classes    map[access.Class]bool
+	supervisor *Supervisor
+	standalone Dependencies
 }
 
 // New validates one profile binding and constructs its configured MCP surface.
@@ -53,19 +64,23 @@ func New(dependencies Dependencies, options Options) (*Server, error) {
 	case dependencies.Logger == nil:
 		return nil, errors.New("new MCP server: logger is nil")
 	}
-	supervisor := newSupervisor(dependencies.Clock, dependencies.Random)
+	supervisor := NewSupervisor(context.Background(), dependencies.Clock, dependencies.Random, nil)
 	supervisor.logger = dependencies.Logger
+	dependencies.Supervisor = supervisor
 	sdk := mcpsdk.NewServer(
 		&mcpsdk.Implementation{Name: "moneyflow", Version: version.Version},
 		&mcpsdk.ServerOptions{Logger: dependencies.Logger},
 	)
 	sdk.AddReceivingMiddleware(privateProfileCache)
-	server := &Server{SDK: sdk, service: dependencies.Service, dependencies: dependencies, supervisor: supervisor}
-	registerReadTools(server, dependencies)
-	registerExportTools(server, dependencies)
+	server := &Server{
+		SDK: sdk, profiles: singleProfile{dependencies: dependencies},
+		supervisor: supervisor, standalone: dependencies,
+	}
+	registerReadTools(server)
+	registerExportTools(server)
 	registerResources(server, dependencies)
 	if options.AllowWrite {
-		registerWriteTools(server, dependencies)
+		registerWriteTools(server)
 	}
 	return server, nil
 }
