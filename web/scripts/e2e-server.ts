@@ -158,10 +158,10 @@ export async function startE2EServer(
         : process.env,
       stdio: ['ignore', 'ignore', 'pipe'],
     })
-    recordE2EServer(child)
     child.stderr?.setEncoding('utf8')
     child.stderr?.on('data', (chunk: string) => (stderr += chunk))
     try {
+      recordE2EServer(child)
       const url = await waitForApplication(
         child,
         `${origin}${normalized}`,
@@ -221,10 +221,10 @@ export async function startOnboardingE2EServer(
         ],
         { cwd: repository, detached: true, stdio: ['ignore', 'ignore', 'pipe'] },
       )
-      recordE2EServer(child)
       child.stderr?.setEncoding('utf8')
       child.stderr?.on('data', (chunk: string) => (stderr += chunk))
       try {
+        recordE2EServer(child)
         const url = `${origin}${normalized}`
         await waitForCatalog(child, url, () => stderr)
         return {

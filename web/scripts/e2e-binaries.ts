@@ -49,7 +49,7 @@ export async function createE2ERun(parent: string): Promise<string> {
   await removeAbandonedE2ERuns(parent)
   const directory = await mkdtemp(join(parent, runPrefix))
   await mkdir(join(directory, serversDirectory))
-  await writeFile(join(directory, ownerFile), String(process.pid))
+  await writeFile(join(directory, ownerFile), `${process.pid}\n${processStart(process.pid)}\n`)
   return directory
 }
 
@@ -81,14 +81,19 @@ async function removeAbandonedE2ERuns(parent: string): Promise<void> {
     if (!entry.startsWith(runPrefix)) continue
     const directory = join(parent, entry)
     const owner = await readOwner(directory)
-    if (owner === undefined || processExists(owner)) continue
+    if (owner === undefined || ownerRunning(owner)) continue
     await removeE2ERun(directory)
   }
 }
 
+interface Owner {
+  pid: number
+  start: string
+}
+
 // A directory without a readable owner belongs to another user, an older harness, or a run
 // that is still being created, so it is left alone.
-async function readOwner(directory: string): Promise<number | undefined> {
+async function readOwner(directory: string): Promise<Owner | undefined> {
   let text: string
   try {
     text = await readFile(join(directory, ownerFile), 'utf8')
@@ -96,7 +101,27 @@ async function readOwner(directory: string): Promise<number | undefined> {
     if (hasCode(error, 'ENOENT', 'ENOTDIR', 'EACCES')) return undefined
     throw new Error(`Read E2E run owner in ${directory}: ${String(error)}`, { cause: error })
   }
-  return parsePID(text)
+  const [pidText = '', start = ''] = text.split('\n')
+  const pid = parsePID(pidText)
+  return pid === undefined || start === '' ? undefined : { pid, start }
+}
+
+// The kernel may give a dead owner's PID to an unrelated process, so the owner counts as
+// running only while that PID still has the start time recorded with it.
+function ownerRunning(owner: Owner): boolean {
+  return processExists(owner.pid) && processStart(owner.pid) === owner.start
+}
+
+// A fixed locale and time zone keep the text comparable between runs. Windows has no `ps`;
+// browser tests do not run there, so every owner keeps the same placeholder.
+function processStart(pid: number): string {
+  if (process.platform === 'win32') return 'unknown'
+  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
+    encoding: 'utf8',
+    env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' },
+  })
+  if (ps.error) throw new Error(`Read start time of process ${pid}: ${ps.error.message}`)
+  return ps.stdout.trim()
 }
 
 function killRecordedServers(directory: string): void {
