@@ -529,6 +529,23 @@ type gatedWrites struct {
 	release <-chan struct{}
 }
 
+// configureWriteSource sends the provider writes of service through writeSource and keeps
+// reading from source.
+func configureWriteSource(
+	t *testing.T,
+	service *app.Service,
+	source *refreshTestSource,
+	writeSource provider.WriterSource,
+) {
+	t.Helper()
+	now := time.Date(2026, time.August, 29, 14, 0, 0, 0, time.UTC)
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		ReadSource: source, WriteSource: writeSource, Provider: source.kind, Currency: "USD",
+		Scale: 2, Renderer: "mcp", InstanceID: "mcp-test", Now: func() time.Time { return now },
+		Random: cryptorand.Reader,
+	}))
+}
+
 // gateProviderWrites sends the provider writes of service through a gate.
 func gateProviderWrites(
 	t *testing.T,
@@ -537,12 +554,7 @@ func gateProviderWrites(
 ) *gatedWrites {
 	t.Helper()
 	gate := &gatedWrites{refreshTestSource: source}
-	now := time.Date(2026, time.August, 29, 14, 0, 0, 0, time.UTC)
-	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		ReadSource: source, WriteSource: gate, Provider: source.kind, Currency: "USD", Scale: 2,
-		Renderer: "mcp", InstanceID: "mcp-test", Now: func() time.Time { return now },
-		Random: cryptorand.Reader,
-	}))
+	configureWriteSource(t, service, source, gate)
 	return gate
 }
 
@@ -590,16 +602,61 @@ func (gate *gatedWrites) DeleteTransaction(
 	return gate.refreshTestSource.DeleteTransaction(ctx, id)
 }
 
-// stageDeletion stages the deletion of the first transaction and returns the revision to commit.
-func stageDeletion(t *testing.T, client *mcpsdk.ClientSession, service *app.Service) any {
+// stageEdit stages one edit of the first transaction and returns the revision to commit.
+func stageEdit(
+	t *testing.T,
+	client *mcpsdk.ClientSession,
+	service *app.Service,
+	tool string,
+) any {
 	t.Helper()
 	rows, err := service.TransactionWindow(t.Context(), app.TransactionWindowRequest{Limit: 1})
 	require.NoError(t, err)
-	staged := callRefreshTool(t, client, "delete_transactions", map[string]any{
+	staged := callRefreshTool(t, client, tool, map[string]any{
 		"expected_revision": strconv.FormatUint(rows.Revision, 10),
 		"transaction_ids":   []string{rows.Rows[0].ID},
 	})
 	return staged["revision"]
+}
+
+// stageDeletion stages the deletion of the first transaction and returns the revision to commit.
+func stageDeletion(t *testing.T, client *mcpsdk.ClientSession, service *app.Service) any {
+	t.Helper()
+	return stageEdit(t, client, service, "delete_transactions")
+}
+
+// panickingWriterSource panics in Writer once armed, like provider code that fails while a
+// resumed write checks or sends its changes.
+type panickingWriterSource struct {
+	*refreshTestSource
+	armed atomic.Bool
+}
+
+func (source *panickingWriterSource) Writer(
+	ctx context.Context,
+	reload bool,
+) (provider.Writer, provider.SessionFingerprint, error) {
+	if source.armed.Load() {
+		panic("synthetic provider failure")
+	}
+	return source.refreshTestSource.Writer(ctx, reload)
+}
+
+// awaitParkedWrite waits until the write batch stops for attention and no hold remains.
+func awaitParkedWrite(
+	t *testing.T,
+	service *app.Service,
+	profiles testProfiles,
+) app.ProviderWriteStatus {
+	t.Helper()
+	var status app.ProviderWriteStatus
+	require.Eventually(t, func() bool {
+		var err error
+		status, err = service.ProviderWriteStatus(t.Context())
+		return err == nil && status.Phase == store.WritePhaseAttentionRequired &&
+			profiles.leases.Load() == 0
+	}, 3*time.Second, 10*time.Millisecond)
+	return status
 }
 
 func TestProviderWriteHoldsItsProfileWhileItRuns(t *testing.T) {
@@ -666,6 +723,35 @@ func TestFailedWriteReservationGivesTheProfileBack(t *testing.T) {
 
 	require.True(t, result.IsError)
 	assert.Zero(t, profiles.leases.Load())
+}
+
+// A resume first asks the provider what happened to an update whose outcome is unknown, inside
+// the reservation. Provider code that panics there must not keep the profile held or Close waiting.
+func TestPanicDuringAWriteReservationLeavesNothingHeldAndCloseFinishes(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "monarch")
+	defer closeProfile()
+	source.updateFailure = provider.NewWriteFailure(provider.WriteOutcomeUnknown)
+	panicking := &panickingWriterSource{refreshTestSource: source}
+	configureWriteSource(t, service, source, panicking)
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	supervisor := profiles.entries["profile-a"].Supervisor
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+	revision := stageEdit(t, client, service, "toggle_transactions_hidden")
+	callRefreshTool(t, client, "commit_changes",
+		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	status := awaitParkedWrite(t, service, profiles)
+	require.Equal(t, store.WriteAttentionOutcomeUnknown, status.AttentionReason)
+	panicking.armed.Store(true)
+
+	result := callRefreshToolResult(t, client, "resume_commit",
+		map[string]any{"batch_version": strconv.FormatUint(status.Version, 10)})
+
+	require.True(t, result.IsError)
+	assert.Equal(t, "mcp_internal_error", result.StructuredContent.(map[string]any)["code"])
+	assert.Zero(t, profiles.leases.Load(), "the reservation kept the profile held")
+	closing, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	assert.NoError(t, supervisor.Close(closing), "Close is still waiting for the reservation")
 }
 
 // captureSupervisorLog sends the supervisor's log to a buffer and returns a reader for it.

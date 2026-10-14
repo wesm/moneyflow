@@ -144,19 +144,20 @@ func (supervisor *Supervisor) ReserveWrite(
 	}
 	// Count the reservation before releasing the mutex so Close cannot begin waiting while an
 	// untracked database call is still using the profile. The server context, not this mutex,
-	// interrupts a blocked reservation during shutdown.
+	// interrupts a blocked reservation during shutdown. The reservation's slot ends when this
+	// call returns, even by a panic in reserve; a worker adds its own slot before then, so Close
+	// cannot miss the worker.
 	supervisor.wait.Add(1)
 	supervisor.mu.Unlock()
+	defer supervisor.wait.Done()
 	status, execution, err := reserve(supervisor.ctx)
 	if err != nil {
-		supervisor.wait.Done()
 		return app.ProviderWriteStatus{}, false, err
 	}
 	supervisor.mu.Lock()
 	closed := supervisor.closed
 	if execution == nil {
 		supervisor.mu.Unlock()
-		supervisor.wait.Done()
 		if closed {
 			return app.ProviderWriteStatus{}, false, context.Canceled
 		}
@@ -165,13 +166,11 @@ func (supervisor *Supervisor) ReserveWrite(
 	if closed {
 		supervisor.mu.Unlock()
 		execution.Release()
-		supervisor.wait.Done()
 		return app.ProviderWriteStatus{}, false, context.Canceled
 	}
 	supervisor.writeWorkers++
 	supervisor.wait.Add(1)
 	supervisor.mu.Unlock()
-	supervisor.wait.Done()
 	go func() {
 		defer supervisor.wait.Done()
 		if _, err := recovered(supervisor, execution.Run); err != nil {

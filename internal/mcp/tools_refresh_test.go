@@ -222,6 +222,7 @@ func providerTestServiceOn(
 
 type refreshTestSource struct {
 	deleteFailure error
+	updateFailure error
 	kind          string
 	updates       []provider.TransactionUpdate
 	mu            sync.Mutex
@@ -246,6 +247,9 @@ func (source *refreshTestSource) ProbeIdentity(context.Context) (provider.Profil
 func (source *refreshTestSource) UpdateTransaction(_ context.Context, update provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
+	if source.updateFailure != nil {
+		return provider.TransactionUpdateResult{}, source.updateFailure
+	}
 	source.updates = append(source.updates, update)
 	return provider.TransactionUpdateResult{TransactionExternalID: update.TransactionExternalID, CategoryExternalID: update.CategoryExternalID, CategoryCleared: update.ClearCategory}, nil
 }
