@@ -159,22 +159,40 @@ func waitForState(
 	want State,
 ) Snapshot {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	// Only a running job changes the state without a test action, so poll until the state
+	// arrives or the job stops. The job clears running after its last transition.
+	status := func() Snapshot {
 		current, err := coordinator.Status(context.Background(), StatusRequest{
 			ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
 		})
 		require.NoError(t, err)
-		if current.State == want {
+		if current.State != want &&
+			(current.State == StateFailed || current.State == StateIdentityMismatch) {
+			t.Fatalf("onboarding reached %s instead of %s: %+v", current.State, want, current.Failure)
+		}
+		return current
+	}
+	for {
+		if current := status(); current.State == want {
 			return current
 		}
-		if current.State == StateFailed || current.State == StateIdentityMismatch {
-			t.Fatalf("onboarding reached %s instead of %s: %+v", current.State, want, current.Failure)
+		if !attemptJobRunning(coordinator, snapshot.AttemptID) {
+			break
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatalf("onboarding attempt did not reach %s", want)
-	return Snapshot{}
+	current := status()
+	if current.State != want {
+		t.Fatalf("onboarding attempt stopped at %s instead of reaching %s", current.State, want)
+	}
+	return current
+}
+
+func attemptJobRunning(coordinator *Coordinator, attemptID string) bool {
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	current, ok := coordinator.attempts[attemptID]
+	return ok && current.running
 }
 
 func mustJSON(t *testing.T, value any) string {

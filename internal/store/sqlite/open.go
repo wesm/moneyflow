@@ -83,7 +83,7 @@ func Open(ctx context.Context, paths home.Paths, options Options) (store.Profile
 	if err = verifyConnection(ctx, database, options); err != nil {
 		return nil, err
 	}
-	if err = ensureCurrentSchema(ctx, database, options); err != nil {
+	if err = ensureCurrentSchema(ctx, database, options, currentProfileSchema); err != nil {
 		return nil, err
 	}
 	if err = validateSchema(ctx, database); err != nil {

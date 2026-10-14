@@ -118,6 +118,8 @@ type providerCompletionAuditProfile struct {
 	store.Profile
 	phase    string
 	reported bool
+	// finalized, when set, receives a value once the store has finalized a provider write.
+	finalized chan struct{}
 }
 
 func (profile *providerCompletionAuditProfile) PrepareProviderWrite(ctx context.Context, request store.PrepareProviderWriteRequest, planner store.PrepareProviderWritePlanner) (store.PrepareProviderWriteCommit, error) {
@@ -131,6 +133,12 @@ func (profile *providerCompletionAuditProfile) PrepareProviderWrite(ctx context.
 
 func (profile *providerCompletionAuditProfile) FinalizeProviderWrite(ctx context.Context, request store.FinalizeProviderWriteRequest, planner store.FinalizeProviderWritePlanner) (store.FinalizeProviderWriteCommit, error) {
 	result, err := profile.Profile.FinalizeProviderWrite(ctx, request, planner)
+	if err == nil && profile.finalized != nil {
+		select {
+		case profile.finalized <- struct{}{}:
+		default:
+		}
+	}
 	if err == nil && profile.phase == "finalize" {
 		profile.reported = true
 		return result, store.NewAuditCompletionError(errors.New("synthetic audit sink failure"))

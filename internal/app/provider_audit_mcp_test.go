@@ -20,7 +20,9 @@ import (
 func TestMCPStatusRetainsProviderCompletionAuditWarning(t *testing.T) {
 	ctx := t.Context()
 	_, profile := newProviderRefreshService(t)
-	failing := &providerCompletionAuditProfile{Profile: profile, phase: "finalize"}
+	failing := &providerCompletionAuditProfile{
+		Profile: profile, phase: "finalize", finalized: make(chan struct{}, 1),
+	}
 	service, err := app.NewProfileService(ctx, failing)
 	require.NoError(t, err)
 	now := providerWriteTime()
@@ -62,14 +64,13 @@ func TestMCPStatusRetainsProviderCompletionAuditWarning(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.False(t, committed.IsError, "%v", committed.StructuredContent)
-	var visible app.ProviderWriteStatus
-	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		var statusErr error
-		visible, statusErr = service.ProviderWriteStatus(ctx)
-		require.NoError(collect, statusErr)
-		require.Empty(collect, visible.Phase)
-		require.NotEmpty(collect, visible.AuditWarning)
-	}, 3*time.Second, 10*time.Millisecond)
+	// The background write publishes its cleared batch and completion warning together, under
+	// the same lock that ProviderWriteStatus takes, so one read after finalization sees both.
+	<-failing.finalized
+	visible, err := service.ProviderWriteStatus(ctx)
+	require.NoError(t, err)
+	require.Empty(t, visible.Phase)
+	require.NotEmpty(t, visible.AuditWarning)
 	persisted, err := profile.Load(ctx)
 	require.NoError(t, err)
 	require.Empty(t, persisted.Journal)
