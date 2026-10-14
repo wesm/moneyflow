@@ -1,4 +1,4 @@
-.PHONY: build clean fmt help install-hooks lint monarch-live-test ynab-live-test test test-editing-e2e test-export test-go-quick test-mcp test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
+.PHONY: build clean fmt help install-hooks lint monarch-live-test ynab-live-test test test-editing-go test-editing-e2e test-export test-go-quick test-mcp test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -120,13 +120,7 @@ install-hooks:
 
 verify-go:
 	go run ./internal/tools/checkfmt cmd internal
-	$(MAKE) test
-	$(MAKE) test-mcp
-	$(MAKE) test-store
-	$(MAKE) test-provider
-	$(MAKE) test-provider-write
-	$(MAKE) vet
-	$(MAKE) lint
+	$(MAKE) test test-mcp test-store test-provider test-provider-write vet lint
 
 fmt:
 	gofmt -w cmd internal
@@ -157,12 +151,15 @@ web-budgets:
 	bun run --cwd web budgets
 
 web-e2e: web-embed
-	bun run --cwd web test:e2e -- --project=chromium
+	bun run --cwd web test:e2e -- --project=chromium --grep-invert 'chart cursor and drill p95'
 	bun run --cwd web test:e2e -- --project=firefox --grep @smoke
 	bun run --cwd web test:e2e -- --project=webkit --grep @smoke
+	bun run --cwd web test:e2e -- performance.spec.ts --project=chromium --workers=1
 
-test-editing-e2e: web-embed
+test-editing-go: web-embed
 	go test ./internal/app ./internal/tui ./internal/api -run 'Test(Editing|Identity|Restart|Concurrent|PendingOnly|Delete|Deletion|Duplicate|Drill|Privacy|Export)' -count=1
+
+test-editing-e2e: test-editing-go
 	bun run --cwd web test:e2e -- base-path.spec.ts editing.spec.ts managers.spec.ts origin.spec.ts restart.spec.ts review.spec.ts --project=chromium
 
 test-provider-e2e: web-embed
@@ -185,13 +182,7 @@ web-embed-check: web-embed
 
 verify-web:
 	$(MAKE) web-install
-	$(MAKE) web-check
-	$(MAKE) web-test
-	$(MAKE) web-audit
-	$(MAKE) web-embed-check
-	$(MAKE) test-editing-e2e
-	$(MAKE) test-provider-e2e
-	$(MAKE) web-e2e
+	$(MAKE) web-check web-test web-audit web-embed-check test-editing-go web-e2e
 	go test ./internal/api -run 'Test(Projection|DuplicateProjection)Performance100K' -count=1
 
 web-dev:

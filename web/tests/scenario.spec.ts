@@ -247,6 +247,8 @@ test('@smoke applied but unanswered category edit survives a process restart', a
       )
       .toBeGreaterThanOrEqual(1)
     await server.restart(true)
+    // Only the next page load should recover the write after its lease expires.
+    await page.goto('about:blank')
     await server.advance(180)
     await page.goto(server.url)
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeVisible()

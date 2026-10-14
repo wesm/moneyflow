@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   web:
     name: Generated assets and browser workflows
@@ -33,32 +37,13 @@ jobs:
       - name: Install frozen frontend dependencies
         run: make web-install
 
-      - name: Generate ignored embedded distribution
-        run: make web-embed-check
-
-      - name: Check generated API client
-        env:
-          TMPDIR: ${{ runner.temp }}
-        run: bun run --cwd web generate:check
-
-      - name: Check, test, audit, and build frontend
-        env:
-          TMPDIR: ${{ runner.temp }}
-        run: |
-          make web-check
-          make web-test
-          make web-audit
-
       - name: Install pinned Playwright browsers
         run: bun run --cwd web playwright install --with-deps chromium firefox webkit
 
-      - name: Run browser workflows
+      - name: Check frontend and run browser workflows
         env:
           TMPDIR: ${{ runner.temp }}
-        run: |
-          make test-editing-e2e
-          make test-provider-e2e
-          make web-e2e
+        run: make web-check web-test web-audit web-embed-check test-editing-go web-e2e
 
       - name: Upload synthetic browser failures
         if: failure()

@@ -4,6 +4,7 @@ import { resolve, join } from "node:path";
 import { chromium } from "../../web/node_modules/playwright";
 import { expect } from "../../web/node_modules/@playwright/test";
 import { startE2EServer } from "../../web/scripts/e2e-server";
+import prepareE2EBinaries from "../../web/scripts/e2e-binaries";
 
 // Build tooling only: both applications use their real --demo startup path.
 // No profile path, credentials, provider connection, or fixture override is accepted.
@@ -149,73 +150,83 @@ try {
   await rm(scratch, { recursive: true, force: true });
 }
 
-const server = await startE2EServer();
+const cleanupBinaries = await prepareE2EBinaries();
 try {
-  const browser = await chromium.launch();
+  const server = await startE2EServer();
   try {
-    const page = await browser.newPage({
-      viewport: { width: 1440, height: 900 },
-      deviceScaleFactor: 2,
-      colorScheme: "dark",
-    });
-    await page.goto(server.url);
-    await page.getByRole("grid", { name: "Financial results" }).waitFor();
-    await page.evaluate(() => document.fonts.ready);
-    await page.screenshot({ path: join(output, "web-browse.png") });
-    console.log("Captured web-browse.png");
-    const phone = await browser.newPage({
-      viewport: { width: 390, height: 844 },
-      deviceScaleFactor: 3,
-      colorScheme: "dark",
-    });
-    await phone.goto(server.url);
-    await phone.getByRole("grid", { name: "Financial results" }).waitFor();
-    await phone.evaluate(() => document.fonts.ready);
-    await phone.evaluate(() => (document.activeElement as HTMLElement)?.blur());
-    await phone.screenshot({ path: join(output, "web-phone.png") });
-    console.log("Captured web-phone.png");
-    await phone.close();
-    const grid = page.getByRole("grid", { name: "Financial results" });
-    await grid.focus();
-    await page.keyboard.press("d");
-    await page.getByRole("columnheader", { name: "Date" }).waitFor();
-    await page.keyboard.press("Space");
-    await expect(page.getByRole("row", { selected: true })).toHaveCount(1);
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Space");
-    await expect(page.getByRole("row", { selected: true })).toHaveCount(2);
-    await page.keyboard.press("c");
-    await page.getByRole("dialog", { name: "Change category" }).waitFor();
-    const category = page.getByRole("combobox", { name: "Category", exact: true });
-    await category.fill("Books");
-    await expect(category).toHaveAttribute("aria-expanded", "true");
-    await category.press("Enter");
-    await expect(category).toHaveAttribute("aria-expanded", "false");
-    const stage = page.getByRole("button", { name: /^Stage change to / });
-    await stage.waitFor();
-    await page.evaluate(() => document.fonts.ready);
-    await page.screenshot({ path: join(output, "web-edit.png") });
-    console.log("Captured web-edit.png");
-    await stage.click();
-    await page
-      .getByRole("dialog", { name: "Change category" })
-      .waitFor({ state: "hidden", timeout: 5_000 })
-      .catch(async () => {
-        throw new Error(
-          await page
-            .getByRole("dialog", { name: "Change category" })
-            .innerText(),
-        );
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1440, height: 900 },
+        deviceScaleFactor: 2,
+        colorScheme: "dark",
       });
-    await page.keyboard.press("w");
-    await page
-      .getByRole("dialog", { name: "Review pending changes" })
-      .waitFor();
-    await page.screenshot({ path: join(output, "web-review.png") });
-    console.log("Captured web-review.png");
+      await page.goto(server.url);
+      await page.getByRole("grid", { name: "Financial results" }).waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      await page.screenshot({ path: join(output, "web-browse.png") });
+      console.log("Captured web-browse.png");
+      const phone = await browser.newPage({
+        viewport: { width: 390, height: 844 },
+        deviceScaleFactor: 3,
+        colorScheme: "dark",
+      });
+      await phone.goto(server.url);
+      await phone.getByRole("grid", { name: "Financial results" }).waitFor();
+      await phone.evaluate(() => document.fonts.ready);
+      await phone.evaluate(() =>
+        (document.activeElement as HTMLElement)?.blur(),
+      );
+      await phone.screenshot({ path: join(output, "web-phone.png") });
+      console.log("Captured web-phone.png");
+      await phone.close();
+      const grid = page.getByRole("grid", { name: "Financial results" });
+      await grid.focus();
+      await page.keyboard.press("d");
+      await page.getByRole("columnheader", { name: "Date" }).waitFor();
+      await page.keyboard.press("Space");
+      await expect(page.getByRole("row", { selected: true })).toHaveCount(1);
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Space");
+      await expect(page.getByRole("row", { selected: true })).toHaveCount(2);
+      await page.keyboard.press("c");
+      await page.getByRole("dialog", { name: "Change category" }).waitFor();
+      const category = page.getByRole("combobox", {
+        name: "Category",
+        exact: true,
+      });
+      await category.fill("Books");
+      await expect(category).toHaveAttribute("aria-expanded", "true");
+      await category.press("Enter");
+      await expect(category).toHaveAttribute("aria-expanded", "false");
+      const stage = page.getByRole("button", { name: /^Stage change to / });
+      await stage.waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      await page.screenshot({ path: join(output, "web-edit.png") });
+      console.log("Captured web-edit.png");
+      await stage.click();
+      await page
+        .getByRole("dialog", { name: "Change category" })
+        .waitFor({ state: "hidden", timeout: 5_000 })
+        .catch(async () => {
+          throw new Error(
+            await page
+              .getByRole("dialog", { name: "Change category" })
+              .innerText(),
+          );
+        });
+      await page.keyboard.press("w");
+      await page
+        .getByRole("dialog", { name: "Review pending changes" })
+        .waitFor();
+      await page.screenshot({ path: join(output, "web-review.png") });
+      console.log("Captured web-review.png");
+    } finally {
+      await browser.close();
+    }
   } finally {
-    await browser.close();
+    await server.stop();
   }
 } finally {
-  await server.stop();
+  await cleanupBinaries();
 }

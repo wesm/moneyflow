@@ -1,9 +1,11 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import { availablePort, waitForApplication } from './e2e-server'
+import { e2eBinary } from './e2e-binaries'
 
 export interface Observation {
   rows: Record<
@@ -51,19 +53,14 @@ export async function startScenarioServer(requestedRoot: string): Promise<Scenar
   const root = resolve(requestedRoot)
   await mkdir(root, { recursive: true, mode: 0o700 })
   const token = randomUUID()
-  const profileRoot = join(root, 'home')
-  await mkdir(profileRoot, { mode: 0o700 })
+  // Worktrees may have writable ancestors; live profiles use the private TMPDIR.
+  const profileRoot = await mkdtemp(join(tmpdir(), 'moneyflow-scenario-'))
   await writeFile(join(profileRoot, '.moneyflow-webtest-root'), token, { mode: 0o600 })
   await writeFile(join(profileRoot, 'scenario.json'), JSON.stringify({ fixture: 'editing-v1' }), {
     mode: 0o600,
   })
-  const binary = join(root, process.platform === 'win32' ? 'webtestserver.exe' : 'webtestserver')
+  const binary = e2eBinary('webtestserver')
   const repository = resolve(process.cwd(), '..')
-  const build = spawnSync('go', ['build', '-o', binary, './internal/tools/webtestserver'], {
-    cwd: repository,
-    encoding: 'utf8',
-  })
-  if (build.status !== 0) throw new Error(`Build scenario server: ${build.stderr}`)
   const port = await availablePort()
   const origin = `http://127.0.0.1:${port}`
   let child: ChildProcess | undefined
@@ -121,11 +118,23 @@ export async function startScenarioServer(requestedRoot: string): Promise<Scenar
       throw new Error(`Scenario ${path}: ${response.status} ${await response.text()}`)
     return await response.json()
   }
+  async function finish(failed: boolean): Promise<void> {
+    await stop()
+    try {
+      if (failed) {
+        await cp(profileRoot, join(root, 'home'), { recursive: true })
+        await writeFile(join(root, 'server.log'), logs, { mode: 0o600 })
+      } else {
+        await rm(root, { recursive: true, force: true })
+      }
+    } finally {
+      await rm(profileRoot, { recursive: true, force: true })
+    }
+  }
   try {
     await start()
   } catch (error) {
-    await stop()
-    await writeFile(join(root, 'server.log'), logs, { mode: 0o600 })
+    await finish(true)
     throw error
   }
   return {
@@ -150,12 +159,6 @@ export async function startScenarioServer(requestedRoot: string): Promise<Scenar
       await start()
     },
     stop,
-    async finish(failed) {
-      await stop()
-      // Binaries are reproducible and large; keep only synthetic state and evidence.
-      await rm(binary, { force: true })
-      if (failed) await writeFile(join(root, 'server.log'), logs, { mode: 0o600 })
-      else await rm(root, { recursive: true, force: true })
-    },
+    finish,
   }
 }

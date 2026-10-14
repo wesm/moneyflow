@@ -5,6 +5,8 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
+import { e2eBinary } from './e2e-binaries'
+
 export interface E2EServer {
   basePath: string
   origin: string
@@ -115,105 +117,74 @@ export async function startE2EServer(
   }
   const normalized = normalizedBasePath(options.basePath ?? '/')
   const repository = resolve(process.cwd(), '..')
-  const binaryDirectory = await mkdtemp(join(tmpdir(), 'moneyflow-e2e-'))
-  const binary = join(binaryDirectory, process.platform === 'win32' ? 'moneyflow.exe' : 'moneyflow')
-  const build = spawnSync('go', ['build', '-o', binary, './cmd/moneyflow'], {
-    cwd: repository,
-    encoding: 'utf8',
-  })
-  if (build.status !== 0) {
-    await rm(binaryDirectory, { recursive: true, force: true })
-    throw new Error(`Could not build Moneyflow E2E server: ${build.stderr}`)
-  }
+  const binary = e2eBinary('moneyflow')
   if (options.seedProfile) {
     if (!options.profileHome) {
-      await rm(binaryDirectory, { recursive: true, force: true })
       throw new Error('A persistent E2E profile home is required before seeding.')
     }
-    const seedBinary = join(
-      binaryDirectory,
-      process.platform === 'win32' ? 'seedprofile.exe' : 'seedprofile',
-    )
-    const seedBuild = spawnSync('go', ['build', '-o', seedBinary, './internal/tools/seedprofile'], {
-      cwd: repository,
-      encoding: 'utf8',
-    })
-    if (seedBuild.status !== 0) {
-      await rm(binaryDirectory, { recursive: true, force: true })
-      throw new Error(`Could not build the E2E profile seeder: ${seedBuild.stderr}`)
-    }
-    const seeded = spawnSync(seedBinary, [options.profileHome], {
+    const seeded = spawnSync(e2eBinary('seedprofile'), [options.profileHome], {
       cwd: repository,
       encoding: 'utf8',
     })
     if (seeded.status !== 0) {
-      await rm(binaryDirectory, { recursive: true, force: true })
       throw new Error(`Could not seed the E2E profile: ${seeded.stderr}`)
     }
   }
   let lastError: unknown
-  try {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const port = await availablePort()
-      const origin = `http://127.0.0.1:${port}`
-      let stderr = ''
-      const args = [
-        'web',
-        ...(options.fixturePath
-          ? ['--fixture', resolve(repository, options.fixturePath)]
-          : options.profileHome
-            ? []
-            : ['--demo']),
-        ...(options.profileHome && !options.selector ? ['--profile', 'Moneyflow'] : []),
-        '--open=false',
-        '--listen',
-        `127.0.0.1:${port}`,
-        '--base-path',
-        normalized,
-        ...(options.externalURL ? ['--external-url', options.externalURL] : []),
-      ]
-      const child = spawn(binary, args, {
-        cwd: repository,
-        detached: true,
-        env: options.profileHome
-          ? { ...process.env, MONEYFLOW_HOME: options.profileHome }
-          : process.env,
-        stdio: ['ignore', 'ignore', 'pipe'],
-      })
-      child.stderr?.setEncoding('utf8')
-      child.stderr?.on('data', (chunk: string) => (stderr += chunk))
-      try {
-        const url = await waitForApplication(
-          child,
-          `${origin}${normalized}`,
-          () => stderr,
-          !options.selector,
-        )
-        const profileID = /\/p\/(profile_[a-z2-7]{26})\/$/.exec(new URL(url).pathname)?.[1] ?? ''
-        if (!profileID && !options.selector)
-          throw new Error('Moneyflow E2E server returned an invalid profile route.')
-        return {
-          basePath: normalized,
-          origin,
-          profileAPI: profileID ? `${origin}${normalized}api/v1/profiles/${profileID}/` : '',
-          profileID,
-          url,
-          stop: async () => {
-            await stopProcessGroup(child)
-            await rm(binaryDirectory, { recursive: true, force: true })
-          },
-        }
-      } catch (error) {
-        lastError = error
-        await stopProcessGroup(child)
-        if (!stderr.toLowerCase().includes('address already in use')) break
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const port = await availablePort()
+    const origin = `http://127.0.0.1:${port}`
+    let stderr = ''
+    const args = [
+      'web',
+      ...(options.fixturePath
+        ? ['--fixture', resolve(repository, options.fixturePath)]
+        : options.profileHome
+          ? []
+          : ['--demo']),
+      ...(options.profileHome && !options.selector ? ['--profile', 'Moneyflow'] : []),
+      '--open=false',
+      '--listen',
+      `127.0.0.1:${port}`,
+      '--base-path',
+      normalized,
+      ...(options.externalURL ? ['--external-url', options.externalURL] : []),
+    ]
+    const child = spawn(binary, args, {
+      cwd: repository,
+      detached: true,
+      env: options.profileHome
+        ? { ...process.env, MONEYFLOW_HOME: options.profileHome }
+        : process.env,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (chunk: string) => (stderr += chunk))
+    try {
+      const url = await waitForApplication(
+        child,
+        `${origin}${normalized}`,
+        () => stderr,
+        !options.selector,
+      )
+      const profileID = /\/p\/(profile_[a-z2-7]{26})\/$/.exec(new URL(url).pathname)?.[1] ?? ''
+      if (!profileID && !options.selector)
+        throw new Error('Moneyflow E2E server returned an invalid profile route.')
+      return {
+        basePath: normalized,
+        origin,
+        profileAPI: profileID ? `${origin}${normalized}api/v1/profiles/${profileID}/` : '',
+        profileID,
+        url,
+        stop: () => stopProcessGroup(child),
       }
+    } catch (error) {
+      lastError = error
+      await stopProcessGroup(child)
+      if (!stderr.toLowerCase().includes('address already in use')) break
     }
-    throw lastError
-  } catch (error) {
-    await rm(binaryDirectory, { recursive: true, force: true })
-    throw error
   }
+  throw lastError
 }
 
 export async function startOnboardingE2EServer(
@@ -222,25 +193,14 @@ export async function startOnboardingE2EServer(
 ): Promise<OnboardingE2EServer> {
   const normalized = normalizedBasePath(requestedBasePath)
   const repository = resolve(process.cwd(), '..')
-  const binaryDirectory = await mkdtemp(join(tmpdir(), 'moneyflow-onboarding-e2e-'))
-  const binary = join(
-    binaryDirectory,
-    process.platform === 'win32' ? 'webtestserver.exe' : 'webtestserver',
-  )
-  const build = spawnSync('go', ['build', '-o', binary, './internal/tools/webtestserver'], {
-    cwd: repository,
-    encoding: 'utf8',
-  })
-  if (build.status !== 0) {
-    await rm(binaryDirectory, { recursive: true, force: true })
-    throw new Error(`Could not build Moneyflow onboarding E2E server: ${build.stderr}`)
-  }
+  const serverDirectory = await mkdtemp(join(tmpdir(), 'moneyflow-onboarding-e2e-'))
+  const binary = e2eBinary('webtestserver')
   let lastError: unknown
   try {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const port = await availablePort()
       const origin = `http://127.0.0.1:${port}`
-      const profileHome = join(binaryDirectory, `profiles-${attempt}`)
+      const profileHome = join(serverDirectory, `profiles-${attempt}`)
       const rootToken = randomUUID()
       await mkdir(profileHome, { mode: 0o700 })
       await writeFile(join(profileHome, '.moneyflow-webtest-root'), rootToken, { mode: 0o600 })
@@ -281,7 +241,7 @@ export async function startOnboardingE2EServer(
           },
           stop: async () => {
             await stopProcessGroup(child)
-            await rm(binaryDirectory, { recursive: true, force: true })
+            await rm(serverDirectory, { recursive: true, force: true })
           },
         }
       } catch (error) {
@@ -292,7 +252,7 @@ export async function startOnboardingE2EServer(
     }
     throw lastError
   } catch (error) {
-    await rm(binaryDirectory, { recursive: true, force: true })
+    await rm(serverDirectory, { recursive: true, force: true })
     throw error
   }
 }

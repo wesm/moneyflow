@@ -82,10 +82,11 @@ This is graceful teardown; browser restart scenarios use a killed process to tes
 an abrupt exit.
 
 `internal/tools/webtestserver --scenario` is a test-only composition of the production
-API and UI. `web/scripts/scenario-server.ts` owns its private root and process.
-`stop` preserves both stores, `restart` reattaches the provider, and `finish` removes
-successful runs while retaining failures. Test controls observe state and schedule
-faults; editing actions still go through the rendered UI and production handlers.
+API and UI. `web/scripts/scenario-server.ts` owns the process and its private root
+under `TMPDIR`. `stop` preserves both stores, `restart` reattaches the provider,
+and `finish` removes successful runs while copying closed stores into failure
+artifacts. Test controls observe state and schedule faults; editing actions still
+go through the rendered UI and production handlers.
 There are no scenario controls in the production binary.
 
 Logical application time starts at 2026-10-15 12:00 UTC. Browser scenarios also fix
@@ -95,6 +96,24 @@ probe records. Random IDs and wall-clock audit timestamps are not byte-for-byte
 replay guarantees.
 
 ## CI and manual checks
+
+`make web-e2e` runs the full Chromium suite and Firefox/WebKit smoke tests in
+parallel. CI uses two workers; local runs use half the logical CPU count, up to 32.
+Each worker has its own demo server; editing and provider tests create fresh
+servers and profiles. Playwright builds the three Go test
+executables once per invocation and removes them after the workers exit.
+
+The chart performance test runs last, alone with one worker, so browser workflows
+do not compete with its measurements. To run a focused test after `make web-embed`:
+
+```bash
+bun run --cwd web test:e2e -- editing.spec.ts --project=chromium
+bun run --cwd web test:e2e -- performance.spec.ts --project=chromium --workers=1
+```
+
+`make verify-web` builds frontend assets once and includes each browser test once.
+The focused `test-editing-e2e` and `test-provider-e2e` targets remain useful during
+development; they are already covered by the full verification command.
 
 The `go` matrix and `race` job in `.github/workflows/go.yml` run the Go scenarios.
 The `web` job in `.github/workflows/web.yml` runs the Playwright scenarios, without
