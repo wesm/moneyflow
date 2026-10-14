@@ -490,13 +490,25 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       return failed(failureReason(error))
     }
     const problem = error.problem
-    if (problem.provider && !canAdopt(problem.provider, before)) {
+    let reported = problem.provider
+    const known = state.status
+    if (
+      problem.code === 'provider_deletion_confirmation_required' &&
+      reported &&
+      known &&
+      reported.generation === known.generation &&
+      BigInt(reported.revision) < BigInt(known.revision)
+    ) {
+      // Local edits preserve the candidate. Keep their newer revision, then check the attempt.
+      reported = { ...reported, revision: known.revision }
+    }
+    if (reported && !canAdopt(reported, before)) {
       showWarning(problemReason(problem))
       leaveCompletedDialog()
       return false
     }
-    const status = problem.provider === undefined ? {} : { status: problem.provider }
-    if (problem.code === 'provider_deletion_confirmation_required' && problem.provider) {
+    const status = reported === undefined ? {} : { status: reported }
+    if (problem.code === 'provider_deletion_confirmation_required' && reported) {
       setState({
         ...state,
         ...status,
@@ -550,13 +562,16 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 
   async function refreshStatusAfterInvalidConfirmation(detail: string): Promise<void> {
     const reason = `${detail} Retry to fetch a new candidate.`
+    const finished = attempt
+    const seen = statusChanges
+    failed(reason)
     try {
       const status = await options.transport.status()
+      if (finished !== attempt || seen !== statusChanges) return
       setState({ ...state, capability: status.capability, status })
     } catch {
-      // The failure below still explains what to do.
+      // The failure dialog already explains what to do.
     }
-    failed(reason)
   }
 
   async function poll(): Promise<void> {

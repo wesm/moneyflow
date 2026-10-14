@@ -224,36 +224,65 @@ describe('provider controller', () => {
     },
   )
 
-  it('requires explicit confirmation and refetches status after an invalid token', async () => {
-    const current = testProjection({ capabilities: [capability(true)] })
-    const pending = providerStatus({
-      code: 'provider_deletion_confirmation_required',
-      confirmation_token: 'opaque-confirmation',
-      summary: { ...emptySummary(), removed_transactions: 5 },
-    })
-    const transport = transportStub({
-      mutationResponse: problemResponse(
-        'provider_deletion_confirmation_required',
-        'Confirm provider removals.',
-        pending,
-      ),
-      status: providerStatus(),
-    })
-    const controller = createProviderController({ transport, host: hostStub(current) })
-    controller.sync(current)
+  it.each(['none', 'retry', 'poll'] as const)(
+    'shows an expired confirmation before its status read, preserving a later %s',
+    async (later) => {
+      const current = testProjection({ capabilities: [capability(true)] })
+      const pending = providerStatus({
+        code: 'provider_deletion_confirmation_required',
+        confirmation_token: 'opaque-confirmation',
+        summary: { ...emptySummary(), removed_transactions: 5 },
+      })
+      const transport = transportStub({
+        mutationResponse: problemResponse(
+          'provider_deletion_confirmation_required',
+          'Confirm provider removals.',
+          pending,
+        ),
+        status: providerStatus(),
+      })
+      const controller = createProviderController({ transport, host: hostStub(current) })
+      controller.sync(current)
 
-    await expect(controller.refresh()).resolves.toBe(false)
-    expect(controller.state.phase).toBe('confirmation')
-    expect(controller.state.status?.summary.removed_transactions).toBe(5)
+      await expect(controller.refresh()).resolves.toBe(false)
+      expect(controller.state.phase).toBe('confirmation')
+      expect(controller.state.status?.summary.removed_transactions).toBe(5)
 
-    vi.mocked(transport.mutations.request).mockResolvedValueOnce(
-      problemResponse('provider_confirmation_invalid', 'Confirmation expired.'),
-    )
-    await expect(controller.confirm()).resolves.toBe(false)
-    expect(controller.state.status?.confirmation_token).toBeUndefined()
-    expect(transport.mutations.request).toHaveBeenCalledTimes(2)
-    expect(controller.state.phase).toBe('failed')
-  })
+      vi.mocked(transport.mutations.request).mockResolvedValueOnce(
+        problemResponse('provider_confirmation_invalid', 'Confirmation expired.'),
+      )
+      const statusRead = Promise.withResolvers<ProviderStatus>()
+      transport.status.mockReturnValueOnce(statusRead.promise)
+      const confirmation = controller.confirm()
+      await settle()
+
+      expect(controller.state.dialog?.view).toBe('failed')
+      expect(controller.state.dialog?.reason).toContain('Confirmation expired.')
+      expect(transport.mutations.request).toHaveBeenCalledTimes(2)
+      controller.continueStale()
+      expect(controller.state.dialog).toBeUndefined()
+      if (later === 'retry') {
+        transport.mutations.request.mockResolvedValueOnce(
+          problemResponse('provider_reconnect_required', 'Reconnect.'),
+        )
+        await controller.refresh()
+        expect(controller.state.dialog?.view).toBe('reconnect')
+      } else if (later === 'poll') {
+        transport.status.mockResolvedValueOnce(providerStatus({ code: 'provider_unavailable' }))
+        await controller.poll()
+      }
+      const latest = controller.state
+      statusRead.resolve(providerStatus())
+      await expect(confirmation).resolves.toBe(false)
+
+      if (later === 'none') {
+        expect(controller.state.status?.confirmation_token).toBeUndefined()
+        expect(controller.state.dialog).toBeUndefined()
+      } else {
+        expect(controller.state).toEqual(latest)
+      }
+    },
+  )
 
   it('keeps the failure and the status returned with a refresh error', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
@@ -1208,9 +1237,20 @@ describe('provider controller', () => {
     },
   )
 
-  it.each(['running', 'finished'] as const)(
-    'offers deletion confirmation after an external edit and polling the %s refresh',
-    async (phase) => {
+  it.each<{
+    phase: 'running' | 'finished'
+    revision: string
+    newer?: 'generation' | 'attempt'
+  }>([
+    { phase: 'running', revision: '2' },
+    { phase: 'finished', revision: '2' },
+    { phase: 'running', revision: '3' },
+    { phase: 'finished', revision: '3' },
+    { phase: 'finished', revision: '3', newer: 'generation' },
+    { phase: 'finished', revision: '3', newer: 'attempt' },
+  ])(
+    'handles deletion confirmation after polling $phase at revision $revision (newer: $newer)',
+    async ({ phase, revision, newer }) => {
       const current = testProjection({ revision: '1', capabilities: [capability(true)] })
       const transport = transportStub({
         status: providerStatus({ revision: '1', last_attempt: '2026-10-13T12:00:00Z' }),
@@ -1222,15 +1262,16 @@ describe('provider controller', () => {
       await controller.poll()
       const refresh = controller.refresh()
       transport.status.mockResolvedValue(
-        providerStatus({ revision: '2', refreshing: true, last_attempt: '2026-10-13T12:00:00Z' }),
+        providerStatus({ revision, refreshing: true, last_attempt: '2026-10-13T12:00:00Z' }),
       )
       await controller.poll()
       if (phase === 'finished') {
         transport.status.mockResolvedValue(
           providerStatus({
-            revision: '2',
+            revision,
+            generation: newer === 'generation' ? '2' : '1',
             code: 'provider_deletion_confirmation_required',
-            last_attempt: '2026-10-13T12:01:00Z',
+            last_attempt: newer === 'attempt' ? '2026-10-13T12:02:00Z' : '2026-10-13T12:01:00Z',
           }),
         )
         await controller.poll()
@@ -1244,13 +1285,21 @@ describe('provider controller', () => {
             code: 'provider_deletion_confirmation_required',
             last_attempt: '2026-10-13T12:01:00Z',
             confirmation_token: 'candidate-after-progress',
+            summary: { ...emptySummary(), removed_transactions: 5 },
           }),
         ),
       )
       await refresh
 
-      expect(controller.state.dialog?.view).toBe('confirmation')
-      expect(controller.state.status?.confirmation_token).toBe('candidate-after-progress')
+      expect(controller.state.status?.revision).toBe(revision)
+      if (newer) {
+        expect(controller.state.dialog).toBeUndefined()
+        expect(controller.state.status?.confirmation_token).toBeUndefined()
+      } else {
+        expect(controller.state.dialog?.view).toBe('confirmation')
+        expect(controller.state.status?.confirmation_token).toBe('candidate-after-progress')
+        expect(controller.state.status?.summary.removed_transactions).toBe(5)
+      }
     },
   )
 
