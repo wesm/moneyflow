@@ -54,7 +54,6 @@ func (ynabFlow) ConfirmSettingsLocked(
 		return nil, newError(CodeCredentialInputInvalid, errors.New("settings differ from selected budget"))
 	}
 	coordinator.transitionLocked(current, StateImporting, nil)
-	current.flow.retryState = StateImporting
 	return coordinator.confirmAndImportYNAB, nil
 }
 

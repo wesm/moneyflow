@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
+	"github.com/wesm/moneyflow/internal/provider/ynab"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
@@ -208,6 +210,159 @@ func TestRuntimeRequiresSourceFactoryBeforeSessionValidation(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestPanickingSetupJobFailsTheAttempt(t *testing.T) {
+	sessions := &fakeSessionStore{session: validTestSession("subscription-example", "USD", 2)}
+	connector := &fakeConnector{validatePanic: true}
+	coordinator, started := newFlowCoordinator(
+		t, flowProfileBound, sessions, &fakeCredentialVault{}, connector, nil,
+	)
+
+	final := waitForStableState(t, coordinator, started)
+	assert.Equal(t, StateFailed, final.State)
+	require.NotNil(t, final.Failure)
+	assert.Equal(t, genericFailureCode, final.Failure.Code)
+	assert.Equal(t, "Setup stopped unexpectedly.", final.Failure.Message)
+	assert.True(t, final.Failure.CanRetry)
+	assert.True(t, final.Failure.CanReenter)
+}
+
+func TestPanickingRuntimeFactoryReleasesTheProfileAndItsLock(t *testing.T) {
+	opened := newFlowOpenedProfile(t, flowProfilePristine)
+	profileRoot := opened.Paths.Root
+	closeProfile := opened.Close
+	closeCalls := 0
+	opened.Close = func() error {
+		closeCalls++
+		return closeProfile()
+	}
+	coordinator, err := NewCoordinator(Config{
+		Random: bytes.NewReader(bytes.Repeat([]byte{0x42}, 128)),
+		Now:    time.Now, InstanceID: "test-instance",
+		OpenProfile: func(context.Context, string) (OpenedProfile, error) { return opened, nil },
+		Runtime: func(home.Paths) (Runtime, error) {
+			panic("synthetic runtime failure")
+		},
+	})
+	require.NoError(t, err)
+	started, err := coordinator.Start(context.Background(), StartRequest{ProfileID: testProfileID})
+	require.NoError(t, err)
+
+	final := waitForStableState(t, coordinator, started)
+	assert.Equal(t, StateFailed, final.State)
+	require.NotNil(t, final.Failure)
+	assert.Equal(t, genericFailureCode, final.Failure.Code)
+	assert.Equal(t, "Setup stopped unexpectedly.", final.Failure.Message)
+	assert.Equal(t, 1, closeCalls)
+	lock, err := home.TryLock(profileRoot, home.LockProviderConnect, home.LockExclusive)
+	require.NoError(t, err)
+	require.NoError(t, lock.Release())
+}
+
+func TestReenteringAfterAnEarlySetupPanicProceedsLikeRetry(t *testing.T) {
+	tests := []struct {
+		name        string
+		start       StartRequest
+		runtime     func() Runtime
+		credentials func(Snapshot) SubmitRequest
+		want        State
+	}{
+		{
+			name: "monarch",
+			start: StartRequest{
+				ProfileID: testProfileID, Settings: &SettingsInput{Currency: "USD", Scale: 2},
+			},
+			runtime: func() Runtime {
+				return Runtime{
+					Sessions: &fakeSessionStore{loadErr: os.ErrNotExist}, Credentials: &fakeCredentialVault{},
+					NewConnector: func(monarch.ImportConfig) (provider.Connector, error) {
+						return &fakeConnector{
+							connectSession: validTestSession("subscription-example", "USD", 2),
+						}, nil
+					},
+					NewSources: func(monarch.ImportConfig) (
+						provider.ReaderSource, provider.WriterSource, error,
+					) {
+						return pendingProviderSource{}, pendingProviderSource{}, nil
+					},
+					InstanceID: "provider-instance", Now: time.Now,
+				}
+			},
+			credentials: credentialSubmitRequest,
+			want:        StateImporting,
+		},
+		{
+			name:  "ynab",
+			start: StartRequest{ProfileID: testProfileID, ProviderKind: "ynab"},
+			runtime: func() Runtime {
+				client := &fakeYNABClient{
+					plans: []ynab.PlanSummary{{ID: "plan-example", Name: "Example Budget"}},
+					plan:  testYNABPlan("plan-example"),
+				}
+				return Runtime{
+					ProviderKind: "ynab", YNABVault: &fakeYNABVault{},
+					InstanceID: "ynab-instance", Now: time.Now,
+					NewYNABClient: func([]byte) (YNABPlanClient, error) { return client, nil },
+					NewYNABSource: (&fakeYNABSourceFactory{}).newSource,
+				}
+			},
+			credentials: ynabCredentialRequest,
+			want:        StateSettingsRequired,
+		},
+	}
+	for _, test := range tests {
+		for _, action := range []ActionType{ActionRetry, ActionReauthenticate} {
+			t.Run(test.name+"/"+string(action), func(t *testing.T) {
+				ctx := context.Background()
+				paths, err := home.ResolveRoot(t.TempDir(), nil, "")
+				require.NoError(t, err)
+				var runtimeCalls atomic.Int32
+				coordinator, err := NewCoordinator(Config{
+					Random: bytes.NewReader(bytes.Repeat([]byte{0x42}, 128)),
+					Now:    time.Now, InstanceID: "test-instance",
+					OpenProfile: func(ctx context.Context, id string) (OpenedProfile, error) {
+						handle, openErr := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
+						if openErr != nil {
+							return OpenedProfile{}, openErr
+						}
+						service, openErr := app.NewProfileService(ctx, handle)
+						if openErr != nil {
+							_ = handle.Close()
+							return OpenedProfile{}, openErr
+						}
+						return OpenedProfile{ID: id, Paths: paths, Service: service, Close: handle.Close}, nil
+					},
+					Runtime: func(home.Paths) (Runtime, error) {
+						if runtimeCalls.Add(1) == 1 {
+							panic("synthetic runtime failure")
+						}
+						return test.runtime(), nil
+					},
+				})
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = coordinator.Close(context.Background()) })
+				started, err := coordinator.Start(ctx, test.start)
+				require.NoError(t, err)
+				failed := waitForStableState(t, coordinator, started)
+				require.Equal(t, StateFailed, failed.State)
+				require.NotNil(t, failed.Failure)
+				require.True(t, failed.Failure.CanRetry)
+				require.True(t, failed.Failure.CanReenter)
+
+				restarted, err := coordinator.Submit(ctx, SubmitRequest{
+					ProfileID: testProfileID, AttemptID: failed.AttemptID,
+					ExpectedStateVersion: failed.StateVersion, Action: action,
+				})
+				require.NoError(t, err)
+				assert.Equal(t, StateInspect, restarted.State)
+				credentials := waitForState(t, coordinator, restarted, StateCredentialsRequired)
+				submitted, err := coordinator.Submit(ctx, test.credentials(credentials))
+				require.NoError(t, err)
+				waitForState(t, coordinator, submitted, test.want)
+			})
+		}
+	}
+}
+
 type flowProfileKind uint8
 
 const (
@@ -302,19 +457,23 @@ func validTestSession(remoteID string, currency domain.Currency, scale uint8) mo
 }
 
 type fakeSessionStore struct {
-	mu        sync.Mutex
-	session   monarch.Session
-	loadErr   error
-	saveErr   error
-	loadCalls int
-	saveCalls int
-	order     *[]string
+	mu             sync.Mutex
+	session        monarch.Session
+	loadErr        error
+	saveErr        error
+	loadCalls      int
+	panicFirstLoad bool
+	saveCalls      int
+	order          *[]string
 }
 
 func (store *fakeSessionStore) Load() (monarch.Session, provider.SessionFingerprint, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.loadCalls++
+	if store.panicFirstLoad && store.loadCalls == 1 {
+		panic("synthetic session load failure")
+	}
 	return store.session, "session-fingerprint", store.loadErr
 }
 
@@ -335,6 +494,7 @@ type fakeCredentialVault struct {
 	mu          sync.Mutex
 	exists      bool
 	existsErr   error
+	existsPanic bool
 	existsCalls int
 	credentials monarch.StoredCredentials
 	loadErr     error
@@ -348,6 +508,9 @@ func (vault *fakeCredentialVault) Exists() (bool, error) {
 	vault.mu.Lock()
 	defer vault.mu.Unlock()
 	vault.existsCalls++
+	if vault.existsPanic {
+		panic("synthetic vault inspection failure")
+	}
 	return vault.exists, vault.existsErr
 }
 
@@ -383,6 +546,7 @@ type fakeConnector struct {
 	credentials    provider.Credentials
 	challenge      *provider.Challenge
 	challengeReply string
+	validatePanic  bool
 }
 
 func (connector *fakeConnector) Connect(
@@ -414,6 +578,9 @@ func (connector *fakeConnector) Validate(
 	connector.mu.Lock()
 	defer connector.mu.Unlock()
 	connector.validateCalls++
+	if connector.validatePanic {
+		panic("synthetic connector failure")
+	}
 	return connector.identity, connector.validateErr
 }
 

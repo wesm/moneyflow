@@ -230,32 +230,72 @@ func TestYNABRetainedVaultReconfirmsChangedUnboundSettings(t *testing.T) {
 }
 
 func TestYNABRetainedVaultSaveFailureRequiresReentry(t *testing.T) {
-	vault := &fakeYNABVault{exists: true, saveErr: errors.New("synthetic save failure"), credentials: ynab.StoredCredentials{
-		AccessToken: "token-example", PlanID: "plan-example", Currency: "EUR", Scale: 2,
-	}}
-	client := &fakeYNABClient{plan: testYNABPlan("plan-example")}
-	coordinator, started := newYNABFlowCoordinator(t, vault, client, nil)
-	unlock := waitForStableState(t, coordinator, started)
-	next, err := coordinator.Submit(t.Context(), SubmitRequest{
-		ProfileID: unlock.ProfileID, AttemptID: unlock.AttemptID, ExpectedStateVersion: unlock.StateVersion,
-		Action: ActionUnlock, Unlock: &UnlockInput{AccountPassword: []byte("account-password")},
-	})
-	require.NoError(t, err)
-	settings := waitForState(t, coordinator, next, StateSettingsRequired)
-	next, err = coordinator.Submit(t.Context(), SubmitRequest{
-		ProfileID: settings.ProfileID, AttemptID: settings.AttemptID, ExpectedStateVersion: settings.StateVersion,
-		Action: ActionConfirmSettings, Settings: &SettingsInput{Currency: "USD", Scale: 2},
-	})
-	require.NoError(t, err)
-	failed := waitForState(t, coordinator, next, StateFailed)
-	require.NotNil(t, failed.Failure)
-	assert.False(t, failed.Failure.CanRetry, "retry must not skip a failed vault save")
-	assert.True(t, failed.Failure.CanReenter)
-	assert.Equal(t, "EUR", string(vault.credentials.Currency))
-	_, err = coordinator.Submit(t.Context(), SubmitRequest{
-		ProfileID: failed.ProfileID, AttemptID: failed.AttemptID, ExpectedStateVersion: failed.StateVersion, Action: ActionRetry,
-	})
-	require.Error(t, err)
+	for _, failure := range []string{"error", "panic"} {
+		t.Run(failure, func(t *testing.T) {
+			vault := &fakeYNABVault{
+				exists: true, savePanic: failure == "panic", saveErr: errors.New("synthetic save failure"),
+				credentials: ynab.StoredCredentials{
+					AccessToken: "token-example", PlanID: "plan-example", Currency: "EUR", Scale: 2,
+				},
+			}
+			client := &fakeYNABClient{plan: testYNABPlan("plan-example")}
+			opened := newFlowOpenedProfile(t, flowProfilePristine)
+			coordinator, started := newYNABCoordinator(t, opened, vault, client, nil)
+			unlock := waitForStableState(t, coordinator, started)
+			next, err := coordinator.Submit(t.Context(), SubmitRequest{
+				ProfileID: unlock.ProfileID, AttemptID: unlock.AttemptID,
+				ExpectedStateVersion: unlock.StateVersion,
+				Action:               ActionUnlock,
+				Unlock:               &UnlockInput{AccountPassword: []byte("account-password")},
+			})
+			require.NoError(t, err)
+			settings := waitForState(t, coordinator, next, StateSettingsRequired)
+			next, err = coordinator.Submit(t.Context(), SubmitRequest{
+				ProfileID: settings.ProfileID, AttemptID: settings.AttemptID,
+				ExpectedStateVersion: settings.StateVersion,
+				Action:               ActionConfirmSettings,
+				Settings:             &SettingsInput{Currency: "USD", Scale: 2},
+			})
+			require.NoError(t, err)
+			failed := waitForState(t, coordinator, next, StateFailed)
+			require.NotNil(t, failed.Failure)
+			assert.False(t, failed.Failure.CanRetry, "retry must not skip a failed vault save")
+			assert.True(t, failed.Failure.CanReenter)
+			assert.Equal(t, "EUR", string(vault.credentials.Currency))
+			_, err = coordinator.Submit(t.Context(), SubmitRequest{
+				ProfileID: failed.ProfileID, AttemptID: failed.AttemptID,
+				ExpectedStateVersion: failed.StateVersion, Action: ActionRetry,
+			})
+			require.Error(t, err)
+			connection, err := opened.Service.ProviderConnection(t.Context())
+			require.NoError(t, err)
+			assert.True(t, connection.Pristine)
+
+			vault.mu.Lock()
+			vault.saveErr = nil
+			vault.savePanic = false
+			vault.mu.Unlock()
+			client.plans = []ynab.PlanSummary{{ID: "plan-example", Name: "Example Budget"}}
+			reenter, err := coordinator.Submit(t.Context(), SubmitRequest{
+				ProfileID: failed.ProfileID, AttemptID: failed.AttemptID,
+				ExpectedStateVersion: failed.StateVersion,
+				Action:               ActionReauthenticate,
+			})
+			require.NoError(t, err)
+			next, err = coordinator.Submit(t.Context(), ynabCredentialRequest(reenter))
+			require.NoError(t, err)
+			settings = waitForState(t, coordinator, next, StateSettingsRequired)
+			next, err = coordinator.Submit(t.Context(), SubmitRequest{
+				ProfileID: settings.ProfileID, AttemptID: settings.AttemptID,
+				ExpectedStateVersion: settings.StateVersion,
+				Action:               ActionConfirmSettings,
+				Settings:             &SettingsInput{Currency: "USD", Scale: 2},
+			})
+			require.NoError(t, err)
+			waitForState(t, coordinator, next, StateComplete)
+			assert.Equal(t, "USD", string(vault.credentials.Currency))
+		})
+	}
 }
 
 func TestYNABRevokedRetainedTokenReturnsToCredentialEntry(t *testing.T) {
@@ -329,33 +369,45 @@ func TestYNABBoundVaultMoneyMismatchDoesNotOfferRebinding(t *testing.T) {
 
 func TestYNABFirstImportRetryReusesSavedVaultAndSnapshot(t *testing.T) {
 	t.Parallel()
-	vault := &fakeYNABVault{}
-	client := &fakeYNABClient{plans: []ynab.PlanSummary{{ID: "plan-example", Name: "Example Budget"}}, plan: testYNABPlan("plan-example")}
-	sources := &fakeYNABSourceFactory{errors: []error{provider.NewError(provider.CodeUnavailable), nil}}
-	coordinator, started := newYNABFlowCoordinator(t, vault, client, sources)
-	credentials := waitForStableState(t, coordinator, started)
-	next, err := coordinator.Submit(context.Background(), ynabCredentialRequest(credentials))
-	require.NoError(t, err)
-	settings := waitForState(t, coordinator, next, StateSettingsRequired)
-	next, err = coordinator.Submit(context.Background(), SubmitRequest{
-		ProfileID: settings.ProfileID, AttemptID: settings.AttemptID,
-		ExpectedStateVersion: settings.StateVersion, Action: ActionConfirmSettings,
-		Settings: &SettingsInput{Currency: "USD", Scale: 2},
-	})
-	require.NoError(t, err)
-	failed := waitForState(t, coordinator, next, StateFailed)
-	require.True(t, failed.Failure.CanRetry)
-	require.Equal(t, 1, vault.saveCalls)
+	for _, failure := range []string{"error", "panic"} {
+		t.Run(failure, func(t *testing.T) {
+			vault := &fakeYNABVault{}
+			client := &fakeYNABClient{
+				plans: []ynab.PlanSummary{{ID: "plan-example", Name: "Example Budget"}},
+				plan:  testYNABPlan("plan-example"),
+			}
+			sources := &fakeYNABSourceFactory{
+				panicFirst: failure == "panic",
+				errors:     []error{provider.NewError(provider.CodeUnavailable), nil},
+			}
+			coordinator, started := newYNABFlowCoordinator(t, vault, client, sources)
+			credentials := waitForStableState(t, coordinator, started)
+			next, err := coordinator.Submit(context.Background(), ynabCredentialRequest(credentials))
+			require.NoError(t, err)
+			settings := waitForState(t, coordinator, next, StateSettingsRequired)
+			next, err = coordinator.Submit(context.Background(), SubmitRequest{
+				ProfileID: settings.ProfileID, AttemptID: settings.AttemptID,
+				ExpectedStateVersion: settings.StateVersion, Action: ActionConfirmSettings,
+				Settings: &SettingsInput{Currency: "USD", Scale: 2},
+			})
+			require.NoError(t, err)
+			failed := waitForState(t, coordinator, next, StateFailed)
+			require.True(t, failed.Failure.CanRetry)
+			require.Equal(t, 1, vault.saveCalls)
 
-	retrying, err := coordinator.Submit(context.Background(), SubmitRequest{
-		ProfileID: failed.ProfileID, AttemptID: failed.AttemptID,
-		ExpectedStateVersion: failed.StateVersion, Action: ActionRetry,
-	})
-	require.NoError(t, err)
-	completed := waitForState(t, coordinator, retrying, StateComplete)
-	assert.Equal(t, 1, completed.Progress.Imported)
-	assert.Equal(t, 1, client.fetchCalls)
-	assert.Equal(t, 2, sources.calls)
+			retrying, err := coordinator.Submit(context.Background(), SubmitRequest{
+				ProfileID: failed.ProfileID, AttemptID: failed.AttemptID,
+				ExpectedStateVersion: failed.StateVersion, Action: ActionRetry,
+			})
+			require.NoError(t, err)
+			completed := waitForState(t, coordinator, retrying, StateComplete)
+			assert.Equal(t, 1, completed.Progress.Imported)
+			assert.Equal(t, 1, client.fetchCalls)
+			assert.Equal(t, 2, sources.calls)
+			assert.True(t, sources.hadInitial, "retry must reuse the retained snapshot")
+			assert.Equal(t, 1, vault.saveCalls)
+		})
+	}
 }
 
 type fakeYNABVault struct {
@@ -364,6 +416,7 @@ type fakeYNABVault struct {
 	credentials ynab.StoredCredentials
 	loadErr     error
 	saveErr     error
+	savePanic   bool
 	saveCalls   int
 }
 
@@ -375,6 +428,9 @@ func (vault *fakeYNABVault) Save(credentials ynab.StoredCredentials, _ []byte) e
 	vault.mu.Lock()
 	defer vault.mu.Unlock()
 	vault.saveCalls++
+	if vault.savePanic {
+		panic("synthetic vault save failure")
+	}
 	if vault.saveErr != nil {
 		return vault.saveErr
 	}
@@ -412,6 +468,7 @@ type fakeYNABSourceFactory struct {
 	errors     []error
 	calls      int
 	hadInitial bool
+	panicFirst bool
 }
 
 func (factory *fakeYNABSourceFactory) newSource(
@@ -427,6 +484,9 @@ func (factory *fakeYNABSourceFactory) newSource(
 		readErr = factory.errors[index]
 	}
 	factory.mu.Unlock()
+	if index == 0 && factory.panicFirst {
+		panic("synthetic source failure")
+	}
 	source := &fakeYNABReaderSource{readErr: readErr}
 	if initial != nil {
 		source.result = *initial

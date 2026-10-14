@@ -252,7 +252,7 @@ func openMaintenanceDatabase(
 	}
 	dsn := dataSourceName(paths.Database, options)
 	if readOnly {
-		dsn = inspectionDataSourceName(paths.Database, options)
+		dsn = readOnlyDataSourceName(paths.Database, options, true)
 	}
 	database, err := sql.Open(driverName, dsn)
 	if err != nil {
@@ -281,7 +281,7 @@ func openMaintenanceDatabase(
 	return database, pinned, nil
 }
 
-func inspectionDataSourceName(databasePath string, options Options) string {
+func readOnlyDataSourceName(databasePath string, options Options, queryOnly bool) string {
 	path := filepath.ToSlash(databasePath)
 	if volume := filepath.VolumeName(databasePath); volume != "" && !strings.HasPrefix(path, "/") {
 		path = "/" + path
@@ -291,7 +291,9 @@ func inspectionDataSourceName(databasePath string, options Options) string {
 	if _, err := os.Lstat(databasePath + "-wal"); errors.Is(err, os.ErrNotExist) {
 		query.Set("immutable", "1")
 	}
-	query.Add("_pragma", "query_only(1)")
+	if queryOnly {
+		query.Add("_pragma", "query_only(1)")
+	}
 	query.Add("_pragma", "busy_timeout("+strconv.FormatInt(
 		options.MutationBusyTimeout.Milliseconds(), 10,
 	)+")")
@@ -322,4 +324,65 @@ func exportedSchemaStatus(state schemaState) SchemaStatus {
 	default:
 		panic(fmt.Sprintf("unknown schema state %d", state))
 	}
+}
+
+// CopyProfile writes a consistent, compacted copy of a current-schema profile database to
+// destination with VACUUM INTO, reading the source through a read-only connection. When the
+// source has no WAL file the copy reads it as immutable, so the caller must stop other writers,
+// for example by holding the profile's exclusive lock. A profile this process keeps open always
+// has a WAL file. The caller must also keep other processes from creating the destination
+// database while the copy runs, for example by holding the destination's lock.
+func CopyProfile(ctx context.Context, source, destination home.Paths, options Options) error {
+	if err := validateOptions(options); err != nil {
+		return err
+	}
+	if err := validateMaintenancePaths(source); err != nil {
+		return err
+	}
+	if err := validateMaintenancePaths(destination); err != nil {
+		return err
+	}
+	if err := validateInspectionSidecars(source); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(destination.Database); !errors.Is(err, os.ErrNotExist) {
+		return ErrMaintenanceWouldOverwrite
+	}
+	info, err := os.Lstat(source.Database)
+	if err != nil {
+		return store.NewError(store.CodeStoreError, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return store.NewError(
+			store.CodeStoreCorrupt, errors.New("profile database is not a regular file"),
+		)
+	}
+	database, err := sql.Open(driverName, readOnlyDataSourceName(source.Database, options, false))
+	if err != nil {
+		return mapDriverError(err, store.CodeStoreError)
+	}
+	defer func() { _ = database.Close() }()
+	database.SetMaxOpenConns(1)
+	state, err := inspectSchema(ctx, database)
+	if err != nil {
+		return mapDriverError(err, store.CodeStoreCorrupt)
+	}
+	if state != schemaCurrent {
+		return store.NewError(
+			store.CodeSchemaIncompatible, errors.New("copy requires the current profile schema"),
+		)
+	}
+	if err = validateSchema(ctx, database); err != nil {
+		return err
+	}
+	if err = quickCheck(ctx, database); err != nil {
+		return err
+	}
+	if err = home.PrepareDatabase(destination); err != nil {
+		return store.NewError(store.CodeStoreError, err)
+	}
+	if _, err = database.ExecContext(ctx, "VACUUM INTO ?", destination.Database); err != nil {
+		return errors.Join(mapDriverError(err, store.CodeStoreError), os.Remove(destination.Database))
+	}
+	return nil
 }

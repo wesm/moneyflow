@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ type harness struct {
 	events            []string
 	saveErr, fetchErr error
 	claimHook         func(context.Context) error
+	saveHook          func()
 	fetchHook         func(context.Context) error
 }
 
@@ -81,6 +83,9 @@ func (h *harness) Load() (simplefin.Session, provider.SessionFingerprint, error)
 }
 func (h *harness) Save(s simplefin.Session) error {
 	h.record("save")
+	if h.saveHook != nil {
+		h.saveHook()
+	}
 	h.mu.Lock()
 	err := h.saveErr
 	h.mu.Unlock()
@@ -269,4 +274,234 @@ func TestShutdownWaitsForImportAndReleasesProfile(t *testing.T) {
 	lock, err := home.TryLock(h.paths.Root, home.LockProviderConnect, home.LockExclusive)
 	require.NoError(t, err)
 	require.NoError(t, lock.Release())
+}
+
+func TestPanickingSetupJobFailsTheAttempt(t *testing.T) {
+	h := newHarness(t)
+	h.claimHook = func(context.Context) error { panic("synthetic claim failure") }
+	s := submitInput(t, h, startInput(t, h), ActionConnect, "synthetic-token")
+	s = waitState(t, h.coordinator, s, StateFailed)
+	require.NotNil(t, s.Failure)
+	require.Equal(t, "store_error", s.Failure.Code)
+	require.Equal(t, "Setup stopped unexpectedly.", s.Failure.Message)
+	require.False(t, s.Failure.CanRetry)
+	require.True(t, s.Failure.CanReenter)
+}
+
+func TestPanickingSetupRetriesWithoutClaimingAgain(t *testing.T) {
+	for _, phase := range []string{"save", "import"} {
+		t.Run(phase, func(t *testing.T) {
+			h := newHarness(t)
+			var calls atomic.Int32
+			panicOnce := func() {
+				if calls.Add(1) == 1 {
+					panic("synthetic setup failure")
+				}
+			}
+			var elapsed atomic.Int64
+			newRuntime := h.coordinator.config.Runtime
+			h.coordinator.config.Runtime = func(paths home.Paths) (Runtime, error) {
+				runtime, err := newRuntime(paths)
+				runtime.Now = func() time.Time { return h.now.Add(time.Duration(elapsed.Load())) }
+				return runtime, err
+			}
+			action, code := ActionRetrySave, "session_save_failed"
+			expectedEvents := []string{"claim", "save", "save", "fetch"}
+			if phase == "save" {
+				h.saveHook = panicOnce
+			} else {
+				h.fetchHook = func(context.Context) error { panicOnce(); return nil }
+				action, code = ActionRetryImport, "store_error"
+				expectedEvents = []string{"claim", "save", "fetch", "fetch"}
+			}
+			s := submitInput(t, h, startInput(t, h), ActionConnect, "synthetic-token")
+			s = waitState(t, h.coordinator, s, StateFailed)
+			require.NotNil(t, s.Failure)
+			require.Equal(t, code, s.Failure.Code)
+			require.True(t, s.Failure.CanRetry)
+			require.False(t, s.Failure.CanReenter)
+			_, _, err := h.sessions.Load()
+			if phase == "save" {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				elapsed.Store(int64(time.Hour))
+			}
+			s = submitInput(t, h, s, action, "")
+			waitState(t, h.coordinator, s, StateComplete)
+			session, _, err := h.sessions.Load()
+			require.NoError(t, err)
+			require.Equal(t, syntheticAccess, session.AccessURL)
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			require.Equal(t, expectedEvents, h.events)
+		})
+	}
+}
+
+func TestPanickingSetupPreservesCancellation(t *testing.T) {
+	for _, phase := range []string{"save", "import"} {
+		t.Run(phase, func(t *testing.T) {
+			h := newHarness(t)
+			entered, release := make(chan struct{}), make(chan struct{})
+			panicAfterCancel := func() {
+				close(entered)
+				<-release
+				panic("synthetic canceled setup failure")
+			}
+			if phase == "save" {
+				h.saveHook = panicAfterCancel
+			} else {
+				h.fetchHook = func(context.Context) error { panicAfterCancel(); return nil }
+			}
+			s := submitInput(t, h, startInput(t, h), ActionConnect, "synthetic-token")
+			<-entered
+			s, err := h.coordinator.Status(t.Context(), StatusRequest{s.ProfileID, s.AttemptID})
+			require.NoError(t, err)
+			done := make(chan error, 1)
+			go func() {
+				_, err := h.coordinator.Cancel(t.Context(), CancelRequest{s.ProfileID, s.AttemptID, s.StateVersion})
+				done <- err
+			}()
+			waitState(t, h.coordinator, s, StateCanceled)
+			close(release)
+			require.NoError(t, <-done)
+			s, err = h.coordinator.Status(t.Context(), StatusRequest{s.ProfileID, s.AttemptID})
+			require.NoError(t, err)
+			require.Equal(t, StateCanceled, s.State)
+			_, _, err = h.sessions.Load()
+			if phase == "save" {
+				require.Error(t, err)
+				require.NotNil(t, s.Failure)
+				require.Equal(t, "claim_interrupted", s.Failure.Code)
+			} else {
+				require.NoError(t, err)
+				require.Nil(t, s.Failure)
+			}
+			lock, err := home.TryLock(h.paths.Root, home.LockProviderConnect, home.LockExclusive)
+			require.NoError(t, err)
+			require.NoError(t, lock.Release())
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			require.NotContains(t, h.events, "rollback")
+		})
+	}
+}
+
+func TestPanickingReconnectDoesNotRetryTheOldCredential(t *testing.T) {
+	for _, phase := range []string{"claim", "save"} {
+		t.Run(phase, func(t *testing.T) {
+			h := newHarness(t)
+			s := submitInput(t, h, startInput(t, h), ActionConnect, "synthetic-token")
+			waitState(t, h.coordinator, s, StateComplete)
+			require.NoError(t, h.coordinator.Shutdown(t.Context()))
+			var err error
+			h.coordinator, err = NewCoordinator(h.coordinator.config)
+			require.NoError(t, err)
+			h.fetchErr = provider.NewError(provider.CodeUnavailable)
+			h.now = h.now.Add(time.Hour)
+			s, err = h.coordinator.Start(t.Context(), StartRequest{ProfileID: testProfileID, Renderer: "cli"})
+			require.NoError(t, err)
+			s = waitState(t, h.coordinator, s, StateFailed)
+			session, _, err := h.sessions.Load()
+			require.NoError(t, err)
+			session.AccessURL = "https://other:credential@example.com/access"
+			require.NoError(t, h.sessions.Save(session))
+			s = submitInput(t, h, s, ActionRetryImport, "")
+			s = waitState(t, h.coordinator, s, StateIdentityMismatch)
+			var calls atomic.Int32
+			panicOnce := func() {
+				if calls.Add(1) == 1 {
+					panic("synthetic reconnect failure")
+				}
+			}
+			if phase == "claim" {
+				h.claimHook = func(context.Context) error { panicOnce(); return nil }
+			} else {
+				h.saveHook = panicOnce
+			}
+			s = submitInput(t, h, s, ActionConnect, syntheticAccess)
+			s = waitState(t, h.coordinator, s, StateFailed)
+			require.NotNil(t, s.Failure)
+			retained, _, err := h.sessions.Load()
+			require.NoError(t, err)
+			require.Equal(t, session.AccessURL, retained.AccessURL)
+			h.fetchErr = nil
+			h.now = h.now.Add(time.Hour)
+			if phase == "claim" {
+				require.False(t, s.Failure.CanRetry)
+				require.True(t, s.Failure.CanReenter)
+				s = submitInput(t, h, s, ActionConnect, syntheticAccess)
+			} else {
+				require.Equal(t, "session_save_failed", s.Failure.Code)
+				require.True(t, s.Failure.CanRetry)
+				require.False(t, s.Failure.CanReenter)
+				s = submitInput(t, h, s, ActionRetrySave, "")
+			}
+			waitState(t, h.coordinator, s, StateComplete)
+			retained, _, err = h.sessions.Load()
+			require.NoError(t, err)
+			require.Equal(t, syntheticAccess, retained.AccessURL)
+		})
+	}
+}
+
+func TestPanickingInspectLeavesTheProfileFreeForANewToken(t *testing.T) {
+	h := newHarness(t)
+	openProfile, newRuntime := h.coordinator.config.OpenProfile, h.coordinator.config.Runtime
+	var closes, runtimeCalls atomic.Int32
+	h.coordinator.config.OpenProfile = func(ctx context.Context, id string) (OpenedProfile, error) {
+		opened, err := openProfile(ctx, id)
+		if err != nil {
+			return OpenedProfile{}, err
+		}
+		closeProfile := opened.Close
+		opened.Close = func() error {
+			closes.Add(1)
+			return closeProfile()
+		}
+		return opened, nil
+	}
+	h.coordinator.config.Runtime = func(paths home.Paths) (Runtime, error) {
+		if runtimeCalls.Add(1) == 1 {
+			panic("synthetic runtime failure")
+		}
+		return newRuntime(paths)
+	}
+	s, err := h.coordinator.Start(t.Context(), StartRequest{ProfileID: testProfileID, Renderer: "cli"})
+	require.NoError(t, err)
+	s = waitState(t, h.coordinator, s, StateFailed)
+	require.NotNil(t, s.Failure)
+	require.Equal(t, "Setup stopped unexpectedly.", s.Failure.Message)
+	require.Equal(t, int32(1), closes.Load())
+
+	s = submitInput(t, h, s, ActionConnect, "synthetic-token")
+	s = waitState(t, h.coordinator, s, StateCredentialsRequired)
+	h.mu.Lock()
+	require.Empty(t, h.events, "the first token must not be claimed")
+	h.mu.Unlock()
+
+	s = submitInput(t, h, s, ActionConnect, "synthetic-token")
+	waitState(t, h.coordinator, s, StateComplete)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	require.Equal(t, []string{"claim", "save", "fetch"}, h.events)
+}
+
+func TestNewTokenAfterAPanickingClaimClaimsAgain(t *testing.T) {
+	h := newHarness(t)
+	var claims atomic.Int32
+	h.claimHook = func(context.Context) error {
+		if claims.Add(1) == 1 {
+			panic("synthetic claim failure")
+		}
+		return nil
+	}
+	s := submitInput(t, h, startInput(t, h), ActionConnect, "synthetic-token")
+	s = waitState(t, h.coordinator, s, StateFailed)
+	s = submitInput(t, h, s, ActionConnect, "synthetic-token")
+	waitState(t, h.coordinator, s, StateComplete)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	require.Equal(t, []string{"claim", "claim", "save", "fetch"}, h.events)
 }

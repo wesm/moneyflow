@@ -1,11 +1,13 @@
 package profilecatalog
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/store"
@@ -22,38 +24,77 @@ func (catalog *Catalog) List(ctx context.Context) ([]Entry, error) {
 	return catalog.listUnlocked(ctx)
 }
 
-func (catalog *Catalog) listUnlocked(ctx context.Context) ([]Entry, error) {
-	entries := make([]Entry, 0)
-	legacy, found, err := catalog.discoverLegacy(ctx)
+// Survey lists catalog profiles like List, but reports a profile it cannot inspect as
+// StatusUnavailable with a Problem instead of failing the whole listing.
+func (catalog *Catalog) Survey(ctx context.Context) ([]Entry, error) {
+	lock, err := home.TryLock(catalog.paths.Root, home.LockCatalog, home.LockShared)
 	if err != nil {
-		return nil, err
+		return nil, catalogLockError(err)
 	}
-	if found {
+	defer func() { _ = lock.Release() }()
+	return catalog.discover(ctx, true)
+}
+
+func (catalog *Catalog) listUnlocked(ctx context.Context) ([]Entry, error) {
+	return catalog.discover(ctx, false)
+}
+
+// discover lists the catalog's profiles. Once the context has ended, each inspection it
+// interrupted failed for that reason alone and says nothing about its profile, so discover fails
+// with the context's error instead of reporting profile problems.
+func (catalog *Catalog) discover(ctx context.Context, tolerant bool) ([]Entry, error) {
+	entries, err := catalog.discoverEntries(ctx, tolerant)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	return entries, err
+}
+
+func (catalog *Catalog) discoverEntries(ctx context.Context, tolerant bool) ([]Entry, error) {
+	entries := make([]Entry, 0)
+	legacy, found, err := catalog.discoverProfile(ctx, catalog.paths.Root, true)
+	switch {
+	case err != nil && !tolerant:
+		return nil, err
+	case err != nil:
+		if legacy.Root == "" {
+			legacy = placeholderEntry(LegacyKey, "", catalog.paths.Root)
+		}
+		legacy.Status, legacy.Problem = StatusUnavailable, err.Error()
+		entries = append(entries, legacy)
+	case found:
 		entries = append(entries, legacy)
 	}
-	nested, err := catalog.discoverNested(ctx)
+	nested, err := catalog.discoverNested(ctx, tolerant)
 	if err != nil {
 		return nil, err
 	}
 	entries = append(entries, nested...)
-	slices.SortFunc(entries, func(left, right Entry) int {
-		_, leftKey, _ := NormalizeDisplayName(left.DisplayName)
-		_, rightKey, _ := NormalizeDisplayName(right.DisplayName)
-		if leftKey < rightKey {
-			return -1
-		}
-		if leftKey > rightKey {
-			return 1
-		}
-		if left.Key < right.Key {
-			return -1
-		}
-		if left.Key > right.Key {
-			return 1
-		}
-		return 0
-	})
+	slices.SortFunc(entries, compareEntries)
 	return entries, nil
+}
+
+func compareEntries(left, right Entry) int {
+	_, leftKey, _ := NormalizeDisplayName(left.DisplayName)
+	_, rightKey, _ := NormalizeDisplayName(right.DisplayName)
+	return cmp.Or(strings.Compare(leftKey, rightKey), strings.Compare(left.Key, right.Key))
+}
+
+func placeholderEntry(key, id, root string) Entry {
+	name := key
+	if key == LegacyKey {
+		name = "Moneyflow"
+	}
+	return Entry{
+		Key: key, ID: id, DisplayName: name, Root: root,
+		placeholderName: true,
+	}
+}
+
+// heldByAnotherProcess reports whether Survey could not read the entry because a process holds
+// the profile. Its name is then unknown, and for the root profile so is its ID.
+func heldByAnotherProcess(entry Entry) bool {
+	return strings.HasPrefix(entry.Problem, string(CodeProfileBusy)+":")
 }
 
 // Resolve selects an exact canonical ID, a normalized display name, or the sole profile.
@@ -110,26 +151,7 @@ func ResolveEntries(entries []Entry, selector string) (Entry, error) {
 	}
 }
 
-func (catalog *Catalog) discoverLegacy(ctx context.Context) (Entry, bool, error) {
-	paths := catalog.paths.LegacyProfile()
-	info, err := os.Lstat(paths.Database)
-	if errors.Is(err, os.ErrNotExist) {
-		_, active, recoveryErr := scanActiveRecovery(paths.Root, LegacyKey)
-		if recoveryErr != nil {
-			return Entry{}, false, recoveryErr
-		}
-		if active {
-			return catalog.discoverProfile(ctx, paths.Root, true)
-		}
-		return Entry{}, false, nil
-	}
-	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return Entry{}, false, newError(CodeProfileInvalid, errors.New("legacy database is invalid"))
-	}
-	return catalog.discoverProfile(ctx, paths.Root, true)
-}
-
-func (catalog *Catalog) discoverNested(ctx context.Context) ([]Entry, error) {
+func (catalog *Catalog) discoverNested(ctx context.Context, tolerant bool) ([]Entry, error) {
 	if _, err := os.Lstat(catalog.paths.Profiles); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	} else if err != nil {
@@ -149,23 +171,41 @@ func (catalog *Catalog) discoverNested(ctx context.Context) ([]Entry, error) {
 	}
 	entries := make([]Entry, 0, len(children))
 	for _, child := range children {
-		if !ValidProfileID(child.Name()) {
-			return nil, newError(CodeProfileInvalid, errors.New("nested profile ID is invalid"))
+		entry, found, childErr := catalog.discoverChild(ctx, child)
+		if childErr != nil && !tolerant {
+			return nil, childErr
 		}
-		info, infoErr := child.Info()
-		if infoErr != nil || child.Type()&os.ModeSymlink != 0 || !info.IsDir() {
-			return nil, newError(CodeProfileInvalid, errors.New("nested profile root is redirected"))
-		}
-		root := filepath.Join(catalog.paths.Profiles, child.Name())
-		entry, found, profileErr := catalog.discoverProfile(ctx, root, false)
-		if profileErr != nil {
-			return nil, profileErr
+		if childErr != nil {
+			if entry.Root == "" {
+				id := ""
+				if ValidProfileID(child.Name()) {
+					id = child.Name()
+				}
+				root := filepath.Join(catalog.paths.Profiles, child.Name())
+				entry = placeholderEntry(child.Name(), id, root)
+			}
+			entry.Status, entry.Problem = StatusUnavailable, childErr.Error()
+			entries = append(entries, entry)
+			continue
 		}
 		if found {
 			entries = append(entries, entry)
 		}
 	}
 	return entries, nil
+}
+
+func (catalog *Catalog) discoverChild(ctx context.Context, child os.DirEntry) (Entry, bool, error) {
+	if !ValidProfileID(child.Name()) {
+		return Entry{}, false, newError(CodeProfileInvalid, errors.New("nested profile ID is invalid"))
+	}
+	info, err := child.Info()
+	if err != nil || child.Type()&os.ModeSymlink != 0 || !info.IsDir() {
+		return Entry{}, false, newError(
+			CodeProfileInvalid, errors.New("nested profile root is redirected"),
+		)
+	}
+	return catalog.discoverProfile(ctx, filepath.Join(catalog.paths.Profiles, child.Name()), false)
 }
 
 func (catalog *Catalog) discoverProfile(
@@ -193,22 +233,23 @@ func (catalog *Catalog) discoverProfile(
 	}
 	if !manifestMissing && version != ManifestVersion {
 		key := filepath.Base(root)
-		name := key
+		id := key
 		if legacy {
 			key = LegacyKey
-			name = "Moneyflow"
+			id = ""
 		}
-		return Entry{
-			Key: key, ID: map[bool]string{true: "", false: key}[legacy], DisplayName: name,
-			Root: root, Status: StatusManifestUnsupported,
-		}, true, nil
+		entry := placeholderEntry(key, id, root)
+		entry.Status = StatusManifestUnsupported
+		return entry, true, nil
 	}
-	entry := Entry{Key: LegacyKey, DisplayName: "Moneyflow", Root: root}
+	entry := Entry{
+		Key: LegacyKey, DisplayName: "Moneyflow", Root: root, placeholderName: manifestMissing,
+	}
 	if !manifestMissing {
 		var manifest Manifest
 		var readErr error
 		if legacy {
-			manifest, readErr = readLegacyManifest(manifestPath)
+			manifest, readErr = ReadLegacyManifest(manifestPath)
 		} else {
 			manifest, readErr = ReadManifest(manifestPath)
 		}
@@ -220,32 +261,55 @@ func (catalog *Catalog) discoverProfile(
 		entry.DisplayName = manifest.DisplayName
 		entry.ProviderKind = manifest.ProviderKind
 	}
-	_, active, recoveryErr := scanActiveRecovery(root, entry.Key)
+	recovery, active, recoveryErr := scanActiveRecovery(root, entry.Key)
+	if active {
+		entry.reservedID = recovery.ProfileID
+		entry.placeholderName = false
+	}
+	legacyDatabaseMissing := false
+	if legacy {
+		info, statErr := os.Lstat(entry.ProfilePaths().Database)
+		legacyDatabaseMissing = errors.Is(statErr, os.ErrNotExist)
+		if !legacyDatabaseMissing &&
+			(statErr != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()) {
+			return entry, true, newError(CodeProfileInvalid, errors.New("legacy database is invalid"))
+		}
+		// Without a manifest, a database or active recovery establishes the legacy profile.
+		if !legacyDatabaseMissing {
+			entry.placeholderName = false
+		}
+	}
 	if recoveryErr != nil {
-		return Entry{}, false, recoveryErr
+		return entry, true, recoveryErr
 	}
 	if active {
 		entry.Status = StatusNeedsRecovery
 		return entry, true, nil
 	}
-	inspection, inspectErr := sqlite.InspectProfile(ctx, entry.ProfilePaths(), sqlite.DefaultOptions)
+	if legacyDatabaseMissing {
+		if manifestMissing {
+			return Entry{}, false, nil
+		}
+		return entry, true, newError(CodeProfileInvalid, errors.New("legacy database is missing"))
+	}
+	inspection, inspectErr := sqlite.InspectProfile(ctx, entry.ProfilePaths(), catalog.sqliteOptions)
 	if inspectErr != nil {
 		var failure *store.Error
 		if errors.As(inspectErr, &failure) && failure.Code == store.CodeStoreCorrupt {
 			entry.Status = StatusNeedsRecovery
 			return entry, true, nil
 		}
-		return Entry{}, false, inspectErr
+		return entry, true, inspectErr
 	}
 	if entry.ProviderKind == "" {
 		entry.ProviderKind = inspection.ProviderKind
 	}
 	if inspection.Bound && entry.ProviderKind != inspection.ProviderKind {
-		return Entry{}, false, newError(CodeProfileInvalid, errors.New("provider kind is inconsistent"))
+		return entry, true, newError(CodeProfileInvalid, errors.New("provider kind is inconsistent"))
 	}
 	status, statusErr := catalog.localStatus(entry, inspection)
 	if statusErr != nil {
-		return Entry{}, false, statusErr
+		return entry, true, statusErr
 	}
 	entry.Status = status
 	return entry, true, nil

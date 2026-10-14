@@ -28,6 +28,7 @@ import (
 	"github.com/wesm/moneyflow/internal/importer/amazon"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
+	"github.com/wesm/moneyflow/internal/profilepool"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
 	"github.com/wesm/moneyflow/internal/provider/simplefin"
@@ -95,14 +96,14 @@ func run(ctx context.Context, args []string) error {
 		}
 	}
 
-	registry, err := webserver.NewProfileRegistry(webserver.ProfileRegistryConfig{
-		Open: func(openContext context.Context, profileID string) (webserver.RegistryProfile, error) {
+	registry, err := profilepool.NewProfileRegistry(profilepool.ProfileRegistryConfig{
+		Open: func(openContext context.Context, profileID string) (profilepool.RegistryProfile, error) {
 			opened, openErr := openRegistryProfile(openContext, catalog, profileID)
 			if openErr != nil {
 				return opened, openErr
 			}
 			if configureErr := simplefinFixture.configure(openContext, opened.Paths, opened.Service); configureErr != nil {
-				return webserver.RegistryProfile{}, errors.Join(configureErr, opened.Close())
+				return profilepool.RegistryProfile{}, errors.Join(configureErr, opened.Close())
 			}
 			return opened, nil
 		},
@@ -252,36 +253,36 @@ func openRegistryProfile(
 	ctx context.Context,
 	catalog *profilecatalog.Catalog,
 	profileID string,
-) (webserver.RegistryProfile, error) {
+) (profilepool.RegistryProfile, error) {
 	entry, err := catalog.Resolve(ctx, profileID)
 	if err != nil {
-		return webserver.RegistryProfile{}, err
+		return profilepool.RegistryProfile{}, err
 	}
 	if entry.ID != profileID {
-		return webserver.RegistryProfile{}, errors.New("resolved profile identity differs")
+		return profilepool.RegistryProfile{}, errors.New("resolved profile identity differs")
 	}
 	if err = catalog.ValidateEntry(entry); err != nil {
-		return webserver.RegistryProfile{}, err
+		return profilepool.RegistryProfile{}, err
 	}
 	paths := entry.ProfilePaths()
 	lock, err := home.TryLockExisting(paths.Root, home.LockProfile, home.LockShared)
 	if err != nil {
-		return webserver.RegistryProfile{}, err
+		return profilepool.RegistryProfile{}, err
 	}
 	handle, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
 	if err != nil {
 		_ = lock.Release()
-		return webserver.RegistryProfile{}, err
+		return profilepool.RegistryProfile{}, err
 	}
 	service, err := app.NewProfileService(ctx, handle)
 	if err != nil {
 		_ = handle.Close()
 		_ = lock.Release()
-		return webserver.RegistryProfile{}, err
+		return profilepool.RegistryProfile{}, err
 	}
 	var once sync.Once
 	var closeErr error
-	return webserver.RegistryProfile{
+	return profilepool.RegistryProfile{
 		ID: profileID, Paths: paths, Service: service,
 		Close: func() error {
 			once.Do(func() { closeErr = errors.Join(handle.Close(), lock.Release()) })
