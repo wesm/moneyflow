@@ -130,7 +130,11 @@ func panicText(recovered any) string {
 // panicFrames lists the panicking call stack by function and file, without argument values.
 func panicFrames() string {
 	counters := make([]uintptr, 64)
-	frames := runtime.CallersFrames(counters[:runtime.Callers(1, counters)])
+	return formatPanicFrames(counters[:runtime.Callers(1, counters)])
+}
+
+func formatPanicFrames(counters []uintptr) string {
+	frames := runtime.CallersFrames(counters)
 	var lines []string
 	panicking := false
 	for len(lines) < maximumPanicFrames {

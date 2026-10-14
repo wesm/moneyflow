@@ -42,6 +42,15 @@ type Config struct {
 	LoadAmazonTaxonomy  func(context.Context, string) (*app.TaxonomyClone, error)
 	// ErrorLog receives the cause of every unexpected server error; nil discards it.
 	ErrorLog *log.Logger
+	// HostAdmission drops the browser origin and mutation-token checks and the bootstrap
+	// endpoints. The embedding host admits every request instead.
+	HostAdmission bool
+	// ReportFailure receives a recovered panic from a profile's background provider write.
+	// Other write failures go to ErrorLog and the write status. Nil keeps the standalone
+	// behavior: the panic crashes the process.
+	ReportFailure func(profileID string, err error)
+	// Remover enables the removeProfile operation. It requires Evictor.
+	Remover ProfileRemover
 }
 
 // Health reports non-sensitive process and persistent-profile metadata.
@@ -68,6 +77,15 @@ type Server struct {
 	// sessionChecks holds the last logged session-inspection failure per profile ID, so a
 	// status poll every second logs each distinct failure once.
 	sessionChecks sync.Map
+	operations    []Operation
+	// work bounds every background provider write, and Close cancels it. workMu orders each
+	// workers.Go before Close sets workClosed, so Close never waits on a write added after it.
+	work          context.Context
+	stopWork      context.CancelFunc
+	workers       sync.WaitGroup
+	workMu        sync.Mutex
+	workClosed    bool
+	reportFailure func(string, error)
 }
 
 type onboardingCompletion struct {
@@ -116,6 +134,9 @@ func New(config Config) (*Server, error) {
 	if (config.Catalog == nil) != (config.Evictor == nil) {
 		return nil, errors.New("new API server: catalog lifecycle dependencies are incomplete")
 	}
+	if config.Remover != nil && config.Evictor == nil {
+		return nil, errors.New("new API server: profile removal requires an evictor")
+	}
 	basePath, err := NormalizeBasePath(config.BasePath)
 	if err != nil {
 		return nil, fmt.Errorf("new API server: %w", err)
@@ -123,19 +144,21 @@ func New(config Config) (*Server, error) {
 	if config.Version == "" {
 		config.Version = "dev"
 	}
-	if config.Origin.Canonical == nil {
-		config.Origin, err = ResolveOrigin("127.0.0.1:8080", basePath, "")
-		if err != nil {
-			return nil, fmt.Errorf("new API server origin: %w", err)
+	if !config.HostAdmission {
+		if config.Origin.Canonical == nil {
+			config.Origin, err = ResolveOrigin("127.0.0.1:8080", basePath, "")
+			if err != nil {
+				return nil, fmt.Errorf("new API server origin: %w", err)
+			}
 		}
-	}
-	if config.Origin.BasePath != basePath {
-		return nil, errors.New("new API server: origin base path differs from API base path")
-	}
-	if config.Security == nil {
-		config.Security, err = NewMutationSecurity(config.Origin, nil, nil)
-		if err != nil {
-			return nil, fmt.Errorf("new API server security: %w", err)
+		if config.Origin.BasePath != basePath {
+			return nil, errors.New("new API server: origin base path differs from API base path")
+		}
+		if config.Security == nil {
+			config.Security, err = NewMutationSecurity(config.Origin, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("new API server security: %w", err)
+			}
 		}
 	}
 
@@ -155,7 +178,9 @@ func New(config Config) (*Server, error) {
 	server := &Server{
 		basePath: basePath, version: config.Version, api: humaAPI,
 		security: config.Security, resolver: config.Resolver, errorLog: errorLog,
+		reportFailure: config.ReportFailure,
 	}
+	server.work, server.stopWork = context.WithCancel(context.Background())
 	server.register(config, mux)
 	server.registerMutationEndpoints(config)
 	server.registerReviewEndpoints(config)
@@ -172,11 +197,19 @@ func New(config Config) (*Server, error) {
 	server.registerTransactionInformationEndpoint()
 	server.registerInsightsEndpoint()
 	server.installProblemSchemas()
+	server.operations, err = server.collectOperations(config.LegacyProfileID != "")
+	if err != nil {
+		return nil, fmt.Errorf("new API server: %w", err)
+	}
 
 	var handler http.Handler = mux
 	handler = requestBodyLimit(handler, basePath)
-	handler = resolveProfileRequests(handler, basePath, config.Resolver, server.errorLog)
-	handler = profileMutationSecurity(handler, basePath, config.Security)
+	handler = resolveProfileRequests(
+		handler, basePath, config.Resolver, server.errorLog, config.HostAdmission,
+	)
+	if !config.HostAdmission {
+		handler = profileMutationSecurity(handler, basePath, config.Security)
+	}
 	handler = strictProfileAPIPaths(handler, basePath)
 	handler = legacyProfileRoutes(handler, basePath, config.LegacyProfileID)
 	handler = safeProblemResponses(handler, server.errorLog)
@@ -238,17 +271,12 @@ func profileMutationSecurity(
 			if err == nil {
 				scope := profileID
 				_, requiresProtection := protected[endpoint]
-				if endpoint == "recovery" || endpoint == "cancel" {
+				if endpoint == "recovery" || endpoint == "cancel" || endpoint == "remove" {
 					requiresProtection = true
 					scope = CatalogMutationScope
 				}
 				if endpoint == "onboarding/start" ||
 					(strings.HasPrefix(endpoint, "onboarding/") &&
-						(strings.HasSuffix(endpoint, "/submit") || strings.HasSuffix(endpoint, "/cancel"))) {
-					requiresProtection = true
-				}
-				if endpoint == "ynab-onboarding/start" ||
-					(strings.HasPrefix(endpoint, "ynab-onboarding/") &&
 						(strings.HasSuffix(endpoint, "/submit") || strings.HasSuffix(endpoint, "/cancel"))) {
 					requiresProtection = true
 				}
@@ -311,53 +339,55 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	bootstrapPath := server.basePath + "api/v1/bootstrap"
 	profileBootstrapPath := server.profilePath("bootstrap")
 
-	huma.Register(server.api, huma.Operation{
-		OperationID: "bootstrap", Method: http.MethodGet, Path: bootstrapPath,
-		Summary: "Issue browser-memory mutation configuration", Errors: []int{500},
-	}, func(_ context.Context, _ *struct{}) (*bootstrapOutput, error) {
-		body, err := newBootstrap(
-			config.Version, config.Origin, 0, config.Security,
-			CatalogMutationScope,
-		)
-		if err != nil {
-			return nil, newProblem(
-				http.StatusInternalServerError, "internal_error",
-				"The bootstrap configuration could not be issued.",
+	if !config.HostAdmission {
+		huma.Register(server.api, huma.Operation{
+			OperationID: "bootstrap", Method: http.MethodGet, Path: bootstrapPath,
+			Summary: "Issue browser-memory mutation configuration", Errors: []int{500},
+		}, func(_ context.Context, _ *struct{}) (*bootstrapOutput, error) {
+			body, err := newBootstrap(
+				config.Version, config.Origin, 0, config.Security,
+				CatalogMutationScope,
 			)
-		}
-		return &bootstrapOutput{Body: body}, nil
-	})
+			if err != nil {
+				return nil, newProblem(
+					http.StatusInternalServerError, "internal_error",
+					"The bootstrap configuration could not be issued.",
+				)
+			}
+			return &bootstrapOutput{Body: body}, nil
+		})
 
-	huma.Register(server.api, huma.Operation{
-		OperationID: "profileBootstrap", Method: http.MethodGet, Path: profileBootstrapPath,
-		Summary: "Issue profile-scoped browser mutation configuration", Errors: []int{404, 500},
-	}, func(ctx context.Context, input *profileBootstrapInput) (*profileBootstrapOutput, error) {
-		if _, _, parseErr := ParseProfileAPIPath(
-			server.basePath,
-			server.basePath+"api/v1/profiles/"+input.ProfileID+"/bootstrap",
-		); parseErr != nil {
-			return nil, newProblem(
-				http.StatusNotFound, "not_found", "The requested profile route was not found.",
+		huma.Register(server.api, huma.Operation{
+			OperationID: "profileBootstrap", Method: http.MethodGet, Path: profileBootstrapPath,
+			Summary: "Issue profile-scoped browser mutation configuration", Errors: []int{404, 500},
+		}, func(ctx context.Context, input *profileBootstrapInput) (*profileBootstrapOutput, error) {
+			if _, _, parseErr := ParseProfileAPIPath(
+				server.basePath,
+				server.basePath+"api/v1/profiles/"+input.ProfileID+"/bootstrap",
+			); parseErr != nil {
+				return nil, newProblem(
+					http.StatusNotFound, "not_found", "The requested profile route was not found.",
+				)
+			}
+			service := profileService(ctx)
+			if _, refreshErr := service.Refresh(ctx); refreshErr != nil {
+				return nil, problemFromError(ctx, refreshErr)
+			}
+			body, bootstrapErr := newBootstrap(
+				config.Version, config.Origin, service.Revision(), config.Security,
+				input.ProfileID,
 			)
-		}
-		service := profileService(ctx)
-		if _, refreshErr := service.Refresh(ctx); refreshErr != nil {
-			return nil, problemFromError(ctx, refreshErr)
-		}
-		body, bootstrapErr := newBootstrap(
-			config.Version, config.Origin, service.Revision(), config.Security,
-			input.ProfileID,
-		)
-		if bootstrapErr != nil {
-			return nil, newProblem(
-				http.StatusInternalServerError, "internal_error",
-				"The bootstrap configuration could not be issued.",
-			)
-		}
-		return &profileBootstrapOutput{Body: ProfileBootstrap{
-			Bootstrap: body, Currencies: currenciesToWire(service.Currencies()),
-		}}, nil
-	})
+			if bootstrapErr != nil {
+				return nil, newProblem(
+					http.StatusInternalServerError, "internal_error",
+					"The bootstrap configuration could not be issued.",
+				)
+			}
+			return &profileBootstrapOutput{Body: ProfileBootstrap{
+				Bootstrap: body, Currencies: currenciesToWire(service.Currencies()),
+			}}, nil
+		})
+	}
 
 	huma.Register(server.api, huma.Operation{
 		OperationID: "health", Method: http.MethodGet, Path: healthPath,

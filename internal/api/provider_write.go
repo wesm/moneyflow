@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -368,21 +369,73 @@ func problemFromProviderWriteError(
 	return problem
 }
 
+var errProviderWritePanicked = errors.New("provider write stopped unexpectedly")
+
 func (server *Server) startProviderWrite(profileID string) {
-	go func() {
-		lease, err := server.resolver.Acquire(context.Background(), profileID)
+	server.workMu.Lock()
+	defer server.workMu.Unlock()
+	if server.workClosed {
+		return
+	}
+	server.workers.Go(func() {
+		defer server.recoverProviderWrite(profileID)
+		// Close cancels server.work. An error after that is the shutdown, which is expected, so
+		// it is not logged.
+		lease, err := server.resolver.Acquire(server.work, profileID)
 		if err != nil {
-			server.errorLog.Printf(
-				"provider write for %s could not start: %s", profileID, describeCause(err),
-			)
+			if server.work.Err() == nil {
+				server.errorLog.Printf(
+					"provider write for %s could not start: %s", profileID, describeCause(err),
+				)
+			}
 			return
 		}
 		if lease == nil || lease.Service() == nil {
 			return
 		}
 		defer func() { _ = lease.Release() }()
-		if _, err = lease.Service().RunProviderWrite(context.Background()); err != nil {
+		_, err = lease.Service().RunProviderWrite(server.work)
+		if err != nil && server.work.Err() == nil {
 			server.errorLog.Printf("provider write for %s stopped: %s", profileID, describeCause(err))
 		}
+	})
+}
+
+func (server *Server) recoverProviderWrite(profileID string) {
+	recovered := recover()
+	if recovered == nil {
+		return
+	}
+	if server.reportFailure == nil {
+		panic(recovered)
+	}
+	frames := panicFrames()
+	if failure, ok := recovered.(*app.ProviderWritePanic); ok {
+		recovered = failure.Value
+		frames = formatPanicFrames(failure.Counters)
+	}
+	server.errorLog.Printf(
+		"provider write for %s: panic: %s\n%s", profileID, panicText(recovered), frames,
+	)
+	server.reportFailure(profileID, fmt.Errorf("profile %s: %w", profileID, errProviderWritePanicked))
+}
+
+// Close stops background provider writes and waits until they finish or ctx ends. The server
+// starts no new background work afterwards.
+func (server *Server) Close(ctx context.Context) error {
+	server.workMu.Lock()
+	server.workClosed = true
+	server.workMu.Unlock()
+	server.stopWork()
+	done := make(chan struct{})
+	go func() {
+		server.workers.Wait()
+		close(done)
 	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("close API server: %w", ctx.Err())
+	}
 }
