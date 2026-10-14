@@ -1169,6 +1169,62 @@ describe('provider controller', () => {
     expect(staleNotice(controller.state, Date.now())?.reconnect).toBe(true)
   })
 
+  it.each([
+    { provider_kind: 'simplefin', polledAttempt: '12:00', refreshing: true, dialog: 'failed' },
+    { provider_kind: 'simplefin', polledAttempt: '13:00', refreshing: true, dialog: 'other' },
+    { provider_kind: 'simplefin', polledAttempt: '13:00', refreshing: false, dialog: undefined },
+    { provider_kind: 'monarch', polledAttempt: '12:00', refreshing: true, dialog: 'other' },
+  ] as const)(
+    'handles a $provider_kind failure from 12:00 after polling $polledAttempt (running: $refreshing)',
+    async ({ provider_kind, polledAttempt, refreshing, dialog }) => {
+      const current = testProjection({ revision: '1', capabilities: [capability(true)] })
+      const transport = transportStub({
+        status: providerStatus({
+          provider_kind,
+          revision: '1',
+          last_attempt: '2026-10-13T10:00:00Z',
+        }),
+      })
+      const response = Promise.withResolvers<Response>()
+      transport.mutations.request.mockReturnValueOnce(response.promise)
+      const controller = createProviderController({ transport, host: hostStub(current) })
+      controller.sync(current)
+      await controller.poll()
+      const refresh = controller.refresh()
+      const polled = providerStatus({
+        provider_kind,
+        revision: '1',
+        last_attempt: `2026-10-13T${polledAttempt}:00Z`,
+        refreshing,
+        ...(refreshing ? {} : { code: 'provider_reconnect_required' }),
+      })
+      transport.status.mockResolvedValue(polled)
+      await controller.poll()
+
+      const failed = providerStatus({
+        provider_kind,
+        revision: '1',
+        last_attempt: '2026-10-13T12:00:00Z',
+        code: 'provider_unavailable',
+      })
+      response.resolve(problemResponse('provider_unavailable', 'Unavailable.', failed))
+      await refresh
+
+      expect(controller.state.dialog?.view).toBe(dialog)
+      if (dialog === 'failed') {
+        expect(controller.state.dialog?.reason).toBe('Unavailable.')
+        transport.status.mockResolvedValue(failed)
+        await controller.poll()
+        expect(controller.state.dialog?.view).toBe('failed')
+      } else {
+        expect(controller.state.status).toEqual(polled)
+        // Finish the external lease so its progress polling ends.
+        transport.status.mockResolvedValue({ ...polled, refreshing: false })
+        await controller.poll()
+      }
+    },
+  )
+
   it.each(['running', 'finished'] as const)(
     'offers deletion confirmation after an external edit and polling the %s refresh',
     async (phase) => {

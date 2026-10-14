@@ -197,6 +197,15 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   /** Progress polls predate an attempt's result; later attempts or saved data supersede it. */
   function canAdopt(status: ProviderStatus, before: ProviderStatus | undefined): boolean {
     const known = state.status
+    // SimpleFIN records admission before downloading. Other providers keep the previous
+    // attempt's time while running, so matching their times does not identify the same attempt.
+    const finishesAdmittedAttempt =
+      known?.provider_kind === 'simplefin' &&
+      status.provider_kind === 'simplefin' &&
+      known.refreshing &&
+      !status.refreshing &&
+      status.last_attempt !== undefined &&
+      status.last_attempt === known.last_attempt
     return (
       !olderStatus(status) &&
       (known === undefined ||
@@ -205,6 +214,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
         BigInt(status.revision) > BigInt(known.revision) ||
         (Date.parse(status.last_attempt ?? '') || 0) >
           (Date.parse(known.last_attempt ?? '') || 0) ||
+        finishesAdmittedAttempt ||
         (!known.refreshing &&
           !status.refreshing &&
           known.code === status.code &&
