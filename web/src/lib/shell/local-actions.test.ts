@@ -54,6 +54,8 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
       'transaction.edit-category',
       'transaction.toggle-hidden',
       'transaction.delete',
+      'changes.undo',
+      'changes.redo',
     ]),
     total_rows: 2,
     window: { offset: 0, limit: 200, count: 2 },
@@ -356,6 +358,87 @@ describe('runRowAction', () => {
   })
 })
 
+describe('editing keys decide availability when their turn comes', () => {
+  afterEach(() => {
+    document.body.replaceChildren()
+    status.clear()
+  })
+
+  /** Capabilities with nothing to undo or redo, as before the first edit. */
+  function nothingToUndo() {
+    return testCapabilities(['changes.undo', 'changes.redo'], ['changes.undo', 'changes.redo']).map(
+      (capability) => ({
+        ...capability,
+        reason:
+          capability.id === 'changes.undo' ? 'No pending edit to undo.' : 'No undone edit to redo.',
+      }),
+    )
+  }
+
+  it('runs a redo pressed while the undo before it is on its way once the undo lands', async () => {
+    const { context } = setup(0)
+    const controller = context.controller as { projection: ReturnType<typeof testProjection> }
+    controller.projection = testProjection({
+      capabilities: testCapabilities(['changes.undo', 'changes.redo'], ['changes.redo']),
+    })
+    let land!: () => void
+    const landed = new Promise<void>((resolve) => (land = resolve))
+    const undo = vi.fn(async () => {
+      await landed
+      controller.projection = testProjection({
+        capabilities: testCapabilities(['changes.undo', 'changes.redo'], ['changes.undo']),
+      })
+      return true
+    })
+    const redo = vi.fn(() => Promise.resolve(true))
+    Object.assign(context.controller, { editing: { undo, redo } })
+    const actions = localActions(context)
+
+    actions['edit.undo']()
+    actions['edit.redo']()
+    await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
+    await tick()
+    expect(redo).not.toHaveBeenCalled()
+    land()
+    await vi.waitFor(() => expect(redo).toHaveBeenCalledTimes(1))
+    expect(status.notice).toBe('')
+  })
+
+  it('says why undo or redo is unavailable instead of doing nothing', async () => {
+    const { context } = setup(0)
+    const undo = vi.fn(() => Promise.resolve(true))
+    const redo = vi.fn(() => Promise.resolve(true))
+    Object.assign(context.controller, {
+      projection: testProjection({ capabilities: nothingToUndo() }),
+      editing: { undo, redo },
+    })
+    const actions = localActions(context)
+
+    actions['edit.undo']()
+    await vi.waitFor(() => expect(status.notice).toBe('No pending edit to undo.'))
+    actions['edit.redo']()
+    await vi.waitFor(() => expect(status.notice).toBe('No undone edit to redo.'))
+    expect(undo).not.toHaveBeenCalled()
+    expect(redo).not.toHaveBeenCalled()
+  })
+
+  it('says why x cannot delete in a grouped view', async () => {
+    const { context, overlays } = setup(1)
+    const reason = 'Open the group to delete its transactions.'
+    Object.assign(context.controller, {
+      projection: {
+        ...context.controller.projection!,
+        capabilities: [
+          { id: 'transaction.delete', description: '', category: '', available: false, reason },
+        ],
+      },
+    })
+    localActions(context)['edit.delete']()
+    await vi.waitFor(() => expect(status.notice).toBe(reason))
+    expect(overlays.current).toBeUndefined()
+  })
+})
+
 describe('failures with no dialog to show them', () => {
   afterEach(() => {
     document.body.replaceChildren()
@@ -399,13 +482,6 @@ describe('failures with no dialog to show them', () => {
     expect(flashes()).toEqual([
       { message: 'Selection refreshed. Invoke the action again.', tone: 'warning' },
     ])
-  })
-
-  it('says nothing when another edit is still being sent', async () => {
-    // The editing controller clears the announcement when an edit starts sending.
-    const context = refusing('submitting', '')
-    await hideRow(context, row)
-    expect(flashes()).toEqual([])
   })
 
   function exporting(phase: string, announcement: string) {

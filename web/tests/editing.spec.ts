@@ -72,6 +72,93 @@ test('every editing workflow starts from its TUI key and restores the table', as
   }
 })
 
+/**
+ * Holds the next request to `path` in the browser until `release` is called, so a test can press
+ * keys while that request is on its way. `sent` resolves once the browser has made the request.
+ * The request goes on unchanged: a refetch would lose Chromium's Sec-Fetch-Site header.
+ */
+async function holdRequest(
+  page: Page,
+  path: string,
+): Promise<{ sent: Promise<void>; release(): void }> {
+  let release!: () => void
+  const released = new Promise<void>((resolve) => (release = resolve))
+  let markSent!: () => void
+  const sent = new Promise<void>((resolve) => (markSent = resolve))
+  await page.route(
+    `**/api/v1/profiles/*/${path}`,
+    async (route) => {
+      markSent()
+      await released
+      await route.continue()
+    },
+    { times: 1 },
+  )
+  return { sent, release }
+}
+
+test('an undo pressed while its edit is on its way runs once the edit lands', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    const hide = await holdRequest(page, 'mutations')
+    const undo = page.waitForRequest('**/api/v1/profiles/*/undo')
+    await page.keyboard.press('h')
+    await hide.sent
+    // Nothing was pending when u was pressed; the hide still on its way makes undo available.
+    await page.keyboard.press('u')
+    hide.release()
+    await undo
+    await expect(page.getByRole('status').filter({ hasText: /^Undid / })).toHaveText(
+      'Undid hide · 1 transaction · Redo U',
+    )
+    await expect(page.getByText(/1 redo/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
+test('a redo pressed while its undo is on its way runs once the undo lands', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('h')
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    const undone = await holdRequest(page, 'undo')
+    const redo = page.waitForRequest('**/api/v1/profiles/*/redo')
+    await page.keyboard.press('u')
+    await undone.sent
+    // The browser still shows the hide, with nothing to redo, when U is pressed.
+    await page.keyboard.press('Shift+U')
+    undone.release()
+    await redo
+    await expect(page.getByRole('status').filter({ hasText: /^Redid / })).toHaveText(
+      'Redid hide · 1 transaction · Undo u',
+    )
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
+test('u and U with nothing to undo or redo say so', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('u')
+    await expect(page.getByText('No pending edit to undo.')).toBeVisible()
+    await page.keyboard.press('Shift+U')
+    await expect(page.getByText('No undone edit to redo.')).toBeVisible()
+    await expect(page.getByText('No pending edit to undo.')).toHaveCount(0)
+  } finally {
+    await server.stop()
+  }
+})
+
 test('a staged rename shows inline in gold while the grouped Net stays committed', async ({
   page,
 }) => {

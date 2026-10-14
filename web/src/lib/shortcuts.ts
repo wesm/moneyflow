@@ -78,6 +78,7 @@ const bindings = [
     combos: ['m'],
     local: true,
     localID: 'edit.merchant',
+    queued: true,
   },
   {
     id: 'transaction.edit-category',
@@ -85,6 +86,7 @@ const bindings = [
     combos: ['c'],
     local: true,
     localID: 'edit.category',
+    queued: true,
   },
   {
     id: 'category.manage',
@@ -106,6 +108,7 @@ const bindings = [
     combos: ['h'],
     local: true,
     localID: 'edit.hide',
+    queued: true,
   },
   {
     id: 'transaction.delete',
@@ -113,11 +116,24 @@ const bindings = [
     combos: ['x'],
     local: true,
     localID: 'edit.delete',
-    /** While delete is unavailable, `x` shows the reason instead of doing nothing. */
-    explains: true,
+    queued: true,
   },
-  { id: 'changes.undo', display: 'u', combos: ['u'], local: true, localID: 'edit.undo' },
-  { id: 'changes.redo', display: 'U', combos: ['shift+u'], local: true, localID: 'edit.redo' },
+  {
+    id: 'changes.undo',
+    display: 'u',
+    combos: ['u'],
+    local: true,
+    localID: 'edit.undo',
+    queued: true,
+  },
+  {
+    id: 'changes.redo',
+    display: 'U',
+    combos: ['shift+u'],
+    local: true,
+    localID: 'edit.redo',
+    queued: true,
+  },
   { id: 'changes.review', display: 'w', combos: ['w'], local: true, localID: 'edit.review' },
   {
     id: 'provider.refresh',
@@ -155,7 +171,12 @@ interface ShortcutHandlers {
   apply(action: string, dimension?: Dimension): void
 }
 
-/** What a binding's key does under the capability, or nothing while it is unavailable. */
+/**
+ * What a binding's key does under the capability. An unavailable key shows the server's reason,
+ * or does nothing when the server gives none. A queued editing key always goes to its handler,
+ * which checks the capability when the key's turn comes: an edit still on its way, such as the
+ * undo before a redo, can change it by then.
+ */
 function bindingAction(
   binding: (typeof bindings)[number],
   capability: Capability | undefined,
@@ -163,9 +184,9 @@ function bindingAction(
   index: number,
 ): (() => void) | undefined {
   if (!capability) return undefined
-  if (!capability.available) {
+  if (!capability.available && !('queued' in binding)) {
     const reason = capability.reason
-    return 'explains' in binding && reason ? () => status.notify(reason) : undefined
+    return reason ? () => status.notify(reason) : undefined
   }
   if ('local' in binding) {
     const action = ('localID' in binding ? binding.localID : binding.id) as LocalAction

@@ -9,7 +9,11 @@ type Capability struct {
 	Reason    string
 }
 
-const unavailableNoPending = "No pending changes are available."
+const (
+	unavailableNoPending = "No pending changes are available."
+	unavailableNoUndo    = "No pending edit to undo."
+	unavailableNoRedo    = "No undone edit to redo."
+)
 
 const (
 	unavailableMonarchTaxonomy = "Manage Monarch categories and groups in Monarch."
@@ -45,7 +49,7 @@ func (service *Service) Pending() PendingSummary {
 }
 
 func capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Capability {
-	result := []Capability{
+	return []Capability{
 		{Action: ActionExport, Available: true},
 		{Action: ActionFindDuplicates, Available: true},
 		{Action: ActionEditMerchant, Available: true},
@@ -54,16 +58,19 @@ func capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Capability {
 		{Action: ActionManageGroups, Available: true},
 		{Action: ActionToggleHidden, Available: true},
 		{Action: ActionDeleteTransaction, Available: true},
-		{Action: ActionUndo, Available: snapshot.Cursor > 0},
-		{Action: ActionRedo, Available: snapshot.Cursor < len(snapshot.Journal)},
-		{Action: ActionReviewChanges, Available: len(snapshot.Journal) > 0},
+		journalCapability(ActionUndo, snapshot.Cursor > 0, unavailableNoUndo),
+		journalCapability(ActionRedo, snapshot.Cursor < len(snapshot.Journal), unavailableNoRedo),
+		journalCapability(ActionReviewChanges, len(snapshot.Journal) > 0, unavailableNoPending),
 	}
-	for index := range result {
-		if !result[index].Available {
-			result[index].Reason = unavailableNoPending
-		}
+}
+
+// journalCapability describes an action that needs pending history, with the reason it names
+// while that history is missing.
+func journalCapability(action ActionID, available bool, reason string) Capability {
+	if available {
+		return Capability{Action: action, Available: true}
 	}
-	return result
+	return Capability{Action: action, Reason: reason}
 }
 
 func (service *Service) capabilitiesForStateSnapshot(

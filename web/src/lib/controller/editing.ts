@@ -107,6 +107,20 @@ export function createEditingController(options: EditingControllerOptions): Edit
     notify()
   }
 
+  // Editing requests run one at a time, each built from the revision and view the one before it
+  // leaves. A key pressed while a closed dialog's edit is still on its way then runs after it.
+  // With none on its way, a request starts at once, from the view shown when it was made.
+  let turn: Promise<unknown> | undefined
+  function inTurn<T>(work: () => Promise<T>): Promise<T> {
+    const result = turn ? turn.then(work) : work()
+    const done = result.catch(() => undefined)
+    turn = done
+    void done.then(() => {
+      if (turn === done) turn = undefined
+    })
+    return result
+  }
+
   function sync(projection: ViewProjection): void {
     setState({
       ...state,
@@ -115,7 +129,11 @@ export function createEditingController(options: EditingControllerOptions): Edit
     })
   }
 
-  async function submit(intent: MutationIntent): Promise<boolean> {
+  function submit(intent: MutationIntent): Promise<boolean> {
+    return inTurn(() => submitNow(intent))
+  }
+
+  async function submitNow(intent: MutationIntent): Promise<boolean> {
     const current = options.host.current()
     if (!current) return false
     if (!projectionRevisionIsCurrent(current)) return false
@@ -132,12 +150,12 @@ export function createEditingController(options: EditingControllerOptions): Edit
     return await mutate('api/v1/mutations', body, 'Change saved as pending.', 'mutate')
   }
 
-  async function undo(): Promise<boolean> {
-    return await moveCursor('api/v1/undo')
+  function undo(): Promise<boolean> {
+    return inTurn(() => moveCursor('api/v1/undo'))
   }
 
-  async function redo(): Promise<boolean> {
-    return await moveCursor('api/v1/redo')
+  function redo(): Promise<boolean> {
+    return inTurn(() => moveCursor('api/v1/redo'))
   }
 
   async function moveCursor(path: 'api/v1/undo' | 'api/v1/redo'): Promise<boolean> {
@@ -160,7 +178,11 @@ export function createEditingController(options: EditingControllerOptions): Edit
     )
   }
 
-  async function commit(reviewedRevision: bigint): Promise<boolean> {
+  function commit(reviewedRevision: bigint): Promise<boolean> {
+    return inTurn(() => commitNow(reviewedRevision))
+  }
+
+  async function commitNow(reviewedRevision: bigint): Promise<boolean> {
     const current = options.host.current()
     if (!current) return false
     if (!projectionRevisionIsCurrent(current)) return false
@@ -227,7 +249,6 @@ export function createEditingController(options: EditingControllerOptions): Edit
     successMessage: string,
     toast?: ToastAction,
   ) {
-    if (state.phase === 'submitting') return false
     setState({ ...state, phase: 'submitting', announcement: '' })
     const install = options.host.claim()
     try {

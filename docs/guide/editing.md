@@ -149,6 +149,10 @@ group to delete its transactions.`
 `Redid Rename merchant · Undo u`. Staged renames, category changes, and category or group edits
 show no message; the staged values in the table and the pending-edits card already show them.
 
+**Unreleased:** An editing key pressed while an earlier edit is still on its way waits for that
+edit, so `h` then `u`, or `u` then `U`, works however quickly you press them. A key whose action
+is unavailable says why, such as `No pending edit to undo.` or `No undone edit to redo.`
+
 ### Manage categories and groups
 
 `C` opens **Manage categories** and `G` opens **Manage category groups**. Each is a large drawer

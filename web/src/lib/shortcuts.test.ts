@@ -236,22 +236,41 @@ describe('Moneyflow browser shortcuts', () => {
     expect(shortcuts.manager.handleKeydown(keyboard('m'))).toBe(false)
   })
 
-  it('explains an unavailable delete with x and clears the notice on the next shortcut', () => {
+  it('leaves unavailable editing keys to their handlers, which check when their turn comes', () => {
     const handlers = { local: vi.fn(), apply: vi.fn() }
-    const reason = 'Open the group to delete its transactions.'
     const shortcuts = createMoneyflowShortcuts(
       capabilities.map((capability) =>
-        capability.id === 'transaction.delete' || capability.id === 'transaction.toggle-hidden'
-          ? { ...capability, available: false, reason }
+        ['transaction.delete', 'changes.redo'].includes(capability.id)
+          ? { ...capability, available: false, reason: 'Not now.' }
           : capability,
       ),
       handlers,
     )
+    expect(shortcuts.manager.handleKeydown(keyboard('x'))).toBe(true)
+    expect(handlers.local).toHaveBeenLastCalledWith('edit.delete')
+    expect(shortcuts.manager.handleKeydown(keyboard('U', { shiftKey: true }))).toBe(true)
+    expect(handlers.local).toHaveBeenLastCalledWith('edit.redo')
+    expect(status.notice).toBe('')
+    shortcuts.destroy()
+  })
+
+  it('explains other unavailable keys and clears the notice on the next shortcut', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const reason = 'No pending changes are available.'
+    const shortcuts = createMoneyflowShortcuts(
+      capabilities.map((capability) => {
+        if (capability.id === 'changes.review') return { ...capability, available: false, reason }
+        if (capability.id === 'provider.refresh') return { ...capability, available: false }
+        return capability
+      }),
+      handlers,
+    )
     try {
-      expect(shortcuts.manager.handleKeydown(keyboard('x'))).toBe(true)
+      expect(shortcuts.manager.handleKeydown(keyboard('w'))).toBe(true)
       expect(status.notice).toBe(reason)
       expect(handlers.local).not.toHaveBeenCalled()
-      expect(shortcuts.manager.handleKeydown(keyboard('h'))).toBe(false)
+      // Without a reason from the server, the key stays unbound.
+      expect(shortcuts.manager.handleKeydown(keyboard('r'))).toBe(false)
       expect(status.notice).toBe(reason)
       expect(shortcuts.manager.handleKeydown(keyboard('j'))).toBe(true)
       expect(status.notice).toBe('')
