@@ -37,6 +37,11 @@ type profileAcquirer interface {
 // only profile; it fails with ErrProfileRequired when there are several and ErrProfileNotFound
 // when none matches, and with an UnavailableError when the profile cannot open. Every call for
 // one profile returns the same Supervisor. The returned function releases the profile.
+//
+// The Dependencies that Acquire returns name the acquired profile in ProfileID, and Acquire must
+// accept that ID again. Dependencies.Hold re-acquires the profile by it for background work that
+// outlives the tool call, such as a refresh or a provider write, and releases it when the work
+// stops.
 type Profiles interface {
 	List(ctx context.Context) ([]ProfileSummary, error)
 	Acquire(ctx context.Context, profile string) (Dependencies, func(), error)
