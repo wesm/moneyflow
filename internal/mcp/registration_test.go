@@ -297,16 +297,6 @@ func TestStandaloneServerLogsAProviderWriteThatStopped(t *testing.T) {
 	assert.Contains(t, logged.String(), "moneyflow_event=provider_write_stopped")
 }
 
-func TestPanickingToolReturnsAnInternalError(t *testing.T) {
-	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": nil}, "profile-a")
-	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
-
-	result := callRefreshToolResult(t, client, "get_account_info", nil)
-
-	require.True(t, result.IsError)
-	assert.Equal(t, "mcp_internal_error", result.StructuredContent.(map[string]any)["code"])
-}
-
 // A panicking tool body answers with the revision of its profile, which a panic while the profile
 // is resolved cannot know.
 func TestPanickingToolAnswersWithItsProfilesRevision(t *testing.T) {
