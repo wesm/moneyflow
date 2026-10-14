@@ -10,6 +10,13 @@ function snippet(html: string) {
   return createRawSnippet(() => ({ render: () => html }))
 }
 
+/** A complete press: kit's backdrop closes on the click after a release over the scrim. */
+async function press(element: Element) {
+  await fireEvent.pointerDown(element)
+  await fireEvent.pointerUp(element)
+  await fireEvent.click(element)
+}
+
 function overlayState(): OverlayState {
   return new OverlayState({
     pushScope: () => undefined,
@@ -62,9 +69,9 @@ describe('BottomSheet', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onclose).toHaveBeenCalledTimes(2)
     const scrim = screen.getByRole('dialog', { name: 'View' }).parentElement!
-    await fireEvent.pointerDown(scrim)
+    await press(scrim)
     expect(onclose).toHaveBeenCalledTimes(3)
-    await fireEvent.pointerDown(screen.getByRole('button', { name: 'First' }))
+    await press(screen.getByRole('button', { name: 'First' }))
     expect(onclose).toHaveBeenCalledTimes(3)
   })
 

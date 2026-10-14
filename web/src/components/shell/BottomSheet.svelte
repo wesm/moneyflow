@@ -42,7 +42,7 @@
 
 {#if open}
   <!-- kit-ui has no bottom sheet; this composes its focus trap (upstream candidate). -->
-  <div class="mf-sheet" role="presentation" onpointerdown={backdropCloses(onclose)}>
+  <div class="mf-sheet" role="presentation" {@attach backdropCloses(onclose)}>
     <div
       class="mf-sheet__panel"
       {role}

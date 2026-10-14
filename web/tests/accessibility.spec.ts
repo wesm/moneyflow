@@ -7,9 +7,12 @@ import { withScenarioServer } from '../scripts/scenario-server'
 // kit CollapsibleSidebar renders its resize separator between the sidebar <aside> and the main
 // <section>, outside every landmark. Moneyflow cannot move it without patching kit-ui (upstream gap).
 const kitResizeHandle = 'kit-split-resize-handle'
+// kit's focus trap brackets each dialog with tab stops that hand focus straight back inside. They
+// are aria-hidden, so axe reports them as hidden focusable content (kit-ui upstream gap).
+const kitFocusGuard = '[data-kit-focus-guard]'
 
 async function expectNoAxeViolations(page: import('@playwright/test').Page): Promise<void> {
-  const result = await new AxeBuilder({ page }).analyze()
+  const result = await new AxeBuilder({ page }).exclude(kitFocusGuard).analyze()
   const violations = result.violations
     .map((violation) =>
       violation.id === 'region'

@@ -184,7 +184,7 @@
         dismiss: ondismiss,
         escapeFocus: () => anchor,
       }),
-      autoReposition(() => panel, place),
+      autoReposition(() => [panel], place),
     ]
     return () => cleanups.forEach((cleanup) => cleanup())
   })

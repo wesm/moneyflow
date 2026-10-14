@@ -66,7 +66,7 @@
       if (!(event.target instanceof Node) || !panel?.contains(event.target)) ondismiss()
     }
     document.addEventListener('mousedown', press)
-    const stop = autoReposition(() => panel, place)
+    const stop = autoReposition(() => [panel], place)
     return () => {
       stop()
       document.removeEventListener('mousedown', press)

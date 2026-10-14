@@ -414,7 +414,7 @@ input {
   font-weight: var(--font-weight-semibold, 600);
 }
 .mf-period-grid__cell:disabled {
-  opacity: 0.35;
+  opacity: var(--opacity-disabled);
   cursor: default;
 }
 .mf-period-chooser__endpoints {

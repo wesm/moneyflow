@@ -792,7 +792,8 @@ test.describe('phone rows: drilling, keys, and the sheet', () => {
       return {
         height: box.height,
         inside: box.top >= row.top && box.bottom <= row.bottom,
-        above: document.elementFromPoint(x, row.bottom - 1)?.closest('button') === button,
+        // Two pixels in: a fallback font can move the mark by half a pixel.
+        above: document.elementFromPoint(x, row.bottom - 2)?.closest('button') === button,
         below: rowAt(row.bottom + 1) === own.nextElementSibling,
       }
     })
