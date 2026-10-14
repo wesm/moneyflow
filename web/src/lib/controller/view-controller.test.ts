@@ -2283,6 +2283,52 @@ describe('visible view failures', () => {
     ])
   })
 
+  it('keeps quiet when a view change finds the view already there', async () => {
+    const unchanged = new MoneyflowProblem({
+      type: 'about:blank',
+      title: 'Conflict',
+      status: 409,
+      detail: 'The requested action would not change the view.',
+      code: 'no_change',
+    })
+    const client = clientWith({ transition: vi.fn().mockRejectedValueOnce(unchanged) })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    const prior = controller.projection
+
+    await expect(controller.apply({ action: 'view.back' })).resolves.toBe(false)
+
+    expect(controller.projection).toBe(prior)
+    expect(controller.problem).toBeUndefined()
+    expect(flashes()).toEqual([])
+  })
+
+  it('shows the opening view when a search preview asks for it again', async () => {
+    const unchanged = new MoneyflowProblem({
+      type: 'about:blank',
+      title: 'Conflict',
+      status: 409,
+      detail: 'The requested action would not change the view.',
+      code: 'no_change',
+    })
+    const client = clientWith({
+      transition: vi.fn(async (body) => {
+        if (body.search === '') throw unchanged
+        return projection(`v=1&q=${encodeURIComponent(body.search ?? '')}`, 0, 1)
+      }),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    controller.beginSearch()
+
+    expect(await controller.previewSearch('coffee')).toBe('applied')
+    expect(await controller.previewSearch('')).toBe('applied')
+
+    expect(controller.projection?.canonical_query).toBe('v=1')
+    expect(controller.problem).toBeUndefined()
+    expect(flashes()).toEqual([])
+  })
+
   it('points an unexpected server error to the server log', async () => {
     const failure = new MoneyflowProblem({
       type: 'about:blank',

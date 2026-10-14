@@ -676,19 +676,26 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const selection = searchSnapshot?.projection.selection ?? projection.selection
     let accepted = false
     const request = requestProjection(
-      async () =>
-        ensureVisibleWindow(
-          await options.client.transition(
-            {
-              query,
-              selection,
-              action: 'search.apply',
-              search,
-              window: { offset: 0, limit: windowSize },
-            },
-            activeRequest?.signal,
-          ),
-        ),
+      async () => {
+        try {
+          return ensureVisibleWindow(
+            await options.client.transition(
+              {
+                query,
+                selection,
+                action: 'search.apply',
+                search,
+                window: { offset: 0, limit: windowSize },
+              },
+              activeRequest?.signal,
+            ),
+          )
+        } catch (error) {
+          if (!isNoChange(error)) throw error
+          // The search asks for the view search opened on, such as after clearing the field.
+          return await options.client.view(viewBody(query, selection, 0), activeRequest?.signal)
+        }
+      },
       (next) => {
         moveToFirstRow()
         accept(next, 'replace')
@@ -910,7 +917,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       return true
     } catch (error) {
       if (requestGeneration !== generation || isAbort(error)) return false
-      setProblem(error, changeFailed, report)
+      // The view is already what the user asked for, so nothing failed.
+      if (!isNoChange(error)) setProblem(error, changeFailed, report)
       return false
     } finally {
       if (requestGeneration === generation) loading = false
@@ -1275,6 +1283,11 @@ function currentQuery(browserLocation: Pick<Location, 'search'>): string {
 
 function alignedOffset(index: number): number {
   return Math.floor(Math.max(0, index) / windowSize) * windowSize
+}
+
+/** The server answers `no_change` when the view already is what the request asks for. */
+function isNoChange(error: unknown): boolean {
+  return error instanceof MoneyflowProblem && error.problem.code === 'no_change'
 }
 
 function isAbort(error: unknown): boolean {
