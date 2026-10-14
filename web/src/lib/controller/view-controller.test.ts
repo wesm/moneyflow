@@ -2403,6 +2403,35 @@ describe('visible view failures', () => {
     expect(controller.problem).toBeUndefined()
   })
 
+  it('keeps a failed recheck and its Retry through a view change with nothing to change', async () => {
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+    const unchanged = new MoneyflowProblem({
+      type: 'about:blank',
+      title: 'Conflict',
+      status: 409,
+      detail: 'The requested action would not change the view.',
+      code: 'no_change',
+    })
+    const transition = vi.fn().mockRejectedValueOnce(unchanged)
+    const controller = controllerFor(clientWith({ view, transition }), false)
+    await controller.hydrate()
+    await controller.recheck()
+    const failed = controller.problem
+
+    await expect(controller.apply({ action: 'view.back' })).resolves.toBe(false)
+
+    expect(controller.problem).toBe(failed)
+    expect(controller.problem?.code).toBe('network_error')
+    await controller.retry()
+    expect(view).toHaveBeenCalledTimes(3)
+    expect(transition).toHaveBeenCalledOnce()
+    expect(controller.problem).toBeUndefined()
+  })
+
   it('shows the parent view undo returned to when the drilled target is gone', async () => {
     history.replaceState(null, '', '/moneyflow/?v=1&drill=x')
     const notice = 'The previous view target is unavailable; returned to its parent.'

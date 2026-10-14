@@ -901,6 +901,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     retry: () => Promise<void>,
     report: boolean,
   ): Promise<boolean> {
+    const priorProblem = problem
+    const priorRetry = lastRetry
     lastRetry = async () => {
       await retry()
     }
@@ -917,8 +919,14 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       return true
     } catch (error) {
       if (requestGeneration !== generation || isAbort(error)) return false
-      // The view is already what the user asked for, so nothing failed.
-      if (!isNoChange(error)) setProblem(error, changeFailed, report)
+      if (!isNoChange(error)) {
+        setProblem(error, changeFailed, report)
+        return false
+      }
+      // The view is already what the user asked for, so nothing failed, and a problem shown
+      // before, such as a failed recheck, still holds along with its Retry.
+      problem = priorProblem
+      lastRetry = priorRetry
       return false
     } finally {
       if (requestGeneration === generation) loading = false
