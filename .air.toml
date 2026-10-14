@@ -1,0 +1,25 @@
+# Rebuilds and restarts the Go server for `make dev`. The Makefile passes the server arguments
+# after `--`. See docs/development/developing.md.
+root = "."
+tmp_dir = "tmp/air"
+
+[build]
+cmd = "go build -o ./tmp/air/moneyflow ./cmd/moneyflow"
+entrypoint = ["./tmp/air/moneyflow"]
+include_dir = ["cmd", "internal"]
+# profile.sql is embedded in the binary.
+include_ext = ["go", "sql"]
+exclude_dir = ["internal/web/dist"]
+exclude_regex = ["_test\\.go$"]
+delay = 100
+stop_on_error = true
+send_interrupt = true
+kill_delay = "2s"
+
+# Untested on Windows.
+[build.windows]
+cmd = "go build -o ./tmp/air/moneyflow.exe ./cmd/moneyflow"
+entrypoint = ["tmp\\air\\moneyflow.exe"]
+
+[log]
+time = true

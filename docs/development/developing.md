@@ -8,7 +8,8 @@ mise install
 mise exec -- make web-install build
 ```
 
-`mise.toml` pins Go, Bun, Node, golangci-lint, prek, PowerShell, uv, and the Freeze capture tool.
+`mise.toml` pins Go, Bun, Node, golangci-lint, prek, PowerShell, uv, the air live-reload tool,
+and the Freeze capture tool.
 It sets `GOTOOLCHAIN=local`, so Go uses the mise-selected compiler rather than a toolchain
 inherited from your shell. Do not set a Go version in your shell configuration.
 Keep the Go pin aligned with `go.mod` and the Bun pin aligned with `web/package.json` and CI.
@@ -44,6 +45,65 @@ make tui-demo
 `make web-demo` runs the browser demo on a free port and prints its URL. Both use temporary
 synthetic profiles, not personal data.
 The binary is `bin/moneyflow` or `bin/moneyflow.exe` on Windows.
+
+## Live development
+
+`make dev` runs the browser application with live reload against a synthetic profile:
+
+```bash
+make dev
+```
+
+It starts two servers on `127.0.0.1` and stops both when you press Ctrl-C:
+
+- The Vite dev server, on port 5173, serves the frontend.
+  It forwards `/api/`, `/openapi.json`, `/openapi.yaml`, and `/demo/` to Go.
+- [air](https://github.com/air-verse/air) builds and runs the Go server on port 8081.
+
+`make dev` refuses to start if either port is in use. If either server exits, it stops the
+other and exits with an error. air itself keeps running when the Go server crashes, and
+rebuilds on the next change. `scripts/dev.sh` runs both servers; `make dev-backend` and
+`make dev-web` run one each.
+
+Open the `Moneyflow web:` URL that the Go server prints, for example
+`http://127.0.0.1:5173/p/profile_…/`. `http://127.0.0.1:5173/` shows the profile chooser.
+
+Changes reload as follows:
+
+- **Svelte and TypeScript:** Vite updates the open page in place, usually in under 0.2 seconds.
+  Page state and pending edits are kept.
+- **Go and `profile.sql`:** air rebuilds and restarts the server in about 1 second. The open
+  page keeps working. Its next change gets a `token_expired` response, fetches a new token,
+  and succeeds.
+
+The first run seeds a profile in `tmp/dev-home` with synthetic data. It seeds into a staging
+directory and renames it only when seeding succeeds, so a failed or interrupted run leaves
+nothing behind and the next run tries again. Edits persist across restarts. Stop `make dev`,
+then run `make dev-reset` to delete the profile; the next `make dev` seeds a fresh one. Do this
+after changing `profile.sql`, because the dev profile keeps the schema it was created with.
+`make dev` never uses `~/.moneyflow`. Output is also written to `tmp/logs/backend.log` and
+`tmp/logs/web.log`.
+
+To run several worktrees at once, give each its own ports:
+
+```bash
+make dev DEV_WEB_PORT=5174 DEV_BACKEND_PORT=8082
+```
+
+The two ports must differ; `make dev` refuses to start otherwise.
+
+The Go server runs with `--external-url` set to the Vite URL, so its mutation checks treat
+Vite as the canonical origin. The Vite proxy passes the browser's `Origin` header through
+unchanged. Only the Vite dev server fills the `index.html` placeholders; production builds keep
+them for the Go server, and `make web-embed` rejects a build without them. Vite pages carry no
+Content Security Policy, so check CSP-sensitive changes with `make web-demo`.
+
+Limits:
+
+- Only the root base path `/` works. `web/tests/base-path.spec.ts` covers other base paths.
+- The dev home always holds the seeded profile, so first-run onboarding of an empty home does
+  not appear. Adding a profile from the chooser works and stores it in `tmp/dev-home`.
+- The Windows configuration in `.air.toml` is untested.
 
 ## Verify behavior
 

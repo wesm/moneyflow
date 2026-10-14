@@ -49,7 +49,7 @@ Money is stored exactly as signed integer minor units, never floating point.
 - [Exports](docs/guide/export.md): save transactions for analysis.
 - [Configuration](docs/config/advanced.md): choose data paths and configure web access.
 - [Security](SECURITY.md): understand local storage and network boundaries.
-- [Development](docs/development/developing.md): build and verify changes.
+- [Development](docs/development/developing.md): build, run with live reload, and verify changes.
 - [Documentation maintenance](docs/README.md): writing rules, ownership, and publishing.
 
 Moneyflow is MIT-licensed. The website is [moneyflow.dev](https://moneyflow.dev);

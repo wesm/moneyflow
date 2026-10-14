@@ -1,4 +1,4 @@
-.PHONY: build clean fmt help install-hooks lint monarch-live-test ynab-live-test test test-editing-go test-editing-e2e test-export test-go-quick test-mcp test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
+.PHONY: build clean dev dev-backend dev-profile dev-reset dev-web fmt help install-hooks lint monarch-live-test ynab-live-test test test-editing-go test-editing-e2e test-export test-go-quick test-mcp test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-e2e web-embed web-embed-check web-generate web-install web-test
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -8,20 +8,27 @@ LDFLAGS := -X github.com/wesm/moneyflow/internal/version.Version=$(VERSION) -X g
 BINARY := bin/moneyflow
 RELEASE_VERSION ?= 0.0.0-rc.0
 RELEASE_DIR ?= dist/release
+# make dev always binds 127.0.0.1. Override the ports to run several worktrees at once.
+DEV_WEB_PORT ?= 5173
+DEV_BACKEND_PORT ?= 8081
+DEV_HOME := $(CURDIR)/tmp/dev-home
+DEV_URL := http://127.0.0.1:$(DEV_WEB_PORT)/
+DEV_ENV = DEV_WEB_PORT=$(DEV_WEB_PORT) DEV_BACKEND_PORT=$(DEV_BACKEND_PORT) DEV_HOME="$(DEV_HOME)"
 ifeq ($(OS),Windows_NT)
 BINARY := bin/moneyflow.exe
 endif
 
-build: web-embed
+build: web-embed ## Build the moneyflow binary in bin/
 	mkdir -p bin
 	go build -ldflags="$(LDFLAGS)" -o $(BINARY) ./cmd/moneyflow
 
 .PHONY: release-build
-release-build: web-embed-check
+release-build: web-embed-check ## Build release archives (RELEASE_DIR, default dist/release)
 	bash scripts/release-build.sh "$(RELEASE_VERSION)" "$(RELEASE_DIR)"
 
-help:
-	@printf '%s\n' 'web-demo  Serve the synthetic web application on a free port and print its URL'
+help: ## List the main targets
+	@awk 'BEGIN { FS = ":[^#]*## " } /^[a-z][a-z0-9-]*:[^#]*## / { printf "  %-16s %s\n", $$1, $$2 }' \
+		$(MAKEFILE_LIST)
 
 .PHONY: test-ui-scenarios fuzz-ui ui-probe ui-probe-web
 test-ui-scenarios: web-embed
@@ -42,7 +49,7 @@ ui-probe-web: web-embed
 docs-build:
 	bun docs/tools/site.ts build
 
-docs-check: docs-build
+docs-check: docs-build ## Lint Markdown and build the documentation website
 	npx --yes markdownlint-cli@0.47.0 --config .markdownlint.json AGENTS.md README.md SECURITY.md PUBLISHING.md scripts/README.md .github/DOCS_DEPLOYMENT.md 'docs/**/*.md'
 	.github/scripts/check-arrow-lists.sh
 	bun docs/tools/site.ts check
@@ -56,16 +63,17 @@ docs-browser-test:
 docs-screenshots: build
 	cd web && bun ../docs/tools/capture.ts
 
-docs-serve:
+docs-serve: ## Serve the documentation website locally
 	bun docs/tools/site.ts serve
 
-test: web-embed
+test: web-embed ## Run the Go tests
 	MONEYFLOW_SKIP_PERF=1 go test $(GOFLAGS_TEST) ./...
 	go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$$' -count=1
 	go test ./internal/api -run '^Test(Projection|DuplicateProjection)Performance100K$$' -count=1
 
-test-go-quick: web-embed
-	MONEYFLOW_SKIP_PERF=1 go test -short $(GOFLAGS_TEST) ./...
+# The pre-commit hook runs this. It omits -shuffle so Go can reuse cached test results.
+test-go-quick: web-embed ## Run the short Go tests, as the pre-commit hook does
+	MONEYFLOW_SKIP_PERF=1 go test -short ./...
 
 test-mcp: build
 	MONEYFLOW_MCP_TEST_BINARY="$(abspath $(BINARY))" MONEYFLOW_SKIP_PERF=1 go test \
@@ -102,39 +110,39 @@ ynab-live-test:
 	@if [ -z "$$MONEYFLOW_YNAB_TOKEN" ]; then printf '%s\n' 'Set MONEYFLOW_YNAB_TOKEN to a YNAB personal access token.' >&2; exit 2; fi
 	go test -tags=ynablive ./internal/provider/ynab -run '^TestLiveYNABReadOnlySnapshot$$' -count=1 -v
 
-test-race: web-embed
+test-race: web-embed ## Run the Go tests with the race detector
 	MONEYFLOW_SKIP_PERF=1 go test -race $(GOFLAGS_TEST) ./...
 
 vet: web-embed
 	go vet ./...
 
-lint: web-embed
+lint: web-embed ## Run golangci-lint
 	GOLANGCI_LINT_CACHE="$(CURDIR)/.cache/golangci-lint" golangci-lint run --config .golangci.yml
 
-install-hooks:
+install-hooks: ## Install the prek Git hooks
 	@if ! command -v prek >/dev/null 2>&1; then \
 		echo "prek not found. Run mise install, then mise exec -- make install-hooks" >&2; \
 		exit 1; \
 	fi
 	prek install -f
 
-verify-go:
+verify-go: ## Check Go formatting and run the tests, storage and provider gates, vet, and lint
 	go run ./internal/tools/checkfmt cmd internal
 	$(MAKE) test test-mcp test-store test-provider test-provider-write vet lint
 
-fmt:
+fmt: ## Format the Go sources
 	gofmt -w cmd internal
 
-tui-demo: build
+tui-demo: build ## Run the terminal application with temporary synthetic data
 	$(BINARY) tui --demo
 
-web-demo: build
+web-demo: build ## Serve the browser application with temporary synthetic data
 	$(BINARY) web --demo --open=false
 
-web-install:
+web-install: ## Install the locked frontend dependencies
 	bun install --cwd web --frozen-lockfile
 
-web-generate:
+web-generate: ## Regenerate the API client from the OpenAPI contract
 	bun run --cwd web generate
 
 web-check: web-embed
@@ -171,7 +179,7 @@ web-build:
 web-assets-check: web-build
 	bun run --cwd web scripts/validate-assets.ts dist
 
-web-embed: web-assets-check
+web-embed: web-assets-check ## Build the frontend into internal/web/dist for Go embedding
 	bun run --cwd web scripts/embed-assets.ts
 
 web-embed-check: web-embed
@@ -180,21 +188,42 @@ web-embed-check: web-embed
 		exit 1; \
 	fi
 
-verify-web:
+verify-web: ## Run every browser, API, and embedded-asset check
 	$(MAKE) web-install
 	$(MAKE) web-check web-test web-audit web-embed-check test-editing-go web-e2e
 	go test ./internal/api -run 'Test(Projection|DuplicateProjection)Performance100K' -count=1
 
-web-dev:
-	bun run --cwd web dev
+# Run the steps in order even when MAKEFLAGS includes -j, as verify-web does.
+dev: ## Run Go under air behind Vite with live reload
+	@$(MAKE) web-install
+	@$(MAKE) web-embed dev-profile
+	@printf '\n%s\n%s\n%s\n\n' \
+		'make dev: open the "Moneyflow web:" URL that the backend prints when it starts.' \
+		'$(DEV_URL) shows the profile chooser. Logs are in tmp/logs.' \
+		'Press Ctrl-C to stop both servers.'
+	@$(DEV_ENV) bash scripts/dev.sh
 
-clean:
-	rm -rf bin coverage.out .cache/golangci-lint web/dist web/coverage web/test-results web/playwright-report
+dev-profile: ## Seed the synthetic dev profile in tmp/dev-home if it is missing
+	@bash scripts/dev-profile.sh "$(DEV_HOME)"
+
+dev-reset: ## Delete the dev profile; the next make dev seeds a fresh one
+	rm -rf tmp/dev-home
+
+dev-backend: dev-profile ## Run only the Go server under air; needs web-embed once
+	@$(DEV_ENV) bash scripts/dev.sh backend
+
+dev-web: ## Run only the Vite dev server
+	@$(DEV_ENV) bash scripts/dev.sh web
+
+clean: ## Remove build, test, and documentation outputs; keeps tmp/dev-home
+	rm -rf -- bin coverage.out .cache/golangci-lint .cache/web-e2e .cache/ui-harness \
+		internal/web/dist web/dist web/.vite web/coverage web/test-results web/playwright-report \
+		"$(RELEASE_DIR)" docs/.site-work site tmp/air tmp/logs tmp/dev-home.seeding.*
 
 .PHONY: test-amazon test-amazon-e2e docs-check
-test-amazon: web-embed
+test-amazon: web-embed ## Run the Amazon import tests
 	go test ./internal/importer/amazon ./internal/amazonimport -count=1
 	go test ./internal/analytics ./internal/app ./internal/store/sqlite ./internal/tui ./internal/api ./cmd/moneyflow -run Amazon -count=1
 
-test-amazon-e2e: web-embed
+test-amazon-e2e: web-embed ## Run the Amazon import browser tests
 	bun run --cwd web test:e2e -- amazon-import.spec.ts --project=chromium

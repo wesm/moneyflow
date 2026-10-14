@@ -78,6 +78,7 @@ func TestReleaseBinary(t *testing.T) {
 func TestReleaseBuildRejectsInvalidVersion(t *testing.T) {
 	for _, version := range []string{"", "1.2", "v1.2.3", "../release", "1.2.3;false"} {
 		t.Run(version, func(t *testing.T) {
+			trackScript(t, "release-build.sh")
 			command := exec.CommandContext(t.Context(), "bash", "release-build.sh", version, filepath.Join(t.TempDir(), "out")) //nolint:gosec // Deliberate invalid arguments to the fixed script.
 			output, err := command.CombinedOutput()
 			require.Error(t, err)
@@ -90,6 +91,7 @@ func TestReleaseBuildPreservesExistingOutput(t *testing.T) {
 	directory := t.TempDir()
 	marker := filepath.Join(directory, "keep.txt")
 	require.NoError(t, os.WriteFile(marker, []byte("existing release"), 0o600))
+	trackScript(t, "release-build.sh")
 	command := exec.CommandContext(t.Context(), "bash", "release-build.sh", "1.2.3-rc.1", filepath.ToSlash(directory)) //nolint:gosec // Fixed script and isolated output directory.
 	output, err := command.CombinedOutput()
 	require.Error(t, err)

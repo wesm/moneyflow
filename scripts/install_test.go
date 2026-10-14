@@ -41,6 +41,7 @@ func TestBinaryInstallers(t *testing.T) {
 			}
 			script, err := filepath.Abs(script)
 			require.NoError(t, err)
+			trackScript(t, script)
 			arguments = append(arguments, script)
 			run := func(t *testing.T, directory, releaseURL, version, location string) ([]byte, error) {
 				t.Helper()

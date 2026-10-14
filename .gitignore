@@ -83,5 +83,8 @@ result-*
 !/web/src/lib/
 !/web/src/lib/**
 
+# make dev: air builds, logs, and the synthetic dev profile
+/tmp/
+
 # Generated production frontend embedded by local builds
 /internal/web/dist/
