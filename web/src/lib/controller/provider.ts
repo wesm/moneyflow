@@ -133,12 +133,23 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     notify()
   }
 
-  /**
-   * Records the data generation before this attempt from the newest status the server sent. A
-   * status that shows a refresh running leaves it unknown until a poll reads it.
-   */
+  /** A cached status can predate another interface's refresh, so it is no baseline. */
   function startAttempt(): void {
-    watched = state.status?.refreshing ? undefined : state.status?.generation
+    watched = undefined
+  }
+
+  /**
+   * The data generation before this attempt, read when it starts. A failed read, or a status that
+   * shows another refresh running, leaves it unknown: the outcome then claims neither a success
+   * nor an unchanged result.
+   */
+  async function attemptBaseline(signal: AbortSignal): Promise<string | undefined> {
+    try {
+      const status = await options.transport.status(signal)
+      return status.refreshing ? undefined : status.generation
+    } catch {
+      return undefined
+    }
   }
 
   function openDialog(view: RefreshDialogView, reason?: string): RefreshDialog {
@@ -234,6 +245,8 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     const signal = request.signal
     let response: ProviderRefreshResponse
     try {
+      watched = await attemptBaseline(signal)
+      signal.throwIfAborted()
       response = await requestProfileJSON<ProviderRefreshResponse>(
         options.transport.mutations,
         path,

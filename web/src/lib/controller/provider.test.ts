@@ -224,7 +224,7 @@ describe('provider controller', () => {
       problemResponse('provider_confirmation_invalid', 'Confirmation expired.'),
     )
     await expect(controller.confirm()).resolves.toBe(false)
-    expect(transport.status).toHaveBeenCalledTimes(1)
+    expect(controller.state.status?.confirmation_token).toBeUndefined()
     expect(transport.mutations.request).toHaveBeenCalledTimes(2)
     expect(controller.state.phase).toBe('failed')
   })
@@ -541,6 +541,9 @@ describe('provider controller', () => {
     await controller.refresh()
     vi.mocked(transport.mutations.request).mockResolvedValueOnce(failure('2'))
     await controller.refresh()
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ generation: '2', code: 'provider_unavailable' }),
+    )
     vi.mocked(transport.mutations.request).mockImplementationOnce(
       async (_path, _body, sent) =>
         new Promise<Response>((_resolve, reject) =>
@@ -549,9 +552,6 @@ describe('provider controller', () => {
     )
     void controller.refresh()
     await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledTimes(3))
-    vi.mocked(transport.status).mockResolvedValue(
-      providerStatus({ generation: '2', code: 'provider_unavailable' }),
-    )
 
     controller.cancel()
     await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
@@ -560,10 +560,38 @@ describe('provider controller', () => {
     expect(getFlashes()).toEqual([])
   })
 
-  it('rereads without claiming no change when a cancel had no known baseline', async () => {
+  it('compares a refresh with the data saved elsewhere since the last poll', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub()
+    vi.mocked(transport.mutations.request).mockImplementation(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    await controller.poll()
+    const elsewhere = providerStatus({
+      generation: '2',
+      summary: { ...emptySummary(), imported_transactions: 40 },
+    })
+    vi.mocked(transport.status).mockResolvedValue(elsewhere)
+
+    void controller.refresh()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+    vi.mocked(transport.status).mockResolvedValue({ ...elsewhere, code: 'provider_unavailable' })
+    controller.cancel()
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+
+    expect(getFlashes()).toEqual([])
+    expect(controller.state.staleReason).toBe(REFRESH_CANCELED)
+  })
+
+  it('treats the baseline as unknown when the status read at the start fails', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const host = hostStub(current)
-    const transport = transportStub({ status: providerStatus({ generation: '2' }) })
+    const transport = transportStub()
     vi.mocked(transport.mutations.request).mockImplementation(
       async (_path, _body, sent) =>
         new Promise<Response>((_resolve, reject) =>
@@ -572,16 +600,19 @@ describe('provider controller', () => {
     )
     const controller = createProviderController({ transport, host })
     controller.sync(current)
+    await controller.poll()
+    vi.mocked(transport.status).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
     void controller.refresh()
     await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
-
+    vi.mocked(transport.status).mockResolvedValue(providerStatus({ generation: '2' }))
     controller.cancel()
     await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
 
-    expect(host.reload).toHaveBeenCalledOnce()
+    expect(getFlashes()).toEqual([])
     expect(controller.state.staleReason).toBeUndefined()
     expect(controller.state.announcement).not.toContain('no provider data changed')
-    expect(getFlashes()).toEqual([])
+    expect(host.reload).toHaveBeenCalledOnce()
   })
 
   it('opens the dialog for a due refresh before the first view arrives', async () => {
@@ -701,7 +732,8 @@ describe('provider controller', () => {
     controller.sync(current)
 
     const scheduled = controller.poll()
-    await vi.waitFor(() => expect(controller.state.kind).toBe('recent'))
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+    expect(controller.state.kind).toBe('recent')
     finish(
       Response.json({
         ...refreshResponse(current, 'preserved'),
@@ -713,6 +745,7 @@ describe('provider controller', () => {
 
     const manual = controller.refresh()
     expect(controller.state.kind).toBe('full')
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledTimes(2))
     finish(Response.json(refreshResponse(current, 'preserved')))
     await manual
   })
@@ -730,13 +763,15 @@ describe('provider controller', () => {
       controller.sync(current)
 
       const refreshing = controller.refresh()
+      await vi.advanceTimersByTimeAsync(0)
+      const started = transport.status.mock.calls.length
       await vi.advanceTimersByTimeAsync(2_000)
-      expect(transport.status).toHaveBeenCalledTimes(2)
+      expect(transport.status).toHaveBeenCalledTimes(started + 2)
 
       finish(Response.json(refreshResponse(current, 'preserved')))
       await refreshing
       await vi.advanceTimersByTimeAsync(5_000)
-      expect(transport.status).toHaveBeenCalledTimes(2)
+      expect(transport.status).toHaveBeenCalledTimes(started + 2)
       expect(controller.state.phase).toBe('idle')
     } finally {
       vi.useRealTimers()
