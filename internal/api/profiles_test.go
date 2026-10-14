@@ -128,6 +128,7 @@ func requestProfileView(t testing.TB, server *Server, profileID string) Projecti
 
 type testProfileResolver struct {
 	mutex     sync.Mutex
+	acquires  int
 	services  map[string]*app.Service
 	roots     map[string]string
 	temporary map[string]bool
@@ -138,6 +139,7 @@ type testProfileResolver struct {
 func (resolver *testProfileResolver) Acquire(_ context.Context, profileID string) (ProfileLease, error) {
 	resolver.mutex.Lock()
 	defer resolver.mutex.Unlock()
+	resolver.acquires++
 	service := resolver.services[profileID]
 	if resolver.failure != nil {
 		return nil, resolver.failure

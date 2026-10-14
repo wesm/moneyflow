@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 	"time"
@@ -107,6 +109,18 @@ func (execution *ProviderWriteExecution) Run(ctx context.Context) (ProviderWrite
 	defer execution.runtime.endProviderWriteRun()
 	execution.service.setWriteRunFailure(nil)
 	batchID, batchErr := execution.service.activeWriteBatchID(ctx)
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			failure, ok := recovered.(*ProviderWritePanic)
+			if !ok {
+				failure = captureProviderWritePanic(recovered)
+			}
+			if batchErr == nil && batchID != "" {
+				execution.service.recordWriteRunFailure(ctx, execution.runtime.instanceID, batchID, failure)
+			}
+			panic(failure)
+		}
+	}()
 	status, err := execution.service.runProviderWriteOwned(ctx, execution.runtime)
 	if err != nil && batchErr == nil && batchID != "" {
 		execution.service.recordWriteRunFailure(ctx, execution.runtime.instanceID, batchID, err)
@@ -636,7 +650,12 @@ func (service *Service) runProviderWriteOwned(
 		if len(items) == 0 {
 			return service.writeStatus(ctx, provider.NewError(provider.CodeWriteStale))
 		}
-		outcomes, callErr := service.runProviderWriteCallsWithHeartbeat(ctx, runtime, writer, items)
+		outcomes, workerPanic, callErr := service.runProviderWriteCallsWithHeartbeat(ctx, runtime, writer, items)
+		if workerPanic != nil {
+			// Save received results and park uncertain writes before notifying the host.
+			// A storage failure must not prevent the original panic from reaching it.
+			defer func() { panic(workerPanic) }()
+		}
 		slices.SortFunc(outcomes, func(left, right providerWriteOutcome) int {
 			return left.item.Position - right.item.Position
 		})
@@ -690,6 +709,11 @@ func (service *Service) runProviderWriteOwned(
 			if err != nil {
 				return service.writeStatus(ctx, err)
 			}
+		}
+		if workerPanic != nil && batch.Phase != store.WritePhaseReconciling {
+			return service.parkProviderWriteFailure(
+				ctx, runtime, batch, fingerprint, provider.NewWriteFailure(provider.WriteOutcomeUnknown),
+			)
 		}
 		if firstFailure != nil {
 			if providerWriteUnavailableCanRetry(firstFailure.item, firstFailure.err) {
@@ -778,10 +802,35 @@ type providerWriteOutcome struct {
 	updateResult provider.TransactionUpdateResult
 	deleteResult provider.TransactionDeleteResult
 	err          error
+	panic        *ProviderWritePanic
+}
+
+// ProviderWritePanic carries a worker panic to its owner after all workers have stopped.
+type ProviderWritePanic struct {
+	Value    any
+	Counters []uintptr
+}
+
+func (failure *ProviderWritePanic) Error() string {
+	message := fmt.Sprintf("provider write panic: %v", failure.Value)
+	frames := runtime.CallersFrames(failure.Counters)
+	for {
+		frame, more := frames.Next()
+		message += fmt.Sprintf("\n    %s (%s:%d)", frame.Function, filepath.Base(frame.File), frame.Line)
+		if !more {
+			return message
+		}
+	}
+}
+
+func captureProviderWritePanic(value any) *ProviderWritePanic {
+	counters := make([]uintptr, 64)
+	return &ProviderWritePanic{Value: value, Counters: counters[:runtime.Callers(1, counters)]}
 }
 
 func runProviderWriteCalls(
 	ctx context.Context,
+	cancel context.CancelCauseFunc,
 	writer provider.Writer,
 	items []store.WriteItem,
 	providerKind string,
@@ -792,6 +841,14 @@ func runProviderWriteCalls(
 		item := item.Clone()
 		go func() {
 			outcome := providerWriteOutcome{item: item}
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					outcome.panic = captureProviderWritePanic(recovered)
+					outcome.err = provider.NewWriteFailure(provider.WriteOutcomeUnknown)
+					cancel(outcome.panic)
+				}
+				results <- outcome
+			}()
 			switch item.Kind {
 			case store.WriteItemUpdate:
 				update, err := providerTransactionUpdate(item, providerKind, state)
@@ -807,7 +864,6 @@ func runProviderWriteCalls(
 			default:
 				outcome.err = provider.NewWriteFailure(provider.WriteExpectationInvalid)
 			}
-			results <- outcome
 		}()
 	}
 	outcomes := make([]providerWriteOutcome, 0, len(items))
@@ -822,24 +878,31 @@ func (service *Service) runProviderWriteCallsWithHeartbeat(
 	runtime *providerRuntimeState,
 	writer provider.Writer,
 	items []store.WriteItem,
-) ([]providerWriteOutcome, error) {
+) ([]providerWriteOutcome, *ProviderWritePanic, error) {
 	state, err := service.profile.ProviderWriteState(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	writeContext, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	heartbeatDone := make(chan error, 1)
 	stopHeartbeat := make(chan struct{})
 	go func() {
+		var heartbeatErr error
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				heartbeatErr = captureProviderWritePanic(recovered)
+				cancel(heartbeatErr)
+			}
+			heartbeatDone <- heartbeatErr
+		}()
 		ticker := time.NewTicker(runtime.heartbeatInterval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-stopHeartbeat:
-				heartbeatDone <- nil
 				return
 			case <-writeContext.Done():
-				heartbeatDone <- nil
 				return
 			case <-ticker.C:
 				observedAt := runtime.now().UTC().Truncate(time.Millisecond)
@@ -849,27 +912,33 @@ func (service *Service) runProviderWriteCallsWithHeartbeat(
 				)
 				if err != nil {
 					if writeContext.Err() != nil {
-						heartbeatDone <- nil
 						return
 					}
 					cancel(err)
-					heartbeatDone <- err
+					heartbeatErr = err
 					return
 				}
 				if !renewed {
 					failure := provider.NewError(provider.CodeWriteStale)
 					cancel(failure)
-					heartbeatDone <- failure
+					heartbeatErr = failure
 					return
 				}
 			}
 		}
 	}()
-	outcomes := runProviderWriteCalls(writeContext, writer, items, runtime.provider, state)
+	outcomes := runProviderWriteCalls(writeContext, cancel, writer, items, runtime.provider, state)
 	close(stopHeartbeat)
 	heartbeatErr := <-heartbeatDone
-	cancel(nil)
-	return outcomes, heartbeatErr
+	if failure, ok := heartbeatErr.(*ProviderWritePanic); ok {
+		return outcomes, failure, heartbeatErr
+	}
+	for _, outcome := range outcomes {
+		if outcome.panic != nil {
+			return outcomes, outcome.panic, heartbeatErr
+		}
+	}
+	return outcomes, nil, heartbeatErr
 }
 
 func firstAttemptedPendingUpdateItem(items []store.WriteItem) (store.WriteItem, bool) {

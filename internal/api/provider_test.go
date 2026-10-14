@@ -685,6 +685,8 @@ type apiProviderSource struct {
 	identity      provider.ProfileIdentity
 	snapshot      domain.ImportSnapshot
 	fingerprint   provider.SessionFingerprint
+	readerErr     error
+	changedCalls  int
 	fetchStarted  chan struct{}
 	fetchRelease  chan struct{}
 	fetchFailure  apiFetchFailure
@@ -698,6 +700,9 @@ func (source *apiProviderSource) Reader(
 ) (provider.Reader, provider.SessionFingerprint, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
+	if source.readerErr != nil {
+		return nil, source.fingerprint, source.readerErr
+	}
 	return (*apiProviderReader)(source), source.fingerprint, nil
 }
 
@@ -728,6 +733,7 @@ func (source *apiProviderSource) writeCount() int {
 func (source *apiProviderSource) Changed(previous provider.SessionFingerprint) (bool, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
+	source.changedCalls++
 	return previous != source.fingerprint, nil
 }
 

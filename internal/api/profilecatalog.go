@@ -61,6 +61,21 @@ type ProfileCancelResponse struct {
 	Removed bool   `json:"removed"`
 }
 
+// ProfileRemoveBody confirms one profile removal.
+type ProfileRemoveBody struct {
+	Version string `json:"version"`
+}
+
+// ProfileRemoveResponse reports a completed profile removal.
+type ProfileRemoveResponse struct {
+	Version string `json:"version"`
+}
+
+// ProfileRemover deletes one profile and all of its local files.
+type ProfileRemover interface {
+	Remove(ctx context.Context, profileID string) error
+}
+
 // RecoveryPlan is the exact destructive action previewed before confirmation.
 type RecoveryPlan struct {
 	ProfileKey   string `json:"profile_key"`
@@ -95,6 +110,11 @@ type profileCancelInput struct {
 	Body      ProfileCancelBody
 }
 type profileCancelOutput struct{ Body ProfileCancelResponse }
+type profileRemoveInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      ProfileRemoveBody
+}
+type profileRemoveOutput struct{ Body ProfileRemoveResponse }
 type recoveryInput struct {
 	ProfileID string `path:"profile_id"`
 	Body      RecoveryBody
@@ -249,6 +269,34 @@ func (server *Server) registerProfileCatalogEndpoints(config Config) {
 			Version: ProfileCatalogSchemaVersion, Plan: *input.Body.Plan,
 			Recreated: true, BackupPath: result.BackupPath,
 		}}, nil
+	})
+
+	if config.Remover != nil {
+		server.registerProfileRemoval(config)
+	}
+}
+
+func (server *Server) registerProfileRemoval(config Config) {
+	huma.Register(server.api, huma.Operation{
+		OperationID: "removeProfile", Method: http.MethodPost,
+		Path: server.profilePath("remove"), Summary: "Remove one profile and all of its local data",
+		Errors: []int{400, 403, 404, 409, 413, 422, 500, 503},
+	}, func(ctx context.Context, input *profileRemoveInput) (*profileRemoveOutput, error) {
+		if input.Body.Version != ProfileCatalogSchemaVersion {
+			return nil, newProblem(
+				http.StatusUnprocessableEntity, string(CodeProfileInvalid),
+				"The profile request version is unsupported.",
+			)
+		}
+		if err := releaseProfileForRollback(ctx, config, input.ProfileID); err != nil {
+			return nil, err
+		}
+		if err := config.Remover.Remove(ctx, input.ProfileID); err != nil {
+			return nil, problemFromCatalogError(err)
+		}
+		return &profileRemoveOutput{
+			Body: ProfileRemoveResponse{Version: ProfileCatalogSchemaVersion},
+		}, nil
 	})
 }
 

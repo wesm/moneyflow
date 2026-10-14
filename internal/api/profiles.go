@@ -96,10 +96,11 @@ func resolveProfileRequests(
 	basePath string,
 	resolver ProfileResolver,
 	logger *log.Logger,
+	hostAdmission bool,
 ) http.Handler {
 	prefix := basePath + "api/v1/profiles/"
 	resolvedEndpoints := map[string]struct{}{
-		"bootstrap": {}, "health": {}, "view": {}, "view/transition": {}, "view/insights": {},
+		"health": {}, "view": {}, "view/transition": {}, "view/insights": {},
 		"mutations": {}, "undo": {}, "redo": {}, "commit": {}, "review": {},
 		"review/targets": {}, "duplicates": {}, "editor-catalog": {}, "merchant-preview": {}, "provider/status": {},
 		"export/preview": {}, "export": {},
@@ -108,6 +109,10 @@ func resolveProfileRequests(
 		"provider/write/resume": {}, "provider/write/reconcile": {},
 		"provider/write/reconcile/confirm": {},
 		"transaction-information":          {},
+	}
+	if !hostAdmission {
+		// Host admission registers no bootstrap route, so a request for one must not open a profile.
+		resolvedEndpoints["bootstrap"] = struct{}{}
 	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if !strings.HasPrefix(request.URL.EscapedPath(), prefix) {
@@ -189,26 +194,27 @@ func profileService(ctx context.Context) *app.Service {
 	return profile.service
 }
 
+var legacyProfileEndpoints = map[string]struct{}{
+	"health": {}, "view": {}, "view/transition": {}, "view/insights": {}, "mutations": {},
+	"undo": {}, "redo": {}, "commit": {}, "review": {}, "review/targets": {},
+	"duplicates": {}, "editor-catalog": {}, "merchant-preview": {}, "provider/status": {}, "provider/refresh": {},
+	"export/preview": {}, "export": {},
+	"provider/refresh/confirm": {},
+	"provider/write-status":    {}, "provider/write/pause": {},
+	"provider/write/resume": {}, "provider/write/reconcile": {},
+	"provider/write/reconcile/confirm": {},
+	"transaction-information":          {},
+}
+
 func legacyProfileRoutes(next http.Handler, basePath string, profileID string) http.Handler {
 	if profileID == "" {
 		return next
-	}
-	endpoints := map[string]struct{}{
-		"health": {}, "view": {}, "view/transition": {}, "view/insights": {}, "mutations": {},
-		"undo": {}, "redo": {}, "commit": {}, "review": {}, "review/targets": {},
-		"duplicates": {}, "editor-catalog": {}, "merchant-preview": {}, "provider/status": {}, "provider/refresh": {},
-		"export/preview": {}, "export": {},
-		"provider/refresh/confirm": {},
-		"provider/write-status":    {}, "provider/write/pause": {},
-		"provider/write/resume": {}, "provider/write/reconcile": {},
-		"provider/write/reconcile/confirm": {},
-		"transaction-information":          {},
 	}
 	prefix := basePath + "api/v1/"
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		endpoint := strings.TrimPrefix(request.URL.Path, prefix)
 		if request.URL.Path == prefix+endpoint {
-			if _, ok := endpoints[endpoint]; ok {
+			if _, ok := legacyProfileEndpoints[endpoint]; ok {
 				path, err := ProfileAPIPath(basePath, profileID, endpoint)
 				if err != nil {
 					noteProblemCause(request.Context(), err)
