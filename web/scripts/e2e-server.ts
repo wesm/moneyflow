@@ -5,7 +5,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { e2eBinary } from './e2e-binaries'
+import { e2eBinary, recordE2EServer } from './e2e-binaries'
 
 export interface E2EServer {
   basePath: string
@@ -158,6 +158,7 @@ export async function startE2EServer(
         : process.env,
       stdio: ['ignore', 'ignore', 'pipe'],
     })
+    recordE2EServer(child)
     child.stderr?.setEncoding('utf8')
     child.stderr?.on('data', (chunk: string) => (stderr += chunk))
     try {
@@ -220,6 +221,7 @@ export async function startOnboardingE2EServer(
         ],
         { cwd: repository, detached: true, stdio: ['ignore', 'ignore', 'pipe'] },
       )
+      recordE2EServer(child)
       child.stderr?.setEncoding('utf8')
       child.stderr?.on('data', (chunk: string) => (stderr += chunk))
       try {

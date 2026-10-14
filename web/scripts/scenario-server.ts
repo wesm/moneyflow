@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import { availablePort, waitForApplication } from './e2e-server'
-import { e2eBinary } from './e2e-binaries'
+import { e2eBinary, recordE2EServer } from './e2e-binaries'
 
 export interface Observation {
   rows: Record<
@@ -88,6 +88,7 @@ export async function startScenarioServer(requestedRoot: string): Promise<Scenar
         stdio: ['ignore', 'ignore', 'pipe'],
       },
     )
+    recordE2EServer(child)
     child.stderr?.setEncoding('utf8')
     child.stderr?.on('data', (chunk: string) => {
       logs += chunk
