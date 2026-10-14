@@ -59,6 +59,28 @@ func TestMCPReconcileStartsAgainAfterAConfirmationPanic(t *testing.T) {
 	assert.Equal(t, string(AttemptConfirmationRequired), retried["state"], "%v", retried)
 }
 
+// A parked reconcile fails at the service's confirmation deadline, and a new reconcile can then
+// start.
+func TestMCPReconcileStartsAgainAfterItsConfirmationExpires(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "monarch")
+	t.Cleanup(closeProfile)
+	client, advance := connectClockedServer(t, service, source, 0)
+	commitRejectedDeletion(t, client, service)
+	source.setTransactionCount(0)
+	parked := awaitReconcileTool(t, client, service)
+	require.Equal(t, string(AttemptConfirmationRequired), parked["state"])
+
+	advance(10 * time.Minute)
+	expired := callRefreshTool(t, client, "get_reconcile_status",
+		map[string]any{"attempt_id": parked["attempt_id"]})
+	assert.Equal(t, string(AttemptFailed), expired["state"])
+	assert.Equal(t, "provider_confirmation_invalid", expired["code"])
+	retried := awaitReconcileTool(t, client, service)
+
+	assert.NotEqual(t, parked["attempt_id"], retried["attempt_id"])
+	assert.Equal(t, string(AttemptConfirmationRequired), retried["state"], "%v", retried)
+}
+
 // commitRejectedDeletion commits a deletion that the provider rejects, which leaves a write batch
 // that only a reconcile can finish.
 func commitRejectedDeletion(t *testing.T, client *mcpsdk.ClientSession, service *app.Service) {

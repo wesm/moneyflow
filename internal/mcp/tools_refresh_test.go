@@ -134,10 +134,95 @@ func TestRefreshToolStartsAgainAfterAConfirmationPanic(t *testing.T) {
 	assert.Equal(t, "deletion_confirmation_required", retried["state"], "%v", retried)
 }
 
+// A deletion candidate stays confirmable for as long as the service keeps it, even when its
+// configured lifetime is longer than the default 10 minutes.
+func TestRefreshConfirmationLastsAsLongAsTheServiceKeepsTheCandidate(t *testing.T) {
+	service, source, closeProfile := refreshTestService(t, 6)
+	t.Cleanup(closeProfile)
+	client, advance := connectClockedServer(t, service, source, 30*time.Minute)
+	source.setTransactionCount(0)
+	parked := awaitRefreshTool(t, client)
+	require.Equal(t, "deletion_confirmation_required", parked["state"])
+
+	advance(30*time.Minute - time.Millisecond)
+	waiting := callRefreshTool(t, client, "get_refresh_status",
+		map[string]any{"attempt_id": parked["attempt_id"]})
+	confirmed := callRefreshToolResult(t, client, "confirm_refresh_deletions", map[string]any{
+		"attempt_id": parked["attempt_id"], "confirmation_token": parked["confirmation_token"],
+	})
+
+	assert.Equal(t, "deletion_confirmation_required", waiting["state"])
+	require.False(t, confirmed.IsError, "%v", confirmed.StructuredContent)
+	assert.Equal(t, "completed", confirmed.StructuredContent.(map[string]any)["state"])
+}
+
+// A deletion candidate expires at the deadline the service set before its fetch, however long the
+// fetch took, and a new refresh can then start.
+func TestRefreshConfirmationExpiresAtTheServiceDeadline(t *testing.T) {
+	service, source, closeProfile := refreshTestService(t, 6)
+	t.Cleanup(closeProfile)
+	client, advance := connectClockedServer(t, service, source, 0)
+	source.setTransactionCount(0)
+	fetching := make(chan struct{})
+	release := make(chan struct{})
+	source.blockNext(fetching, release)
+	attemptID := callRefreshTool(t, client, "refresh_data", nil)["attempt_id"]
+	<-fetching
+	advance(3 * time.Minute)
+	close(release)
+	parked := awaitRefreshAttempt(t, client, attemptID)
+	require.Equal(t, "deletion_confirmation_required", parked["state"])
+
+	advance(7 * time.Minute)
+	expired := callRefreshTool(t, client, "get_refresh_status",
+		map[string]any{"attempt_id": attemptID})
+	next := awaitRefreshTool(t, client)
+
+	assert.Equal(t, "failed", expired["state"])
+	assert.Equal(t, "provider_confirmation_invalid", expired["code"])
+	assert.Empty(t, expired["confirmation_token"])
+	assert.NotEqual(t, attemptID, next["attempt_id"])
+	assert.Equal(t, "deletion_confirmation_required", next["state"], "%v", next)
+}
+
+// connectClockedServer configures the provider runtime of service and a write-enabled server for
+// it to read one clock, which the returned advance moves. The runtime keeps a deletion candidate
+// for confirmationTTL, or for its default lifetime when confirmationTTL is zero.
+func connectClockedServer(
+	t *testing.T,
+	service *app.Service,
+	source *refreshTestSource,
+	confirmationTTL time.Duration,
+) (*mcpsdk.ClientSession, func(time.Duration)) {
+	t.Helper()
+	start := time.Now()
+	var elapsed atomic.Int64
+	clock := func() time.Time { return start.Add(time.Duration(elapsed.Load())) }
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		ReadSource: source, WriteSource: source, Provider: source.kind, Currency: "USD",
+		Scale: 2, Renderer: "mcp", InstanceID: "mcp-test", Now: clock,
+		Random: cryptorand.Reader, ConfirmationTTL: confirmationTTL,
+	}))
+	server, err := New(Dependencies{
+		Service: service, ProfileID: "profile-a", ProfileName: "Profile A",
+		ProfileRoot: t.TempDir(), Clock: clock, Random: cryptorand.Reader,
+		Logger: slog.New(slog.DiscardHandler),
+	}, Options{AllowWrite: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, server.Close(context.Background())) })
+	return connectSDK(t, server.SDK), func(step time.Duration) { elapsed.Add(int64(step)) }
+}
+
 // awaitRefreshTool starts a refresh and returns its status once it stops running.
 func awaitRefreshTool(t *testing.T, client *mcpsdk.ClientSession) map[string]any {
 	t.Helper()
 	attemptID := callRefreshTool(t, client, "refresh_data", nil)["attempt_id"]
+	return awaitRefreshAttempt(t, client, attemptID)
+}
+
+// awaitRefreshAttempt returns the status of the named refresh once it stops running.
+func awaitRefreshAttempt(t *testing.T, client *mcpsdk.ClientSession, attemptID any) map[string]any {
+	t.Helper()
 	var status map[string]any
 	require.Eventually(t, func() bool {
 		status = callRefreshTool(t, client, "get_refresh_status",
@@ -296,8 +381,7 @@ func providerTestServiceOn(
 	source := &refreshTestSource{kind: kind, snapshot: refreshTestSnapshot(t, now, transactionCount)}
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
 		ReadSource: source, WriteSource: source, Provider: kind, Currency: "USD", Scale: 2,
-		Renderer: "mcp", InstanceID: "mcp-test", Now: func() time.Time { return now },
-		Random: cryptorand.Reader,
+		Renderer: "mcp", InstanceID: "mcp-test", Now: time.Now, Random: cryptorand.Reader,
 	}))
 	_, err = service.RefreshProvider(t.Context(), app.ProviderRefreshRequest{
 		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),

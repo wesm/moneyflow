@@ -462,6 +462,9 @@ Direct requests to the loopback listener are rejected while `--external-url` is 
 - Transaction batch staging accepts at most 100 exact transaction IDs and is atomic.
 - HTTP request bodies are bounded to 1 MiB.
 - Process-local refresh and reconciliation confirmation tokens do not survive server restart.
+- **Unreleased:** A confirmation token expires 10 minutes after its refresh or reconciliation
+  began reading provider data. The attempt then fails with `provider_confirmation_invalid`, and a
+  new refresh or reconciliation can start.
 
 Use `moneyflow tui` or `moneyflow web` for profile creation, provider onboarding, interactive Amazon
 imports, and visual review of large edit batches.

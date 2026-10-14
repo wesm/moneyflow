@@ -64,6 +64,9 @@ type AttemptStatus struct {
 	StartedAt         time.Time
 	FinishedAt        time.Time
 	ConfirmationToken string
+	// ConfirmationExpiresAt is when the service stops accepting ConfirmationToken, or zero without
+	// one. The supervisor fails a parked attempt at that time.
+	ConfirmationExpiresAt time.Time
 	// Err is the error a refresh's work returned, or nil. It can wrap provider and store causes,
 	// so it is for the host's own error handling. No MCP document renders it, and a host must not
 	// pass its text to a client; clients see Code.
@@ -281,6 +284,7 @@ func (supervisor *Supervisor) finishRefresh(
 	status.Refresh = result.Status
 	status.FinishedAt = supervisor.clock().UTC().Truncate(time.Millisecond)
 	status.ConfirmationToken = result.Status.ConfirmationToken
+	status.ConfirmationExpiresAt = result.Status.ConfirmationExpiresAt
 	status.State, status.Code = attemptOutcome(err, status.ConfirmationToken)
 	status.Err = err
 	close(attempt.done)
@@ -353,6 +357,7 @@ func (supervisor *Supervisor) ConfirmRefresh(
 	}
 	attempt.State = AttemptRunning
 	attempt.ConfirmationToken = ""
+	attempt.ConfirmationExpiresAt = time.Time{}
 	attempt.Err = nil
 	attempt.done = make(chan struct{})
 	supervisor.wait.Add(1)
@@ -363,19 +368,29 @@ func (supervisor *Supervisor) ConfirmRefresh(
 	return status, err
 }
 
-// expireRefreshLocked fails a parked refresh once the service's default confirmation lifetime
-// has passed since it parked. The service has dropped the candidate by then, so its stale token
-// cannot keep a new refresh from starting.
+// expireConfirmationLocked fails a parked attempt once its confirmation deadline has come and
+// reports whether it did. The service no longer accepts the token then, so the stale token cannot
+// keep a new attempt from starting.
+func (supervisor *Supervisor) expireConfirmationLocked(status *AttemptStatus) bool {
+	if status == nil || status.State != AttemptConfirmationRequired ||
+		supervisor.clock().Before(status.ConfirmationExpiresAt) {
+		return false
+	}
+	status.State = AttemptFailed
+	status.Code = string(app.AppProviderConfirmationInvalid)
+	status.ConfirmationToken = ""
+	status.ConfirmationExpiresAt = time.Time{}
+	return true
+}
+
+// expireRefreshLocked fails a parked refresh at its confirmation deadline.
 func (supervisor *Supervisor) expireRefreshLocked() {
 	attempt := supervisor.refreshNow
-	if attempt == nil || attempt.State != AttemptConfirmationRequired ||
-		supervisor.clock().Before(attempt.FinishedAt.Add(app.ProviderConfirmationTTL)) {
+	if attempt == nil || !supervisor.expireConfirmationLocked(&attempt.AttemptStatus) {
 		return
 	}
-	attempt.State = AttemptFailed
-	attempt.Code = string(app.AppProviderConfirmationInvalid)
-	attempt.ConfirmationToken = ""
 	attempt.Refresh.ConfirmationToken = ""
+	attempt.Refresh.ConfirmationExpiresAt = time.Time{}
 	attempt.Err = &app.AppError{
 		Code: app.AppProviderConfirmationInvalid, CurrentRevision: attempt.Revision,
 		Detail: app.ProviderErrorDetail(provider.CodeConfirmationInvalid),
@@ -396,6 +411,7 @@ func (supervisor *Supervisor) StartReconcile(
 		supervisor.mu.Unlock()
 		return AttemptStatus{}, context.Canceled
 	}
+	supervisor.expireConfirmationLocked(supervisor.reconcileNow)
 	if supervisor.reconcileNow != nil &&
 		(supervisor.reconcileNow.State == AttemptRunning ||
 			supervisor.reconcileNow.State == AttemptConfirmationRequired) {
@@ -449,6 +465,7 @@ func (supervisor *Supervisor) finishReconcile(
 	status.Write = result.Status
 	status.FinishedAt = supervisor.clock().UTC().Truncate(time.Millisecond)
 	status.ConfirmationToken = result.ConfirmationToken
+	status.ConfirmationExpiresAt = result.ConfirmationExpiresAt
 	status.State, status.Code = attemptOutcome(err, result.ConfirmationToken)
 }
 
@@ -479,6 +496,7 @@ func (supervisor *Supervisor) ReconcileStatus(id string) (AttemptStatus, error) 
 	}
 	supervisor.mu.Lock()
 	defer supervisor.mu.Unlock()
+	supervisor.expireConfirmationLocked(supervisor.reconcileNow)
 	if supervisor.reconcileNow == nil || (id != "" && supervisor.reconcileNow.ID != id) {
 		return AttemptStatus{}, ErrAttemptNotFound
 	}
@@ -496,6 +514,7 @@ func (supervisor *Supervisor) ConfirmReconcile(
 		return AttemptStatus{}, ErrAttemptNotFound
 	}
 	supervisor.mu.Lock()
+	supervisor.expireConfirmationLocked(supervisor.reconcileNow)
 	if supervisor.closed || supervisor.reconcileNow == nil || supervisor.reconcileNow.ID != id ||
 		supervisor.reconcileNow.State != AttemptConfirmationRequired ||
 		supervisor.reconcileNow.ConfirmationToken == "" ||
@@ -505,6 +524,7 @@ func (supervisor *Supervisor) ConfirmReconcile(
 	}
 	supervisor.reconcileNow.State = AttemptRunning
 	supervisor.reconcileNow.ConfirmationToken = ""
+	supervisor.reconcileNow.ConfirmationExpiresAt = time.Time{}
 	supervisor.wait.Add(1)
 	supervisor.mu.Unlock()
 	result, err := recovered(supervisor, run)

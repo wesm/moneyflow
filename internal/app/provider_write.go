@@ -78,6 +78,8 @@ type ProviderWriteResult struct {
 	SelectionDisposition SelectionDisposition
 	Projection           WebProjection
 	ConfirmationToken    string
+	// ConfirmationExpiresAt is when ConfirmationToken stops being accepted, or zero without one.
+	ConfirmationExpiresAt time.Time
 }
 
 // ProviderWriteExecution is one process-local reservation for an already-authorized durable
@@ -1553,8 +1555,9 @@ func (service *Service) StopAndReconcileProviderWrite(
 		return ProviderWriteResult{}, newAppError(AppStoreError, service.Revision(), err)
 	}
 	if ProviderDeletionConfirmationRequired(existing, removed) {
+		expiresAt := now.Add(runtime.confirmationTTL)
 		token, tokenErr := runtime.parkWriteConfirmation(providerWriteConfirmation{
-			owner: runtime.instanceID, expiresAt: now.Add(runtime.confirmationTTL),
+			owner: runtime.instanceID, expiresAt: expiresAt,
 			batchID: batch.ID, batchVersion: batch.Version + 1,
 			generation:      providerState.Refresh.Generation,
 			remoteProfileID: identity.RemoteID, candidate: candidate.Clone(),
@@ -1579,7 +1582,7 @@ func (service *Service) StopAndReconcileProviderWrite(
 		return ProviderWriteResult{
 			Revision: service.Revision(), Status: providerWriteStatusFromState(store.ProviderState{
 				Write: &parked,
-			}), ConfirmationToken: token,
+			}), ConfirmationToken: token, ConfirmationExpiresAt: expiresAt,
 		}, providerAppError(provider.CodeDeletionConfirmationRequired, service.Revision())
 	}
 	return service.foldProviderWriteReconcile(

@@ -1328,6 +1328,7 @@ func TestProviderWriteStopAndReconcileInstallsRemoteTruth(t *testing.T) {
 	assert.Equal(t, store.WritePhaseReconcileConfirmationRequired, confirmation.Status.Phase)
 	assert.Equal(t, store.WriteResumeReconciling, confirmation.Status.ResumeTarget)
 	require.NotEmpty(t, confirmation.ConfirmationToken)
+	assert.Equal(t, now.Add(10*time.Minute), confirmation.ConfirmationExpiresAt)
 
 	_, err = service.ResumeProviderWrite(ctx, confirmation.Status.Version)
 	assertAppCode(t, err, app.AppErrorCode(provider.CodeWriteAttentionRequired))

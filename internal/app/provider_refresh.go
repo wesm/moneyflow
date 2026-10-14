@@ -21,9 +21,7 @@ import (
 
 const (
 	defaultRefreshLeaseDuration = 2 * time.Minute
-	// ProviderConfirmationTTL is how long a parked deletion candidate stays confirmable when its
-	// runtime sets no ConfirmationTTL.
-	ProviderConfirmationTTL = 10 * time.Minute
+	defaultConfirmationTTL      = 10 * time.Minute
 )
 
 // ProviderRuntime supplies the process-local dependencies for provider refresh orchestration.
@@ -122,7 +120,9 @@ type ProviderStatus struct {
 	Fetched           int
 	Total             int
 	ConfirmationToken string
-	Summary           store.RefreshSummary
+	// ConfirmationExpiresAt is when ConfirmationToken stops being accepted, or zero without one.
+	ConfirmationExpiresAt time.Time
+	Summary               store.RefreshSummary
 	// LastFullRefresh is the advisory time of the last complete-history refresh, or zero.
 	LastFullRefresh time.Time
 	// RefreshDue is the refresh a scheduler should start now.
@@ -201,7 +201,7 @@ func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
 		runtime.LeaseDuration = defaultRefreshLeaseDuration
 	}
 	if runtime.ConfirmationTTL == 0 {
-		runtime.ConfirmationTTL = ProviderConfirmationTTL
+		runtime.ConfirmationTTL = defaultConfirmationTTL
 	}
 	if runtime.HeartbeatInterval == 0 {
 		runtime.HeartbeatInterval = runtime.LeaseDuration / 3
@@ -369,7 +369,7 @@ func (service *Service) RefreshProvider(
 		return ProviderRefreshResult{}, newAppError(AppStoreError, service.Revision(), err)
 	}
 	if ProviderDeletionConfirmationRequired(existing, removed) {
-		token, tokenErr := service.parkProviderConfirmation(
+		token, expiresAt, tokenErr := service.parkProviderConfirmation(
 			runtime,
 			fingerprint,
 			providerState.Refresh.Generation,
@@ -393,6 +393,7 @@ func (service *Service) RefreshProvider(
 			failure,
 		)
 		result.Status.ConfirmationToken = token
+		result.Status.ConfirmationExpiresAt = expiresAt
 		result.Status.Summary = store.RefreshSummary{
 			ImportedAccounts: len(candidate.Accounts), ImportedMerchants: len(candidate.Merchants),
 			ImportedGroups: len(candidate.Groups), ImportedCategories: len(candidate.Categories),
@@ -1244,10 +1245,10 @@ func (service *Service) parkProviderConfirmation(
 	remoteProfileID string,
 	existing int,
 	now time.Time,
-) (string, error) {
+) (string, time.Time, error) {
 	material := make([]byte, 24)
 	if _, err := io.ReadFull(runtime.random, material); err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	token := base64.RawURLEncoding.EncodeToString(material)
 	runtime.mu.Lock()
@@ -1257,15 +1258,16 @@ func (service *Service) parkProviderConfirmation(
 			delete(runtime.confirmations, candidateToken)
 		}
 	}
+	expiresAt := now.Add(runtime.confirmationTTL)
 	runtime.confirmations[token] = providerConfirmation{
 		fingerprint: fingerprint,
-		owner:       runtime.instanceID, expiresAt: now.Add(runtime.confirmationTTL),
+		owner:       runtime.instanceID, expiresAt: expiresAt,
 		generation: generation, candidate: candidate.Clone(),
 		proposedIDs:      cloneProviderIDs(proposedIDs),
 		proposedSuffixes: cloneProviderStrings(proposedSuffixes),
 		remoteProfileID:  remoteProfileID, existingPostedRows: existing,
 	}
-	return token, nil
+	return token, expiresAt, nil
 }
 
 func (runtime *providerRuntimeState) takeConfirmation(

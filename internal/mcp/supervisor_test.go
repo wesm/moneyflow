@@ -216,7 +216,9 @@ func TestSupervisorRefreshConfirmationIsProcessLocal(t *testing.T) {
 	attempt, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
 		return app.ProviderRefreshResult{
 			Revision: 4, Generation: 2,
-			Status: app.ProviderStatus{ConfirmationToken: "refresh-confirmation"},
+			Status: app.ProviderStatus{
+				ConfirmationToken: "refresh-confirmation", ConfirmationExpiresAt: time.Now().Add(time.Hour),
+			},
 		}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 4}
 	})
 	require.NoError(t, err)
@@ -246,7 +248,10 @@ func TestSupervisorRefreshFailureKeepsAuthoritativeVersions(t *testing.T) {
 		strings.NewReader(strings.Repeat("v", 128)), nil)
 	attempt, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
 		result := app.ProviderRefreshResult{
-			Status: app.ProviderStatus{Generation: 12, ConfirmationToken: "confirm-v"},
+			Status: app.ProviderStatus{
+				Generation: 12, ConfirmationToken: "confirm-v",
+				ConfirmationExpiresAt: time.Now().Add(time.Hour),
+			},
 		}
 		failure := &app.AppError{
 			Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 9,
@@ -271,6 +276,7 @@ func TestSupervisorConfirmationUsesServerLifetimeAndCloseWaits(t *testing.T) {
 	attempt, err := supervisor.StartReconcile(8, 6, func(context.Context) (app.ProviderWriteResult, error) {
 		return app.ProviderWriteResult{
 			Revision: 8, ConfirmationToken: "confirmation-z",
+			ConfirmationExpiresAt: time.Now().Add(time.Hour),
 		}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 8}
 	})
 	require.NoError(t, err)
@@ -355,7 +361,7 @@ func TestSupervisorReservesOnlyMatchingReconcileConfirmation(t *testing.T) {
 		result := app.ProviderWriteResult{
 			Revision: 8, Generation: 4,
 			Status:            app.ProviderWriteStatus{BatchID: "batch-a", Version: 6},
-			ConfirmationToken: "confirmation-a",
+			ConfirmationToken: "confirmation-a", ConfirmationExpiresAt: now.Add(time.Minute),
 		}
 		failure := &app.AppError{
 			Code:   app.AppProviderDeletionConfirmationRequired,
@@ -511,17 +517,18 @@ func TestSupervisorWaitRefreshReturnsOnceTheAttemptStopsRunning(t *testing.T) {
 	assert.ErrorIs(t, unknownErr, ErrAttemptNotFound)
 }
 
-func TestSupervisorExpiresAParkedRefreshAfterTheConfirmationLifetime(t *testing.T) {
+// A parked refresh waits for confirmation until the deadline the service reported, here later
+// than the default 10 minutes, and fails at that deadline.
+func TestSupervisorExpiresAParkedRefreshAtTheServiceDeadline(t *testing.T) {
 	parkedAt := time.Date(2026, time.August, 29, 13, 0, 0, 0, time.UTC)
+	deadline := parkedAt.Add(30 * time.Minute)
 	var elapsed atomic.Int64
 	clock := func() time.Time { return parkedAt.Add(time.Duration(elapsed.Load())) }
 	supervisor := NewSupervisor(context.Background(), clock,
 		strings.NewReader(strings.Repeat("e", 128)), nil)
 	t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 	parked, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
-		return app.ProviderRefreshResult{
-			Revision: 4, Status: app.ProviderStatus{ConfirmationToken: "refresh-confirmation"},
-		}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 4}
+		return parkedRefresh(deadline)
 	})
 	require.NoError(t, err)
 	waiting, err := supervisor.WaitRefresh(context.Background(), parked.ID)
@@ -529,12 +536,13 @@ func TestSupervisorExpiresAParkedRefreshAfterTheConfirmationLifetime(t *testing.
 	var parkedErr *app.AppError
 	require.ErrorAs(t, waiting.Err, &parkedErr)
 	assert.Equal(t, app.AppProviderDeletionConfirmationRequired, parkedErr.Code)
-	elapsed.Store(int64(app.ProviderConfirmationTTL - time.Millisecond))
+	assert.Equal(t, deadline, waiting.ConfirmationExpiresAt)
+	elapsed.Store(int64(deadline.Sub(parkedAt) - time.Millisecond))
 	stillParked, err := supervisor.RefreshStatus(parked.ID)
 	require.NoError(t, err)
 	assert.Equal(t, AttemptConfirmationRequired, stillParked.State)
 
-	elapsed.Store(int64(app.ProviderConfirmationTTL))
+	elapsed.Store(int64(deadline.Sub(parkedAt)))
 	expired, err := supervisor.RefreshStatus(parked.ID)
 	_, confirmErr := supervisor.ConfirmRefresh(parked.ID, "refresh-confirmation",
 		func(context.Context) (app.ProviderRefreshResult, error) {
@@ -599,9 +607,7 @@ func TestSupervisorConfirmRefreshReturnsItsOutcomeAfterANewRefreshStarts(t *test
 	t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 	for range 100 {
 		parked, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
-			return app.ProviderRefreshResult{
-				Revision: 4, Status: app.ProviderStatus{ConfirmationToken: "refresh-confirmation"},
-			}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 4}
+			return parkedRefresh(time.Now().Add(time.Hour))
 		})
 		require.NoError(t, err)
 		_, err = supervisor.WaitRefresh(context.Background(), parked.ID)
@@ -709,6 +715,7 @@ func TestSupervisorTurnsPanickingWorkIntoAFailedAttemptInEverySupervisedCall(t *
 			func(context.Context) (app.ProviderWriteResult, error) {
 				return app.ProviderWriteResult{
 					Revision: 8, ConfirmationToken: "confirmation-k",
+					ConfirmationExpiresAt: time.Now().Add(time.Hour),
 				}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 8}
 			})
 		require.NoError(t, err)
@@ -728,10 +735,10 @@ func TestSupervisorTurnsPanickingWorkIntoAFailedAttemptInEverySupervisedCall(t *
 	})
 }
 
-// The first call after the lifetime ends already finds the refresh expired, whichever call it is.
-// The lifetime counts from the moment the refresh parked, not from the moment it started.
-func TestSupervisorExpiresAParkedRefreshOnTheFirstCallAfterItsLifetime(t *testing.T) {
-	const runTime = 3 * time.Minute
+// The first call at the service's deadline already finds the refresh expired, whichever call it
+// is. The service counts the deadline from before its fetch, so a slow fetch does not extend it.
+func TestSupervisorExpiresAParkedRefreshOnTheFirstCallAtItsDeadline(t *testing.T) {
+	const fetchTime = 3 * time.Minute
 	firstCalls := []struct {
 		name string
 		call func(t *testing.T, supervisor *Supervisor, parked AttemptStatus)
@@ -743,6 +750,14 @@ func TestSupervisorExpiresAParkedRefreshOnTheFirstCallAfterItsLifetime(t *testin
 
 			require.NoError(t, err)
 			assert.NotEqual(t, parked.ID, next.ID)
+		}},
+		{"RefreshStatus", func(t *testing.T, supervisor *Supervisor, parked AttemptStatus) {
+			expired, err := supervisor.RefreshStatus(parked.ID)
+
+			require.NoError(t, err)
+			assert.Equal(t, AttemptFailed, expired.State)
+			assert.Equal(t, string(app.AppProviderConfirmationInvalid), expired.Code)
+			assert.Empty(t, expired.ConfirmationToken)
 		}},
 		{"ConfirmRefresh", func(t *testing.T, supervisor *Supervisor, parked AttemptStatus) {
 			ran := false
@@ -771,28 +786,101 @@ func TestSupervisorExpiresAParkedRefreshOnTheFirstCallAfterItsLifetime(t *testin
 	for _, first := range firstCalls {
 		t.Run(first.name, func(t *testing.T) {
 			startedAt := time.Date(2026, time.August, 29, 13, 0, 0, 0, time.UTC)
+			deadline := startedAt.Add(10 * time.Minute)
 			var elapsed atomic.Int64
 			clock := func() time.Time { return startedAt.Add(time.Duration(elapsed.Load())) }
 			supervisor := NewSupervisor(context.Background(), clock, rand.Reader, nil)
 			t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 			started, err := supervisor.StartRefresh(
 				func(context.Context) (app.ProviderRefreshResult, error) {
-					elapsed.Store(int64(runTime))
-					return app.ProviderRefreshResult{
-						Revision: 4, Status: app.ProviderStatus{ConfirmationToken: "refresh-confirmation"},
-					}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 4}
+					elapsed.Store(int64(fetchTime))
+					return parkedRefresh(deadline)
 				})
 			require.NoError(t, err)
 			parked, err := supervisor.WaitRefresh(context.Background(), started.ID)
 			require.NoError(t, err)
 			require.Equal(t, AttemptConfirmationRequired, parked.State)
-			elapsed.Store(int64(runTime + app.ProviderConfirmationTTL - time.Millisecond))
+			elapsed.Store(int64(deadline.Sub(startedAt) - time.Millisecond))
 			stillParked, err := supervisor.RefreshStatus(started.ID)
 			require.NoError(t, err)
 			require.Equal(t, AttemptConfirmationRequired, stillParked.State)
 
-			elapsed.Store(int64(runTime + app.ProviderConfirmationTTL))
+			elapsed.Store(int64(deadline.Sub(startedAt)))
 			first.call(t, supervisor, parked)
+		})
+	}
+}
+
+// A parked reconcile fails at the service's deadline. The first call at that time finds it
+// failed, whichever call it is, and a new reconcile can then start.
+func TestSupervisorExpiresAParkedReconcileOnTheFirstCallAtItsDeadline(t *testing.T) {
+	firstCalls := []struct {
+		name string
+		call func(t *testing.T, supervisor *Supervisor, parked AttemptStatus)
+	}{
+		{"StartReconcile", func(t *testing.T, supervisor *Supervisor, parked AttemptStatus) {
+			next, err := supervisor.StartReconcile(8, 7,
+				func(context.Context) (app.ProviderWriteResult, error) {
+					return app.ProviderWriteResult{Revision: 9}, nil
+				})
+			require.NoError(t, err)
+			synctest.Wait()
+			finished, err := supervisor.ReconcileStatus(next.ID)
+
+			require.NoError(t, err)
+			assert.NotEqual(t, parked.ID, next.ID)
+			assert.Equal(t, AttemptCompleted, finished.State)
+			assert.Equal(t, uint64(9), finished.Revision)
+		}},
+		{"ReconcileStatus", func(t *testing.T, supervisor *Supervisor, parked AttemptStatus) {
+			expired, err := supervisor.ReconcileStatus(parked.ID)
+
+			require.NoError(t, err)
+			assert.Equal(t, AttemptFailed, expired.State)
+			assert.Equal(t, string(app.AppProviderConfirmationInvalid), expired.Code)
+			assert.Empty(t, expired.ConfirmationToken)
+		}},
+		{"ConfirmReconcile", func(t *testing.T, supervisor *Supervisor, parked AttemptStatus) {
+			ran := false
+
+			_, err := supervisor.ConfirmReconcile(parked.ID, "reconcile-confirmation",
+				func(context.Context) (app.ProviderWriteResult, error) {
+					ran = true
+					return app.ProviderWriteResult{}, nil
+				})
+
+			assert.ErrorIs(t, err, ErrAttemptNotFound)
+			assert.False(t, ran)
+		}},
+	}
+	for _, first := range firstCalls {
+		t.Run(first.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				startedAt := time.Date(2026, time.August, 29, 13, 0, 0, 0, time.UTC)
+				deadline := startedAt.Add(10 * time.Minute)
+				var elapsed atomic.Int64
+				clock := func() time.Time { return startedAt.Add(time.Duration(elapsed.Load())) }
+				supervisor := NewSupervisor(context.Background(), clock, rand.Reader, nil)
+				t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
+				started, err := supervisor.StartReconcile(8, 6,
+					func(context.Context) (app.ProviderWriteResult, error) {
+						elapsed.Store(int64(3 * time.Minute))
+						return app.ProviderWriteResult{
+							Revision: 8, ConfirmationToken: "reconcile-confirmation",
+							ConfirmationExpiresAt: deadline,
+						}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired}
+					})
+				require.NoError(t, err)
+				synctest.Wait()
+				elapsed.Store(int64(deadline.Sub(startedAt) - time.Millisecond))
+				parked, err := supervisor.ReconcileStatus(started.ID)
+				require.NoError(t, err)
+				require.Equal(t, AttemptConfirmationRequired, parked.State)
+				require.Equal(t, deadline, parked.ConfirmationExpiresAt)
+
+				elapsed.Store(int64(deadline.Sub(startedAt)))
+				first.call(t, supervisor, parked)
+			})
 		})
 	}
 }
@@ -845,13 +933,22 @@ func TestSupervisorWaitRefreshWaitsForAConfirmationToFinish(t *testing.T) {
 func parkRefresh(t *testing.T, supervisor *Supervisor) AttemptStatus {
 	t.Helper()
 	started, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
-		return app.ProviderRefreshResult{
-			Revision: 4, Status: app.ProviderStatus{ConfirmationToken: "refresh-confirmation"},
-		}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 4}
+		return parkedRefresh(time.Now().Add(time.Hour))
 	})
 	require.NoError(t, err)
 	parked, err := supervisor.WaitRefresh(context.Background(), started.ID)
 	require.NoError(t, err)
 	require.Equal(t, AttemptConfirmationRequired, parked.State)
 	return parked
+}
+
+// parkedRefresh is the outcome of a refresh whose deletion candidate the service accepts as
+// "refresh-confirmation" until expiresAt.
+func parkedRefresh(expiresAt time.Time) (app.ProviderRefreshResult, error) {
+	result := app.ProviderRefreshResult{Revision: 4, Status: app.ProviderStatus{
+		ConfirmationToken: "refresh-confirmation", ConfirmationExpiresAt: expiresAt,
+	}}
+	return result, &app.AppError{
+		Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 4,
+	}
 }
