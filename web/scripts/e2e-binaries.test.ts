@@ -110,6 +110,24 @@ describe.skipIf(process.platform === 'win32')('E2E run cleanup', () => {
     await access(created)
   })
 
+  // Linux `ps` cuts its output to $COLUMNS even when writing to a pipe; macOS does not.
+  it('teardown kills a recorded server whose command is wider than the terminal', async () => {
+    const parent = join(await parentDirectory(), 'p'.repeat(200))
+    await mkdir(parent)
+    const run = await createE2ERun(parent)
+    const server = await orphanServer(run, true)
+    const columns = process.env.COLUMNS
+    process.env.COLUMNS = '80'
+    try {
+      await removeE2ERun(run)
+    } finally {
+      if (columns === undefined) delete process.env.COLUMNS
+      else process.env.COLUMNS = columns
+    }
+
+    await expectExit(server)
+  })
+
   // PID 1 stands in for a reused PID: it is running, but it started before the dead owner.
   it('a new run removes an abandoned run whose owner PID now names another process', async () => {
     const parent = await parentDirectory()
@@ -176,7 +194,7 @@ async function killAndWait(child: ChildProcess): Promise<void> {
 }
 
 function processesFrom(run: string): number[] {
-  const ps = spawnSync('ps', ['-Ao', 'pid=,command='], {
+  const ps = spawnSync('ps', ['-ww', '-Ao', 'pid=,command='], {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
   })

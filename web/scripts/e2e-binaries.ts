@@ -116,7 +116,7 @@ function ownerRunning(owner: Owner): boolean {
 // browser tests do not run there, so every owner keeps the same placeholder.
 function processStart(pid: number): string {
   if (process.platform === 'win32') return 'unknown'
-  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
+  const ps = spawnSync('ps', ['-ww', '-o', 'lstart=', '-p', String(pid)], {
     encoding: 'utf8',
     env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' },
   })
@@ -141,9 +141,12 @@ function killRecordedServers(directory: string): void {
 
 // The kernel may reuse a recorded PID after the server exits, so a process counts as this
 // run's server only while its command still starts with an executable in the run directory.
+// `-ww` keeps Linux `ps` from cutting a long command to $COLUMNS when writing to a pipe.
 function isServerFromRun(pid: number, directory: string): boolean {
   if (process.platform === 'win32') return false
-  const ps = spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' })
+  const ps = spawnSync('ps', ['-ww', '-o', 'command=', '-p', String(pid)], {
+    encoding: 'utf8',
+  })
   if (ps.error) throw new Error(`Inspect recorded E2E server ${pid}: ${ps.error.message}`)
   return ps.stdout.trimStart().startsWith(join(directory, sep))
 }
