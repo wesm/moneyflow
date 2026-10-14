@@ -217,6 +217,35 @@ func TestStandaloneServerAcceptsOnlyItsOwnProfile(t *testing.T) {
 	assert.Equal(t, "profile_not_found", other.StructuredContent.(map[string]any)["code"])
 }
 
+func TestStandaloneServerLogsAProviderWriteThatStopped(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "monarch")
+	defer closeProfile()
+	gate := gateProviderWrites(t, service, source)
+	var logged strings.Builder
+	var logMu sync.Mutex
+	server, err := New(Dependencies{
+		Service: service, ProfileID: "profile-a", ProfileName: "Example Shop profile-a",
+		ProfileRoot: t.TempDir(), Clock: time.Now,
+		Random: strings.NewReader(strings.Repeat("r", 128)),
+		Logger: slog.New(slog.NewTextHandler(&lockedWriter{mu: &logMu, out: &logged}, nil)),
+	}, Options{AllowWrite: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, server.Close(context.Background())) })
+	client := connectSDK(t, server.SDK)
+	revision := stageDeletion(t, client, service)
+	started, release := make(chan struct{}), make(chan struct{})
+	gate.holdNext(started, release)
+	callRefreshTool(t, client, "commit_changes",
+		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	awaitStart(t, started)
+
+	require.NoError(t, server.Close(context.Background()))
+
+	logMu.Lock()
+	defer logMu.Unlock()
+	assert.Contains(t, logged.String(), "moneyflow_event=provider_write_stopped")
+}
+
 func TestPanickingToolReturnsAnInternalError(t *testing.T) {
 	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": nil}, "profile-a")
 	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
