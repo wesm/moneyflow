@@ -76,6 +76,10 @@ type AttemptStatus struct {
 // errWorkPanicked replaces the result of supervised work that panicked.
 var errWorkPanicked = errors.New("moneyflow background work stopped unexpectedly")
 
+// afterReconcileFold, when a test sets it, runs after ConfirmReconcile records the fold's outcome
+// and before it returns. It is nil in production.
+var afterReconcileFold func()
+
 // Supervisor owns explicit MCP background work for one profile. It is not a scheduler.
 type Supervisor struct {
 	ctx       context.Context
@@ -444,22 +448,20 @@ func (supervisor *Supervisor) StartReconcile(
 	go func() {
 		defer supervisor.wait.Done()
 		result, runErr := recovered(supervisor, run)
-		supervisor.finishReconcile(id, result, runErr)
+		supervisor.finishReconcile(&stored, result, runErr)
 	}()
 	return status, nil
 }
 
+// finishReconcile records the attempt's outcome and returns it. A running attempt is never
+// replaced, so the attempt is still the current reconcile here.
 func (supervisor *Supervisor) finishReconcile(
-	id string,
+	status *AttemptStatus,
 	result app.ProviderWriteResult,
 	err error,
-) {
+) AttemptStatus {
 	supervisor.mu.Lock()
 	defer supervisor.mu.Unlock()
-	if supervisor.reconcileNow == nil || supervisor.reconcileNow.ID != id {
-		return
-	}
-	status := supervisor.reconcileNow
 	status.Revision = result.Revision
 	status.Generation = result.Generation
 	status.Write = result.Status
@@ -467,6 +469,7 @@ func (supervisor *Supervisor) finishReconcile(
 	status.ConfirmationToken = result.ConfirmationToken
 	status.ConfirmationExpiresAt = result.ConfirmationExpiresAt
 	status.State, status.Code = attemptOutcome(err, result.ConfirmationToken)
+	return *status
 }
 
 func attemptOutcome(err error, confirmationToken string) (AttemptState, string) {
@@ -504,7 +507,8 @@ func (supervisor *Supervisor) ReconcileStatus(id string) (AttemptStatus, error) 
 }
 
 // ConfirmReconcile consumes one matching process-local candidate and runs its authoritative fold
-// under the server lifetime. A concurrent start observes the running attempt.
+// under the server lifetime. A concurrent start observes the running attempt. It returns the
+// fold's outcome itself, because a new reconcile can replace this one as soon as the fold ends.
 func (supervisor *Supervisor) ConfirmReconcile(
 	id string,
 	token string,
@@ -515,24 +519,23 @@ func (supervisor *Supervisor) ConfirmReconcile(
 	}
 	supervisor.mu.Lock()
 	supervisor.expireConfirmationLocked(supervisor.reconcileNow)
-	if supervisor.closed || supervisor.reconcileNow == nil || supervisor.reconcileNow.ID != id ||
-		supervisor.reconcileNow.State != AttemptConfirmationRequired ||
-		supervisor.reconcileNow.ConfirmationToken == "" ||
-		supervisor.reconcileNow.ConfirmationToken != token {
+	attempt := supervisor.reconcileNow
+	if supervisor.closed || attempt == nil || attempt.ID != id ||
+		attempt.State != AttemptConfirmationRequired ||
+		attempt.ConfirmationToken == "" || attempt.ConfirmationToken != token {
 		supervisor.mu.Unlock()
 		return AttemptStatus{}, ErrAttemptNotFound
 	}
-	supervisor.reconcileNow.State = AttemptRunning
-	supervisor.reconcileNow.ConfirmationToken = ""
-	supervisor.reconcileNow.ConfirmationExpiresAt = time.Time{}
+	attempt.State = AttemptRunning
+	attempt.ConfirmationToken = ""
+	attempt.ConfirmationExpiresAt = time.Time{}
 	supervisor.wait.Add(1)
 	supervisor.mu.Unlock()
 	result, err := recovered(supervisor, run)
-	supervisor.finishReconcile(id, result, err)
+	status := supervisor.finishReconcile(attempt, result, err)
 	supervisor.wait.Done()
-	status, statusErr := supervisor.ReconcileStatus(id)
-	if statusErr != nil {
-		return AttemptStatus{}, statusErr
+	if afterReconcileFold != nil {
+		afterReconcileFold()
 	}
 	return status, err
 }

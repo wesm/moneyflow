@@ -636,6 +636,46 @@ func TestSupervisorConfirmRefreshReturnsItsOutcomeAfterANewRefreshStarts(t *test
 	}
 }
 
+// ConfirmReconcile returns the fold's outcome even when a new reconcile replaces the attempt the
+// moment the fold ends.
+func TestSupervisorConfirmReconcileReturnsItsOutcomeAfterANewReconcileStarts(t *testing.T) {
+	supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil)
+	t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
+	parked, err := supervisor.StartReconcile(8, 6,
+		func(context.Context) (app.ProviderWriteResult, error) {
+			return app.ProviderWriteResult{
+				Revision: 8, ConfirmationToken: "reconcile-confirmation",
+				ConfirmationExpiresAt: time.Now().Add(time.Hour),
+			}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired}
+		})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		status, statusErr := supervisor.ReconcileStatus(parked.ID)
+		return statusErr == nil && status.State == AttemptConfirmationRequired
+	}, time.Second, time.Millisecond)
+	var next AttemptStatus
+	afterReconcileFold = func() {
+		var startErr error
+		next, startErr = supervisor.StartReconcile(9, 7,
+			func(context.Context) (app.ProviderWriteResult, error) {
+				return app.ProviderWriteResult{Revision: 10}, nil
+			})
+		assert.NoError(t, startErr)
+	}
+	t.Cleanup(func() { afterReconcileFold = nil })
+
+	confirmed, err := supervisor.ConfirmReconcile(parked.ID, "reconcile-confirmation",
+		func(context.Context) (app.ProviderWriteResult, error) {
+			return app.ProviderWriteResult{Revision: 9}, nil
+		})
+
+	require.NoError(t, err)
+	assert.Equal(t, parked.ID, confirmed.ID)
+	assert.Equal(t, AttemptCompleted, confirmed.State)
+	assert.Equal(t, uint64(9), confirmed.Revision)
+	assert.NotEqual(t, parked.ID, next.ID)
+}
+
 // startNextRefresh starts a refresh as soon as the refresh named current stops running.
 func startNextRefresh(supervisor *Supervisor, current string) (AttemptStatus, error) {
 	for {
