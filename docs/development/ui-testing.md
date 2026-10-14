@@ -98,7 +98,7 @@ replay guarantees.
 ## CI and manual checks
 
 `make web-e2e` runs the full Chromium suite and Firefox/WebKit smoke tests in
-parallel. CI uses two workers; local runs use half the logical CPU count.
+parallel. CI uses two workers; local runs use half the logical CPU count, up to 32.
 Each worker has its own demo server; editing and provider tests create fresh
 servers and profiles. Playwright builds the three Go test
 executables once per invocation and removes them after the workers exit.
