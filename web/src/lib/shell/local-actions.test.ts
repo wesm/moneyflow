@@ -54,6 +54,8 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
       'transaction.edit-category',
       'transaction.toggle-hidden',
       'transaction.delete',
+      'changes.undo',
+      'changes.redo',
     ]),
     total_rows: 2,
     window: { offset: 0, limit: 200, count: 2 },
@@ -64,7 +66,7 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
   const controller = {
     projection,
     cursorIndex,
-    editing: { submit },
+    editing: { submit, state: { phase: 'idle', announcement: '' } },
     transactionInformation,
   } as unknown as ViewController
   let tail: Promise<unknown> = Promise.resolve()
@@ -311,6 +313,17 @@ describe('runRowAction', () => {
     }
   })
 
+  it('asks to wait instead of acting while an edit from a dialog is on its way', async () => {
+    const { context } = fromSheet()
+    Object.assign(context.controller.editing, { state: { phase: 'submitting', announcement: '' } })
+    runRowAction(context, 'edit.hide', row)
+    await vi.waitFor(() =>
+      expect(status.notice).toBe('Wait for the previous edit to finish, then try again.'),
+    )
+    expect(context.controller.editing.submit).not.toHaveBeenCalled()
+    status.clear()
+  })
+
   it('waits for queued transitions before an edit reads the projection', async () => {
     const { context } = fromSheet()
     const settle = holdTransitions(context)
@@ -356,6 +369,148 @@ describe('runRowAction', () => {
   })
 })
 
+describe('editing keys decide availability when their turn comes', () => {
+  afterEach(() => {
+    document.body.replaceChildren()
+    status.clear()
+  })
+
+  const idle = { phase: 'idle', announcement: '' }
+
+  /** Capabilities with nothing to undo or redo, as before the first edit. */
+  function nothingToUndo() {
+    return testCapabilities(['changes.undo', 'changes.redo'], ['changes.undo', 'changes.redo']).map(
+      (capability) => ({
+        ...capability,
+        reason:
+          capability.id === 'changes.undo' ? 'No pending edit to undo.' : 'No undone edit to redo.',
+      }),
+    )
+  }
+
+  it('runs a redo pressed while the undo before it is on its way once the undo lands', async () => {
+    const { context } = setup(0)
+    const controller = context.controller as { projection: ReturnType<typeof testProjection> }
+    controller.projection = testProjection({
+      capabilities: testCapabilities(['changes.undo', 'changes.redo'], ['changes.redo']),
+    })
+    let land!: () => void
+    const landed = new Promise<void>((resolve) => (land = resolve))
+    const undo = vi.fn(async () => {
+      await landed
+      controller.projection = testProjection({
+        capabilities: testCapabilities(['changes.undo', 'changes.redo'], ['changes.undo']),
+      })
+      return true
+    })
+    const redo = vi.fn(() => Promise.resolve(true))
+    Object.assign(context.controller, { editing: { undo, redo, state: idle } })
+    const actions = localActions(context)
+
+    actions['edit.undo']()
+    actions['edit.redo']()
+    await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
+    await tick()
+    expect(redo).not.toHaveBeenCalled()
+    land()
+    await vi.waitFor(() => expect(redo).toHaveBeenCalledTimes(1))
+    expect(status.notice).toBe('')
+  })
+
+  it('asks to wait instead of checking keys while an edit from a dialog is on its way', async () => {
+    const { context, overlays } = setup(0)
+    const undo = vi.fn(() => Promise.resolve(true))
+    Object.assign(context.controller, {
+      editing: { undo, submit: vi.fn(), state: { phase: 'submitting', announcement: '' } },
+    })
+    const actions = localActions(context)
+    for (const key of ['edit.undo', 'edit.hide', 'edit.delete', 'edit.merchant'] as const) {
+      status.clear()
+      actions[key]()
+      await vi.waitFor(() =>
+        expect(status.notice).toBe('Wait for the previous edit to finish, then try again.'),
+      )
+    }
+    expect(undo).not.toHaveBeenCalled()
+    expect(context.controller.editing.submit).not.toHaveBeenCalled()
+    expect(overlays.current).toBeUndefined()
+  })
+
+  it('refuses a key at once while a dialog edit saves, even behind a held transition', async () => {
+    const { context } = setup(0)
+    const settle = holdTransitions(context)
+    const state = { phase: 'submitting', announcement: '' }
+    const undo = vi.fn(() => Promise.resolve(true))
+    Object.assign(context.controller, { editing: { undo, state } })
+
+    localActions(context)['edit.undo']()
+    expect(status.notice).toBe('Wait for the previous edit to finish, then try again.')
+    // The dialog's edit lands before the transition does; the refused key still does nothing.
+    state.phase = 'idle'
+    settle()
+    await tick()
+    await tick()
+    expect(undo).not.toHaveBeenCalled()
+  })
+
+  it('lets a key wait behind the editing key before it instead of refusing it', async () => {
+    const { context } = setup(0)
+    const state = { phase: 'idle', announcement: '' }
+    let land!: () => void
+    const landed = new Promise<void>((resolve) => (land = resolve))
+    const undo = vi.fn(async () => {
+      state.phase = 'submitting'
+      await landed
+      state.phase = 'idle'
+      return true
+    })
+    const redo = vi.fn(() => Promise.resolve(true))
+    Object.assign(context.controller, { editing: { undo, redo, state } })
+    const actions = localActions(context)
+
+    actions['edit.undo']()
+    await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
+    actions['edit.redo']()
+    expect(status.notice).toBe('')
+    land()
+    await vi.waitFor(() => expect(redo).toHaveBeenCalledTimes(1))
+  })
+
+  it('says why undo or redo is unavailable instead of doing nothing', async () => {
+    const { context } = setup(0)
+    const undo = vi.fn(() => Promise.resolve(true))
+    const redo = vi.fn(() => Promise.resolve(true))
+    Object.assign(context.controller, {
+      projection: testProjection({ capabilities: nothingToUndo() }),
+      editing: { undo, redo, state: idle },
+    })
+    const actions = localActions(context)
+
+    actions['edit.undo']()
+    await vi.waitFor(() => expect(status.notice).toBe('No pending edit to undo.'))
+    actions['edit.redo']()
+    await vi.waitFor(() => expect(status.notice).toBe('No undone edit to redo.'))
+    expect(undo).not.toHaveBeenCalled()
+    expect(redo).not.toHaveBeenCalled()
+  })
+
+  it('says why x cannot delete in a grouped view', async () => {
+    const { context, overlays } = setup(1)
+    const reason = 'Open the group to delete its transactions.'
+    Object.assign(context.controller, {
+      projection: {
+        ...context.controller.projection!,
+        capabilities: [
+          { id: 'transaction.delete', description: '', category: '', available: false, reason },
+        ],
+      },
+    })
+    localActions(context)['edit.delete']()
+    await vi.waitFor(() => expect(status.notice).toBe(reason))
+    expect(overlays.current).toBeUndefined()
+  })
+})
+
 describe('failures with no dialog to show them', () => {
   afterEach(() => {
     document.body.replaceChildren()
@@ -369,7 +524,12 @@ describe('failures with no dialog to show them', () => {
     const { context } = setup(1)
     const refuse = vi.fn(() => Promise.resolve(false))
     Object.assign(context.controller, {
-      editing: { submit: refuse, undo: refuse, redo: refuse, state: { phase, announcement } },
+      editing: {
+        submit: refuse,
+        undo: refuse,
+        redo: refuse,
+        state: { phase, announcement },
+      },
     })
     return context
   }
@@ -399,13 +559,6 @@ describe('failures with no dialog to show them', () => {
     expect(flashes()).toEqual([
       { message: 'Selection refreshed. Invoke the action again.', tone: 'warning' },
     ])
-  })
-
-  it('says nothing when another edit is still being sent', async () => {
-    // The editing controller clears the announcement when an edit starts sending.
-    const context = refusing('submitting', '')
-    await hideRow(context, row)
-    expect(flashes()).toEqual([])
   })
 
   function exporting(phase: string, announcement: string) {

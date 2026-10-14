@@ -197,20 +197,50 @@ describe('browser editing controller', () => {
     })
   })
 
-  it('suppresses duplicate submissions while one request is in flight', async () => {
+  it('refuses every edit made while another is on its way, says why, and sends nothing', async () => {
     let release!: (response: Response) => void
     const response = new Promise<Response>((resolve) => (release = resolve))
-    const transport: MutationFetch = { request: vi.fn(async () => await response) }
+    const request = vi.fn<MutationFetch['request']>(async () => await response)
     const controller = createEditingController({
-      transport,
-      host: editingHost(testProjection({ canonical_query: 'v=1&group=merchant' })),
+      transport: { request },
+      host: editingHost(testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' })),
     })
 
-    const first = controller.undo()
-    await expect(controller.undo()).resolves.toBe(false)
-    expect(transport.request).toHaveBeenCalledTimes(1)
-    release(jsonResponse(mutationResponse('1', 'mfsel1.example' as SelectionValue)))
+    const first = controller.submit({ action: 'transaction.edit-merchant', input: {} })
+    for (const edit of [
+      () => controller.undo(),
+      () => controller.redo(),
+      () => controller.submit({ action: 'category.manage', input: {} }),
+      () => controller.commit(7n),
+    ]) {
+      await expect(edit()).resolves.toBe(false)
+      expect(controller.state.announcement).toBe(
+        'Wait for the previous edit to finish, then try again.',
+      )
+    }
+    expect(request).toHaveBeenCalledTimes(1)
+
+    release(jsonResponse(mutationResponse('8', 'mfsel1.example' as SelectionValue)))
     await expect(first).resolves.toBe(true)
+    expect(controller.state.announcement).toMatch(/^Change saved as pending\./)
+  })
+
+  it('takes the next edit once a failed one has finished', async () => {
+    const request = vi
+      .fn<MutationFetch['request']>()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockImplementationOnce(async () =>
+        jsonResponse(mutationResponse('8', 'mfsel1.example' as SelectionValue)),
+      )
+    const controller = createEditingController({
+      transport: { request },
+      host: editingHost(testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' })),
+    })
+
+    await expect(controller.undo()).resolves.toBe(false)
+    expect(controller.state.announcement).toBe('The profile request failed.')
+    await expect(controller.undo()).resolves.toBe(true)
+    expect(request).toHaveBeenCalledTimes(2)
   })
 
   it('rereads a view that moved on during the request instead of reinstalling the old query', async () => {

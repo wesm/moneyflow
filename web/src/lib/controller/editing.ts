@@ -86,6 +86,9 @@ const emptyPending: PendingSummary = {
 /** What an editing request that failed without a server answer reports. */
 export const REQUEST_FAILED = 'The profile request failed.'
 
+/** Why an edit made while another is on its way was not sent. */
+export const EDIT_IN_FLIGHT = 'Wait for the previous edit to finish, then try again.'
+
 export function createEditingController(options: EditingControllerOptions): EditingController {
   const initial = options.host.current()
   let state: EditingState = {
@@ -107,6 +110,15 @@ export function createEditingController(options: EditingControllerOptions): Edit
     notify()
   }
 
+  // An edit is built from the revision and view on screen. While another edit is on its way,
+  // both may change, so a new edit is refused, visibly, instead of waiting: one made in a dialog
+  // could otherwise act on rows its confirmation did not name, or run out of order with a key.
+  function refusedWhileBusy(): boolean {
+    if (state.phase !== 'submitting') return false
+    setState({ ...state, announcement: EDIT_IN_FLIGHT })
+    return true
+  }
+
   function sync(projection: ViewProjection): void {
     setState({
       ...state,
@@ -116,6 +128,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
   }
 
   async function submit(intent: MutationIntent): Promise<boolean> {
+    if (refusedWhileBusy()) return false
     const current = options.host.current()
     if (!current) return false
     if (!projectionRevisionIsCurrent(current)) return false
@@ -141,6 +154,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
   }
 
   async function moveCursor(path: 'api/v1/undo' | 'api/v1/redo'): Promise<boolean> {
+    if (refusedWhileBusy()) return false
     const current = options.host.current()
     if (!current) return false
     if (!projectionRevisionIsCurrent(current)) return false
@@ -161,6 +175,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
   }
 
   async function commit(reviewedRevision: bigint): Promise<boolean> {
+    if (refusedWhileBusy()) return false
     const current = options.host.current()
     if (!current) return false
     if (!projectionRevisionIsCurrent(current)) return false
@@ -227,7 +242,6 @@ export function createEditingController(options: EditingControllerOptions): Edit
     successMessage: string,
     toast?: ToastAction,
   ) {
-    if (state.phase === 'submitting') return false
     setState({ ...state, phase: 'submitting', announcement: '' })
     const install = options.host.claim()
     try {

@@ -6,6 +6,8 @@ import { EditorDraft } from '../editing/draft.svelte'
 import type { LocalAction } from '../shortcuts'
 import { rowActionButtons, type RowActionButton } from '../table/actions'
 import { currentPageRows, cursorTarget, type CursorMove } from '../table/cursor-keys'
+import { availableCapabilities, unavailableReason } from './capabilities'
+import { EDIT_IN_FLIGHT } from '../controller/editing'
 import type { EditorAnchor, OverlayState } from './overlay-state.svelte'
 import { showFailure, showWarning } from './notices'
 import { activeCurrency } from './period'
@@ -68,6 +70,52 @@ function whenSettled(context: LocalActionContext, work: () => unknown): void {
     await tick()
     await work()
   })
+}
+
+/**
+ * Says to wait if an edit from a dialog, such as an editor closed during its request, is still
+ * on its way. Keys and the row actions sheet wait for each other in the transition queue, but
+ * not for dialogs.
+ */
+function waitingForDialogEdit(context: LocalActionContext): boolean {
+  if (context.controller.editing.state.phase !== 'submitting') return false
+  status.notify(EDIT_IN_FLIGHT)
+  return true
+}
+
+/** Editing keys and row actions sheet items queued or running in each shell's queue. */
+const queuedEdits = new WeakMap<LocalActionContext, number>()
+
+/**
+ * Queues an editing key's or sheet item's `work` as `whenSettled` does. With no editing key
+ * ahead of it, an edit already on its way came from a dialog, so the key is refused at once:
+ * waiting behind a slow view change instead could let another dialog's edit go first. A key
+ * behind another key's edit still waits, so a redo runs after the undo pressed before it.
+ */
+function queueEdit(context: LocalActionContext, work: () => unknown): void {
+  const ahead = queuedEdits.get(context) ?? 0
+  if (ahead === 0 && waitingForDialogEdit(context)) return
+  queuedEdits.set(context, ahead + 1)
+  whenSettled(context, async () => {
+    try {
+      await work()
+    } finally {
+      queuedEdits.set(context, (queuedEdits.get(context) ?? 1) - 1)
+    }
+  })
+}
+
+/**
+ * Runs an editing key's `work` if the view shown when the key's turn comes offers `capability`,
+ * or else says why it does not. Edits queued before the key decide that: a redo pressed while
+ * its undo is still on its way runs once the undo lands.
+ */
+function ifOffered(context: LocalActionContext, capability: string, work: () => unknown): unknown {
+  const projection = context.controller.projection
+  if (!projection || waitingForDialogEdit(context)) return undefined
+  if (availableCapabilities(projection).has(capability)) return work()
+  status.notify(unavailableReason(projection, capability))
+  return undefined
 }
 
 /** Opens the information drawer for a transaction once the server returns its details. */
@@ -133,6 +181,8 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
   const { controller, overlays } = context
   const row = () => focusedRow(controller.projection, controller.cursorIndex)
   const later = (work: () => unknown) => () => whenSettled(context, work)
+  const offered = (capability: string, work: () => unknown) => () =>
+    queueEdit(context, () => ifOffered(context, capability, work))
   return {
     'cursor.up': () => void context.queue(() => controller.moveCursor(-1)),
     'cursor.down': () => void context.queue(() => controller.moveCursor(1)),
@@ -143,8 +193,12 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
     'overlay.search': () => context.focusSearch(),
     'overlay.filters': () => context.openFilters(),
     'overlay.help': () => overlays.open('help'),
-    'edit.merchant': later(() => openEditor(context, 'merchant', row())),
-    'edit.category': later(() => openEditor(context, 'category', row())),
+    'edit.merchant': offered('transaction.edit-merchant', () =>
+      openEditor(context, 'merchant', row()),
+    ),
+    'edit.category': offered('transaction.edit-category', () =>
+      openEditor(context, 'category', row()),
+    ),
     'manage.categories': () => overlays.open('categories'),
     'manage.groups': () => overlays.open('groups'),
     'edit.review': () =>
@@ -159,10 +213,10 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
       const projection = controller.projection
       if (projection && activeCurrency(projection)) overlays.open('period')
     },
-    'edit.undo': later(() => reportEdit(context, controller.editing.undo())),
-    'edit.redo': later(() => reportEdit(context, controller.editing.redo())),
-    'edit.hide': later(() => hideRow(context, row())),
-    'edit.delete': later(() => confirmDelete(context, row())),
+    'edit.undo': offered('changes.undo', () => reportEdit(context, controller.editing.undo())),
+    'edit.redo': offered('changes.redo', () => reportEdit(context, controller.editing.redo())),
+    'edit.hide': offered('transaction.toggle-hidden', () => hideRow(context, row())),
+    'edit.delete': offered('transaction.delete', () => confirmDelete(context, row())),
     'transaction.info': later(async () => {
       const target = row()
       if (target?.kind === 'transaction') await openTransactionInformation(context, target.identity)
@@ -184,10 +238,10 @@ export function runRowAction(
   if (action === 'transaction.info')
     return void openTransactionInformation(context, target.identity)
   if (action === 'edit.hide') context.overlays.close()
-  whenSettled(context, () => {
+  queueEdit(context, () => {
     const projection = context.controller.projection
     const button = projection && rowActionButtons(projection).find((b) => b.action === action)
-    if (!button) return
+    if (!button || waitingForDialogEdit(context)) return
     if (button.reason) return status.notify(button.reason)
     if (action === 'edit.hide') return hideRow(context, target)
     if (action === 'edit.merchant') openEditor(context, 'merchant', target)
@@ -230,12 +284,12 @@ export async function hideRow(
 
 /**
  * Shows why an edit from a key, the row actions sheet, or the selection bar did not apply: no
- * dialog is open to show it. An edit refused because another is still being sent says nothing:
- * the editing controller clears the announcement when an edit starts sending.
+ * dialog is open to show it.
  */
 async function reportEdit(context: LocalActionContext, edit: Promise<boolean>): Promise<void> {
   if (await edit) return
   const { phase, announcement } = context.controller.editing.state
+  // Only an edit with no view loaded is refused without an announcement; no key reaches it.
   if (announcement === '') return
   // A refreshed or cleared selection is applied; the user only has to repeat the action.
   if (phase === 'idle') showWarning(announcement)

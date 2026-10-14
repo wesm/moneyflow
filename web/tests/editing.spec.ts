@@ -72,6 +72,271 @@ test('every editing workflow starts from its TUI key and restores the table', as
   }
 })
 
+/**
+ * Holds the next request to `path` in the browser until `release` is called, so a test can press
+ * keys while that request is on its way. `sent` resolves once the browser has made the request.
+ * The request goes on unchanged: a refetch would lose Chromium's Sec-Fetch-Site header.
+ */
+async function holdRequest(
+  page: Page,
+  path: string,
+): Promise<{ sent: Promise<void>; release(): void }> {
+  let release!: () => void
+  const released = new Promise<void>((resolve) => (release = resolve))
+  let markSent!: () => void
+  const sent = new Promise<void>((resolve) => (markSent = resolve))
+  // Not `times: 1`: with two requests held that way, releasing one also released the other.
+  let held = false
+  await page.route(`**/api/v1/profiles/*/${path}`, async (route) => {
+    if (held) return await route.fallback()
+    held = true
+    markSent()
+    await released
+    await route.continue()
+  })
+  return { sent, release }
+}
+
+test('an undo pressed while its edit is on its way runs once the edit lands', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    const hide = await holdRequest(page, 'mutations')
+    const undo = page.waitForRequest('**/api/v1/profiles/*/undo')
+    await page.keyboard.press('h')
+    await hide.sent
+    // Nothing was pending when u was pressed; the hide still on its way makes undo available.
+    await page.keyboard.press('u')
+    hide.release()
+    await undo
+    await expect(page.getByRole('status').filter({ hasText: /^Undid / })).toHaveText(
+      'Undid hide · 1 transaction · Redo U',
+    )
+    await expect(page.getByText(/1 redo/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
+test('a redo pressed while its undo is on its way runs once the undo lands', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('h')
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    const undone = await holdRequest(page, 'undo')
+    const redo = page.waitForRequest('**/api/v1/profiles/*/redo')
+    await page.keyboard.press('u')
+    await undone.sent
+    // The browser still shows the hide, with nothing to redo, when U is pressed.
+    await page.keyboard.press('Shift+U')
+    undone.release()
+    await redo
+    await expect(page.getByRole('status').filter({ hasText: /^Redid / })).toHaveText(
+      'Redid hide · 1 transaction · Undo u',
+    )
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
+/**
+ * Stages a merchant rename from the open editor, holds its request, and closes the editor with
+ * Esc while the request is on its way. Call `release` to send it on.
+ */
+async function renameThenEscape(page: Page): Promise<{ release(): void }> {
+  const editor = page.getByRole('dialog', { name: 'Edit merchant' })
+  await expect(editor).toBeVisible()
+  const name = editor.getByRole('combobox', { name: 'Merchant' })
+  await name.fill('Browser Merchant')
+  await expect(editor.getByRole('option', { name: 'Create "Browser Merchant"' })).toBeVisible()
+  await name.press('Enter')
+  await expect(editor.getByRole('button', { name: /^Stage change/ })).toBeEnabled()
+  const rename = await holdRequest(page, 'mutations')
+  await name.press('Enter')
+  await rename.sent
+  await page.keyboard.press('Escape')
+  await expect(editor).toBeHidden()
+  return rename
+}
+
+const WAIT = 'Wait for the previous edit to finish, then try again.'
+
+test('u after an editor closed during its request asks to wait, then undoes', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    let undos = 0
+    page.on('request', (request) => {
+      if (request.url().endsWith('/undo')) undos++
+    })
+    await page.keyboard.press('m')
+    const rename = await renameThenEscape(page)
+    await page.keyboard.press('u')
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(WAIT)
+    rename.release()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    expect(undos).toBe(0)
+    await page.keyboard.press('u')
+    await expect(page.getByRole('status').filter({ hasText: /^Undid / })).toBeVisible()
+    await expect(page.getByText(/1 redo/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
+test('x after a bulk edit closed during its request asks to wait, never deleting', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('Space')
+    await page.keyboard.press('j')
+    await page.keyboard.press('Space')
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
+    await page.keyboard.press('j')
+    await expect(await activeRow(page)).toHaveAttribute('aria-selected', 'false')
+    await page.keyboard.press('m')
+    const rename = await renameThenEscape(page)
+    await page.keyboard.press('x')
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(WAIT)
+    const confirm = page.getByRole('alertdialog', { name: 'Confirm deletion' })
+    await expect(confirm).toHaveCount(0)
+    rename.release()
+    // The bulk rename clears the selection, so x then confirms the cursor row alone.
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(0)
+    await page.keyboard.press('x')
+    await expect(confirm).toContainText('Delete 1 transaction?')
+  } finally {
+    await server.stop()
+  }
+})
+
+test('an undo and a category edit during a closed editor request are both refused', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    const edits: string[] = []
+    page.on('request', (request) => {
+      const url = request.url()
+      if (url.endsWith('/undo')) edits.push('undo')
+      else if (url.endsWith('/mutations')) edits.push(String(request.postDataJSON().action))
+    })
+    await page.keyboard.press('m')
+    const rename = await renameThenEscape(page)
+    await page.keyboard.press('u')
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(WAIT)
+    await page.keyboard.press('Shift+C')
+    const manager = page.getByRole('dialog', { name: 'Manage categories' })
+    await expect(manager.getByLabel('Filter categories')).toBeFocused()
+    await page.keyboard.type('din')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('r')
+    const name = manager.getByRole('textbox', { name: 'Name' })
+    await expect(name).toBeFocused()
+    await page.keyboard.type(' Out')
+    await page.keyboard.press('Enter')
+    await expect(manager.getByText(WAIT)).toBeVisible()
+    rename.release()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    expect(edits).toEqual(['transaction.edit-merchant'])
+  } finally {
+    await server.stop()
+  }
+})
+
+test('u pressed while a dialog edit saves is refused at once, even behind a slow key', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    const edits: string[] = []
+    page.on('request', (request) => {
+      const url = request.url()
+      if (url.endsWith('/undo')) edits.push('undo')
+      else if (url.endsWith('/mutations')) edits.push(String(request.postDataJSON().action))
+    })
+    await page.keyboard.press('m')
+    const rename = await renameThenEscape(page)
+    // i holds the shell's queue while its answer is delayed, so u waits behind it.
+    const information = await holdRequest(page, 'transaction-information')
+    await page.keyboard.press('i')
+    await information.sent
+    await page.keyboard.press('u')
+    await expect.soft(page.getByRole('status', { name: 'Notice' })).toHaveText(WAIT)
+    rename.release()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    // A category edit from a dialog goes out before u's turn comes.
+    await page.keyboard.press('Shift+C')
+    const manager = page.getByRole('dialog', { name: 'Manage categories' })
+    await expect(manager.getByLabel('Filter categories')).toBeFocused()
+    await page.keyboard.type('din')
+    await expect(manager.getByRole('listbox').getByRole('option')).toHaveCount(1)
+    await page.keyboard.press('ArrowDown')
+    await expect(manager.getByRole('listbox')).toBeFocused()
+    await page.keyboard.press('r')
+    await expect(manager.getByRole('textbox', { name: 'Name' })).toBeFocused()
+    await page.keyboard.type(' Out')
+    await page.keyboard.press('Enter')
+    await expect(page.getByText(/2 pending edit/)).toBeVisible()
+    // The first Esc clears the filter; the second closes the manager.
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await expect(manager).toBeHidden()
+    // The information answers for an older revision; either way, i's turn ends with it.
+    const answered = page.waitForResponse('**/api/v1/profiles/*/transaction-information')
+    information.release()
+    await answered
+    // A hide queued after u marks that u's turn has passed.
+    const hidden = page.waitForRequest(
+      (request) =>
+        request.url().endsWith('/mutations') &&
+        request.postDataJSON().action === 'transaction.toggle-hidden',
+    )
+    await page.keyboard.press('h')
+    await hidden
+    expect(edits).toEqual([
+      'transaction.edit-merchant',
+      'category.manage',
+      'transaction.toggle-hidden',
+    ])
+    await expect(page.getByText(/3 pending edit/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
+test('u and U with nothing to undo or redo say so', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('u')
+    await expect(page.getByText('No pending edit to undo.')).toBeVisible()
+    await page.keyboard.press('Shift+U')
+    await expect(page.getByText('No undone edit to redo.')).toBeVisible()
+    await expect(page.getByText('No pending edit to undo.')).toHaveCount(0)
+  } finally {
+    await server.stop()
+  }
+})
+
 test('a staged rename shows inline in gold while the grouped Net stays committed', async ({
   page,
 }) => {

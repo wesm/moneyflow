@@ -30,7 +30,9 @@ func TestCapabilitiesTrackUndoRedoAndPendingReview(t *testing.T) {
 	assert.False(t, initial[app.ActionReviewChanges].Available)
 	assert.False(t, initial[app.ActionRefreshProvider].Available)
 	assert.NotEmpty(t, initial[app.ActionRefreshProvider].Reason)
-	assert.NotEmpty(t, initial[app.ActionUndo].Reason)
+	assert.Equal(t, "No pending edit to undo.", initial[app.ActionUndo].Reason)
+	assert.Equal(t, "No undone edit to redo.", initial[app.ActionRedo].Reason)
+	assert.Equal(t, "No pending changes are available.", initial[app.ActionReviewChanges].Reason)
 
 	mutated, err := service.Mutate(ctx, app.MutationRequest{
 		Action: app.ActionToggleHidden, ExpectedRevision: 5, State: detailViewState(),
@@ -41,7 +43,9 @@ func TestCapabilitiesTrackUndoRedoAndPendingReview(t *testing.T) {
 	afterMutation := capabilitiesByAction(mutated.Capabilities)
 	assert.True(t, afterMutation[app.ActionUndo].Available)
 	assert.False(t, afterMutation[app.ActionRedo].Available)
+	assert.Equal(t, "No undone edit to redo.", afterMutation[app.ActionRedo].Reason)
 	assert.True(t, afterMutation[app.ActionReviewChanges].Available)
+	assert.Empty(t, afterMutation[app.ActionUndo].Reason)
 
 	undone, err := service.Undo(ctx, mutated.Revision)
 	require.NoError(t, err)
