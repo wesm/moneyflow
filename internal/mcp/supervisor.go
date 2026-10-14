@@ -50,7 +50,7 @@ type providerWriteReservation func(context.Context) (
 	error,
 )
 
-// AttemptStatus is a credential-blind process-local operation snapshot.
+// AttemptStatus is a process-local operation snapshot. A client sees State and Code, never Err.
 type AttemptStatus struct {
 	ID                string
 	ExpectedRevision  uint64
@@ -64,7 +64,9 @@ type AttemptStatus struct {
 	StartedAt         time.Time
 	FinishedAt        time.Time
 	ConfirmationToken string
-	// Err is the error a refresh's work returned, or nil.
+	// Err is the error a refresh's work returned, or nil. It can wrap provider and store causes,
+	// so it is for the host's own error handling. No MCP document renders it, and a host must not
+	// pass its text to a client; clients see Code.
 	Err error
 }
 
