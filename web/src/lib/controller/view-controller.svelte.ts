@@ -676,19 +676,26 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const selection = searchSnapshot?.projection.selection ?? projection.selection
     let accepted = false
     const request = requestProjection(
-      async () =>
-        ensureVisibleWindow(
-          await options.client.transition(
-            {
-              query,
-              selection,
-              action: 'search.apply',
-              search,
-              window: { offset: 0, limit: windowSize },
-            },
-            activeRequest?.signal,
-          ),
-        ),
+      async () => {
+        try {
+          return ensureVisibleWindow(
+            await options.client.transition(
+              {
+                query,
+                selection,
+                action: 'search.apply',
+                search,
+                window: { offset: 0, limit: windowSize },
+              },
+              activeRequest?.signal,
+            ),
+          )
+        } catch (error) {
+          if (!isNoChange(error)) throw error
+          // The search asks for the view search opened on, such as after clearing the field.
+          return await options.client.view(viewBody(query, selection, 0), activeRequest?.signal)
+        }
+      },
       (next) => {
         moveToFirstRow()
         accept(next, 'replace')
@@ -885,7 +892,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   ): Promise<boolean> {
     const work = foregroundProjection(request, onSuccess, retry, report)
     foregroundRequest = work
-    return await work
+    const outcome = await work
+    // The view is already what the user asked for. A recheck confirms it is current: success
+    // clears an earlier failed recheck, and failure shows as one, with its own Retry.
+    if (outcome === 'unchanged') await reportedRecheck(undefined, true)
+    return outcome === 'applied'
   }
 
   async function foregroundProjection(
@@ -893,7 +904,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     onSuccess: (next: ViewProjection) => void | Promise<void>,
     retry: () => Promise<void>,
     report: boolean,
-  ): Promise<boolean> {
+  ): Promise<'applied' | 'unchanged' | 'not-applied'> {
     lastRetry = async () => {
       await retry()
     }
@@ -905,13 +916,14 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     problem = undefined
     try {
       const next = await request()
-      if (requestGeneration !== generation) return false
+      if (requestGeneration !== generation) return 'not-applied'
       await onSuccess(next)
-      return true
+      return 'applied'
     } catch (error) {
-      if (requestGeneration !== generation || isAbort(error)) return false
+      if (requestGeneration !== generation || isAbort(error)) return 'not-applied'
+      if (isNoChange(error)) return 'unchanged'
       setProblem(error, changeFailed, report)
-      return false
+      return 'not-applied'
     } finally {
       if (requestGeneration === generation) loading = false
     }
@@ -1275,6 +1287,11 @@ function currentQuery(browserLocation: Pick<Location, 'search'>): string {
 
 function alignedOffset(index: number): number {
   return Math.floor(Math.max(0, index) / windowSize) * windowSize
+}
+
+/** The server answers `no_change` when the view already is what the request asks for. */
+function isNoChange(error: unknown): boolean {
+  return error instanceof MoneyflowProblem && error.problem.code === 'no_change'
 }
 
 function isAbort(error: unknown): boolean {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -148,7 +149,7 @@ func TestInspectProfileIsReadOnlyAndRehardensDatabase(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 	}
-	database, err = sql.Open(driverName, inspectionDataSourceName(paths.Database, DefaultOptions))
+	database, err = sql.Open(driverName, readOnlyDataSourceName(paths.Database, DefaultOptions, true))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, database.Close()) }()
 	var journalMode string
@@ -307,4 +308,46 @@ func TestProbeRevisionRefusesIncompatibleSchema(t *testing.T) {
 	var storeErr *store.Error
 	require.ErrorAs(t, err, &storeErr)
 	assert.Equal(t, store.CodeSchemaIncompatible, storeErr.Code)
+}
+
+// A request that ends partway says nothing about the profile it was reading, and callers act on
+// the code. Inspecting or copying a healthy profile with a stopped context is a storage failure
+// that keeps its cause, never corruption.
+func TestMaintenanceStoppedByItsContextIsAStorageFailureNotCorruption(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	source := temporaryPaths(t)
+	opened, err := Open(ctx, source, DefaultOptions)
+	require.NoError(t, err)
+	_, err = opened.(*profile).CreateSeededProfile(ctx, fixtureProfile(t))
+	require.NoError(t, err)
+	require.NoError(t, opened.Close())
+	expired, expire := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+	t.Cleanup(expire)
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+
+	for name, stop := range map[string]struct {
+		ctx   context.Context
+		cause error
+	}{
+		"time limit": {expired, context.DeadlineExceeded},
+		"canceled":   {canceled, context.Canceled},
+	} {
+		t.Run("inspect/"+name, func(t *testing.T) {
+			_, err := InspectProfile(stop.ctx, source, DefaultOptions)
+
+			assertStoreCode(t, err, store.CodeStoreError)
+			assert.ErrorIs(t, err, stop.cause)
+		})
+		t.Run("copy/"+name, func(t *testing.T) {
+			destination := temporaryPaths(t)
+
+			err := CopyProfile(stop.ctx, source, destination, DefaultOptions)
+
+			assertStoreCode(t, err, store.CodeStoreError)
+			assert.ErrorIs(t, err, stop.cause)
+			assert.NoFileExists(t, destination.Database)
+		})
+	}
 }

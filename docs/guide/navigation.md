@@ -162,19 +162,33 @@ The command bar's period control shows the current period, such as `‹ Sep 2026
   The segments are disabled when the selected currency has no transactions.
 - Inside the segments, Left and Right change the segment instead of moving the period.
 
-Click the label or press `t` to open the period chooser. Its tabs choose how to pick:
+Click the label or press `t`, shown beside the label, to open the period chooser. Its tabs
+choose how to pick:
 
-| Tab | Pick |
-| --- | --- |
-| Day | A day on the calendar |
-| Month | A month; ‹ and › change the year |
-| Year | A year from your first transaction to your newest |
-| Custom | A start day and an end day on the calendar, then **Apply** |
+| Tab | Key | Pick |
+| --- | --- | --- |
+| Day | `d` | A day on the calendar |
+| Month | `m` | A month; ‹ and › change the year |
+| Year | `y` | A year from your first transaction to your newest |
+| Custom | `c` | A start day and an end day on the calendar, then **Apply** |
 
 The chooser opens on the current period's tab; all time and custom ranges open on Month.
-Arrow keys move between months and years, and Enter picks one. **All time** or `a` shows all
-time. Esc closes the chooser without changing the period and returns to the label; moving
-focus out of the chooser also closes it.
+Focus starts inside the tab, on the selected month, year, or day. Without one, it starts at
+the period's last day, or at your newest transaction for all time or a period that contains it.
+A period outside your transactions starts at your first or newest transaction, whichever is
+nearer.
+
+- Arrow keys move between months and years.
+- On a calendar, Left and Right move a day and Up and Down move a week. Moving past the
+  shown month turns the page. Arrows stop at your first and newest transactions.
+- Enter picks the focused month, year, or day.
+- `d`, `m`, `y`, and `c` switch tabs and move focus into the new tab.
+- On the tabs, Left and Right switch tabs, and Down or Enter moves into the tab.
+- **All time** or `a` shows all time.
+- Esc closes the chooser without changing the period and returns to the label. Moving focus
+  out of the chooser also closes it.
+
+While the chooser is open, these letters act on it instead of the main shortcuts.
 
 Dates come from your transactions in the selected currency, never from your computer's
 calendar. The chooser offers no dates after your newest transaction, but › can still move

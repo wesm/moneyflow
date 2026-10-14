@@ -304,9 +304,9 @@ test('x in a grouped view explains why it cannot delete', async ({ page, server 
     .click()
   await expect(notice).toHaveText('', cleared)
   // The click scopes the table to September; its rows replace the ones read below.
-  await expect(page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')).toHaveText(
-    'Sep 2026',
-  )
+  await expect(
+    page.getByRole('banner').locator('button[aria-keyshortcuts="t"]'),
+  ).toHaveAccessibleName('Sep 2026')
   await page.keyboard.press('x')
   await expect(notice).toHaveText(reason)
   await page.getByRole('list', { name: 'Where it went' }).getByRole('button').nth(1).click()
@@ -691,6 +691,49 @@ test('duplicate review remains keyboard driven and restores the finance grid', a
   } finally {
     await server.stop()
   }
+})
+
+test('Esc at the top level and a on All time change nothing and say nothing', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await expect(breadcrumb(page)).toHaveText('Merchants')
+  await expect(
+    page.getByRole('banner').locator('button[aria-haspopup="dialog"][aria-keyshortcuts="t"]'),
+  ).toHaveAccessibleName('All time')
+
+  for (const key of ['Escape', 'a']) {
+    const answer = page.waitForResponse(
+      (response) => response.url().endsWith('/view/transition') && response.status() === 409,
+    )
+    await page.keyboard.press(key)
+    expect(await (await answer).json()).toMatchObject({ code: 'no_change' })
+  }
+  // Transitions run one at a time, so a banner for either key would already show.
+  await page.keyboard.press('2')
+  await expect(breadcrumb(page)).toHaveText('Categories')
+
+  await expect(page.locator('.kit-flash-banner')).toHaveCount(0)
+  await expect(page.getByRole('contentinfo')).toContainText('Connected')
+})
+
+test('clearing a search preview shows the view search opened on', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const openingRows = await grid.getAttribute('aria-rowcount')
+  await page.keyboard.press('/')
+  const search = page.getByRole('searchbox', { name: 'Search transactions' })
+  await search.pressSequentially('noodle')
+  await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
+
+  await search.fill('')
+
+  await expect(page).not.toHaveURL(/[?&]q=/)
+  await expect(grid).toHaveAttribute('aria-rowcount', openingRows ?? '')
+  await expect(page.getByText(/^Search failed\./)).toBeHidden()
+  await search.press('Enter')
+  await expect(grid).toBeFocused()
 })
 
 test('a view change the server refuses shows why and offers a retry', async ({ page, server }) => {

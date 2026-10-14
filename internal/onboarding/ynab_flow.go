@@ -275,6 +275,7 @@ func (coordinator *Coordinator) confirmAndImportYNAB(ctx context.Context, attemp
 		clear(current.flow.ynabPassword)
 		current.flow.ynabPassword = nil
 		current.flow.ynabVaultSaved = true
+		current.flow.retryState = StateImporting
 	}
 	coordinator.mu.Unlock()
 	coordinator.importYNABProfile(ctx, attemptID)

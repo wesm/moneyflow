@@ -78,7 +78,8 @@ func ReadManifest(path string) (Manifest, error) {
 	return readManifest(path, filepath.Base(filepath.Dir(path)))
 }
 
-func readLegacyManifest(path string) (Manifest, error) {
+// ReadLegacyManifest validates and returns the root-level manifest of a legacy profile.
+func ReadLegacyManifest(path string) (Manifest, error) {
 	return readManifest(path, "")
 }
 

@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"errors"
 
 	"github.com/wesm/moneyflow/internal/store"
@@ -21,6 +22,8 @@ type sqliteCodedError interface {
 	Code() int
 }
 
+// mapDriverError maps a driver failure to a stable store error. A context that ended says nothing
+// about the data, so it is a storage failure that keeps its cause, whatever the fallback is.
 func mapDriverError(err error, fallback store.ErrorCode) error {
 	if err == nil {
 		return nil
@@ -39,6 +42,9 @@ func mapDriverError(err error, fallback store.ErrorCode) error {
 		case sqliteIOError, sqliteFull:
 			return store.NewError(store.CodeStoreError, err)
 		}
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return store.NewError(store.CodeStoreError, err)
 	}
 	return store.NewError(fallback, err)
 }

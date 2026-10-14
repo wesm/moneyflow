@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   activeCurrency,
   anchorDate,
+  calendarStep,
   canShiftPeriod,
+  clampDate,
   chooserTab,
   customDraft,
   emptyScope,
@@ -117,6 +119,83 @@ describe('gridStep', () => {
 
   it('ignores other keys', () => {
     expect(gridStep('Enter', 1, none, 3)).toBeUndefined()
+  })
+})
+
+describe('clampDate', () => {
+  it('keeps a date inside first to latest and moves one outside to the nearer end', () => {
+    expect(clampDate('2025-06-15', '2024-01-05', '2026-10-07')).toBe('2025-06-15')
+    expect(clampDate('2024-01-05', '2024-01-05', '2026-10-07')).toBe('2024-01-05')
+    expect(clampDate('2020-03-31', '2024-01-05', '2026-10-07')).toBe('2024-01-05')
+    expect(clampDate('2030-05-31', '2024-01-05', '2026-10-07')).toBe('2026-10-07')
+  })
+})
+
+describe('calendarStep', () => {
+  const limits = { first: '2024-02-10', latest: '2026-10-07' }
+
+  it('moves a day with Left and Right and a week with Up and Down', () => {
+    expect(calendarStep('ArrowRight', '2026-09-15', '2026-09-01', limits)).toEqual({
+      date: '2026-09-16',
+      month: '2026-09-01',
+    })
+    expect(calendarStep('ArrowLeft', '2026-09-15', '2026-09-01', limits)?.date).toBe('2026-09-14')
+    expect(calendarStep('ArrowDown', '2026-09-15', '2026-09-01', limits)?.date).toBe('2026-09-22')
+    expect(calendarStep('ArrowUp', '2026-09-15', '2026-09-01', limits)?.date).toBe('2026-09-08')
+  })
+
+  it('pages to the new month when a step leaves the shown month', () => {
+    expect(calendarStep('ArrowRight', '2026-09-30', '2026-09-01', limits)).toEqual({
+      date: '2026-10-01',
+      month: '2026-10-01',
+    })
+    expect(calendarStep('ArrowUp', '2026-10-03', '2026-10-15', limits)).toEqual({
+      date: '2026-09-26',
+      month: '2026-09-26',
+    })
+    expect(calendarStep('ArrowLeft', '2026-01-01', '2026-01-01', limits)).toEqual({
+      date: '2025-12-31',
+      month: '2025-12-31',
+    })
+  })
+
+  it('pages from a day shown outside its month back to that month', () => {
+    expect(calendarStep('ArrowLeft', '2026-08-31', '2026-09-10', limits)).toEqual({
+      date: '2026-08-30',
+      month: '2026-08-30',
+    })
+    expect(calendarStep('ArrowRight', '2026-08-31', '2026-09-10', limits)).toEqual({
+      date: '2026-09-01',
+      month: '2026-09-10',
+    })
+  })
+
+  it('counts leap days', () => {
+    const wide = { first: '2020-01-01', latest: '2030-12-31' }
+    expect(calendarStep('ArrowRight', '2028-02-28', '2028-02-01', wide)?.date).toBe('2028-02-29')
+    expect(calendarStep('ArrowRight', '2027-02-28', '2027-02-01', wide)?.date).toBe('2027-03-01')
+    expect(calendarStep('ArrowDown', '2028-02-25', '2028-02-01', wide)?.date).toBe('2028-03-03')
+  })
+
+  it('stays put instead of stepping past the latest or before the first day', () => {
+    const latest = { date: '2026-10-07', month: '2026-10-01' }
+    expect(calendarStep('ArrowRight', '2026-10-07', '2026-10-01', limits)).toEqual(latest)
+    const nearLatest = { date: '2026-10-03', month: '2026-10-01' }
+    expect(calendarStep('ArrowDown', '2026-10-03', '2026-10-01', limits)).toEqual(nearLatest)
+    const first = { date: '2024-02-10', month: '2024-02-01' }
+    expect(calendarStep('ArrowLeft', '2024-02-10', '2024-02-01', limits)).toEqual(first)
+    const nearFirst = { date: '2024-02-14', month: '2024-02-01' }
+    expect(calendarStep('ArrowUp', '2024-02-14', '2024-02-01', limits)).toEqual(nearFirst)
+  })
+
+  it('still moves toward the enabled days from a day before the first', () => {
+    expect(calendarStep('ArrowRight', '2024-02-03', '2024-02-01', limits)?.date).toBe('2024-02-04')
+    expect(calendarStep('ArrowLeft', '2024-02-03', '2024-02-01', limits)?.date).toBe('2024-02-03')
+  })
+
+  it('ignores other keys', () => {
+    expect(calendarStep('Enter', '2026-09-15', '2026-09-01', limits)).toBeUndefined()
+    expect(calendarStep('Home', '2026-09-15', '2026-09-01', limits)).toBeUndefined()
   })
 })
 

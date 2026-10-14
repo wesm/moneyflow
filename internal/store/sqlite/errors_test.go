@@ -1,7 +1,9 @@
 package sqlite
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,6 +41,23 @@ func TestMapDriverErrorUsesStableSafeCodes(t *testing.T) {
 			assert.Equal(t, test.expected, failure.Code)
 			assert.NotContains(t, failure.Error(), "sensitive")
 			assert.ErrorIs(t, errors.Unwrap(failure), codedError(test.code))
+		})
+	}
+}
+
+func TestMapDriverErrorTreatsAStoppedContextAsAStorageFailure(t *testing.T) {
+	t.Parallel()
+
+	for name, cause := range map[string]error{
+		"canceled":   context.Canceled,
+		"time limit": context.DeadlineExceeded,
+		"wrapped":    fmt.Errorf("query: %w", context.Canceled),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			mapped := mapDriverError(cause, store.CodeStoreCorrupt)
+			assertStoreCode(t, mapped, store.CodeStoreError)
+			assert.ErrorIs(t, mapped, cause)
 		})
 	}
 }
