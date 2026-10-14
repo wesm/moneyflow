@@ -668,6 +668,67 @@ func TestFailedWriteReservationGivesTheProfileBack(t *testing.T) {
 	assert.Zero(t, profiles.leases.Load())
 }
 
+// captureSupervisorLog sends the supervisor's log to a buffer and returns a reader for it.
+func captureSupervisorLog(supervisor *Supervisor) func() string {
+	var mu sync.Mutex
+	var logged strings.Builder
+	supervisor.logger = slog.New(slog.NewTextHandler(&lockedWriter{mu: &mu, out: &logged}, nil))
+	return func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return logged.String()
+	}
+}
+
+func TestResumeWithNothingToRunStartsNoWorkerAndHoldsNothing(t *testing.T) {
+	service, _, closeProfile := providerTestService(t, 1, "monarch")
+	defer closeProfile()
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	supervisor := profiles.entries["profile-a"].Supervisor
+	logged := captureSupervisorLog(supervisor)
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+
+	resumed := callRefreshTool(t, client, "resume_commit", map[string]any{"batch_version": "1"})
+
+	assert.Equal(t, false, resumed["background_active"])
+	assert.Zero(t, profiles.leases.Load())
+	require.NoError(t, supervisor.Close(context.Background()))
+	assert.NotContains(t, logged(), "provider write stopped")
+}
+
+func TestSecondReservationWhileAWriteRunsHoldsNothingExtra(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "monarch")
+	defer closeProfile()
+	gate := gateProviderWrites(t, service, source)
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	supervisor := profiles.entries["profile-a"].Supervisor
+	logged := captureSupervisorLog(supervisor)
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+	revision := stageDeletion(t, client, service)
+	started, release := make(chan struct{}), make(chan struct{})
+	gate.holdNext(started, release)
+	callRefreshTool(t, client, "commit_changes",
+		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	awaitStart(t, started)
+	status, err := service.ProviderWriteStatus(t.Context())
+	require.NoError(t, err)
+
+	again := callRefreshTool(t, client, "resume_commit",
+		map[string]any{"batch_version": strconv.FormatUint(status.Version, 10)})
+	held := profiles.leases.Load()
+	close(release)
+
+	assert.Equal(t, true, again["background_active"])
+	assert.Equal(t, "writing", again["write"].(map[string]any)["phase"])
+	assert.Equal(t, int32(1), held, "only the running write holds the profile")
+	require.Eventually(t, func() bool {
+		return profiles.leases.Load() == 0
+	}, time.Second, time.Millisecond)
+	require.NoError(t, supervisor.Close(context.Background()))
+	assert.NotContains(t, logged(), "moneyflow_cause=invalid_operation",
+		"a second reservation must not start a worker that has nothing to run")
+}
+
 func TestReleasingAnUnrunWriteGivesTheProfileBack(t *testing.T) {
 	var released atomic.Int32
 	held := heldExecution{release: func() { released.Add(1) }}

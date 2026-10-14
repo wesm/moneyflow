@@ -415,7 +415,8 @@ func mutationDetailState() app.ViewState {
 }
 
 // reserveHeldWrite reserves a provider write on a profile it holds until the write's execution
-// stops, because the execution runs after the tool call has released its own hold.
+// stops, because the execution runs after the tool call has released its own hold. When there is
+// nothing to run, it gives the profile back and returns no execution, so no worker starts.
 func reserveHeldWrite(
 	ctx context.Context,
 	dependencies Dependencies,
@@ -426,7 +427,7 @@ func reserveHeldWrite(
 		return app.ProviderWriteStatus{}, nil, err
 	}
 	status, execution, err := service.ReserveProviderWriteExecution(ctx, version)
-	if err != nil {
+	if err != nil || execution == nil {
 		release()
 		return status, nil, err
 	}
