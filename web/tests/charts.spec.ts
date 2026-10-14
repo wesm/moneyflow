@@ -148,12 +148,12 @@ test('an empty month inside a merchant keeps the strip and chart row above the e
     .getByRole('radio', { name: 'Month' })
     .click()
   const period = page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')
-  await expect(period).toHaveText('Oct 2026')
+  await expect(period).toHaveAccessibleName('Oct 2026')
   await page.getByRole('grid', { name: 'Financial results' }).focus()
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/[?&]drill=merchant/)
   await page.getByRole('button', { name: 'Next period' }).click()
-  await expect(period).toHaveText('Nov 2026')
+  await expect(period).toHaveAccessibleName('Nov 2026')
 
   const area = page.locator('.mf-chart-area')
   await expect(workspace(page).getByText('No transactions', { exact: true })).toBeVisible()
@@ -285,12 +285,12 @@ test('a sort change keeps Trend, vs prior, and the charts without asking again',
 
 test('a cash-flow column click scopes the view to its month', async ({ page, server }) => {
   await openMoneyflow(page, server)
-  await expect(periodControl(page)).toHaveText('All time')
+  await expect(periodControl(page)).toHaveAccessibleName('All time')
   await expect(column(page, 'Sep 2026')).toHaveAccessibleName(
     /^Sep 2026, in \+[\d,]+\.\d\d, out -[\d,]+\.\d\d, net [+-][\d,]+\.\d\d$/,
   )
   await column(page, 'Sep 2026').click()
-  await expect(periodControl(page)).toHaveText('Sep 2026')
+  await expect(periodControl(page)).toHaveAccessibleName('Sep 2026')
   await expect(page).toHaveURL(/[?&]from=2026-09-01&to=2026-09-30/)
   // The scope band now covers September, and the table keeps the focus.
   await expect(column(page, 'Sep 2026')).toHaveClass(/mf-cashflow__column--scope/)
@@ -306,7 +306,7 @@ test('a Year scope charts one column per year, and a year column scopes to it', 
     .getByRole('radiogroup', { name: 'Period', exact: true })
     .getByRole('radio', { name: 'Year' })
     .click()
-  await expect(periodControl(page)).toHaveText('2026')
+  await expect(periodControl(page)).toHaveAccessibleName('2026')
   const ticks = cashflow(page).locator('.mf-cashflow__tick')
   await expect(ticks).toHaveText(['2024', '2025', '2026'])
   await expect(column(page, '2026')).toHaveClass(/mf-cashflow__column--scope/)
@@ -314,7 +314,7 @@ test('a Year scope charts one column per year, and a year column scopes to it', 
   await expect(column(page, '2025')).not.toHaveClass(/mf-cashflow__column--scope/)
 
   await column(page, '2025').click()
-  await expect(periodControl(page)).toHaveText('2025')
+  await expect(periodControl(page)).toHaveAccessibleName('2025')
   await expect(page).toHaveURL(/[?&]from=2025-01-01&to=2025-12-31/)
   await expect(ticks).toHaveText(['2024', '2025'])
   await expect(column(page, '2025')).toHaveClass(/mf-cashflow__column--scope/)
@@ -327,7 +327,7 @@ test('a drag across cash-flow columns sets a custom range', async ({ page, serve
   await column(page, 'Aug 2026').hover()
   await column(page, 'Sep 2026').hover()
   await page.mouse.up()
-  await expect(periodControl(page)).toHaveText('Jul 1 – Sep 30, 2026')
+  await expect(periodControl(page)).toHaveAccessibleName('Jul 1 – Sep 30, 2026')
   await expect(page).toHaveURL(/[?&]from=2026-07-01&to=2026-09-30/)
 })
 
@@ -352,7 +352,7 @@ test('a touch drag from a column’s bars sets a custom range', async ({
   await send('touchMove', [points[1]!])
   await send('touchMove', [points[2]!])
   await send('touchEnd', [])
-  await expect(periodControl(page)).toHaveText('Jul 1 – Sep 30, 2026')
+  await expect(periodControl(page)).toHaveAccessibleName('Jul 1 – Sep 30, 2026')
 })
 
 test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', async ({
@@ -370,7 +370,7 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   await expect(column(page, 'Sep 2026')).toBeFocused()
   await expect(page.getByRole('tooltip')).toContainText('Sep 2026')
   await page.keyboard.press('Enter')
-  await expect(periodControl(page)).toHaveText('Sep 2026')
+  await expect(periodControl(page)).toHaveAccessibleName('Sep 2026')
   await expect(grid).toBeFocused()
 
   // Shift+Enter extends the scope to the focused column, as a shift-click does.
@@ -381,7 +381,7 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   await page.keyboard.press('ArrowLeft')
   await expect(column(page, 'Jul 2026')).toBeFocused()
   await page.keyboard.press('Shift+Enter')
-  await expect(periodControl(page)).toHaveText('Jul 1 – Sep 30, 2026')
+  await expect(periodControl(page)).toHaveAccessibleName('Jul 1 – Sep 30, 2026')
   await expect(grid).toBeFocused()
 
   // Inside a drill, Esc leaves the chart for the table without also going back a level.
@@ -395,7 +395,7 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   await page.keyboard.press('Escape')
   await expect(grid).toBeFocused()
   await expect(page).toHaveURL(/[?&]drill=merchant/)
-  await expect(periodControl(page)).toHaveText('Jul 1 – Sep 30, 2026')
+  await expect(periodControl(page)).toHaveAccessibleName('Jul 1 – Sep 30, 2026')
 })
 
 test('cash-flow columns stay even in the phone drawer, labeled or not', async ({
@@ -574,7 +574,7 @@ test('a transaction view shows the month’s heatmap, and a day click scopes to 
   await expect(page.getByRole('tooltip')).toContainText('Sep 15, 2026')
   await expect(heatmap(page).locator('.kit-tooltip-trigger')).toHaveCount(1)
   await fifteenth.click()
-  await expect(periodControl(page)).toHaveText('Sep 15, 2026')
+  await expect(periodControl(page)).toHaveAccessibleName('Sep 15, 2026')
   await expect(page).toHaveURL(/[?&]from=2026-09-15(&|$)/)
   await expect(page).toHaveURL(/[?&]to=2026-09-15(&|$)/)
   // A Day scope keeps the month's grid, with only that day at full strength.

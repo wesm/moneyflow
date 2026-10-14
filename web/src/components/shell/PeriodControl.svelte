@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { IconButton } from '@kenn-io/kit-ui'
+  import { IconButton, KbdBadge } from '@kenn-io/kit-ui'
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left'
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right'
 
@@ -67,7 +67,8 @@
     bind:this={labelButton}
     onclick={() => (chooserOpen ? onclose() : onchoose())}
   >
-    {label}
+    <span class="mf-period__text">{label}</span>
+    <span class="mf-period__key" aria-hidden="true"><KbdBadge keys={['t']} /></span>
   </button>
   <IconButton
     ariaLabel="Next period"

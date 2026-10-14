@@ -1,9 +1,10 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import PeriodChooser from './PeriodChooser.svelte'
 
-function chooser(range = { from: '2026-04-01', to: '2026-04-30' }) {
+async function chooser(range = { from: '2026-04-01', to: '2026-04-30' }) {
   const anchor = document.createElement('button')
   document.body.append(anchor)
   const onpick = vi.fn()
@@ -12,6 +13,8 @@ function chooser(range = { from: '2026-04-01', to: '2026-04-30' }) {
   render(PeriodChooser, {
     props: { anchor, range, first: '2024-01-01', latest: '2026-10-07', onpick, ondismiss },
   })
+  // Focus moves into the open tab once it has rendered.
+  await tick()
   return { anchor, onpick, ondismiss }
 }
 
@@ -21,18 +24,17 @@ describe('PeriodChooser', () => {
     document.body.replaceChildren()
   })
 
-  it('opens on the scope kind with its segment focused', () => {
-    chooser()
+  it('opens on the scope kind with its selected month focused', async () => {
+    await chooser()
     const month = screen.getByRole('radio', { name: 'Month' })
     expect(month.getAttribute('aria-checked')).toBe('true')
-    expect(document.activeElement).toBe(month)
-    expect(screen.getByRole('button', { name: 'Apr 2026' }).getAttribute('aria-current')).toBe(
-      'date',
-    )
+    const april = screen.getByRole('button', { name: 'Apr 2026' })
+    expect(april.getAttribute('aria-current')).toBe('date')
+    expect(document.activeElement).toBe(april)
   })
 
   it('applies a custom range picked end first, in order', async () => {
-    const { onpick } = chooser()
+    const { onpick } = await chooser()
     await fireEvent.click(screen.getByRole('radio', { name: 'Custom' }))
     const apply = screen.getByRole('button', { name: 'Apply' })
     await fireEvent.click(screen.getByRole('button', { name: 'Apr 9, 2026' }))
@@ -47,7 +49,7 @@ describe('PeriodChooser', () => {
   })
 
   it('picks a month from another year and all time with a', async () => {
-    const { onpick } = chooser()
+    const { onpick } = await chooser()
     await fireEvent.click(screen.getByRole('button', { name: 'Previous year' }))
     expect((screen.getByRole('button', { name: 'Jan 2025' }) as HTMLButtonElement).disabled).toBe(
       false,
@@ -59,7 +61,7 @@ describe('PeriodChooser', () => {
   })
 
   it('moves between years with the arrows', async () => {
-    chooser({ from: '2025-01-01', to: '2025-12-31' })
+    await chooser({ from: '2025-01-01', to: '2025-12-31' })
     const selected = screen.getByRole('button', { name: '2025' })
     expect(selected.tabIndex).toBe(0)
     await fireEvent.keyDown(selected, { key: 'ArrowRight' })
@@ -68,14 +70,14 @@ describe('PeriodChooser', () => {
   })
 
   it('closes on Escape and returns focus to the label button', async () => {
-    const { anchor, ondismiss } = chooser()
+    const { anchor, ondismiss } = await chooser()
     await fireEvent.keyDown(screen.getByRole('radio', { name: 'Month' }), { key: 'Escape' })
     expect(ondismiss).toHaveBeenCalledTimes(1)
     expect(document.activeElement).toBe(anchor)
   })
 
   it('closes when focus leaves for the page but not when it moves inside', async () => {
-    const { anchor, ondismiss } = chooser()
+    const { anchor, ondismiss } = await chooser()
     const outside = document.createElement('button')
     document.body.append(outside)
     const month = screen.getByRole('radio', { name: 'Month' })
@@ -89,7 +91,7 @@ describe('PeriodChooser', () => {
   })
 
   it("starts on Latest's month in a year the scope does not reach", async () => {
-    chooser({ from: '2025-09-01', to: '2025-09-30' })
+    await chooser({ from: '2025-09-01', to: '2025-09-30' })
     await fireEvent.click(screen.getByRole('button', { name: 'Next year' }))
     expect(screen.getByRole('button', { name: 'Oct 2026' }).tabIndex).toBe(0)
     expect(screen.getByRole('button', { name: 'Jan 2026' }).tabIndex).toBe(-1)
