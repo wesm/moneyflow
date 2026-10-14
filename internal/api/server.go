@@ -738,14 +738,7 @@ func problemFromProviderError(
 	}
 	problem := problemFromError(ctx, err)
 	if result.Status.Code != "" || result.Status.ConfirmationToken != "" {
-		revision := result.Revision
-		if revision == 0 {
-			var failure *app.AppError
-			if errors.As(err, &failure) {
-				revision = failure.CurrentRevision
-			}
-		}
-		status := providerStatusToWire(revision, result.Status)
+		status := providerStatusToWire(result.Status)
 		status.Capability = capability
 		problem.Provider = &status
 	}

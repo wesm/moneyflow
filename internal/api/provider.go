@@ -123,7 +123,7 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 		if err != nil {
 			return nil, problemFromError(ctx, err)
 		}
-		body := providerStatusToWire(service.Revision(), status)
+		body := providerStatusToWire(status)
 		body.Capability = capability
 		return &providerStatusOutput{Body: body}, nil
 	})
@@ -212,7 +212,7 @@ func providerRefreshOutputFor(
 	if err != nil {
 		return nil, problemFromError(ctx, err)
 	}
-	status := providerStatusToWire(result.Revision, result.Status)
+	status := providerStatusToWire(result.Status)
 	status.Capability = capability
 	return &providerRefreshOutput{Body: ProviderRefreshResponse{
 		Version: ProviderSchemaVersion, Revision: strconv.FormatUint(result.Revision, 10),
@@ -224,10 +224,10 @@ func providerRefreshOutputFor(
 	}}, nil
 }
 
-func providerStatusToWire(revision uint64, status app.ProviderStatus) ProviderStatusResponse {
+func providerStatusToWire(status app.ProviderStatus) ProviderStatusResponse {
 	summary := status.Summary
 	wire := ProviderStatusResponse{
-		Version: ProviderSchemaVersion, Revision: strconv.FormatUint(revision, 10),
+		Version: ProviderSchemaVersion, Revision: strconv.FormatUint(status.Revision, 10),
 		Generation: strconv.FormatUint(status.Generation, 10), Code: status.Code, ProviderKind: status.ProviderKind,
 		OwnerRenderer: status.OwnerRenderer, OwnerInstanceID: status.OwnerInstanceID,
 		ConfirmationToken: status.ConfirmationToken,

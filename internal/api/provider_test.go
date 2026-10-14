@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -46,6 +47,55 @@ func TestProviderStatusEndpointUsesBasePathAndCountsOnlyWireShape(t *testing.T) 
 
 	outside := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
 	assert.Equal(t, http.StatusNotFound, outside.Code)
+}
+
+func TestProviderStatusPairsGenerationWithItsSnapshotRevision(t *testing.T) {
+	for _, configured := range []bool{false, true} {
+		t.Run(fmt.Sprint(configured), func(t *testing.T) {
+			fixture := newProviderAPIFixture(t, "/", 3)
+			profile := &statusReadProfile{Profile: fixture.profile}
+			service, err := app.NewProfileService(t.Context(), profile)
+			require.NoError(t, err)
+			if configured {
+				require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+					ReadSource: fixture.source, Provider: "monarch", Currency: "USD", Scale: 2,
+					Renderer: "web", InstanceID: "status-reader",
+				}))
+			}
+			server, err := New(Config{
+				Resolver: resolverForService(testProfileID, service), LegacyProfileID: testProfileID,
+				Origin: fixture.server.security.origin, Security: fixture.server.security,
+			})
+			require.NoError(t, err)
+			profile.beforeStatus = func() {
+				fixture.source.setSnapshot(apiProviderSnapshot(t, fixture.now.Add(time.Minute), 4))
+				_, refreshErr := fixture.service.RefreshProvider(t.Context(), app.ProviderRefreshRequest{
+					Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+				})
+				require.NoError(t, refreshErr)
+			}
+
+			response := requestServer(t, server, http.MethodGet, "/api/v1/provider/status", nil)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			var status ProviderStatusResponse
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+			assert.Equal(t, "2", status.Generation)
+			assert.Equal(t, "2", status.Revision)
+		})
+	}
+}
+
+type statusReadProfile struct {
+	store.Profile
+	beforeStatus func()
+}
+
+func (profile *statusReadProfile) ProviderState(ctx context.Context) (store.ProviderState, error) {
+	if before := profile.beforeStatus; before != nil {
+		profile.beforeStatus = nil
+		before()
+	}
+	return profile.Profile.ProviderState(ctx)
 }
 
 func TestProviderRefreshEndpointIsProtectedAndReturnsAuthoritativeProjection(t *testing.T) {
@@ -118,7 +168,8 @@ func TestProviderDeletionConfirmationUsesOpaqueProtectedSecondRequest(t *testing
 func TestProviderTypesNeverExposeRemoteRowsOrIdentifiers(t *testing.T) {
 	t.Parallel()
 
-	status := providerStatusToWire(7, app.ProviderStatus{
+	status := providerStatusToWire(app.ProviderStatus{
+		Revision:   7,
 		Generation: 4, OwnerRenderer: "web", OwnerInstanceID: "instance-opaque",
 		Fetched: 20, Total: 40,
 	})

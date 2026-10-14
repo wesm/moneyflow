@@ -191,17 +191,17 @@ func (service *Service) ProviderStatus(ctx context.Context) (ProviderStatus, err
 
 // StoredProviderStatus returns a bound profile's recorded refresh status without a provider
 // runtime, so an interface can say how old the data is while refresh is unavailable, such as
-// before YNAB credentials are unlocked. An unbound profile has a zero status.
+// before YNAB credentials are unlocked. Unbound profiles report only their revision.
 func (service *Service) StoredProviderStatus(ctx context.Context) (ProviderStatus, error) {
 	if service.profile == nil {
-		return ProviderStatus{}, nil
+		return ProviderStatus{Revision: service.Revision()}, nil
 	}
 	state, err := service.profile.ProviderState(ctx)
 	if err != nil {
 		return ProviderStatus{}, mapAppError(err, service.Revision())
 	}
 	if state.Binding == nil {
-		return ProviderStatus{}, nil
+		return ProviderStatus{Revision: state.Revision}, nil
 	}
 	now := time.Now()
 	if clock := service.clock(); clock != nil {

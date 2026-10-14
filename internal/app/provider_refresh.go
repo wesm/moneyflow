@@ -108,6 +108,7 @@ type ProviderRefreshResult struct {
 
 // ProviderStatus is the renderer-neutral, counts-only refresh projection.
 type ProviderStatus struct {
+	Revision          uint64
 	ProviderKind      string
 	LastAttempt       time.Time
 	Code              provider.ErrorCode
@@ -1394,6 +1395,7 @@ func (service *Service) providerProjectionResult(
 
 func providerStatusFromState(state store.ProviderState, configuredKind string) ProviderStatus {
 	status := ProviderStatus{
+		Revision:     state.Revision,
 		ProviderKind: configuredKind,
 		LastAttempt:  state.Refresh.LastAttempt,
 		Generation:   state.Refresh.Generation,

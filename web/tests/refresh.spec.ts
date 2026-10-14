@@ -132,7 +132,7 @@ test('Cancel stops the server refresh and shows the stale banner', async ({ page
 
     await expect(refreshing(page)).toBeHidden()
     await expect(banner(page).getByRole('status')).toHaveText(
-      aged('Showing data from 7 hours ago', '. Refresh was canceled; no provider data changed.'),
+      aged('Showing data from 7 hours ago', '. Refresh stopped.'),
     )
     await expect(page.locator('.app-shell')).not.toHaveAttribute('inert')
     expect((await server.observe()).rows).toEqual(before.rows)

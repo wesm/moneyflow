@@ -103,7 +103,7 @@ const refreshingPollMillis = 1_000
  */
 const canceledHoldMillis = 5 * 60_000
 export const REFRESH_CANCELED = 'Refresh was canceled; no provider data changed.'
-export const REFRESH_STOPPED = 'Refresh stopped. The view shows the latest saved data.'
+export const REFRESH_STOPPED = 'Refresh stopped.'
 export const REFRESH_NOT_CONFIRMED = 'Refresh was not confirmed; no provider data changed.'
 const REREAD_FAILED = 'The current view could not be reread.'
 
@@ -119,6 +119,11 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   /** Counts the refreshes this tab watches, so a late reread cannot finish a newer one. */
   let attempt = 0
   let settled = 0
+  let polls = 0
+  /** Pending polls do not block earlier answers; only an adopted answer supersedes them. */
+  let appliedPoll = 0
+  /** A completion must preserve status and status-check failures observed during its reread. */
+  let statusChanges = 0
   /** Automatic refresh waits until this time after the user canceled one. */
   let automaticAfter = 0
   /**
@@ -127,8 +132,6 @@ export function createProviderController(options: ProviderControllerOptions): Pr
    * revision or later shows that data.
    */
   let newest: { generation: string; revision: bigint } | undefined
-  /** The generation of the provider data the installed view shows. */
-  let shownGeneration: string | undefined
   /** Counts view rereads; only the newest one's outcome changes the notice. */
   let rereads = 0
   let rereading: Promise<string> | undefined
@@ -146,7 +149,11 @@ export function createProviderController(options: ProviderControllerOptions): Pr
    * path that discovers newer saved data skips rereading the view.
    */
   function setState(next: ProviderState): void {
+    if (next.status && olderStatus(next.status)) {
+      next = { ...next, status: state.status!, capability: state.capability }
+    }
     const adopted = next.status !== undefined && next.status !== state.status
+    if (adopted) statusChanges++
     if (next.status && adopted) noteNewest(next.status)
     const current = viewShowsNewest()
     state = current ? { ...next, viewError: undefined, viewLoading: undefined } : next
@@ -169,20 +176,48 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   }
 
   function noteNewest(status: ProviderStatus): void {
-    if (newest?.generation === status.generation) return
-    // The first status describes the data the first view loaded.
-    if (newest === undefined) shownGeneration = status.generation
+    if (
+      newest &&
+      (BigInt(status.generation) < BigInt(newest.generation) ||
+        BigInt(status.revision) < newest.revision)
+    )
+      return
     newest = { generation: status.generation, revision: BigInt(status.revision) }
+  }
+
+  function olderStatus(status: ProviderStatus): boolean {
+    const known = state.status
+    return (
+      known !== undefined &&
+      (BigInt(status.generation) < BigInt(known.generation) ||
+        BigInt(status.revision) < BigInt(known.revision))
+    )
+  }
+
+  /** Progress polls predate an attempt's result; later attempts or saved data supersede it. */
+  function canAdopt(status: ProviderStatus, before: ProviderStatus | undefined): boolean {
+    const known = state.status
+    return (
+      !olderStatus(status) &&
+      (known === undefined ||
+        known === before ||
+        BigInt(status.generation) > BigInt(known.generation) ||
+        BigInt(status.revision) > BigInt(known.revision) ||
+        (Date.parse(status.last_attempt ?? '') || 0) >
+          (Date.parse(known.last_attempt ?? '') || 0) ||
+        (!known.refreshing &&
+          !status.refreshing &&
+          known.code === status.code &&
+          known.last_attempt === status.last_attempt))
+    )
   }
 
   /** Whether the installed view shows the newest saved provider data the server reported. */
   function viewShowsNewest(): boolean {
-    if (newest === undefined || shownGeneration === newest.generation) return true
+    if (newest === undefined) return true
     const shown = options.host.current()
     if (!shown) return true
-    if (BigInt(shown.revision) < newest.revision) return false
-    shownGeneration = newest.generation
-    return true
+    return BigInt(shown.revision) >= newest.revision
   }
 
   /**
@@ -228,20 +263,6 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     watched = undefined
   }
 
-  /**
-   * The data generation before this attempt, read when it starts. A failed read, or a status that
-   * shows another refresh running, leaves it unknown: the outcome then claims neither a success
-   * nor an unchanged result.
-   */
-  async function attemptBaseline(signal: AbortSignal): Promise<string | undefined> {
-    try {
-      const status = await options.transport.status(signal)
-      return status.refreshing ? undefined : status.generation
-    } catch {
-      return undefined
-    }
-  }
-
   function openDialog(view: RefreshDialogView, reason?: string): RefreshDialog {
     return { view, startedAt: state.dialog?.startedAt ?? now(), reason }
   }
@@ -256,6 +277,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   function sync(projection: ViewProjection): void {
     const capability = projection.capabilities?.find(({ id }) => id === 'provider.refresh')
     setState({ ...state, capability })
+    catchUpInBackground()
     if (pending === undefined || inFlight) return
     const manual = pending
     pending = undefined
@@ -333,9 +355,10 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     inFlight = true
     request = new AbortController()
     const signal = request.signal
+    const finished = attempt
+    const before = state.status
     let response: ProviderRefreshResponse
     try {
-      watched = await attemptBaseline(signal)
       signal.throwIfAborted()
       response = await requestProfileJSON<ProviderRefreshResponse>(
         options.transport.mutations,
@@ -343,31 +366,43 @@ export function createProviderController(options: ProviderControllerOptions): Pr
         body,
         signal,
       )
+      if (canAdopt(response.status, before)) setState({ ...state, status: response.status })
     } catch (error) {
       settled++
       if (signal.aborted) return stopping()
-      return fail(error, confirmation)
+      return fail(error, confirmation, before)
     } finally {
       inFlight = false
       request = undefined
     }
     settled++
     if (response.projection.canonical_query !== current.canonical_query) {
-      return fail(new Error('The provider refresh changed the analytical view.'), confirmation)
+      return fail(
+        new Error('The provider refresh changed the analytical view.'),
+        confirmation,
+        before,
+      )
     }
     const projection = {
       ...response.projection,
       selection: response.selection.value,
     } as ViewProjection
+    noteNewest(response.status)
+    const seen = statusChanges
     const complete = await show(projection, current, response.selection.kind === 'cleared')
-    succeed(response.status, complete)
+    succeed(response.status, complete, finished, seen)
     return true
   }
 
-  function succeed(status: ProviderStatus, viewNote = ''): void {
+  function succeed(status: ProviderStatus, viewNote: string, finished: number, seen: number): void {
     const summary = completeMessage(status)
     showSuccess(summary)
     if (status.warning) showWarning(status.warning)
+    if (finished !== attempt) return
+    if (seen !== statusChanges || state.status !== status) {
+      leaveCompletedDialog()
+      return
+    }
     setState({
       phase: 'idle',
       capability: state.capability,
@@ -375,6 +410,24 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       viewError: state.viewError,
       viewLoading: state.viewLoading,
       announcement: [summary, viewNote, status.warning].filter(Boolean).join(' '),
+    })
+  }
+
+  function leaveCompletedDialog(): void {
+    if (state.dialog?.view !== 'progress' && state.dialog?.view !== 'stopping') return
+    const status = state.status
+    if (!status) return
+    if (status.refreshing) {
+      attempt++
+      watched = status.generation
+    }
+    const phase = statusPhase(status, false)
+    setState({
+      ...state,
+      phase,
+      kind: undefined,
+      dialog: status.refreshing ? openDialog('other') : undefined,
+      announcement: pollAnnouncement(status, phase, state),
     })
   }
 
@@ -396,6 +449,11 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   ): Promise<string> {
     const shown = options.host.current()
     if (
+      (shown && BigInt(shown.revision) > BigInt(projection.revision)) ||
+      (newest && BigInt(projection.revision) < newest.revision)
+    )
+      return catchUp()
+    if (
       !shown ||
       (shown.canonical_query === sent.canonical_query && shown.selection === sent.selection)
     ) {
@@ -411,11 +469,20 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     return false
   }
 
-  async function fail(error: unknown, confirmation: boolean): Promise<boolean> {
+  async function fail(
+    error: unknown,
+    confirmation: boolean,
+    before: ProviderStatus | undefined,
+  ): Promise<boolean> {
     if (!(error instanceof MoneyflowProblem)) {
       return failed(failureReason(error))
     }
     const problem = error.problem
+    if (problem.provider && !canAdopt(problem.provider, before)) {
+      showWarning(problemReason(problem))
+      leaveCompletedDialog()
+      return false
+    }
     const status = problem.provider === undefined ? {} : { status: problem.provider }
     if (problem.code === 'provider_deletion_confirmation_required' && problem.provider) {
       setState({
@@ -483,15 +550,20 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   async function poll(): Promise<void> {
     if (state.phase === 'confirmation') return
     const seen = settled
+    const order = ++polls
     let status: ProviderStatus
     try {
       status = await options.transport.status()
     } catch (error) {
+      if (order < appliedPoll || seen !== settled) return
+      appliedPoll = order
+      statusChanges++
       setState({ ...state, statusError: failureReason(error) })
       return
     }
     // A refresh that finished meanwhile returned newer status than this poll read.
-    if (seen !== settled) return
+    if (seen !== settled || order < appliedPoll || olderStatus(status)) return
+    appliedPoll = order
     observe(status)
     catchUpInBackground()
     // The server's refresh_due already waits out a failure's retry delay and stops for one
@@ -512,7 +584,10 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   function observe(status: ProviderStatus): void {
     const dialog = state.dialog
     // A running refresh has not committed yet, so its generation is the one before it.
-    if (status.refreshing && watched === undefined) watched = status.generation
+    // A running lease does not identify this tab's request. Only watch an external refresh.
+    if (status.refreshing && watched === undefined && dialog?.view === 'other') {
+      watched = status.generation
+    }
     const base = { ...state, capability: status.capability, status, statusError: undefined }
     if (dialog?.view === 'stopping' || dialog?.view === 'other') {
       if (status.refreshing) return setState({ ...base, phase: 'refreshing' })
@@ -556,7 +631,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     const view = state.dialog?.view
     return (
       known !== undefined &&
-      status.generation !== known &&
+      BigInt(status.generation) > BigInt(known) &&
       !status.refreshing &&
       !inFlight &&
       pending === undefined &&
@@ -566,7 +641,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 
   /** A refresh this tab watched has ended: it committed newer data, or it stopped. */
   function finishWatched(status: ProviderStatus, canceled: boolean): void {
-    if (watched !== undefined && status.generation !== watched) {
+    if (watched !== undefined && BigInt(status.generation) > BigInt(watched)) {
       setState({ ...state, status, dialog: undefined })
       void finishCommitted(status, attempt)
       return
@@ -583,7 +658,11 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     // the counts in the status may be an earlier refresh's, so neither a success nor an unchanged
     // result is claimed. Newer saved data is reread like any other.
     if (watched === undefined) {
-      setState({ ...ended, announcement: canceled ? REFRESH_STOPPED : 'The other refresh ended.' })
+      setState({
+        ...ended,
+        staleReason: canceled ? REFRESH_STOPPED : state.staleReason,
+        announcement: canceled ? REFRESH_STOPPED : 'The other refresh ended.',
+      })
       return
     }
     setState({
@@ -595,9 +674,9 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 
   /** A newer refresh may have started during the reread; it keeps its own dialog and status. */
   async function finishCommitted(status: ProviderStatus, finished: number): Promise<void> {
+    const seen = statusChanges
     const note = await (rereading ?? Promise.resolve(''))
-    if (finished === attempt) succeed(status, note)
-    else showSuccess(completeMessage(status))
+    succeed(status, note, finished, seen)
   }
 
   function cancel(): void {
