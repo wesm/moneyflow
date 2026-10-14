@@ -288,7 +288,7 @@ func TestStandaloneServerLogsAProviderWriteThatStopped(t *testing.T) {
 	gate.holdNext(started, release)
 	callRefreshTool(t, client, "commit_changes",
 		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
-	awaitStart(t, started)
+	<-started
 
 	require.NoError(t, server.Close(context.Background()))
 
@@ -383,6 +383,7 @@ func TestRefreshAttemptIsSharedAcrossRegisteredServers(t *testing.T) {
 	service, source, closeProfile := refreshTestService(t, 1)
 	defer closeProfile()
 	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	supervisor := profiles.entries["profile-a"].Supervisor
 	first := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
 	second := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
 	started, release := make(chan struct{}), make(chan struct{})
@@ -392,18 +393,19 @@ func TestRefreshAttemptIsSharedAcrossRegisteredServers(t *testing.T) {
 	<-started
 	observed := callRefreshTool(t, second, "get_refresh_status", nil)
 	close(release)
+	supervisor.wait.Wait()
+	finished := callRefreshTool(t, second, "get_refresh_status", nil)
 
 	assert.Equal(t, accepted["attempt_id"], observed["attempt_id"])
 	assert.Equal(t, "running", observed["state"])
-	require.Eventually(t, func() bool {
-		return callRefreshTool(t, second, "get_refresh_status", nil)["state"] == "completed"
-	}, time.Second, time.Millisecond)
+	assert.Equal(t, "completed", finished["state"])
 }
 
 func TestSupervisedWorkHoldsItsProfileAfterTheToolCallReturns(t *testing.T) {
 	service, source, closeProfile := refreshTestService(t, 1)
 	defer closeProfile()
 	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	supervisor := profiles.entries["profile-a"].Supervisor
 	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
 	started, release := make(chan struct{}), make(chan struct{})
 	source.blockNext(started, release)
@@ -412,11 +414,10 @@ func TestSupervisedWorkHoldsItsProfileAfterTheToolCallReturns(t *testing.T) {
 	<-started
 	held := profiles.leases.Load()
 	close(release)
+	supervisor.wait.Wait()
 
 	assert.Equal(t, int32(1), held)
-	require.Eventually(t, func() bool {
-		return profiles.leases.Load() == 0
-	}, time.Second, time.Millisecond)
+	assert.Zero(t, profiles.leases.Load())
 }
 
 func TestRegisterGivesEachClassItsOwnTools(t *testing.T) {
@@ -614,16 +615,6 @@ func TestToolFailuresCarryTheRevisionOfTheirProfile(t *testing.T) {
 	assert.Equal(t, "2", onSecond.StructuredContent.(map[string]any)["revision"])
 }
 
-// awaitStart fails the test when supervised work does not reach its gate in time.
-func awaitStart(t *testing.T, started <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("supervised work did not start")
-	}
-}
-
 // gatedWrites holds the next provider write until the test releases it.
 type gatedWrites struct {
 	*refreshTestSource
@@ -745,20 +736,20 @@ func (source *panickingWriterSource) Writer(
 	return source.refreshTestSource.Writer(ctx, reload)
 }
 
-// awaitParkedWrite waits until the write batch stops for attention and no hold remains.
+// awaitParkedWrite waits until the work of supervisor ends and returns the write batch, which must
+// have stopped for attention with no hold left.
 func awaitParkedWrite(
 	t *testing.T,
 	service *app.Service,
+	supervisor *Supervisor,
 	profiles testProfiles,
 ) app.ProviderWriteStatus {
 	t.Helper()
-	var status app.ProviderWriteStatus
-	require.Eventually(t, func() bool {
-		var err error
-		status, err = service.ProviderWriteStatus(t.Context())
-		return err == nil && status.Phase == store.WritePhaseAttentionRequired &&
-			profiles.leases.Load() == 0
-	}, 3*time.Second, 10*time.Millisecond)
+	supervisor.wait.Wait()
+	status, err := service.ProviderWriteStatus(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
+	require.Zero(t, profiles.leases.Load())
 	return status
 }
 
@@ -768,30 +759,24 @@ func TestResumedProviderWriteHoldsItsProfileWhileItRuns(t *testing.T) {
 	source.deleteFailure = provider.NewWriteFailure(provider.WriteResponseIncomplete)
 	gate := gateProviderWrites(t, service, source)
 	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	supervisor := profiles.entries["profile-a"].Supervisor
 	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
 	revision := stageDeletion(t, client, service)
 	callRefreshTool(t, client, "commit_changes",
 		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
-	var status app.ProviderWriteStatus
-	require.Eventually(t, func() bool {
-		var err error
-		status, err = service.ProviderWriteStatus(t.Context())
-		return err == nil && status.Phase == store.WritePhaseAttentionRequired &&
-			profiles.leases.Load() == 0
-	}, 3*time.Second, 10*time.Millisecond)
+	status := awaitParkedWrite(t, service, supervisor, profiles)
 	started, release := make(chan struct{}), make(chan struct{})
 	gate.holdNext(started, release)
 
 	callRefreshTool(t, client, "resume_commit",
 		map[string]any{"batch_version": strconv.FormatUint(status.Version, 10)})
-	awaitStart(t, started)
+	<-started
 	held := profiles.leases.Load()
 	close(release)
+	supervisor.wait.Wait()
 
 	assert.Equal(t, int32(1), held)
-	require.Eventually(t, func() bool {
-		return profiles.leases.Load() == 0
-	}, time.Second, time.Millisecond)
+	assert.Zero(t, profiles.leases.Load())
 }
 
 func TestFailedWriteReservationGivesTheProfileBack(t *testing.T) {
@@ -820,7 +805,7 @@ func TestPanicDuringAWriteReservationLeavesNothingHeldAndCloseFinishes(t *testin
 	revision := stageEdit(t, client, service, "toggle_transactions_hidden")
 	callRefreshTool(t, client, "commit_changes",
 		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
-	status := awaitParkedWrite(t, service, profiles)
+	status := awaitParkedWrite(t, service, supervisor, profiles)
 	require.Equal(t, store.WriteAttentionOutcomeUnknown, status.AttentionReason)
 	panicking.armed.Store(true)
 
@@ -851,15 +836,15 @@ func TestPanicInAResumedWriteRunIsReportedAsARunFailure(t *testing.T) {
 	revision := stageDeletion(t, client, service)
 	callRefreshTool(t, client, "commit_changes",
 		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
-	status := awaitParkedWrite(t, service, profiles)
+	status := awaitParkedWrite(t, service, supervisor, profiles)
 	panicking.armed.Store(true)
 
 	callRefreshTool(t, client, "resume_commit",
 		map[string]any{"batch_version": strconv.FormatUint(status.Version, 10)})
-	require.Eventually(t, func() bool {
-		return !supervisor.WriteActive() && profiles.leases.Load() == 0
-	}, 3*time.Second, 10*time.Millisecond)
+	supervisor.wait.Wait()
 
+	assert.False(t, supervisor.WriteActive())
+	assert.Zero(t, profiles.leases.Load())
 	commit := callRefreshTool(t, client, "get_commit_status", nil)
 	write := commit["write"].(map[string]any)
 	assert.Equal(t, string(store.WritePhaseWriting), write["phase"])
@@ -910,7 +895,7 @@ func TestSecondReservationWhileAWriteRunsHoldsNothingExtra(t *testing.T) {
 	gate.holdNext(started, release)
 	callRefreshTool(t, client, "commit_changes",
 		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
-	awaitStart(t, started)
+	<-started
 	status, err := service.ProviderWriteStatus(t.Context())
 	require.NoError(t, err)
 
@@ -918,13 +903,12 @@ func TestSecondReservationWhileAWriteRunsHoldsNothingExtra(t *testing.T) {
 		map[string]any{"batch_version": strconv.FormatUint(status.Version, 10)})
 	held := profiles.leases.Load()
 	close(release)
+	supervisor.wait.Wait()
 
 	assert.Equal(t, true, again["background_active"])
 	assert.Equal(t, "writing", again["write"].(map[string]any)["phase"])
 	assert.Equal(t, int32(1), held, "only the running write holds the profile")
-	require.Eventually(t, func() bool {
-		return profiles.leases.Load() == 0
-	}, time.Second, time.Millisecond)
+	assert.Zero(t, profiles.leases.Load())
 	require.NoError(t, supervisor.Close(context.Background()))
 	assert.NotContains(t, logged(), "moneyflow_cause=invalid_operation",
 		"a second reservation must not start a worker that has nothing to run")
@@ -965,7 +949,7 @@ func TestSupervisorClosedDuringAReservationGivesTheProfileBack(t *testing.T) {
 	revision := stageDeletion(t, client, service)
 	callRefreshTool(t, client, "commit_changes",
 		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
-	status := awaitParkedWrite(t, service, profiles)
+	status := awaitParkedWrite(t, service, supervisor, profiles)
 	ended, end := context.WithCancel(t.Context())
 	end()
 	// Close marks the supervisor closed before it waits, and the ended context stops that wait.
@@ -1019,12 +1003,11 @@ func TestSupervisedWorkFailsWhenItsProfileCannotBeHeld(t *testing.T) {
 		"reconcile": {
 			tool: "stop_and_reconcile",
 			// A separate server, which can hold the profile, leaves a batch that only a reconcile
-			// can finish, and closes before the reconcile starts.
+			// can finish.
 			arguments: func(t *testing.T, service *app.Service) map[string]any {
 				t.Helper()
-				client, closeServer := connectWriteTestServer(t, service, true)
-				commitRejectedDeletion(t, client, service)
-				closeServer()
+				client, supervisor := connectSupervisedServer(t, service, time.Now)
+				commitRejectedDeletion(t, client, service, supervisor)
 				return reconcileArguments(t, service, map[string]any{})
 			},
 			status: func(supervisor *Supervisor) (AttemptStatus, error) {
@@ -1043,13 +1026,10 @@ func TestSupervisedWorkFailsWhenItsProfileCannotBeHeld(t *testing.T) {
 			client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
 
 			callRefreshTool(t, client, test.tool, arguments)
+			supervisor.wait.Wait()
+			status, err := test.status(supervisor)
 
-			var status AttemptStatus
-			require.Eventually(t, func() bool {
-				var err error
-				status, err = test.status(supervisor)
-				return err == nil && status.State != AttemptRunning
-			}, 3*time.Second, 10*time.Millisecond)
+			require.NoError(t, err)
 			assert.Equal(t, AttemptFailed, status.State)
 			assert.Equal(t, "mcp_internal_error", status.Code)
 			assert.Zero(t, profiles.leases.Load())
@@ -1074,17 +1054,12 @@ func TestReconcileHoldsItsProfileAfterTheToolCallReturns(t *testing.T) {
 	service, source, closeProfile := providerTestService(t, 1, "monarch")
 	defer closeProfile()
 	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	supervisor := profiles.entries["profile-a"].Supervisor
 	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
 	revision := stageDeletion(t, client, service)
 	callRefreshTool(t, client, "commit_changes",
 		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
-	var status app.ProviderWriteStatus
-	require.Eventually(t, func() bool {
-		var err error
-		status, err = service.ProviderWriteStatus(t.Context())
-		return err == nil && status.Phase == store.WritePhaseAttentionRequired &&
-			profiles.leases.Load() == 0
-	}, 3*time.Second, 10*time.Millisecond)
+	status := awaitParkedWrite(t, service, supervisor, profiles)
 	started, release := make(chan struct{}), make(chan struct{})
 	source.blockNext(started, release)
 
@@ -1092,14 +1067,13 @@ func TestReconcileHoldsItsProfileAfterTheToolCallReturns(t *testing.T) {
 		"expected_revision": strconv.FormatUint(service.Revision(), 10),
 		"batch_version":     strconv.FormatUint(status.Version, 10),
 	})
-	awaitStart(t, started)
+	<-started
 	held := profiles.leases.Load()
 	close(release)
+	supervisor.wait.Wait()
 
 	assert.Equal(t, int32(1), held)
-	require.Eventually(t, func() bool {
-		return profiles.leases.Load() == 0
-	}, time.Second, time.Millisecond)
+	assert.Zero(t, profiles.leases.Load())
 }
 
 func TestSupervisedWorkHoldsTheProfileTheCallNamed(t *testing.T) {
@@ -1114,15 +1088,15 @@ func TestSupervisedWorkHoldsTheProfileTheCallNamed(t *testing.T) {
 	secondSource.blockNext(started, release)
 
 	callRefreshTool(t, client, "refresh_data", map[string]any{"profile": "profile-b"})
-	awaitStart(t, started)
+	<-started
 	held := profiles.leases.Load()
 	close(release)
+	profiles.entries["profile-b"].Supervisor.wait.Wait()
+	finished := callRefreshTool(t, client, "get_refresh_status",
+		map[string]any{"profile": "profile-b"})
 
 	assert.Equal(t, int32(1), held)
-	require.Eventually(t, func() bool {
-		status := callRefreshTool(t, client, "get_refresh_status", map[string]any{"profile": "profile-b"})
-		return status["state"] == "completed"
-	}, time.Second, time.Millisecond)
+	assert.Equal(t, "completed", finished["state"])
 	assert.Equal(t, 1, firstSource.fetchCalls(), "the other profile must not refresh")
 	assert.Equal(t, 2, secondSource.fetchCalls())
 }

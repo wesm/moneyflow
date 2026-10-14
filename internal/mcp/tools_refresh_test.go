@@ -95,13 +95,12 @@ func TestRefreshConfirmationTokenAppearsOnlyInMatchingStatus(t *testing.T) {
 // refresh starts at once instead of reporting refresh_in_progress until the lease expires.
 func TestRefreshToolStartsAgainAfterAProviderPanic(t *testing.T) {
 	service, source, closeProfile := refreshTestService(t, 1)
-	defer closeProfile()
-	client, cleanup := connectRefreshTestServer(t, service)
-	defer cleanup()
+	t.Cleanup(closeProfile)
+	client, supervisor := connectSupervisedServer(t, service, time.Now)
 	source.panicOnNextFetch()
 
-	failed := awaitRefreshTool(t, client)
-	retried := awaitRefreshTool(t, client)
+	failed := awaitRefreshTool(t, client, supervisor)
+	retried := awaitRefreshTool(t, client, supervisor)
 
 	assert.Equal(t, "failed", failed["state"])
 	assert.Equal(t, "mcp_internal_error", failed["code"])
@@ -116,18 +115,17 @@ func TestRefreshToolStartsAgainAfterAConfirmationPanic(t *testing.T) {
 			folds = &foldPanicProfile{Profile: profile}
 			return folds
 		})
-	defer closeProfile()
-	client, cleanup := connectRefreshTestServer(t, service)
-	defer cleanup()
+	t.Cleanup(closeProfile)
+	client, supervisor := connectSupervisedServer(t, service, time.Now)
 	source.setTransactionCount(0)
-	parked := awaitRefreshTool(t, client)
+	parked := awaitRefreshTool(t, client, supervisor)
 	require.Equal(t, "deletion_confirmation_required", parked["state"])
 	folds.armed.Store(true)
 
 	confirmed := callRefreshToolResult(t, client, "confirm_refresh_deletions", map[string]any{
 		"attempt_id": parked["attempt_id"], "confirmation_token": parked["confirmation_token"],
 	})
-	retried := awaitRefreshTool(t, client)
+	retried := awaitRefreshTool(t, client, supervisor)
 
 	require.True(t, confirmed.IsError)
 	assert.Equal(t, "mcp_internal_error", confirmed.StructuredContent.(map[string]any)["code"])
@@ -139,9 +137,9 @@ func TestRefreshToolStartsAgainAfterAConfirmationPanic(t *testing.T) {
 func TestRefreshConfirmationLastsAsLongAsTheServiceKeepsTheCandidate(t *testing.T) {
 	service, source, closeProfile := refreshTestService(t, 6)
 	t.Cleanup(closeProfile)
-	client, advance := connectClockedServer(t, service, source, 30*time.Minute)
+	client, supervisor, advance := connectClockedServer(t, service, source, 30*time.Minute)
 	source.setTransactionCount(0)
-	parked := awaitRefreshTool(t, client)
+	parked := awaitRefreshTool(t, client, supervisor)
 	require.Equal(t, "deletion_confirmation_required", parked["state"])
 
 	advance(30*time.Minute - time.Millisecond)
@@ -161,7 +159,7 @@ func TestRefreshConfirmationLastsAsLongAsTheServiceKeepsTheCandidate(t *testing.
 func TestRefreshConfirmationExpiresAtTheServiceDeadline(t *testing.T) {
 	service, source, closeProfile := refreshTestService(t, 6)
 	t.Cleanup(closeProfile)
-	client, advance := connectClockedServer(t, service, source, 0)
+	client, supervisor, advance := connectClockedServer(t, service, source, 0)
 	source.setTransactionCount(0)
 	fetching := make(chan struct{})
 	release := make(chan struct{})
@@ -170,13 +168,13 @@ func TestRefreshConfirmationExpiresAtTheServiceDeadline(t *testing.T) {
 	<-fetching
 	advance(3 * time.Minute)
 	close(release)
-	parked := awaitRefreshAttempt(t, client, attemptID)
+	parked := awaitRefreshAttempt(t, client, supervisor, attemptID)
 	require.Equal(t, "deletion_confirmation_required", parked["state"])
 
 	advance(7 * time.Minute)
 	expired := callRefreshTool(t, client, "get_refresh_status",
 		map[string]any{"attempt_id": attemptID})
-	next := awaitRefreshTool(t, client)
+	next := awaitRefreshTool(t, client, supervisor)
 
 	assert.Equal(t, "failed", expired["state"])
 	assert.Equal(t, "provider_confirmation_invalid", expired["code"])
@@ -193,7 +191,7 @@ func connectClockedServer(
 	service *app.Service,
 	source *refreshTestSource,
 	confirmationTTL time.Duration,
-) (*mcpsdk.ClientSession, func(time.Duration)) {
+) (*mcpsdk.ClientSession, *Supervisor, func(time.Duration)) {
 	t.Helper()
 	start := time.Now()
 	var elapsed atomic.Int64
@@ -203,6 +201,18 @@ func connectClockedServer(
 		Scale: 2, Renderer: "mcp", InstanceID: "mcp-test", Now: clock,
 		Random: cryptorand.Reader, ConfirmationTTL: confirmationTTL,
 	}))
+	client, supervisor := connectSupervisedServer(t, service, clock)
+	return client, supervisor, func(step time.Duration) { elapsed.Add(int64(step)) }
+}
+
+// connectSupervisedServer connects a client to a write-enabled server for service that reads
+// clock. It returns the server's supervisor, so a test can wait for the work the server starts.
+func connectSupervisedServer(
+	t *testing.T,
+	service *app.Service,
+	clock func() time.Time,
+) (*mcpsdk.ClientSession, *Supervisor) {
+	t.Helper()
 	server, err := New(Dependencies{
 		Service: service, ProfileID: "profile-a", ProfileName: "Profile A",
 		ProfileRoot: t.TempDir(), Clock: clock, Random: cryptorand.Reader,
@@ -210,26 +220,31 @@ func connectClockedServer(
 	}, Options{AllowWrite: true})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Close(context.Background())) })
-	return connectSDK(t, server.SDK), func(step time.Duration) { elapsed.Add(int64(step)) }
+	return connectSDK(t, server.SDK), server.supervisor
 }
 
-// awaitRefreshTool starts a refresh and returns its status once it stops running.
-func awaitRefreshTool(t *testing.T, client *mcpsdk.ClientSession) map[string]any {
+// awaitRefreshTool starts a refresh and returns its status once the work of supervisor ends.
+func awaitRefreshTool(
+	t *testing.T,
+	client *mcpsdk.ClientSession,
+	supervisor *Supervisor,
+) map[string]any {
 	t.Helper()
 	attemptID := callRefreshTool(t, client, "refresh_data", nil)["attempt_id"]
-	return awaitRefreshAttempt(t, client, attemptID)
+	return awaitRefreshAttempt(t, client, supervisor, attemptID)
 }
 
-// awaitRefreshAttempt returns the status of the named refresh once it stops running.
-func awaitRefreshAttempt(t *testing.T, client *mcpsdk.ClientSession, attemptID any) map[string]any {
+// awaitRefreshAttempt waits until the work of supervisor ends and returns the status of the named
+// refresh. A wait that never ends fails at the go test timeout, with a goroutine dump.
+func awaitRefreshAttempt(
+	t *testing.T,
+	client *mcpsdk.ClientSession,
+	supervisor *Supervisor,
+	attemptID any,
+) map[string]any {
 	t.Helper()
-	var status map[string]any
-	require.Eventually(t, func() bool {
-		status = callRefreshTool(t, client, "get_refresh_status",
-			map[string]any{"attempt_id": attemptID})
-		return status["state"] != "running"
-	}, 3*time.Second, time.Millisecond)
-	return status
+	supervisor.wait.Wait()
+	return callRefreshTool(t, client, "get_refresh_status", map[string]any{"attempt_id": attemptID})
 }
 
 // foldPanicProfile panics in the next provider fold once armed, before the fold's transaction

@@ -442,10 +442,11 @@ func TestSupervisorTurnsAPanickingRefreshIntoAFailedAttempt(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.ErrorIs(t, <-failures, errWorkPanicked)
-	require.Eventually(t, func() bool {
-		status, statusErr := supervisor.RefreshStatus(started.ID)
-		return statusErr == nil && status.State == AttemptFailed && status.Code == "mcp_internal_error"
-	}, time.Second, time.Millisecond)
+	supervisor.wait.Wait()
+	status, err := supervisor.RefreshStatus(started.ID)
+	require.NoError(t, err)
+	assert.Equal(t, AttemptFailed, status.State)
+	assert.Equal(t, "mcp_internal_error", status.Code)
 }
 
 func TestSupervisorStopsWorkWhenItsParentEnds(t *testing.T) {
@@ -460,11 +461,12 @@ func TestSupervisorStopsWorkWhenItsParentEnds(t *testing.T) {
 	require.NoError(t, err)
 
 	cancel()
+	supervisor.wait.Wait()
 
-	require.Eventually(t, func() bool {
-		status, statusErr := supervisor.RefreshStatus(started.ID)
-		return statusErr == nil && status.State == AttemptFailed && status.Code == "mcp_server_closed"
-	}, time.Second, time.Millisecond)
+	status, err := supervisor.RefreshStatus(started.ID)
+	require.NoError(t, err)
+	assert.Equal(t, AttemptFailed, status.State)
+	assert.Equal(t, "mcp_server_closed", status.Code)
 }
 
 func TestSupervisorWaitRefreshReturnsOnceTheAttemptStopsRunning(t *testing.T) {
@@ -625,10 +627,10 @@ func TestSupervisorConfirmReconcileReturnsItsOutcomeAfterANewReconcileStarts(t *
 			}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired}
 		})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		status, statusErr := supervisor.ReconcileStatus(parked.ID)
-		return statusErr == nil && status.State == AttemptConfirmationRequired
-	}, time.Second, time.Millisecond)
+	supervisor.wait.Wait()
+	status, err := supervisor.ReconcileStatus(parked.ID)
+	require.NoError(t, err)
+	require.Equal(t, AttemptConfirmationRequired, status.State)
 	var next AttemptStatus
 	afterReconcileFold = func() {
 		var startErr error
@@ -685,9 +687,8 @@ func TestSupervisorTurnsPanickingWorkIntoAFailedAttemptInEverySupervisedCall(t *
 		require.NoError(t, err)
 		assert.True(t, active)
 		assert.ErrorIs(t, <-failures, errWorkPanicked)
-		require.Eventually(t, func() bool {
-			return !supervisor.WriteActive()
-		}, time.Second, time.Millisecond)
+		supervisor.wait.Wait()
+		assert.False(t, supervisor.WriteActive())
 	})
 
 	t.Run("refresh confirmation", func(t *testing.T) {
@@ -717,10 +718,11 @@ func TestSupervisorTurnsPanickingWorkIntoAFailedAttemptInEverySupervisedCall(t *
 			})
 
 		require.NoError(t, err)
-		require.Eventually(t, func() bool {
-			status, statusErr := supervisor.ReconcileStatus(started.ID)
-			return statusErr == nil && status.State == AttemptFailed && status.Code == "mcp_internal_error"
-		}, time.Second, time.Millisecond)
+		supervisor.wait.Wait()
+		status, err := supervisor.ReconcileStatus(started.ID)
+		require.NoError(t, err)
+		assert.Equal(t, AttemptFailed, status.State)
+		assert.Equal(t, "mcp_internal_error", status.Code)
 	})
 
 	t.Run("reconcile confirmation", func(t *testing.T) {
@@ -735,10 +737,10 @@ func TestSupervisorTurnsPanickingWorkIntoAFailedAttemptInEverySupervisedCall(t *
 				}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 8}
 			})
 		require.NoError(t, err)
-		require.Eventually(t, func() bool {
-			status, statusErr := supervisor.ReconcileStatus(started.ID)
-			return statusErr == nil && status.State == AttemptConfirmationRequired
-		}, time.Second, time.Millisecond)
+		supervisor.wait.Wait()
+		status, err := supervisor.ReconcileStatus(started.ID)
+		require.NoError(t, err)
+		require.Equal(t, AttemptConfirmationRequired, status.State)
 
 		confirmed, err := supervisor.ConfirmReconcile(started.ID, "confirmation-k",
 			func(context.Context) (app.ProviderWriteResult, error) {
