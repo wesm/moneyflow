@@ -1,0 +1,706 @@
+package mcp
+
+import (
+	"context"
+	cryptorand "crypto/rand"
+	"errors"
+	"fmt"
+	"log/slog"
+	"maps"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/wesm/moneyflow/internal/access"
+	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/provider"
+	"github.com/wesm/moneyflow/internal/store"
+)
+
+var allClasses = []access.Class{access.Read, access.Stage, access.Commit}
+
+type testProfiles struct {
+	order   []string
+	entries map[string]Dependencies
+	// leases counts the profile holds that are not yet released.
+	leases *atomic.Int32
+}
+
+func (profiles testProfiles) List(context.Context) ([]ProfileSummary, error) {
+	summaries := make([]ProfileSummary, 0, len(profiles.order))
+	for _, id := range profiles.order {
+		summaries = append(summaries, ProfileSummary{
+			ID: id, Name: profiles.entries[id].ProfileName, Provider: "local", State: "ready",
+		})
+	}
+	return summaries, nil
+}
+
+func (profiles testProfiles) Acquire(
+	_ context.Context,
+	profile string,
+) (Dependencies, func(), error) {
+	if profile == "" {
+		if len(profiles.order) != 1 {
+			return Dependencies{}, nil, ErrProfileRequired
+		}
+		profile = profiles.order[0]
+	}
+	dependencies, ok := profiles.entries[profile]
+	if !ok {
+		return Dependencies{}, nil, ErrProfileNotFound
+	}
+	profiles.leases.Add(1)
+	var once sync.Once
+	return dependencies, func() { once.Do(func() { profiles.leases.Add(-1) }) }, nil
+}
+
+func newTestProfiles(t *testing.T, services map[string]*app.Service, order ...string) testProfiles {
+	t.Helper()
+	profiles := testProfiles{
+		order: order, entries: map[string]Dependencies{}, leases: new(atomic.Int32),
+	}
+	for _, id := range order {
+		supervisor := NewSupervisor(context.Background(), time.Now,
+			strings.NewReader(strings.Repeat("p", 256)), nil)
+		t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
+		profiles.entries[id] = Dependencies{
+			Service: services[id], ProfileID: id, ProfileName: "Example Shop " + id,
+			ProfileRoot: t.TempDir(), Clock: time.Now,
+			Random: strings.NewReader(strings.Repeat("q", 256)),
+			Logger: slog.New(slog.DiscardHandler), Supervisor: supervisor,
+		}
+	}
+	return profiles
+}
+
+func connectSDK(t *testing.T, sdk *mcpsdk.Server) *mcpsdk.ClientSession {
+	t.Helper()
+	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+	serverSession, err := sdk.Connect(t.Context(), serverTransport, nil)
+	require.NoError(t, err)
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "1"}, nil)
+	clientSession, err := client.Connect(t.Context(), clientTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, clientSession.Close())
+		require.NoError(t, serverSession.Close())
+	})
+	return clientSession
+}
+
+func registeredSDK(t *testing.T, profiles Profiles, options RegisterOptions) *mcpsdk.ClientSession {
+	t.Helper()
+	sdk := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "host", Version: "1"}, nil)
+	require.NoError(t, Register(sdk, profiles, options))
+	return connectSDK(t, sdk)
+}
+
+func TestEveryStandaloneToolHasAClass(t *testing.T) {
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	server, err := New(Dependencies{
+		Service: service, ProfileID: "profile-a", ProfileName: "Example Shop profile-a",
+		ProfileRoot: t.TempDir(), Clock: time.Now,
+		Random: strings.NewReader(strings.Repeat("r", 128)),
+		Logger: slog.New(slog.DiscardHandler),
+	}, Options{AllowWrite: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, server.Close(context.Background())) })
+
+	tools, err := connectSDK(t, server.SDK).ListTools(t.Context(), nil)
+
+	require.NoError(t, err)
+	require.Len(t, tools.Tools, len(toolClasses)-1)
+	for _, tool := range tools.Tools {
+		assert.True(t, toolClasses[tool.Name].Valid(), "tool %s has no class", tool.Name)
+	}
+}
+
+func TestRegisterAddsEveryClassedToolWithMatchingHints(t *testing.T) {
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+
+	tools, err := client.ListTools(t.Context(), nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, slices.Sorted(maps.Keys(toolClasses)), toolNames(tools.Tools))
+	for _, tool := range tools.Tools {
+		readOnly := toolClasses[tool.Name] == access.Read
+		assert.Equal(t, readOnly, tool.Annotations.ReadOnlyHint, tool.Name)
+	}
+}
+
+func TestRegisterFiltersByClassAndPrefixesNames(t *testing.T) {
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	client := registeredSDK(t, profiles, RegisterOptions{
+		Classes: []access.Class{access.Read}, Prefix: "moneyflow_",
+	})
+
+	tools, err := client.ListTools(t.Context(), nil)
+
+	require.NoError(t, err)
+	names := toolNames(tools.Tools)
+	assert.Contains(t, names, "moneyflow_list_profiles")
+	for _, name := range names {
+		require.True(t, strings.HasPrefix(name, "moneyflow_"), name)
+		assert.Equal(t, access.Read, toolClasses[strings.TrimPrefix(name, "moneyflow_")], name)
+	}
+}
+
+func TestRegisterRejectsInvalidOptions(t *testing.T) {
+	sdk := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "host", Version: "1"}, nil)
+	for name, options := range map[string]RegisterOptions{
+		"no classes":     {},
+		"unknown class":  {Classes: []access.Class{"admin"}},
+		"invalid prefix": {Classes: []access.Class{access.Read}, Prefix: "bad prefix"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Error(t, Register(sdk, testProfiles{}, options))
+		})
+	}
+	require.Error(t, Register(nil, testProfiles{}, RegisterOptions{Classes: allClasses}))
+	require.Error(t, Register(sdk, nil, RegisterOptions{Classes: allClasses}))
+}
+
+func TestProfileArgumentChoosesAmongSeveralProfiles(t *testing.T) {
+	first, closeFirst := writeTestService(t, 1)
+	defer closeFirst()
+	second, closeSecond := writeTestService(t, 2)
+	defer closeSecond()
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": first, "profile-b": second},
+		"profile-a", "profile-b")
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses, Prefix: "moneyflow_"})
+
+	missing := callRefreshToolResult(t, client, "moneyflow_get_account_info", nil)
+	unknown := callRefreshToolResult(t, client, "moneyflow_get_account_info",
+		map[string]any{"profile": "profile-z"})
+	chosen := callRefreshTool(t, client, "moneyflow_get_account_info",
+		map[string]any{"profile": "profile-b"})
+	listed := callRefreshTool(t, client, "moneyflow_list_profiles", nil)
+
+	require.True(t, missing.IsError)
+	failure := missing.StructuredContent.(map[string]any)
+	assert.Equal(t, "profile_required", failure["code"])
+	assert.Contains(t, failure["detail"], "moneyflow_list_profiles")
+	require.True(t, unknown.IsError)
+	assert.Equal(t, "profile_not_found", unknown.StructuredContent.(map[string]any)["code"])
+	assert.Equal(t, "profile-b", chosen["profile_id"])
+	assert.Len(t, listed["profiles"], 2)
+}
+
+func TestStandaloneServerAcceptsOnlyItsOwnProfile(t *testing.T) {
+	service, closeProfile := writeTestService(t, 1)
+	defer closeProfile()
+	client, cleanup := connectRefreshTestServer(t, service)
+	defer cleanup()
+
+	own := callRefreshTool(t, client, "get_account_info", map[string]any{"profile": "profile-a"})
+	other := callRefreshToolResult(t, client, "get_account_info",
+		map[string]any{"profile": "profile-b"})
+
+	assert.Equal(t, "profile-a", own["profile_id"])
+	require.True(t, other.IsError)
+	assert.Equal(t, "profile_not_found", other.StructuredContent.(map[string]any)["code"])
+}
+
+func TestPanickingToolReturnsAnInternalError(t *testing.T) {
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": nil}, "profile-a")
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+
+	result := callRefreshToolResult(t, client, "get_account_info", nil)
+
+	require.True(t, result.IsError)
+	assert.Equal(t, "mcp_internal_error", result.StructuredContent.(map[string]any)["code"])
+}
+
+func TestRefreshAttemptIsSharedAcrossRegisteredServers(t *testing.T) {
+	service, source, closeProfile := refreshTestService(t, 1)
+	defer closeProfile()
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	first := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+	second := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+	started, release := make(chan struct{}), make(chan struct{})
+	source.blockNext(started, release)
+
+	accepted := callRefreshTool(t, first, "refresh_data", nil)
+	<-started
+	observed := callRefreshTool(t, second, "get_refresh_status", nil)
+	close(release)
+
+	assert.Equal(t, accepted["attempt_id"], observed["attempt_id"])
+	assert.Equal(t, "running", observed["state"])
+	require.Eventually(t, func() bool {
+		return callRefreshTool(t, second, "get_refresh_status", nil)["state"] == "completed"
+	}, time.Second, time.Millisecond)
+}
+
+func TestSupervisedWorkHoldsItsProfileAfterTheToolCallReturns(t *testing.T) {
+	service, source, closeProfile := refreshTestService(t, 1)
+	defer closeProfile()
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+	started, release := make(chan struct{}), make(chan struct{})
+	source.blockNext(started, release)
+
+	callRefreshTool(t, client, "refresh_data", nil)
+	<-started
+	held := profiles.leases.Load()
+	close(release)
+
+	assert.Equal(t, int32(1), held)
+	require.Eventually(t, func() bool {
+		return profiles.leases.Load() == 0
+	}, time.Second, time.Millisecond)
+}
+
+// busyProfiles reports every profile as held by another process.
+type busyProfiles struct{ testProfiles }
+
+func (busyProfiles) Acquire(context.Context, string) (Dependencies, func(), error) {
+	return Dependencies{}, nil, UnavailableError{Reason: "profile_busy: another process holds it"}
+}
+
+func TestAnUnavailableProfileSaysWhy(t *testing.T) {
+	client := registeredSDK(t, busyProfiles{}, RegisterOptions{Classes: allClasses})
+
+	result := callRefreshToolResult(t, client, "get_account_info", nil)
+
+	require.True(t, result.IsError)
+	failure := result.StructuredContent.(map[string]any)
+	assert.Equal(t, "profile_unavailable", failure["code"])
+	assert.Equal(t, "The profile could not be opened: profile_busy: another process holds it",
+		failure["detail"])
+}
+
+func TestRegisterGivesEachClassItsOwnTools(t *testing.T) {
+	expected := map[access.Class][]string{
+		access.Read: {
+			"get_account_info", "get_amazon_order_details", "get_categories", "get_commit_status",
+			"get_insights", "get_merchants", "get_reconcile_status", "get_refresh_status",
+			"get_spending_summary", "get_transaction_details", "get_transactions",
+			"get_uncategorized_transactions", "list_profiles", "preview_export", "review_changes",
+			"search_transactions",
+		},
+		access.Stage: {
+			"batch_update_category", "delete_transactions", "export_transactions", "manage_category",
+			"manage_category_group", "reassign_transactions_merchant", "redo_changes", "refresh_data",
+			"rename_merchant", "toggle_transactions_hidden", "undo_changes",
+			"update_transaction_category",
+		},
+		access.Commit: {
+			"commit_changes", "confirm_reconcile", "confirm_refresh_deletions", "pause_commit",
+			"resume_commit", "stop_and_reconcile",
+		},
+	}
+	destructive := []string{"commit_changes", "confirm_reconcile", "confirm_refresh_deletions"}
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": nil}, "profile-a")
+
+	for class, names := range expected {
+		t.Run(string(class), func(t *testing.T) {
+			client := registeredSDK(t, profiles, RegisterOptions{Classes: []access.Class{class}})
+
+			tools, err := client.ListTools(t.Context(), nil)
+
+			require.NoError(t, err)
+			assert.ElementsMatch(t, names, toolNames(tools.Tools))
+			for _, tool := range tools.Tools {
+				assert.Equal(t, slices.Contains(destructive, tool.Name), *tool.Annotations.DestructiveHint,
+					tool.Name)
+			}
+		})
+	}
+}
+
+func TestEveryToolTakesAnOptionalProfileArgument(t *testing.T) {
+	service, closeProfile := writeTestService(t, 1)
+	defer closeProfile()
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	standalone, closeStandalone := connectWriteTestServer(t, service, true)
+	defer closeStandalone()
+	clients := map[string]*mcpsdk.ClientSession{
+		"registered": registeredSDK(t, profiles, RegisterOptions{Classes: allClasses}),
+		"standalone": standalone,
+	}
+
+	for name, client := range clients {
+		t.Run(name, func(t *testing.T) {
+			tools, err := client.ListTools(t.Context(), nil)
+
+			require.NoError(t, err)
+			for _, tool := range tools.Tools {
+				if tool.Name == "list_profiles" {
+					continue
+				}
+				schema, ok := tool.InputSchema.(map[string]any)
+				require.True(t, ok, tool.Name)
+				assert.Contains(t, schema["properties"], "profile", tool.Name)
+				required, _ := schema["required"].([]any)
+				assert.NotContains(t, required, "profile", tool.Name)
+			}
+		})
+	}
+}
+
+func TestListProfilesAnswersEachProfile(t *testing.T) {
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": nil, "profile-b": nil},
+		"profile-a", "profile-b")
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+
+	listed := callRefreshTool(t, client, "list_profiles", nil)
+
+	assert.Equal(t, []any{
+		map[string]any{
+			"id": "profile-a", "name": "Example Shop profile-a", "provider": "local", "state": "ready",
+		},
+		map[string]any{
+			"id": "profile-b", "name": "Example Shop profile-b", "provider": "local", "state": "ready",
+		},
+	}, listed["profiles"])
+}
+
+// listedProfiles answers List with fixed values.
+type listedProfiles struct {
+	testProfiles
+	summaries []ProfileSummary
+	err       error
+}
+
+func (profiles listedProfiles) List(context.Context) ([]ProfileSummary, error) {
+	return profiles.summaries, profiles.err
+}
+
+func TestListProfilesAnswersAnEmptyListAndHidesWhyItFailed(t *testing.T) {
+	empty := registeredSDK(t, listedProfiles{}, RegisterOptions{Classes: allClasses})
+	failing := registeredSDK(t, listedProfiles{err: errors.New("catalog file is unreadable")},
+		RegisterOptions{Classes: allClasses})
+
+	none := callRefreshTool(t, empty, "list_profiles", nil)
+	failure := callRefreshToolResult(t, failing, "list_profiles", nil)
+
+	assert.Equal(t, []any{}, none["profiles"])
+	require.True(t, failure.IsError)
+	document := failure.StructuredContent.(map[string]any)
+	assert.Equal(t, "mcp_internal_error", document["code"])
+	assert.NotContains(t, document["detail"], "unreadable")
+}
+
+// failingProfiles fails every Acquire with a fixed error.
+type failingProfiles struct {
+	testProfiles
+	err error
+}
+
+func (profiles failingProfiles) Acquire(context.Context, string) (Dependencies, func(), error) {
+	return Dependencies{}, nil, profiles.err
+}
+
+func TestAcquireFailuresAnswerWithTheirCodeAndOnlyASafeReason(t *testing.T) {
+	list := "moneyflow_list_profiles"
+	tests := map[string]struct {
+		err    error
+		code   string
+		detail string
+	}{
+		"wrapped required": {
+			err:  fmt.Errorf("resolve example: %w", ErrProfileRequired),
+			code: "profile_required", detail: list,
+		},
+		"wrapped not found": {
+			err:  fmt.Errorf("resolve example: %w", ErrProfileNotFound),
+			code: "profile_not_found", detail: list,
+		},
+		"wrapped reason": {
+			err:  fmt.Errorf("open example: %w", UnavailableError{Reason: "profile_busy: held"}),
+			code: "profile_unavailable", detail: "The profile could not be opened: profile_busy: held",
+		},
+		"raw cause": {
+			err:  errors.New("database file is locked"),
+			code: "profile_unavailable", detail: "The profile could not be opened.",
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			client := registeredSDK(t, failingProfiles{err: test.err},
+				RegisterOptions{Classes: allClasses, Prefix: "moneyflow_"})
+
+			result := callRefreshToolResult(t, client, "moneyflow_get_account_info", nil)
+
+			require.True(t, result.IsError)
+			failure := result.StructuredContent.(map[string]any)
+			assert.Equal(t, test.code, failure["code"])
+			assert.Contains(t, failure["detail"], test.detail)
+			assert.NotContains(t, failure["detail"], "locked")
+		})
+	}
+}
+
+func TestAnUnavailableErrorMatchesItsSentinel(t *testing.T) {
+	failure := fmt.Errorf("open example: %w", UnavailableError{Reason: "profile_busy: held"})
+
+	assert.ErrorIs(t, failure, ErrProfileUnavailable)
+	assert.NotErrorIs(t, failure, ErrProfileNotFound)
+}
+
+func TestToolFailuresCarryTheRevisionOfTheirProfile(t *testing.T) {
+	first, closeFirst := writeTestService(t, 1)
+	defer closeFirst()
+	second, closeSecond := writeTestService(t, 1)
+	defer closeSecond()
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": first, "profile-b": second},
+		"profile-a", "profile-b")
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+	staged := callRefreshTool(t, client, "update_transaction_category", map[string]any{
+		"profile": "profile-b", "expected_revision": "1", "transaction_id": "transaction_000",
+		"category_id": "category_b",
+	})
+	require.Equal(t, "2", staged["revision"])
+
+	onFirst := callRefreshToolResult(t, client, "commit_changes", map[string]any{
+		"profile": "profile-a", "expected_revision": "9", "reviewed_revision": "9",
+	})
+	onSecond := callRefreshToolResult(t, client, "commit_changes", map[string]any{
+		"profile": "profile-b", "expected_revision": "1", "reviewed_revision": "1",
+	})
+
+	require.True(t, onFirst.IsError)
+	require.True(t, onSecond.IsError)
+	assert.Equal(t, "1", onFirst.StructuredContent.(map[string]any)["revision"])
+	assert.Equal(t, "2", onSecond.StructuredContent.(map[string]any)["revision"])
+}
+
+// awaitStart fails the test when supervised work does not reach its gate in time.
+func awaitStart(t *testing.T, started <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("supervised work did not start")
+	}
+}
+
+// gatedWrites holds the next provider write until the test releases it.
+type gatedWrites struct {
+	*refreshTestSource
+	gateMu  sync.Mutex
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+// gateProviderWrites sends the provider writes of service through a gate.
+func gateProviderWrites(
+	t *testing.T,
+	service *app.Service,
+	source *refreshTestSource,
+) *gatedWrites {
+	t.Helper()
+	gate := &gatedWrites{refreshTestSource: source}
+	now := time.Date(2026, time.August, 29, 14, 0, 0, 0, time.UTC)
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		ReadSource: source, WriteSource: gate, Provider: source.kind, Currency: "USD", Scale: 2,
+		Renderer: "mcp", InstanceID: "mcp-test", Now: func() time.Time { return now },
+		Random: cryptorand.Reader,
+	}))
+	return gate
+}
+
+func (gate *gatedWrites) holdNext(started chan<- struct{}, release <-chan struct{}) {
+	gate.gateMu.Lock()
+	defer gate.gateMu.Unlock()
+	gate.started, gate.release = started, release
+}
+
+func (gate *gatedWrites) wait(ctx context.Context) {
+	gate.gateMu.Lock()
+	started, release := gate.started, gate.release
+	gate.started, gate.release = nil, nil
+	gate.gateMu.Unlock()
+	if started == nil {
+		return
+	}
+	close(started)
+	select {
+	case <-ctx.Done():
+	case <-release:
+	}
+}
+
+func (gate *gatedWrites) Writer(
+	context.Context,
+	bool,
+) (provider.Writer, provider.SessionFingerprint, error) {
+	return gate, "session-a", nil
+}
+
+func (gate *gatedWrites) UpdateTransaction(
+	ctx context.Context,
+	update provider.TransactionUpdate,
+) (provider.TransactionUpdateResult, error) {
+	gate.wait(ctx)
+	return gate.refreshTestSource.UpdateTransaction(ctx, update)
+}
+
+func (gate *gatedWrites) DeleteTransaction(
+	ctx context.Context,
+	id string,
+) (provider.TransactionDeleteResult, error) {
+	gate.wait(ctx)
+	return gate.refreshTestSource.DeleteTransaction(ctx, id)
+}
+
+// stageDeletion stages the deletion of the first transaction and returns the revision to commit.
+func stageDeletion(t *testing.T, client *mcpsdk.ClientSession, service *app.Service) any {
+	t.Helper()
+	rows, err := service.TransactionWindow(t.Context(), app.TransactionWindowRequest{Limit: 1})
+	require.NoError(t, err)
+	staged := callRefreshTool(t, client, "delete_transactions", map[string]any{
+		"expected_revision": strconv.FormatUint(rows.Revision, 10),
+		"transaction_ids":   []string{rows.Rows[0].ID},
+	})
+	return staged["revision"]
+}
+
+func TestProviderWriteHoldsItsProfileWhileItRuns(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "monarch")
+	defer closeProfile()
+	gate := gateProviderWrites(t, service, source)
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+	revision := stageDeletion(t, client, service)
+	started, release := make(chan struct{}), make(chan struct{})
+	gate.holdNext(started, release)
+
+	callRefreshTool(t, client, "commit_changes",
+		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	awaitStart(t, started)
+	held := profiles.leases.Load()
+	close(release)
+
+	assert.Equal(t, int32(1), held)
+	require.Eventually(t, func() bool {
+		return profiles.leases.Load() == 0
+	}, time.Second, time.Millisecond)
+}
+
+func TestResumedProviderWriteHoldsItsProfileWhileItRuns(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "monarch")
+	defer closeProfile()
+	source.deleteFailure = provider.NewWriteFailure(provider.WriteResponseIncomplete)
+	gate := gateProviderWrites(t, service, source)
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+	revision := stageDeletion(t, client, service)
+	callRefreshTool(t, client, "commit_changes",
+		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	var status app.ProviderWriteStatus
+	require.Eventually(t, func() bool {
+		var err error
+		status, err = service.ProviderWriteStatus(t.Context())
+		return err == nil && status.Phase == store.WritePhaseAttentionRequired &&
+			profiles.leases.Load() == 0
+	}, 3*time.Second, 10*time.Millisecond)
+	started, release := make(chan struct{}), make(chan struct{})
+	gate.holdNext(started, release)
+
+	callRefreshTool(t, client, "resume_commit",
+		map[string]any{"batch_version": strconv.FormatUint(status.Version, 10)})
+	awaitStart(t, started)
+	held := profiles.leases.Load()
+	close(release)
+
+	assert.Equal(t, int32(1), held)
+	require.Eventually(t, func() bool {
+		return profiles.leases.Load() == 0
+	}, time.Second, time.Millisecond)
+}
+
+func TestFailedWriteReservationGivesTheProfileBack(t *testing.T) {
+	service, closeProfile := writeTestService(t, 1)
+	defer closeProfile()
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+
+	result := callRefreshToolResult(t, client, "resume_commit", map[string]any{"batch_version": "1"})
+
+	require.True(t, result.IsError)
+	assert.Zero(t, profiles.leases.Load())
+}
+
+func TestReleasingAnUnrunWriteGivesTheProfileBack(t *testing.T) {
+	var released atomic.Int32
+	held := heldExecution{release: func() { released.Add(1) }}
+
+	held.Release()
+
+	assert.Equal(t, int32(1), released.Load())
+}
+
+func TestReconcileHoldsItsProfileAfterTheToolCallReturns(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "monarch")
+	defer closeProfile()
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+	revision := stageDeletion(t, client, service)
+	callRefreshTool(t, client, "commit_changes",
+		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	var status app.ProviderWriteStatus
+	require.Eventually(t, func() bool {
+		var err error
+		status, err = service.ProviderWriteStatus(t.Context())
+		return err == nil && status.Phase == store.WritePhaseAttentionRequired &&
+			profiles.leases.Load() == 0
+	}, 3*time.Second, 10*time.Millisecond)
+	started, release := make(chan struct{}), make(chan struct{})
+	source.blockNext(started, release)
+
+	callRefreshTool(t, client, "stop_and_reconcile", map[string]any{
+		"expected_revision": strconv.FormatUint(service.Revision(), 10),
+		"batch_version":     strconv.FormatUint(status.Version, 10),
+	})
+	awaitStart(t, started)
+	held := profiles.leases.Load()
+	close(release)
+
+	assert.Equal(t, int32(1), held)
+	require.Eventually(t, func() bool {
+		return profiles.leases.Load() == 0
+	}, time.Second, time.Millisecond)
+}
+
+func TestSupervisedWorkHoldsTheProfileTheCallNamed(t *testing.T) {
+	first, firstSource, closeFirst := refreshTestService(t, 1)
+	defer closeFirst()
+	second, secondSource, closeSecond := refreshTestService(t, 2)
+	defer closeSecond()
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": first, "profile-b": second},
+		"profile-a", "profile-b")
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+	started, release := make(chan struct{}), make(chan struct{})
+	secondSource.blockNext(started, release)
+
+	callRefreshTool(t, client, "refresh_data", map[string]any{"profile": "profile-b"})
+	awaitStart(t, started)
+	held := profiles.leases.Load()
+	close(release)
+
+	assert.Equal(t, int32(1), held)
+	require.Eventually(t, func() bool {
+		status := callRefreshTool(t, client, "get_refresh_status", map[string]any{"profile": "profile-b"})
+		return status["state"] == "completed"
+	}, time.Second, time.Millisecond)
+	assert.Equal(t, 1, firstSource.fetchCalls(), "the other profile must not refresh")
+	assert.Equal(t, 2, secondSource.fetchCalls())
+}

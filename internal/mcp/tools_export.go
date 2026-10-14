@@ -20,6 +20,7 @@ type ExportInput struct {
 
 // ExportSelectionInput selects the full profile or an unpaginated committed subset.
 type ExportSelectionInput struct {
+	ProfileArgument
 	Scope  app.ExportScope         `json:"scope,omitempty" jsonschema:"full (default) or filtered"`
 	Filter *TransactionFilterInput `json:"filter,omitempty" jsonschema:"required for filtered scope; same predicates as get_transactions without pagination"`
 }
@@ -43,9 +44,9 @@ type ExportResultDocument struct {
 	SizeBytes string          `json:"size_bytes"`
 }
 
-func registerExportTools(server *Server, dependencies Dependencies) {
+func registerExportTools(server *Server) {
 	registerTool(server, "preview_export", "Preview full (default) or filtered committed export counts. Filters match get_transactions without pagination, applied to committed values. Pending edits are excluded. Does not create a file or contact providers.", true,
-		func(ctx context.Context, input ExportSelectionInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input ExportSelectionInput) (any, error) {
 			request, err := exportSelectionRequest(input)
 			if err != nil {
 				return nil, newAppInputError(dependencies.Service.Revision(), err)
@@ -72,7 +73,7 @@ func registerExportTools(server *Server, dependencies Dependencies) {
 	// Export creates a file, so its protocol hint is not read-only even though
 	// it is available without permission to edit financial state.
 	registerTool(server, "export_transactions", "Export full (default) or filtered committed transactions as parquet (default), csv, or sqlite to the profile's server-side exports directory. Filters match get_transactions without pagination, applied to committed values. Returns a server path, not a download. Excludes pending edits; does not commit or contact providers. Retrying creates another file.", false,
-		func(ctx context.Context, input ExportInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input ExportInput) (any, error) {
 			return exportTransactionsDocument(ctx, dependencies, input)
 		})
 }

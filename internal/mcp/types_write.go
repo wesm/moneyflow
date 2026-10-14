@@ -2,6 +2,7 @@ package mcp
 
 // UpdateTransactionCategoryInput stages or previews one exact category assignment.
 type UpdateTransactionCategoryInput struct {
+	ProfileArgument
 	ExpectedRevision string `json:"expected_revision"`
 	TransactionID    string `json:"transaction_id"`
 	CategoryID       string `json:"category_id,omitempty"`
@@ -11,6 +12,7 @@ type UpdateTransactionCategoryInput struct {
 
 // BatchUpdateCategoryInput stages or previews one atomic bounded category assignment.
 type BatchUpdateCategoryInput struct {
+	ProfileArgument
 	ExpectedRevision string   `json:"expected_revision"`
 	TransactionIDs   []string `json:"transaction_ids"`
 	CategoryID       string   `json:"category_id,omitempty"`
@@ -20,33 +22,39 @@ type BatchUpdateCategoryInput struct {
 
 // CursorMutationInput moves the durable journal cursor at one exact revision.
 type CursorMutationInput struct {
+	ProfileArgument
 	ExpectedRevision string `json:"expected_revision"`
 }
 
 // CommitChangesInput confirms one previously reviewed journal revision.
 type CommitChangesInput struct {
+	ProfileArgument
 	ExpectedRevision string `json:"expected_revision"`
 	ReviewedRevision string `json:"reviewed_revision"`
 }
 
 // BatchVersionInput guards one provider-write batch control action.
 type BatchVersionInput struct {
+	ProfileArgument
 	BatchVersion string `json:"batch_version"`
 }
 
 // StopReconcileInput starts one revision- and batch-version-checked reconciliation.
 type StopReconcileInput struct {
+	ProfileArgument
 	ExpectedRevision string `json:"expected_revision"`
 	BatchVersion     string `json:"batch_version"`
 }
 
 // ReconcileStatusInput selects one process-local reconciliation attempt.
 type ReconcileStatusInput struct {
+	ProfileArgument
 	AttemptID string `json:"attempt_id,omitempty"`
 }
 
 // ConfirmReconcileInput confirms one process-local reconciliation candidate.
 type ConfirmReconcileInput struct {
+	ProfileArgument
 	AttemptID         string `json:"attempt_id"`
 	ExpectedRevision  string `json:"expected_revision"`
 	BatchVersion      string `json:"batch_version"`

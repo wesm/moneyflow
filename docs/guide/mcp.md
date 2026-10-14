@@ -72,6 +72,9 @@ The default server registers the read tools below and the [export tools](#server
 Results use exact decimal strings plus signed integer minor units; they do not expose
 floating-point money.
 
+Every tool also takes an optional `profile` argument, which accepts only the ID of the
+profile the server opened; any other value fails with `profile_not_found`.
+
 ### Read tools
 
 | Tool | Purpose |

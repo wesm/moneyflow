@@ -12,6 +12,7 @@ import (
 
 // TaxonomyInput supplies one revision-checked category/group manager operation.
 type TaxonomyInput struct {
+	ProfileArgument
 	ExpectedRevision string             `json:"expected_revision"`
 	Action           app.TaxonomyAction `json:"action" jsonschema:"create, rename, merge, delete; categories also support move"`
 	Label            string             `json:"label,omitempty" jsonschema:"required for create or rename only"`
@@ -33,13 +34,15 @@ type ManageCategoryGroupInput struct {
 	GroupID string `json:"group_id,omitempty" jsonschema:"required except for create; use a stable ID from get_categories"`
 }
 
-func registerTaxonomyTools(server *Server, dependencies Dependencies) {
+func registerTaxonomyTools(server *Server) {
 	registerTool(server, "manage_category", "Stage category create, rename, move, merge, or delete on local/Amazon/SimpleFIN profiles. For move, destination_id is a group; for merge or delete, the destination/replacement is a category. Protected categories cannot change. Does not commit.", false,
-		func(ctx context.Context, input ManageCategoryInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input ManageCategoryInput) (any, error) {
 			return taxonomyMutationDocument(ctx, dependencies.Service, input.TaxonomyInput, app.ActionManageCategories, input.CategoryID, input.GroupID)
 		})
 	registerTool(server, "manage_category_group", "Stage category-group create, rename, merge, or delete on local/Amazon/SimpleFIN profiles. Merge/delete move the source's categories into the destination/replacement group. Protected groups cannot change. Does not commit.", false,
-		func(ctx context.Context, input ManageCategoryGroupInput) (any, error) {
+		func(
+			ctx context.Context, dependencies Dependencies, input ManageCategoryGroupInput,
+		) (any, error) {
 			return taxonomyMutationDocument(ctx, dependencies.Service, input.TaxonomyInput, app.ActionManageGroups, input.GroupID, "")
 		})
 }

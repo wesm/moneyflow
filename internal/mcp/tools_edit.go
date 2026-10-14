@@ -11,6 +11,7 @@ import (
 
 // TransactionEditInput supplies exact targets for one bounded journal operation.
 type TransactionEditInput struct {
+	ProfileArgument
 	ExpectedRevision string   `json:"expected_revision"`
 	TransactionIDs   []string `json:"transaction_ids"`
 	DryRun           bool     `json:"dry_run,omitempty"`
@@ -25,6 +26,7 @@ type ReassignMerchantInput struct {
 
 // RenameMerchantInput edits a whole entity; collisions require an explicit merge ID.
 type RenameMerchantInput struct {
+	ProfileArgument
 	ExpectedRevision   string `json:"expected_revision"`
 	MerchantID         string `json:"merchant_id"`
 	NewLabel           string `json:"new_label"`
@@ -34,9 +36,9 @@ type RenameMerchantInput struct {
 
 const maxTransactionEditTargets = 100
 
-func registerTransactionEditTools(server *Server, dependencies Dependencies) {
+func registerTransactionEditTools(server *Server) {
 	registerTool(server, "reassign_transactions_merchant", "Stage merchant reassignment for 1–100 exact transactions. Choose merchant_id or new_merchant_label. Does not commit.", false,
-		func(ctx context.Context, input ReassignMerchantInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input ReassignMerchantInput) (any, error) {
 			request, err := transactionEditRequest(dependencies.Service, input.TransactionEditInput, app.ActionEditMerchant)
 			if err != nil {
 				return nil, err
@@ -54,7 +56,7 @@ func registerTransactionEditTools(server *Server, dependencies Dependencies) {
 			return executeEditDocument(ctx, dependencies.Service, request, input.DryRun)
 		})
 	registerTool(server, "rename_merchant", "Stage a whole-merchant rename by stable ID. Merging requires merge_destination_id. Does not commit.", false,
-		func(ctx context.Context, input RenameMerchantInput) (any, error) {
+		func(ctx context.Context, dependencies Dependencies, input RenameMerchantInput) (any, error) {
 			expected, err := parseMutationRevision(dependencies.Service, input.ExpectedRevision)
 			if err != nil {
 				return nil, err
@@ -85,7 +87,7 @@ func registerTransactionEditTools(server *Server, dependencies Dependencies) {
 		{"delete_transactions", "Stage undoable deletion of 1–100 exact transactions. Remote deletion requires a separate reviewed commit.", app.ActionDeleteTransaction},
 	} {
 		registerTool(server, tool.name, tool.description, false,
-			func(ctx context.Context, input TransactionEditInput) (any, error) {
+			func(ctx context.Context, dependencies Dependencies, input TransactionEditInput) (any, error) {
 				request, err := transactionEditRequest(dependencies.Service, input, tool.action)
 				if err != nil {
 					return nil, err
