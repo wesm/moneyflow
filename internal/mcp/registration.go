@@ -162,7 +162,7 @@ func registerListProfiles(server *Server, profiles Profiles) {
 		Name:        server.prefix + "list_profiles",
 		Description: "List the profiles that other tools accept in their profile argument.",
 		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: &destructive},
-	}, func(
+	}, recoverPanics(func(
 		ctx context.Context, _ *mcpsdk.CallToolRequest, _ ListProfilesInput,
 	) (*mcpsdk.CallToolResult, any, error) {
 		summaries, err := profiles.List(ctx)
@@ -176,7 +176,26 @@ func registerListProfiles(server *Server, profiles Profiles) {
 		}
 		result, encodeErr := ToolResult(document, false)
 		return result, nil, encodeErr
-	})
+	}))
+}
+
+// recoverPanics answers a panic anywhere in a tool handler with an internal error result. The
+// handlers call a host's Profiles, whose panic would otherwise end the host's process, because
+// the MCP SDK does not recover panics in tool handlers.
+func recoverPanics[Input any](
+	handler mcpsdk.ToolHandlerFor[Input, any],
+) mcpsdk.ToolHandlerFor[Input, any] {
+	return func(
+		ctx context.Context, request *mcpsdk.CallToolRequest, input Input,
+	) (result *mcpsdk.CallToolResult, output any, err error) {
+		defer func() {
+			if recover() != nil {
+				output = nil
+				result, err = ToolResult(internalErrorDocument(0), true)
+			}
+		}()
+		return handler(ctx, request, input)
+	}
 }
 
 func (server *Server) registers(name string) bool {
@@ -197,7 +216,7 @@ func registerTool[Input profileSelector](
 	mcpsdk.AddTool[Input, any](server.SDK, &mcpsdk.Tool{
 		Name: server.prefix + name, Description: description,
 		Annotations: &mcpsdk.ToolAnnotations{ReadOnlyHint: readOnly, DestructiveHint: &destructive},
-	}, func(
+	}, recoverPanics(func(
 		ctx context.Context, _ *mcpsdk.CallToolRequest, input Input,
 	) (*mcpsdk.CallToolResult, any, error) {
 		document, isError := server.callTool(ctx, input.selectedProfile(),
@@ -206,11 +225,12 @@ func registerTool[Input profileSelector](
 			})
 		result, err := ToolResult(document, isError)
 		return result, nil, err
-	})
+	}))
 }
 
 // callTool runs one tool against the profile it names and returns its document and whether the
-// document reports an error.
+// document reports an error. A panic in the tool body answers with the profile's revision, which
+// recoverPanics cannot know.
 func (server *Server) callTool(
 	ctx context.Context,
 	profile string,

@@ -256,6 +256,88 @@ func TestPanickingToolReturnsAnInternalError(t *testing.T) {
 	assert.Equal(t, "mcp_internal_error", result.StructuredContent.(map[string]any)["code"])
 }
 
+// A panicking tool body answers with the revision of its profile, which a panic while the profile
+// is resolved cannot know.
+func TestPanickingToolAnswersWithItsProfilesRevision(t *testing.T) {
+	service, closeProfile := writeTestService(t, 1)
+	defer closeProfile()
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	sdk := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "host", Version: "1"}, nil)
+	registerTool(&Server{SDK: sdk, profiles: profiles}, "panicking_tool", "Panics.", true,
+		func(context.Context, Dependencies, EmptyInput) (any, error) {
+			panic("synthetic tool failure")
+		})
+
+	result := callRefreshToolResult(t, connectSDK(t, sdk), "panicking_tool", nil)
+
+	require.True(t, result.IsError)
+	failure := result.StructuredContent.(map[string]any)
+	assert.Equal(t, "mcp_internal_error", failure["code"])
+	assert.Equal(t, strconv.FormatUint(service.Revision(), 10), failure["revision"])
+}
+
+// panickingProfiles panics once in Acquire or List when armed, then answers like testProfiles.
+type panickingProfiles struct {
+	testProfiles
+	acquirePanics, listPanics *atomic.Bool
+}
+
+func (profiles panickingProfiles) Acquire(
+	ctx context.Context,
+	profile string,
+) (Dependencies, func(), error) {
+	if profiles.acquirePanics.CompareAndSwap(true, false) {
+		panic("synthetic profile resolution failure")
+	}
+	return profiles.testProfiles.Acquire(ctx, profile)
+}
+
+func (profiles panickingProfiles) List(ctx context.Context) ([]ProfileSummary, error) {
+	if profiles.listPanics.CompareAndSwap(true, false) {
+		panic("synthetic profile listing failure")
+	}
+	return profiles.testProfiles.List(ctx)
+}
+
+func TestPanicWhileResolvingProfilesAnswersAnInternalErrorAndTheServerKeepsServing(t *testing.T) {
+	service, closeProfile := writeTestService(t, 1)
+	defer closeProfile()
+	tests := map[string]struct {
+		tool string
+		arm  func(panickingProfiles)
+	}{
+		"acquire": {
+			tool: "get_account_info",
+			arm:  func(profiles panickingProfiles) { profiles.acquirePanics.Store(true) },
+		},
+		"list": {
+			tool: "list_profiles",
+			arm:  func(profiles panickingProfiles) { profiles.listPanics.Store(true) },
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			profiles := panickingProfiles{
+				testProfiles: newTestProfiles(t, map[string]*app.Service{"profile-a": service},
+					"profile-a"),
+				acquirePanics: new(atomic.Bool), listPanics: new(atomic.Bool),
+			}
+			client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+			test.arm(profiles)
+
+			panicked := callRefreshToolResult(t, client, test.tool, nil)
+			next := callRefreshToolResult(t, client, test.tool, nil)
+
+			require.True(t, panicked.IsError)
+			failure := panicked.StructuredContent.(map[string]any)
+			assert.Equal(t, "mcp_internal_error", failure["code"])
+			assert.NotContains(t, failure["detail"], "synthetic")
+			assert.False(t, next.IsError, "the next call failed: %v", next.StructuredContent)
+			assert.Zero(t, profiles.leases.Load())
+		})
+	}
+}
+
 func TestRefreshAttemptIsSharedAcrossRegisteredServers(t *testing.T) {
 	service, source, closeProfile := refreshTestService(t, 1)
 	defer closeProfile()
