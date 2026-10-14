@@ -98,6 +98,9 @@ func fakeSeederEnv(t *testing.T, mode string) []string {
 
 func devProfileCommand(t *testing.T, home string, environment ...string) *exec.Cmd {
 	t.Helper()
+	trackScript(t, "dev-profile.sh")
+	// The script runs seedprofile with go run, which the test cache does not see either.
+	trackScript(t, "../internal/tools/seedprofile/main.go")
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	t.Cleanup(cancel)
 	command := exec.CommandContext(ctx, "bash", "dev-profile.sh", home) //nolint:gosec // Fixed script and isolated home.

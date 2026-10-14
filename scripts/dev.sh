@@ -13,6 +13,23 @@ set -euo pipefail
 : "${DEV_BACKEND_PORT:?set by make dev}"
 : "${DEV_HOME:?set by make dev}"
 
+# Prints the port as a plain decimal number so that equal ports compare equal.
+normalize_port() {
+  local value=$2
+  if ! [[ $value =~ ^[0-9]{1,5}$ ]] || [ "$((10#$value))" -lt 1 ] || [ "$((10#$value))" -gt 65535 ]; then
+    echo "dev.sh: $1 must be a TCP port from 1 to 65535, got '$value'" >&2
+    exit 2
+  fi
+  echo "$((10#$value))"
+}
+
+DEV_WEB_PORT=$(normalize_port DEV_WEB_PORT "$DEV_WEB_PORT")
+DEV_BACKEND_PORT=$(normalize_port DEV_BACKEND_PORT "$DEV_BACKEND_PORT")
+if [ "$DEV_WEB_PORT" -eq "$DEV_BACKEND_PORT" ]; then
+  echo "dev.sh: DEV_WEB_PORT and DEV_BACKEND_PORT are both $DEV_WEB_PORT; choose two different ports" >&2
+  exit 2
+fi
+
 cd "$(dirname "$0")/.."
 mkdir -p -m 700 tmp
 mkdir -p tmp/logs

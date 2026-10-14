@@ -90,6 +90,8 @@ To run several worktrees at once, give each its own ports:
 make dev DEV_WEB_PORT=5174 DEV_BACKEND_PORT=8082
 ```
 
+The two ports must differ; `make dev` refuses to start otherwise.
+
 The Go server runs with `--external-url` set to the Vite URL, so its mutation checks treat
 Vite as the canonical origin. The Vite proxy passes the browser's `Origin` header through
 unchanged. Only the Vite dev server fills the `index.html` placeholders; production builds keep
