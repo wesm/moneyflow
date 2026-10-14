@@ -161,13 +161,15 @@ func TestFetchSnapshotWindowFailureIsAtomic(t *testing.T) {
 				require.NoError(t, err)
 				require.LessOrEqual(t, end-start, int64(90*24*60*60))
 				if calls == 2 {
-					if cancelSecond {
-						cancel()
-						<-r.Context().Done()
-					} else {
+					if !cancelSecond {
 						w.WriteHeader(http.StatusServiceUnavailable)
+						return
 					}
-					return
+					cancel()
+					<-r.Context().Done()
+					// Returning normally would send an empty 200 that can reach the
+					// client while it is still closing the canceled TLS connection.
+					panic(http.ErrAbortHandler)
 				}
 				_, _ = io.WriteString(w, accountsJSON(accountJSON("connection-a", "account-a", "USD", postedTransaction)))
 			})

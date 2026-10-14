@@ -186,7 +186,7 @@ func newLoopbackClient(t *testing.T, rawURL string, maxBody int64) *Client {
 	endpoint, err := url.Parse(rawURL)
 	require.NoError(t, err)
 	client, err := NewClient(Options{
-		HTTPClient:   &http.Client{Timeout: time.Second},
+		HTTPClient:   testHTTPClient(t),
 		GraphQLURL:   endpoint,
 		MaxBodyBytes: maxBody,
 	}, "session-token", "device-a")
