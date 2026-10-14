@@ -81,8 +81,21 @@ directory and renames it only when seeding succeeds, so a failed or interrupted 
 nothing behind and the next run tries again. Edits persist across restarts. Stop `make dev`,
 then run `make dev-reset` to delete the profile; the next `make dev` seeds a fresh one. Do this
 after changing `profile.sql`, because the dev profile keeps the schema it was created with.
-`make dev` never uses `~/.moneyflow`. Output is also written to `tmp/logs/backend.log` and
-`tmp/logs/web.log`.
+Without `PROFILE`, `make dev` never uses `~/.moneyflow`. Output is also written to
+`tmp/logs/backend.log` and `tmp/logs/web.log`.
+
+The synthetic profile has no provider connection, so it opens offline. To work against one of
+your own profiles, such as one connected to Monarch, name it with `PROFILE`:
+
+```bash
+make dev PROFILE="Example Profile"
+```
+
+This opens the profile from `MONEYFLOW_HOME` when it is set, and from `~/.moneyflow/v2`
+otherwise. It does not seed `tmp/dev-home`. Before the servers start, `make dev` prints a
+warning: edits are saved to that profile, and committing provider edits writes them to the
+provider. If no profile has that name, the Go server prints `profile_not_found` and exits
+without creating one. Stop `make dev` and run it again with the correct name.
 
 To run several worktrees at once, give each its own ports:
 

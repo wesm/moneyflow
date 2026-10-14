@@ -1,5 +1,18 @@
 .PHONY: build clean dev dev-backend dev-profile dev-reset dev-web fmt help install-hooks lint monarch-live-test ynab-live-test test test-editing-go test-editing-e2e test-export test-go-quick test-mcp test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-e2e web-embed web-embed-check web-generate web-install web-test
 
+# `make dev PROFILE=<name>` opens that real profile instead of the synthetic one. Only the
+# command line sets it, even under `make -e`, so an exported PROFILE cannot open a real profile
+# by accident. dev.sh gets the name through the environment as written, without make or shell
+# expansion. Make would expand an exported PROFILE when it builds the environment for a recipe
+# or, from GNU Make 4.4, for $(shell ...). So PROFILE is not exported, and this block comes
+# before the first $(shell ...). Sub-makes still get PROFILE through MAKEFLAGS.
+ifneq ($(origin PROFILE),command line)
+override PROFILE :=
+endif
+override DEV_PROFILE = $(value PROFILE)
+export DEV_PROFILE
+unexport PROFILE
+
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
 COMMIT := $(shell v=$$(git rev-parse --short=7 HEAD 2>/dev/null || printf unknown); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -194,9 +207,9 @@ verify-web: ## Run every browser, API, and embedded-asset check
 	go test ./internal/api -run 'Test(Projection|DuplicateProjection)Performance100K' -count=1
 
 # Run the steps in order even when MAKEFLAGS includes -j, as verify-web does.
-dev: ## Run Go under air behind Vite with live reload
+dev: ## Run Go under air behind Vite with live reload; PROFILE=<name> opens a real profile
 	@$(MAKE) web-install
-	@$(MAKE) web-embed dev-profile
+	@$(MAKE) web-embed $(if $(value PROFILE),,dev-profile)
 	@printf '\n%s\n%s\n%s\n\n' \
 		'make dev: open the "Moneyflow web:" URL that the backend prints when it starts.' \
 		'$(DEV_URL) shows the profile chooser. Logs are in tmp/logs.' \
@@ -209,7 +222,7 @@ dev-profile: ## Seed the synthetic dev profile in tmp/dev-home if it is missing
 dev-reset: ## Delete the dev profile; the next make dev seeds a fresh one
 	rm -rf tmp/dev-home
 
-dev-backend: dev-profile ## Run only the Go server under air; needs web-embed once
+dev-backend: $(if $(value PROFILE),,dev-profile) ## Run only the Go server under air; needs web-embed once
 	@$(DEV_ENV) bash scripts/dev.sh backend
 
 dev-web: ## Run only the Vite dev server
