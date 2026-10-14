@@ -109,6 +109,8 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   let request: AbortController | undefined
   /** The data generation before the watched refresh; a newer one means a refresh committed. */
   let watched: string | undefined
+  /** Counts the refreshes this tab watches, so a late reread cannot finish a newer one. */
+  let attempt = 0
   let settled = 0
   /** Automatic refresh waits until this time after the user canceled one. */
   let automaticAfter = 0
@@ -135,6 +137,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 
   /** A cached status can predate another interface's refresh, so it is no baseline. */
   function startAttempt(): void {
+    attempt++
     watched = undefined
   }
 
@@ -436,6 +439,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     }
     if (status.refreshing && !inFlight && pending === undefined && !dialog) {
       const opened = openDialog('other')
+      attempt++
       watched = status.generation
       setState({
         ...base,
@@ -484,7 +488,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   function finishWatched(status: ProviderStatus, canceled: boolean): void {
     if (watched !== undefined && status.generation !== watched) {
       setState({ ...state, status, dialog: undefined })
-      void reread().then((note) => succeed(status, note))
+      void finishCommitted(status, attempt)
       return
     }
     const ended = {
@@ -508,6 +512,13 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       staleReason: canceled ? REFRESH_CANCELED : state.staleReason,
       announcement: canceled ? REFRESH_CANCELED : 'The other refresh ended.',
     })
+  }
+
+  /** A newer refresh may have started during the reread; it keeps its own dialog and status. */
+  async function finishCommitted(status: ProviderStatus, finished: number): Promise<void> {
+    const note = await reread()
+    if (finished === attempt) succeed(status, note)
+    else showSuccess(completeMessage(status))
   }
 
   function cancel(): void {

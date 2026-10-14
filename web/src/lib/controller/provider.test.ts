@@ -863,6 +863,42 @@ describe('provider controller', () => {
     expect(host.reload).not.toHaveBeenCalled()
   })
 
+  it('keeps a new refresh running when the previous refresh finishes its reread', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const host = hostStub(current)
+    let reread: () => void = () => undefined
+    host.reload.mockImplementationOnce(
+      () => new Promise<undefined>((resolve) => (reread = () => resolve(undefined))),
+    )
+    const transport = transportStub({ status: providerStatus({ refreshing: true }) })
+    vi.mocked(transport.mutations.request).mockImplementation(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    const controller = createProviderController({ transport, host })
+    controller.sync(current)
+    await controller.poll()
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ generation: '2', summary: { ...emptySummary(), imported_transactions: 7 } }),
+    )
+    await controller.poll()
+    expect(controller.state.dialog).toBeUndefined()
+
+    void controller.refresh()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+    reread()
+    await vi.waitFor(() => expect(getFlashes()).not.toEqual([]))
+
+    expect(controller.state.dialog?.view).toBe('progress')
+    expect(controller.state.phase).toBe('refreshing')
+    expect(getFlashes().map(({ message }) => message)).toEqual([
+      'Refresh complete: 7 imported, 0 removed.',
+    ])
+    controller.cancel()
+  })
+
   it('closes the dialog when another interface refresh stops without new data', async () => {
     const transport = transportStub({ status: providerStatus({ refreshing: true }) })
     const controller = createProviderController({ transport, host: hostStub() })
