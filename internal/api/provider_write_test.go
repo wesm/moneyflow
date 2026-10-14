@@ -90,22 +90,13 @@ func TestProviderCommitReturnsPreparedBatchAndStartsWebWorker(t *testing.T) {
 	assert.Equal(t, 1, committed.Pending.ActiveOperations)
 	assert.NotContains(t, committedResponse.Body.String(), "transaction-example")
 
-	require.Eventually(t, func() bool {
-		response := requestServer(
-			t, fixture.server, http.MethodGet, "/api/v1/provider/write-status", nil,
-		)
-		if response.Code != http.StatusOK {
-			return false
-		}
-		var current ProviderWriteStatusResponse
-		if json.Unmarshal(response.Body.Bytes(), &current) != nil {
-			return false
-		}
-		return current.Phase == "" && current.BatchVersion == ""
-	}, 3*time.Second, 10*time.Millisecond)
+	// The commit started exactly one background write; wait for it to return.
+	fixture.server.workers.Wait()
 	assert.Equal(t, 1, fixture.source.writeCount())
 	for range 2 {
 		status := providerWriteStatusResponse(t, fixture.server)
+		assert.Empty(t, status.Phase)
+		assert.Empty(t, status.BatchVersion)
 		assert.Equal(t, 1, status.Total)
 		assert.Equal(t, 1, status.Completed)
 		assert.Zero(t, status.Remaining)
