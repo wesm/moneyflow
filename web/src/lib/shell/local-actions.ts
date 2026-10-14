@@ -73,36 +73,18 @@ function whenSettled(context: LocalActionContext, work: () => unknown): void {
 }
 
 /**
- * Says to wait if an edit from a dialog, such as an editor closed during its request, is still
- * on its way. Keys and the row actions sheet wait for each other in the transition queue, but
- * not for dialogs.
- */
-function waitingForDialogEdit(context: LocalActionContext): boolean {
-  if (context.controller.editing.state.phase !== 'submitting') return false
-  status.notify(EDIT_IN_FLIGHT)
-  return true
-}
-
-/** Editing keys and row actions sheet items queued or running in each shell's queue. */
-const queuedEdits = new WeakMap<LocalActionContext, number>()
-
-/**
- * Queues an editing key's or sheet item's `work` as `whenSettled` does. With no editing key
- * ahead of it, an edit already on its way came from a dialog, so the key is refused at once:
- * waiting behind a slow view change instead could let another dialog's edit go first. A key
+ * Queues an editing key's or sheet item's `work` as `whenSettled` does, holding the key's turn
+ * with the editing controller until its edit settles. While an edit from a dialog, such as an
+ * editor closed during its request, is on its way, the key is refused at once instead. A key
  * behind another key's edit still waits, so a redo runs after the undo pressed before it.
  */
 function queueEdit(context: LocalActionContext, work: () => unknown): void {
-  const ahead = queuedEdits.get(context) ?? 0
-  if (ahead === 0 && waitingForDialogEdit(context)) return
-  queuedEdits.set(context, ahead + 1)
-  whenSettled(context, async () => {
-    try {
-      await work()
-    } finally {
-      queuedEdits.set(context, (queuedEdits.get(context) ?? 1) - 1)
-    }
-  })
+  const turn = context.controller.editing.holdForKey()
+  if (!turn) {
+    status.notify(EDIT_IN_FLIGHT)
+    return
+  }
+  whenSettled(context, () => turn.run(work))
 }
 
 /**
@@ -112,7 +94,7 @@ function queueEdit(context: LocalActionContext, work: () => unknown): void {
  */
 function ifOffered(context: LocalActionContext, capability: string, work: () => unknown): unknown {
   const projection = context.controller.projection
-  if (!projection || waitingForDialogEdit(context)) return undefined
+  if (!projection) return undefined
   if (availableCapabilities(projection).has(capability)) return work()
   status.notify(unavailableReason(projection, capability))
   return undefined
@@ -241,7 +223,7 @@ export function runRowAction(
   queueEdit(context, () => {
     const projection = context.controller.projection
     const button = projection && rowActionButtons(projection).find((b) => b.action === action)
-    if (!button || waitingForDialogEdit(context)) return
+    if (!button) return
     if (button.reason) return status.notify(button.reason)
     if (action === 'edit.hide') return hideRow(context, target)
     if (action === 'edit.merchant') openEditor(context, 'merchant', target)

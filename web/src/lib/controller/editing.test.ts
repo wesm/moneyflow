@@ -225,6 +225,88 @@ describe('browser editing controller', () => {
     expect(controller.state.announcement).toMatch(/^Change saved as pending\./)
   })
 
+  describe('editing keys', () => {
+    const WAIT = 'Wait for the previous edit to finish, then try again.'
+    const saved = () => jsonResponse(mutationResponse('8', 'mfsel1.example' as SelectionValue))
+
+    /** A controller whose requests wait for `release`, which answers the oldest one waiting. */
+    function heldRequests() {
+      const waiting: ((response: Response) => void)[] = []
+      const request = vi.fn<MutationFetch['request']>(
+        () => new Promise<Response>((resolve) => waiting.push(resolve)),
+      )
+      const controller = createEditingController({
+        transport: { request },
+        host: editingHost(testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' })),
+      })
+      return { controller, request, release: () => waiting.shift()!(saved()) }
+    }
+
+    it('refuses a key while a dialog edit is on its way, and takes one after', async () => {
+      const { controller, release } = heldRequests()
+      const dialog = controller.submit({ action: 'category.manage', input: {} })
+      expect(controller.holdForKey()).toBeUndefined()
+
+      release()
+      await expect(dialog).resolves.toBe(true)
+      expect(controller.holdForKey()).toBeDefined()
+    })
+
+    it('refuses dialog edits from a key press until the key’s own edit has settled', async () => {
+      const { controller, request, release } = heldRequests()
+      const turn = controller.holdForKey()!
+      const dialogEdits = [
+        () => controller.submit({ action: 'category.manage', input: {} }),
+        () => controller.commit(7n),
+      ]
+      for (const edit of dialogEdits) {
+        await expect(edit()).resolves.toBe(false)
+        expect(controller.state.announcement).toBe(WAIT)
+      }
+      expect(request).not.toHaveBeenCalled()
+
+      const keyed = turn.run(() => controller.undo())
+      expect(request).toHaveBeenCalledOnce()
+      await expect(dialogEdits[0]!()).resolves.toBe(false)
+      release()
+      await keyed
+      expect(controller.state.announcement).not.toBe(WAIT)
+
+      const dialog = dialogEdits[0]!()
+      release()
+      await expect(dialog).resolves.toBe(true)
+      expect(request).toHaveBeenCalledTimes(2)
+    })
+
+    it('lets a key wait behind the key whose edit is on its way, so U follows u', async () => {
+      const { controller, request, release } = heldRequests()
+      const undoing = controller.holdForKey()!.run(() => controller.undo())
+      const redo = controller.holdForKey()
+      expect(redo).toBeDefined()
+
+      release()
+      await undoing
+      const redoing = redo!.run(() => controller.redo())
+      release()
+      await redoing
+      expect(request.mock.calls.map(([path]) => path)).toEqual(['api/v1/undo', 'api/v1/redo'])
+    })
+
+    it('gives up the turn of a key whose work failed', async () => {
+      const { controller, release } = heldRequests()
+      const failure = new Error('key failed')
+      await expect(
+        controller.holdForKey()!.run(() => {
+          throw failure
+        }),
+      ).rejects.toBe(failure)
+
+      const dialog = controller.submit({ action: 'category.manage', input: {} })
+      release()
+      await expect(dialog).resolves.toBe(true)
+    })
+  })
+
   it('takes the next edit once a failed one has finished', async () => {
     const request = vi
       .fn<MutationFetch['request']>()

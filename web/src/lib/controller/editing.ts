@@ -56,8 +56,23 @@ export interface EditingProjectionHost {
   ): Promise<ViewProjection | undefined>
 }
 
+/** An editing key's turn, held from the key press until the edit it starts settles. */
+export interface KeyTurn {
+  /**
+   * Runs the key's `work` and gives up the turn once what it returns settles. Edits that `work`
+   * starts before its first await are the key's own and are not refused for the turn.
+   */
+  run(work: () => unknown): Promise<void>
+}
+
 export interface EditingController {
   readonly state: EditingState
+  /**
+   * Holds a turn for an editing key. Edits from dialogs are refused while any key holds one, so
+   * none can run between a key press and the key's edit. Returns undefined while a dialog's edit
+   * is on its way: the key would otherwise run after it, on a view it did not see.
+   */
+  holdForKey(): KeyTurn | undefined
   sync(projection: ViewProjection): void
   submit(intent: MutationIntent): Promise<boolean>
   undo(): Promise<boolean>
@@ -110,11 +125,42 @@ export function createEditingController(options: EditingControllerOptions): Edit
     notify()
   }
 
+  // Editing keys pressed and not yet settled, whether waiting for their turn or running.
+  let heldKeys = 0
+  // True while a key's turn calls its work, so the edits it starts are known as the key's.
+  let keyCalling = false
+  // Whether the edit on its way was started by a key.
+  let sentByKey = false
+
+  function holdForKey(): KeyTurn | undefined {
+    if (state.phase === 'submitting' && !sentByKey) return undefined
+    heldKeys += 1
+    return {
+      async run(work) {
+        try {
+          keyCalling = true
+          let result: unknown
+          try {
+            result = work()
+          } finally {
+            keyCalling = false
+          }
+          await result
+        } finally {
+          heldKeys -= 1
+        }
+      },
+    }
+  }
+
   // An edit is built from the revision and view on screen. While another edit is on its way,
   // both may change, so a new edit is refused, visibly, instead of waiting: one made in a dialog
   // could otherwise act on rows its confirmation did not name, or run out of order with a key.
+  // A dialog's edit is refused while a key waits for its turn, too: the key reads the view when
+  // its turn comes, so the dialog's edit would otherwise go first, such as an undo reversing it.
   function refusedWhileBusy(): boolean {
-    if (state.phase !== 'submitting') return false
+    const keyWaiting = heldKeys > 0 && !keyCalling
+    if (state.phase !== 'submitting' && !keyWaiting) return false
     setState({ ...state, announcement: EDIT_IN_FLIGHT })
     return true
   }
@@ -242,6 +288,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
     successMessage: string,
     toast?: ToastAction,
   ) {
+    sentByKey = keyCalling
     setState({ ...state, phase: 'submitting', announcement: '' })
     const install = options.host.claim()
     try {
@@ -408,6 +455,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
       subscribe()
       return state
     },
+    holdForKey,
     sync,
     submit,
     undo,

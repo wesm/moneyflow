@@ -47,6 +47,11 @@ export function testEditingController(
       pending: { active_operations: 1, inactive_operations: 0, affected_transactions: 2 },
       announcement: '',
     },
+    holdForKey: vi.fn(() => ({
+      run: async (work: () => unknown) => {
+        await work()
+      },
+    })),
     sync: vi.fn(),
     submit: vi.fn(async () => true),
     undo: vi.fn(async () => true),

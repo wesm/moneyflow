@@ -28,6 +28,18 @@ function holdTransitions(context: LocalActionContext): () => void {
   return settle
 }
 
+/** An editing controller's key turns, as when no dialog edit is on its way. */
+const keyTurns = {
+  holdForKey: () => ({
+    run: async (work: () => unknown) => {
+      await work()
+    },
+  }),
+}
+
+/** Key turns refused, as while a dialog edit is on its way. */
+const dialogSaving = { holdForKey: () => undefined }
+
 function setup(cursorIndex: number): { context: LocalActionContext; overlays: OverlayState } {
   const grid = document.createElement('div')
   document.body.append(grid)
@@ -66,7 +78,7 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
   const controller = {
     projection,
     cursorIndex,
-    editing: { submit, state: { phase: 'idle', announcement: '' } },
+    editing: { ...keyTurns, submit, state: { phase: 'idle', announcement: '' } },
     transactionInformation,
   } as unknown as ViewController
   let tail: Promise<unknown> = Promise.resolve()
@@ -315,11 +327,10 @@ describe('runRowAction', () => {
 
   it('asks to wait instead of acting while an edit from a dialog is on its way', async () => {
     const { context } = fromSheet()
-    Object.assign(context.controller.editing, { state: { phase: 'submitting', announcement: '' } })
+    Object.assign(context.controller.editing, dialogSaving)
     runRowAction(context, 'edit.hide', row)
-    await vi.waitFor(() =>
-      expect(status.notice).toBe('Wait for the previous edit to finish, then try again.'),
-    )
+    expect(status.notice).toBe('Wait for the previous edit to finish, then try again.')
+    await tick()
     expect(context.controller.editing.submit).not.toHaveBeenCalled()
     status.clear()
   })
@@ -404,7 +415,7 @@ describe('editing keys decide availability when their turn comes', () => {
       return true
     })
     const redo = vi.fn(() => Promise.resolve(true))
-    Object.assign(context.controller, { editing: { undo, redo, state: idle } })
+    Object.assign(context.controller, { editing: { ...keyTurns, undo, redo, state: idle } })
     const actions = localActions(context)
 
     actions['edit.undo']()
@@ -417,63 +428,57 @@ describe('editing keys decide availability when their turn comes', () => {
     expect(status.notice).toBe('')
   })
 
-  it('asks to wait instead of checking keys while an edit from a dialog is on its way', async () => {
+  it('refuses keys at once while a dialog edit is on its way, even behind a held transition', async () => {
     const { context, overlays } = setup(0)
+    const settle = holdTransitions(context)
     const undo = vi.fn(() => Promise.resolve(true))
-    Object.assign(context.controller, {
-      editing: { undo, submit: vi.fn(), state: { phase: 'submitting', announcement: '' } },
-    })
+    Object.assign(context.controller.editing, { ...dialogSaving, undo })
     const actions = localActions(context)
     for (const key of ['edit.undo', 'edit.hide', 'edit.delete', 'edit.merchant'] as const) {
       status.clear()
       actions[key]()
-      await vi.waitFor(() =>
-        expect(status.notice).toBe('Wait for the previous edit to finish, then try again.'),
-      )
+      expect(status.notice).toBe('Wait for the previous edit to finish, then try again.')
     }
+    // The dialog's edit lands before the transition does; the refused keys still do nothing.
+    Object.assign(context.controller.editing, keyTurns)
+    settle()
+    await tick()
+    await tick()
     expect(undo).not.toHaveBeenCalled()
     expect(context.controller.editing.submit).not.toHaveBeenCalled()
     expect(overlays.current).toBeUndefined()
   })
 
-  it('refuses a key at once while a dialog edit saves, even behind a held transition', async () => {
+  it('starts a key’s edit within its turn, and holds the turn until the edit settles', async () => {
     const { context } = setup(0)
-    const settle = holdTransitions(context)
-    const state = { phase: 'submitting', announcement: '' }
-    const undo = vi.fn(() => Promise.resolve(true))
-    Object.assign(context.controller, { editing: { undo, state } })
+    let inTurn = false
+    let held = 0
+    const holdForKey = () => {
+      held += 1
+      return {
+        run: async (work: () => unknown) => {
+          inTurn = true
+          const result = work()
+          inTurn = false
+          await result
+          held -= 1
+        },
+      }
+    }
+    let land!: (accepted: boolean) => void
+    const undo = vi.fn(() => {
+      expect(inTurn).toBe(true)
+      return new Promise<boolean>((resolve) => (land = resolve))
+    })
+    Object.assign(context.controller.editing, { holdForKey, undo })
 
     localActions(context)['edit.undo']()
-    expect(status.notice).toBe('Wait for the previous edit to finish, then try again.')
-    // The dialog's edit lands before the transition does; the refused key still does nothing.
-    state.phase = 'idle'
-    settle()
-    await tick()
-    await tick()
-    expect(undo).not.toHaveBeenCalled()
-  })
-
-  it('lets a key wait behind the editing key before it instead of refusing it', async () => {
-    const { context } = setup(0)
-    const state = { phase: 'idle', announcement: '' }
-    let land!: () => void
-    const landed = new Promise<void>((resolve) => (land = resolve))
-    const undo = vi.fn(async () => {
-      state.phase = 'submitting'
-      await landed
-      state.phase = 'idle'
-      return true
-    })
-    const redo = vi.fn(() => Promise.resolve(true))
-    Object.assign(context.controller, { editing: { undo, redo, state } })
-    const actions = localActions(context)
-
-    actions['edit.undo']()
+    expect(held).toBe(1)
     await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
-    actions['edit.redo']()
-    expect(status.notice).toBe('')
-    land()
-    await vi.waitFor(() => expect(redo).toHaveBeenCalledTimes(1))
+    await tick()
+    expect(held).toBe(1)
+    land(true)
+    await vi.waitFor(() => expect(held).toBe(0))
   })
 
   it('says why undo or redo is unavailable instead of doing nothing', async () => {
@@ -482,7 +487,7 @@ describe('editing keys decide availability when their turn comes', () => {
     const redo = vi.fn(() => Promise.resolve(true))
     Object.assign(context.controller, {
       projection: testProjection({ capabilities: nothingToUndo() }),
-      editing: { undo, redo, state: idle },
+      editing: { ...keyTurns, undo, redo, state: idle },
     })
     const actions = localActions(context)
 
@@ -525,6 +530,7 @@ describe('failures with no dialog to show them', () => {
     const refuse = vi.fn(() => Promise.resolve(false))
     Object.assign(context.controller, {
       editing: {
+        ...keyTurns,
         submit: refuse,
         undo: refuse,
         redo: refuse,
