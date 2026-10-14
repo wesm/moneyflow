@@ -80,6 +80,10 @@ var errWorkPanicked = errors.New("moneyflow background work stopped unexpectedly
 // and before it returns. It is nil in production.
 var afterReconcileFold func()
 
+// afterWaitRefreshWakes, when a test sets it, runs in WaitRefresh after the run it waits for stops
+// and before it reads that run's outcome. It is nil in production.
+var afterWaitRefreshWakes func()
+
 // Supervisor owns explicit MCP background work for one profile. It is not a scheduler.
 type Supervisor struct {
 	ctx       context.Context
@@ -99,11 +103,19 @@ type Supervisor struct {
 	reconcileNow *AttemptStatus
 }
 
-// refreshAttempt is one refresh and the channel its waiters watch. A waiter keeps the attempt it
-// joined, so it reads that attempt's outcome even after a newer refresh replaces it.
+// refreshAttempt is one refresh and its current run. A waiter keeps the run it joined, so it reads
+// that run's outcome even after a confirmation starts another run or a newer refresh replaces the
+// attempt.
 type refreshAttempt struct {
 	AttemptStatus
-	done chan struct{} // closed when the attempt stops running
+	current *refreshRun
+}
+
+// refreshRun is one run of a refresh: its fetch or one confirmation fold. finishRefresh writes
+// outcome before it closes done.
+type refreshRun struct {
+	done    chan struct{}
+	outcome AttemptStatus
 }
 
 // NewSupervisor creates a supervisor whose work stops when parent ends or Close runs. A panic in
@@ -250,7 +262,7 @@ func (supervisor *Supervisor) StartRefresh(
 			ID: id, State: AttemptRunning,
 			StartedAt: supervisor.clock().UTC().Truncate(time.Millisecond),
 		},
-		done: make(chan struct{}),
+		current: &refreshRun{done: make(chan struct{})},
 	}
 	supervisor.refreshNow = attempt
 	status := attempt.AttemptStatus
@@ -264,8 +276,9 @@ func (supervisor *Supervisor) StartRefresh(
 	return status, nil
 }
 
-// finishRefresh records the attempt's outcome, wakes its waiters and returns the outcome. A running
-// attempt is never replaced, so the attempt is still the current refresh here.
+// finishRefresh records the outcome of the attempt's current run, wakes that run's waiters and
+// returns the outcome. A running attempt is never replaced, and its next run starts only after this
+// one ends, so the attempt and the run are both still current here.
 func (supervisor *Supervisor) finishRefresh(
 	attempt *refreshAttempt,
 	result app.ProviderRefreshResult,
@@ -291,7 +304,8 @@ func (supervisor *Supervisor) finishRefresh(
 	status.ConfirmationExpiresAt = result.Status.ConfirmationExpiresAt
 	status.State, status.Code = attemptOutcome(err, status.ConfirmationToken)
 	status.Err = err
-	close(attempt.done)
+	attempt.current.outcome = *status
+	close(attempt.current.done)
 	return *status
 }
 
@@ -310,9 +324,10 @@ func (supervisor *Supervisor) RefreshStatus(id string) (AttemptStatus, error) {
 }
 
 // WaitRefresh waits until the named refresh stops running and returns it; a refresh that waits
-// for confirmation has stopped. The refresh must be the current one when the wait starts. A newer
-// refresh that replaces it during the wait does not change the result. It returns ctx.Err() when
-// ctx ends first.
+// for confirmation has stopped. The refresh must be the current one when the wait starts. The
+// wait joins the refresh's current run, its fetch or a confirmation fold, and returns that run's
+// outcome, so a confirmation or a newer refresh that starts after the run ends does not change the
+// result. It returns ctx.Err() when ctx ends first.
 func (supervisor *Supervisor) WaitRefresh(ctx context.Context, id string) (AttemptStatus, error) {
 	if supervisor == nil {
 		return AttemptStatus{}, ErrAttemptNotFound
@@ -324,24 +339,26 @@ func (supervisor *Supervisor) WaitRefresh(ctx context.Context, id string) (Attem
 		supervisor.mu.Unlock()
 		return AttemptStatus{}, ErrAttemptNotFound
 	}
-	for {
-		status, done := attempt.AttemptStatus, attempt.done
-		supervisor.mu.Unlock()
-		if status.State != AttemptRunning {
-			return status, nil
-		}
-		select {
-		case <-ctx.Done():
-			return AttemptStatus{}, ctx.Err()
-		case <-done:
-		}
-		supervisor.mu.Lock()
+	status, run := attempt.AttemptStatus, attempt.current
+	supervisor.mu.Unlock()
+	if status.State != AttemptRunning {
+		return status, nil
 	}
+	select {
+	case <-ctx.Done():
+		return AttemptStatus{}, ctx.Err()
+	case <-run.done:
+	}
+	if afterWaitRefreshWakes != nil {
+		afterWaitRefreshWakes()
+	}
+	return run.outcome, nil
 }
 
 // ConfirmRefresh consumes one matching process-local candidate and runs its authoritative fold
-// under the server lifetime. Close therefore waits for the fold instead of racing it. It returns
-// the fold's outcome itself, because a new refresh can replace this one as soon as the fold ends.
+// under the server lifetime. Close therefore waits for the fold instead of racing it. The fold is
+// a new run of the refresh, so a waiter that joins during it waits for the fold. It returns the
+// fold's outcome itself, because a new refresh can replace this one as soon as the fold ends.
 func (supervisor *Supervisor) ConfirmRefresh(
 	id string,
 	token string,
@@ -363,7 +380,7 @@ func (supervisor *Supervisor) ConfirmRefresh(
 	attempt.ConfirmationToken = ""
 	attempt.ConfirmationExpiresAt = time.Time{}
 	attempt.Err = nil
-	attempt.done = make(chan struct{})
+	attempt.current = &refreshRun{done: make(chan struct{})}
 	supervisor.wait.Add(1)
 	supervisor.mu.Unlock()
 	result, err := recovered(supervisor, run)

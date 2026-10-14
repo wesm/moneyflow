@@ -969,6 +969,59 @@ func TestSupervisorWaitRefreshWaitsForAConfirmationToFinish(t *testing.T) {
 	})
 }
 
+// A waiter returns the outcome of the run it joined. A confirmation that starts as soon as the
+// fetch parks is a new run, so a waiter of the fetch neither waits for it nor reads its outcome.
+func TestSupervisorWaitRefreshReturnsTheFetchThatParkedWhenAConfirmationStarts(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil)
+		t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
+		release := make(chan struct{})
+		started, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+			<-release
+			return parkedRefresh(time.Now().Add(time.Hour))
+		})
+		require.NoError(t, err)
+		folding := make(chan struct{})
+		finishFold := make(chan struct{})
+		confirmed := make(chan error, 1)
+		var confirmOnce sync.Once
+		afterWaitRefreshWakes = func() {
+			confirmOnce.Do(func() {
+				go func() {
+					_, confirmErr := supervisor.ConfirmRefresh(started.ID, "refresh-confirmation",
+						func(context.Context) (app.ProviderRefreshResult, error) {
+							close(folding)
+							<-finishFold
+							return app.ProviderRefreshResult{Revision: 5}, nil
+						})
+					confirmed <- confirmErr
+				}()
+				<-folding
+			})
+		}
+		t.Cleanup(func() { afterWaitRefreshWakes = nil })
+		waited := make(chan AttemptStatus, 1)
+		go func() {
+			status, waitErr := supervisor.WaitRefresh(context.Background(), started.ID)
+			assert.NoError(t, waitErr)
+			waited <- status
+		}()
+		synctest.Wait()
+
+		close(release)
+		synctest.Wait()
+		returnedDuringFold := len(waited) == 1
+		close(finishFold)
+		status := <-waited
+
+		require.NoError(t, <-confirmed)
+		assert.True(t, returnedDuringFold, "WaitRefresh waited for a fold its run did not include")
+		assert.Equal(t, AttemptConfirmationRequired, status.State)
+		assert.Equal(t, "refresh-confirmation", status.ConfirmationToken)
+		assert.Equal(t, uint64(4), status.Revision)
+	})
+}
+
 // parkRefresh starts a refresh that waits for the confirmation "refresh-confirmation".
 func parkRefresh(t *testing.T, supervisor *Supervisor) AttemptStatus {
 	t.Helper()
