@@ -105,6 +105,8 @@ export interface StaleNotice {
   checkFailed: boolean
   /** Newer provider data could not be loaded into the view, so rereading it is the action. */
   rereadFailed: boolean
+  /** Newer provider data is loading into the view; there is nothing to do yet. */
+  loading: boolean
 }
 
 /**
@@ -117,13 +119,14 @@ export function staleNotice(
   locale?: string,
 ): StaleNotice | undefined {
   if (state.dialog) return undefined
-  if (state.viewError) {
+  if (state.viewError || state.viewLoading) {
     return {
-      text: state.viewError,
+      text: state.viewError ?? 'Newer provider data is loading.',
       manualWaits: false,
       reconnect: false,
       checkFailed: false,
-      rereadFailed: true,
+      rereadFailed: state.viewError !== undefined,
+      loading: state.viewError === undefined,
     }
   }
   const status = state.status
@@ -143,6 +146,7 @@ export function staleNotice(
     reconnect: status.code === 'provider_reconnect_required',
     checkFailed: false,
     rereadFailed: false,
+    loading: false,
   }
 }
 
@@ -156,7 +160,14 @@ function checkFailed(
   const text = status
     ? `${dataLead(status, now, locale)} Moneyflow could not check for newer provider data. ${error}`
     : `Moneyflow could not check when provider data was last refreshed. ${error}`
-  return { text, manualWaits: false, reconnect: false, checkFailed: true, rereadFailed: false }
+  return {
+    text,
+    manualWaits: false,
+    reconnect: false,
+    checkFailed: true,
+    rereadFailed: false,
+    loading: false,
+  }
 }
 
 function dataLead(status: ProviderStatus, now: number, locale: string | undefined): string {

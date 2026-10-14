@@ -34,7 +34,7 @@
             <Button size="sm" onclick={() => void controller.reread()}>Retry</Button>
           {:else if notice.reconnect && onreconnect}
             <Button size="sm" tone="info" surface="solid" onclick={onreconnect}>Reconnect</Button>
-          {:else}
+          {:else if !notice.loading}
             {#if notice.retryAt}
               <span class="mf-stale-banner__wait">
                 {notice.manualWaits ? 'Available' : 'Retry available'} at {notice.retryAt}

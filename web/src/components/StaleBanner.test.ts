@@ -84,6 +84,12 @@ describe('StaleBanner', () => {
     expect(controller.poll).not.toHaveBeenCalled()
   })
 
+  it('says newer data is loading without offering an action', () => {
+    render(StaleBanner, { controller: stubProvider(true, { viewLoading: true }) })
+    expect(screen.getByRole('status').textContent).toBe('Newer provider data is loading.')
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
   it('stays hidden while the data is current', () => {
     render(StaleBanner, {
       controller: stubProvider(true, {

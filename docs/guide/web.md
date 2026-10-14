@@ -353,9 +353,11 @@ once, unless the provider limits manual attempts, as
 [SimpleFIN](simplefin.md#refresh-timing) does. For SimpleFIN, **Refresh** waits and shows when it
 becomes available, such as `Available at 10:40 AM`. When the provider needs you to reconnect, the
 banner offers **Reconnect** instead. If Moneyflow cannot check for newer provider data, the banner
-says so, keeps the last known data age, and offers **Retry**. If a refresh saved newer data but
-the view could not load it, the banner says `Refreshed provider data could not be loaded.` with
-the reason. Its **Retry** loads the view again, and the banner stays until that succeeds.
+says so, keeps the last known data age, and offers **Retry**. When a refresh in this tab or elsewhere
+saved newer data than the view shows, the banner says `Newer provider data is loading.` until the
+view loads it. If loading fails, the banner says `Refreshed provider data could not be loaded.`
+with the reason. Its **Retry** loads the view again, each status check also retries, and the
+banner stays until the view shows the newer data.
 
 See [Monarch refresh](monarch.md#refresh-data) for when background refresh runs.
 

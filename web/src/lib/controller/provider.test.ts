@@ -841,6 +841,94 @@ describe('provider controller', () => {
     },
   )
 
+  it('keeps loading newer data until a reread installs it', async () => {
+    const shown = testProjection({ revision: '1', capabilities: [capability(true)] })
+    const host = hostStub(shown)
+    const transport = transportStub({ status: providerStatus({ revision: '1' }) })
+    const controller = createProviderController({ transport, host })
+    controller.sync(shown)
+    await controller.poll()
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ generation: '2', revision: '2' }),
+    )
+
+    // The reread answers, but a view change that started meanwhile owns the view and fails, so
+    // the view stays at revision 1.
+    await controller.poll()
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledOnce())
+    await settle()
+    expect(staleNotice(controller.state, Date.now())?.text).toBe('Newer provider data is loading.')
+
+    host.reload.mockImplementation(async () => {
+      host.current.mockReturnValue(testProjection({ revision: '2' }))
+      return undefined
+    })
+    await controller.poll()
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledTimes(2))
+    await settle()
+    expect(staleNotice(controller.state, Date.now())).toBeUndefined()
+  })
+
+  it('rereads the view when a canceled refresh finds newer saved data', async () => {
+    const shown = testProjection({ revision: '1', capabilities: [capability(true)] })
+    const host = hostStub(shown)
+    const transport = transportStub({ status: providerStatus({ revision: '1' }) })
+    vi.mocked(transport.mutations.request).mockImplementation(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    const controller = createProviderController({ transport, host })
+    controller.sync(shown)
+    await controller.poll()
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ generation: '2', revision: '2', code: 'provider_unavailable' }),
+    )
+
+    void controller.refresh()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+    controller.cancel()
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledOnce())
+    expect(controller.state.staleReason).toBe(REFRESH_CANCELED)
+    expect(getFlashes()).toEqual([])
+  })
+
+  it('keeps the failure when an older reread succeeds after a newer one failed', async () => {
+    const shown = testProjection({ revision: '1', capabilities: [capability(true)] })
+    const host = hostStub(shown)
+    let finishOlder: () => void = () => undefined
+    host.reload
+      .mockImplementationOnce(
+        () =>
+          new Promise<undefined>((resolve) => {
+            finishOlder = () => {
+              host.current.mockReturnValue(testProjection({ revision: '2' }))
+              resolve(undefined)
+            }
+          }),
+      )
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const transport = transportStub({ status: providerStatus({ revision: '1' }) })
+    const controller = createProviderController({ transport, host })
+    controller.sync(shown)
+    await controller.poll()
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ generation: '2', revision: '3' }),
+    )
+
+    await controller.poll()
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledOnce())
+    await controller.reread()
+    expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
+
+    finishOlder()
+    await settle()
+    expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
+  })
+
   it('keeps a visible notice until data refreshed elsewhere loads', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const host = hostStub(current)
@@ -862,14 +950,18 @@ describe('provider controller', () => {
       }),
     )
     await controller.poll()
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledTimes(2))
     expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
 
     await controller.reread()
     expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
-    host.reload.mockResolvedValue(undefined)
+    host.reload.mockImplementation(async () => {
+      host.current.mockReturnValue(testProjection({ revision: '1' }))
+      return undefined
+    })
     await controller.reread()
     expect(staleNotice(controller.state, Date.now())).toBeUndefined()
-    expect(host.reload).toHaveBeenCalledTimes(3)
+    expect(host.reload).toHaveBeenCalledTimes(4)
   })
 
   it('keeps a failure while the status shows no newer data', async () => {
@@ -1038,4 +1130,9 @@ function problemResponse(
     status: httpStatus,
     headers: { 'Content-Type': 'application/problem+json' },
   })
+}
+
+/** Lets pending promise callbacks run. */
+function settle(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve))
 }

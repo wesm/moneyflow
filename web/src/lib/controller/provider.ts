@@ -50,8 +50,10 @@ export interface ProviderState {
   staleReason?: string | undefined
   /** Why the last status request failed; the next answer clears it. */
   statusError?: string | undefined
-  /** Why the view could not be reread after newer provider data; a reread that loads clears it. */
+  /** Why the view could not load the newest saved provider data; loading it clears this. */
   viewError?: string | undefined
+  /** The view is being reread because it predates the newest saved provider data. */
+  viewLoading?: boolean | undefined
 }
 
 export interface ProviderController {
@@ -103,6 +105,7 @@ const canceledHoldMillis = 5 * 60_000
 export const REFRESH_CANCELED = 'Refresh was canceled; no provider data changed.'
 export const REFRESH_STOPPED = 'Refresh stopped. The view shows the latest saved data.'
 export const REFRESH_NOT_CONFIRMED = 'Refresh was not confirmed; no provider data changed.'
+const REREAD_FAILED = 'The current view could not be reread.'
 
 export function createProviderController(options: ProviderControllerOptions): ProviderController {
   const now = options.now ?? Date.now
@@ -118,6 +121,17 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   let settled = 0
   /** Automatic refresh waits until this time after the user canceled one. */
   let automaticAfter = 0
+  /**
+   * The newest saved provider data the server reported, with the profile revision of that report.
+   * Views carry the revision they were read at, not the provider generation, so a view at this
+   * revision or later shows that data.
+   */
+  let newest: { generation: string; revision: bigint } | undefined
+  /** The generation of the provider data the installed view shows. */
+  let shownGeneration: string | undefined
+  /** Counts view rereads; only the newest one's outcome changes the notice. */
+  let rereads = 0
+  let rereading: Promise<string> | undefined
   let refreshingPoll: ReturnType<typeof setInterval> | undefined
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
@@ -127,8 +141,15 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     }
   })
 
+  /**
+   * Every status this tab adopts, from a poll, a refresh, or an error, goes through here, so no
+   * path that discovers newer saved data skips rereading the view.
+   */
   function setState(next: ProviderState): void {
-    state = next
+    const adopted = next.status !== undefined && next.status !== state.status
+    if (next.status && adopted) noteNewest(next.status)
+    const current = viewShowsNewest()
+    state = current ? { ...next, viewError: undefined, viewLoading: undefined } : next
     const watching = state.phase === 'refreshing' || state.dialog?.view === 'stopping'
     if (watching && refreshingPoll === undefined) {
       refreshingPoll = setInterval(() => void poll(), refreshingPollMillis)
@@ -137,6 +158,68 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       refreshingPoll = undefined
     }
     notify()
+    if (adopted && !current) catchUpInBackground()
+  }
+
+  /** Each status poll, and each status adopted, retries a view that is behind. */
+  function catchUpInBackground(): void {
+    // This tab's own refresh installs its view when it ends.
+    if (inFlight || pending !== undefined || rereading !== undefined) return
+    void catchUp()
+  }
+
+  function noteNewest(status: ProviderStatus): void {
+    if (newest?.generation === status.generation) return
+    // The first status describes the data the first view loaded.
+    if (newest === undefined) shownGeneration = status.generation
+    newest = { generation: status.generation, revision: BigInt(status.revision) }
+  }
+
+  /** Whether the installed view shows the newest saved provider data the server reported. */
+  function viewShowsNewest(): boolean {
+    if (newest === undefined || shownGeneration === newest.generation) return true
+    const shown = options.host.current()
+    if (!shown) return true
+    if (BigInt(shown.revision) < newest.revision) return false
+    shownGeneration = newest.generation
+    return true
+  }
+
+  /**
+   * Rereads the view until it shows the newest saved data. The notice says the data is loading,
+   * or why it could not load, until a reread installs a view at least that new. A reread can
+   * answer without installing, such as when a view change starts meanwhile; the next status poll
+   * then tries again.
+   */
+  function catchUp(force = false): Promise<string> {
+    if (!force && viewShowsNewest()) return Promise.resolve('')
+    rereads++
+    const work = rereadView(rereads)
+    rereading = work
+    void work.finally(() => {
+      if (rereading === work) rereading = undefined
+    })
+    if (!state.viewError && !state.viewLoading) setState({ ...state, viewLoading: true })
+    return work
+  }
+
+  async function rereadView(order: number): Promise<string> {
+    let failure: string | undefined
+    try {
+      await options.host.reload()
+    } catch (error) {
+      failure = failureReason(error)
+    }
+    const note = failure === undefined ? '' : REREAD_FAILED
+    // An older reread can answer last with older data, so only the newest one decides.
+    if (order !== rereads) return note
+    if (viewShowsNewest()) {
+      setState({ ...state, viewError: undefined, viewLoading: undefined })
+    } else if (failure !== undefined) {
+      const viewError = `Refreshed provider data could not be loaded. ${failure}`
+      setState({ ...state, viewLoading: undefined, viewError })
+    }
+    return note
   }
 
   /** A cached status can predate another interface's refresh, so it is no baseline. */
@@ -290,6 +373,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       capability: state.capability,
       status,
       viewError: state.viewError,
+      viewLoading: state.viewLoading,
       announcement: [summary, viewNote, status.warning].filter(Boolean).join(' '),
     })
   }
@@ -316,23 +400,9 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       (shown.canonical_query === sent.canonical_query && shown.selection === sent.selection)
     ) {
       options.host.accept(projection)
-      if (state.viewError) setState({ ...state, viewError: undefined })
       return selectionCleared ? 'Selection cleared because selected rows changed.' : ''
     }
-    return reread()
-  }
-
-  /** Rereads the view after newer provider data; a failure stays in the stale banner. */
-  async function reread(): Promise<string> {
-    try {
-      await options.host.reload()
-    } catch (error) {
-      const viewError = `Refreshed provider data could not be loaded. ${failureReason(error)}`
-      setState({ ...state, viewError })
-      return 'The current view could not be reread.'
-    }
-    if (state.viewError) setState({ ...state, viewError: undefined })
-    return ''
+    return catchUp(true)
   }
 
   /** The request ended because the user canceled it; status polls follow the server's stop. */
@@ -423,6 +493,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     // A refresh that finished meanwhile returned newer status than this poll read.
     if (seen !== settled) return
     observe(status)
+    catchUpInBackground()
     // The server's refresh_due already waits out a failure's retry delay and stops for one
     // that needs the user, so a failed last attempt does not block it.
     if (
@@ -469,11 +540,10 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       announcement: pollAnnouncement(status, phase, state),
       ...(elsewhere ? { dialog: undefined, staleReason: undefined } : {}),
     })
-    if (elsewhere) void rereadAnnouncingFailure()
   }
 
-  async function rereadAnnouncingFailure(): Promise<void> {
-    const note = await reread()
+  async function rereadOnRequest(): Promise<void> {
+    const note = await catchUp(true)
     if (note) setState({ ...state, announcement: note })
   }
 
@@ -510,11 +580,10 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       dialog: undefined,
     }
     // Without the generation from before the refresh, it may have saved before it stopped, and
-    // the counts in the status may be an earlier refresh's, so the view is reread and neither a
-    // success nor an unchanged result is claimed.
+    // the counts in the status may be an earlier refresh's, so neither a success nor an unchanged
+    // result is claimed. Newer saved data is reread like any other.
     if (watched === undefined) {
       setState({ ...ended, announcement: canceled ? REFRESH_STOPPED : 'The other refresh ended.' })
-      void rereadAnnouncingFailure()
       return
     }
     setState({
@@ -526,7 +595,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 
   /** A newer refresh may have started during the reread; it keeps its own dialog and status. */
   async function finishCommitted(status: ProviderStatus, finished: number): Promise<void> {
-    const note = await reread()
+    const note = await (rereading ?? Promise.resolve(''))
     if (finished === attempt) succeed(status, note)
     else showSuccess(completeMessage(status))
   }
@@ -592,7 +661,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     },
     sync,
     poll,
-    reread: rereadAnnouncingFailure,
+    reread: rereadOnRequest,
     refresh: () => refresh(true),
     confirm,
     dismissConfirmation,
