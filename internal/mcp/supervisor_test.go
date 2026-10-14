@@ -19,7 +19,8 @@ import (
 )
 
 func TestSupervisorUsesApplicationReservationAsWriteAuthority(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now, strings.NewReader(strings.Repeat("w", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), time.Now,
+		strings.NewReader(strings.Repeat("w", 128)), nil)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	first := &fakeWriteExecution{run: func(ctx context.Context) (app.ProviderWriteStatus, error) {
@@ -56,7 +57,8 @@ func TestSupervisorUsesApplicationReservationAsWriteAuthority(t *testing.T) {
 }
 
 func TestSupervisorWriteReservationUsesServerContext(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now, strings.NewReader(strings.Repeat("o", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), time.Now,
+		strings.NewReader(strings.Repeat("o", 128)), nil)
 	requestContext, cancelRequest := context.WithCancel(context.Background())
 	cancelRequest()
 	assert.Error(t, requestContext.Err())
@@ -79,7 +81,8 @@ func TestSupervisorWriteReservationUsesServerContext(t *testing.T) {
 }
 
 func TestSupervisorCloseCancelsBlockingWriteReservation(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now, strings.NewReader(strings.Repeat("c", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), time.Now,
+		strings.NewReader(strings.Repeat("c", 128)), nil)
 	started := make(chan struct{})
 	reservationDone := make(chan error, 1)
 	go func() {
@@ -101,7 +104,8 @@ func TestSupervisorCloseCancelsBlockingWriteReservation(t *testing.T) {
 
 func TestSupervisorReconcileAttemptIsRecoverableAndRequestIndependent(t *testing.T) {
 	now := time.Date(2026, time.August, 29, 13, 0, 0, 0, time.UTC)
-	supervisor := NewSupervisor(context.Background(), func() time.Time { return now }, strings.NewReader(strings.Repeat("r", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), func() time.Time { return now },
+		strings.NewReader(strings.Repeat("r", 128)), nil)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	requestContext, cancelRequest := context.WithCancel(context.Background())
@@ -161,7 +165,8 @@ func TestSupervisorReconcileAttemptIsRecoverableAndRequestIndependent(t *testing
 
 func TestSupervisorRefreshAttemptIsRecoverableAndSingleFlight(t *testing.T) {
 	now := time.Date(2026, time.August, 29, 13, 2, 0, 0, time.UTC)
-	supervisor := NewSupervisor(context.Background(), func() time.Time { return now }, strings.NewReader(strings.Repeat("f", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), func() time.Time { return now },
+		strings.NewReader(strings.Repeat("f", 128)), nil)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var runs atomic.Int32
@@ -206,7 +211,8 @@ func TestSupervisorRefreshAttemptIsRecoverableAndSingleFlight(t *testing.T) {
 }
 
 func TestSupervisorRefreshConfirmationIsProcessLocal(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now, strings.NewReader(strings.Repeat("d", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), time.Now,
+		strings.NewReader(strings.Repeat("d", 128)), nil)
 	attempt, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
 		return app.ProviderRefreshResult{
 			Revision: 4, Generation: 2,
@@ -236,7 +242,8 @@ func TestSupervisorRefreshConfirmationIsProcessLocal(t *testing.T) {
 }
 
 func TestSupervisorRefreshFailureKeepsAuthoritativeVersions(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now, strings.NewReader(strings.Repeat("v", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), time.Now,
+		strings.NewReader(strings.Repeat("v", 128)), nil)
 	attempt, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
 		result := app.ProviderRefreshResult{
 			Status: app.ProviderStatus{Generation: 12, ConfirmationToken: "confirm-v"},
@@ -259,7 +266,8 @@ func TestSupervisorRefreshFailureKeepsAuthoritativeVersions(t *testing.T) {
 }
 
 func TestSupervisorConfirmationUsesServerLifetimeAndCloseWaits(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now, strings.NewReader(strings.Repeat("z", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), time.Now,
+		strings.NewReader(strings.Repeat("z", 128)), nil)
 	attempt, err := supervisor.StartReconcile(8, 6, func(context.Context) (app.ProviderWriteResult, error) {
 		return app.ProviderWriteResult{
 			Revision: 8, ConfirmationToken: "confirmation-z",
@@ -292,7 +300,8 @@ func TestSupervisorConfirmationUsesServerLifetimeAndCloseWaits(t *testing.T) {
 }
 
 func TestSupervisorRefreshShutdownCancelsAndWaits(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now, strings.NewReader(strings.Repeat("x", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), time.Now,
+		strings.NewReader(strings.Repeat("x", 128)), nil)
 	stopped := make(chan struct{})
 	_, err := supervisor.StartRefresh(func(ctx context.Context) (app.ProviderRefreshResult, error) {
 		<-ctx.Done()
@@ -309,7 +318,8 @@ func TestSupervisorRefreshShutdownCancelsAndWaits(t *testing.T) {
 }
 
 func TestSupervisorShutdownCancelsAndWaitsForWork(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now, strings.NewReader(strings.Repeat("s", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), time.Now,
+		strings.NewReader(strings.Repeat("s", 128)), nil)
 	stopped := make(chan struct{})
 	_, err := supervisor.StartReconcile(1, 1, func(ctx context.Context) (app.ProviderWriteResult, error) {
 		<-ctx.Done()
@@ -330,7 +340,8 @@ func TestSupervisorShutdownCancelsAndWaitsForWork(t *testing.T) {
 }
 
 func TestSupervisorRejectsUnknownAttempt(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now, strings.NewReader(strings.Repeat("n", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), time.Now,
+		strings.NewReader(strings.Repeat("n", 128)), nil)
 	_, err := supervisor.ReconcileStatus("missing")
 	assert.ErrorIs(t, err, ErrAttemptNotFound)
 	require.NoError(t, supervisor.Close(context.Background()))
@@ -338,7 +349,8 @@ func TestSupervisorRejectsUnknownAttempt(t *testing.T) {
 
 func TestSupervisorReservesOnlyMatchingReconcileConfirmation(t *testing.T) {
 	now := time.Date(2026, time.August, 29, 13, 5, 0, 0, time.UTC)
-	supervisor := NewSupervisor(context.Background(), func() time.Time { return now }, strings.NewReader(strings.Repeat("c", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), func() time.Time { return now },
+		strings.NewReader(strings.Repeat("c", 128)), nil)
 	attempt, err := supervisor.StartReconcile(8, 6, func(context.Context) (app.ProviderWriteResult, error) {
 		result := app.ProviderWriteResult{
 			Revision: 8, Generation: 4,
@@ -399,7 +411,8 @@ func (execution *fakeWriteExecution) Release() {
 }
 
 func TestSupervisorLogsAWriteRunThatStopped(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now, strings.NewReader(strings.Repeat("l", 128)), nil)
+	supervisor := NewSupervisor(context.Background(), time.Now,
+		strings.NewReader(strings.Repeat("l", 128)), nil)
 	var logged strings.Builder
 	var logMu sync.Mutex
 	supervisor.logger = slog.New(slog.NewTextHandler(&lockedWriter{mu: &logMu, out: &logged}, nil))
@@ -457,10 +470,11 @@ func TestSupervisorStopsWorkWhenItsParentEnds(t *testing.T) {
 	parent, cancel := context.WithCancel(context.Background())
 	supervisor := NewSupervisor(parent, time.Now, strings.NewReader(strings.Repeat("p", 128)), nil)
 	t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
-	started, err := supervisor.StartRefresh(func(ctx context.Context) (app.ProviderRefreshResult, error) {
-		<-ctx.Done()
-		return app.ProviderRefreshResult{}, ctx.Err()
-	})
+	started, err := supervisor.StartRefresh(
+		func(ctx context.Context) (app.ProviderRefreshResult, error) {
+			<-ctx.Done()
+			return app.ProviderRefreshResult{}, ctx.Err()
+		})
 	require.NoError(t, err)
 
 	cancel()
@@ -526,9 +540,10 @@ func TestSupervisorExpiresAParkedRefreshAfterTheConfirmationLifetime(t *testing.
 		func(context.Context) (app.ProviderRefreshResult, error) {
 			return app.ProviderRefreshResult{}, nil
 		})
-	next, startErr := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
-		return app.ProviderRefreshResult{Revision: 5}, nil
-	})
+	next, startErr := supervisor.StartRefresh(
+		func(context.Context) (app.ProviderRefreshResult, error) {
+			return app.ProviderRefreshResult{Revision: 5}, nil
+		})
 
 	require.NoError(t, err)
 	assert.Equal(t, AttemptFailed, expired.State)
