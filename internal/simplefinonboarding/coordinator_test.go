@@ -450,7 +450,16 @@ func TestPanickingInspectLeavesTheProfileFreeForANewToken(t *testing.T) {
 	h := newHarness(t)
 	openProfile, newRuntime := h.coordinator.config.OpenProfile, h.coordinator.config.Runtime
 	var closes, runtimeCalls atomic.Int32
+	// Creating or reopening the SQLite profile can take seconds on slow CI hosts. The test waits
+	// for each open to finish before bounding the state change that follows it.
+	profileOpened := make(chan struct{}, 2)
 	h.coordinator.config.OpenProfile = func(ctx context.Context, id string) (OpenedProfile, error) {
+		defer func() {
+			select {
+			case profileOpened <- struct{}{}:
+			default:
+			}
+		}()
 		opened, err := openProfile(ctx, id)
 		if err != nil {
 			return OpenedProfile{}, err
@@ -470,12 +479,14 @@ func TestPanickingInspectLeavesTheProfileFreeForANewToken(t *testing.T) {
 	}
 	s, err := h.coordinator.Start(t.Context(), StartRequest{ProfileID: testProfileID, Renderer: "cli"})
 	require.NoError(t, err)
+	<-profileOpened
 	s = waitState(t, h.coordinator, s, StateFailed)
 	require.NotNil(t, s.Failure)
 	require.Equal(t, "Setup stopped unexpectedly.", s.Failure.Message)
 	require.Equal(t, int32(1), closes.Load())
 
 	s = submitInput(t, h, s, ActionConnect, "synthetic-token")
+	<-profileOpened
 	s = waitState(t, h.coordinator, s, StateCredentialsRequired)
 	h.mu.Lock()
 	require.Empty(t, h.events, "the first token must not be claimed")
