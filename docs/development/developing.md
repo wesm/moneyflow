@@ -76,10 +76,12 @@ Changes reload as follows:
   page keeps working. Its next change gets a `token_expired` response, fetches a new token,
   and succeeds.
 
-The first run seeds a profile in `tmp/dev-home` with synthetic data. Edits persist across
-restarts. Stop `make dev`, then run `make dev-reset` to delete the profile; the next `make dev`
-seeds a fresh one. Do this after changing `profile.sql`, because the dev profile keeps the
-schema it was created with. `make dev` never uses `~/.moneyflow`. Output is also written to `tmp/logs/backend.log` and
+The first run seeds a profile in `tmp/dev-home` with synthetic data. It seeds into a staging
+directory and renames it only when seeding succeeds, so a failed or interrupted run leaves
+nothing behind and the next run tries again. Edits persist across restarts. Stop `make dev`,
+then run `make dev-reset` to delete the profile; the next `make dev` seeds a fresh one. Do this
+after changing `profile.sql`, because the dev profile keeps the schema it was created with.
+`make dev` never uses `~/.moneyflow`. Output is also written to `tmp/logs/backend.log` and
 `tmp/logs/web.log`.
 
 To run several worktrees at once, give each its own ports:

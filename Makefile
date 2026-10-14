@@ -204,10 +204,7 @@ dev: ## Run Go under air behind Vite with live reload
 	@$(DEV_ENV) bash scripts/dev.sh
 
 dev-profile: ## Seed the synthetic dev profile in tmp/dev-home if it is missing
-	@mkdir -p -m 700 tmp
-	@if [ ! -f tmp/dev-home/moneyflow.db ]; then \
-		go run ./internal/tools/seedprofile "$(DEV_HOME)" && printf '%s\n' 'Seeded tmp/dev-home'; \
-	fi
+	@bash scripts/dev-profile.sh "$(DEV_HOME)"
 
 dev-reset: ## Delete the dev profile; the next make dev seeds a fresh one
 	rm -rf tmp/dev-home
@@ -221,7 +218,7 @@ dev-web: ## Run only the Vite dev server
 clean: ## Remove build, test, and documentation outputs; keeps tmp/dev-home
 	rm -rf -- bin coverage.out .cache/golangci-lint .cache/web-e2e .cache/ui-harness \
 		internal/web/dist web/dist web/.vite web/coverage web/test-results web/playwright-report \
-		"$(RELEASE_DIR)" docs/.site-work site tmp/air tmp/logs
+		"$(RELEASE_DIR)" docs/.site-work site tmp/air tmp/logs tmp/dev-home.seeding.*
 
 .PHONY: test-amazon test-amazon-e2e docs-check
 test-amazon: web-embed ## Run the Amazon import tests
