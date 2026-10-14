@@ -119,10 +119,14 @@ func TestProfileRegistryOnboardingRecoversAfterOpeningPanic(t *testing.T) {
 			paths, err := home.ResolveRoot(t.TempDir(), nil, "")
 			require.NoError(t, err)
 			var opens, closes atomic.Int32
+			reopened := make(chan struct{})
 			registry, err := NewProfileRegistry(ProfileRegistryConfig{
 				Open: func(ctx context.Context, id string) (RegistryProfile, error) {
-					if opens.Add(1) == 1 {
+					switch opens.Add(1) {
+					case 1:
 						panic("synthetic open failure")
+					case 2:
+						defer close(reopened)
 					}
 					handle, openErr := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
 					if openErr != nil {
@@ -188,6 +192,9 @@ func TestProfileRegistryOnboardingRecoversAfterOpeningPanic(t *testing.T) {
 				ExpectedStateVersion: failed.StateVersion, Action: action,
 			})
 			require.NoError(t, err)
+			// Creating the SQLite profile can take over a second under the race detector, so
+			// wait for the reopen to finish before bounding the state change that follows it.
+			<-reopened
 			waitForState(onboarding.StateCredentialsRequired)
 			lease, err := registry.Acquire(t.Context(), registryTestProfileID)
 			require.NoError(t, err)
