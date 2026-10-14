@@ -304,9 +304,9 @@ test('x in a grouped view explains why it cannot delete', async ({ page, server 
     .click()
   await expect(notice).toHaveText('', cleared)
   // The click scopes the table to September; its rows replace the ones read below.
-  await expect(page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')).toHaveText(
-    'Sep 2026',
-  )
+  await expect(
+    page.getByRole('banner').locator('button[aria-keyshortcuts="t"]'),
+  ).toHaveAccessibleName('Sep 2026')
   await page.keyboard.press('x')
   await expect(notice).toHaveText(reason)
   await page.getByRole('list', { name: 'Where it went' }).getByRole('button').nth(1).click()

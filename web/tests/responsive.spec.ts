@@ -442,9 +442,9 @@ test('the View sheet changes the period and filters at phone width', async ({ pa
   const currencyBox = (await sheet.getByRole('combobox', { name: /^Currency/ }).boundingBox())!
   expect(Math.round(filtersBox.width)).toBe(Math.round(currencyBox.width))
   await sheet.getByRole('radio', { name: 'Month' }).click()
-  await expect(banner.locator('button[aria-haspopup="dialog"][aria-keyshortcuts="t"]')).toHaveText(
-    'Oct 2026',
-  )
+  await expect(
+    banner.locator('button[aria-haspopup="dialog"][aria-keyshortcuts="t"]'),
+  ).toHaveAccessibleName('Oct 2026')
   await expect(sheet.getByRole('radio', { name: 'Month' })).toBeChecked()
 
   await sheet.getByRole('button', { name: 'Filters' }).click()

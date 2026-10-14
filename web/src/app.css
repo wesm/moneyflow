@@ -305,8 +305,12 @@ input {
 }
 .mf-period__label {
   box-sizing: border-box;
+  display: inline-flex;
   min-width: 4.5rem;
   height: 24px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   padding: 0 var(--space-3);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -316,11 +320,18 @@ input {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium, 500);
   font-variant-numeric: tabular-nums;
-  /* A long custom range shrinks with an ellipsis; its title and name keep the full label. */
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+}
+/* A long custom range shrinks with an ellipsis; its title and name keep the full label. */
+.mf-period__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mf-period__key {
+  display: inline-flex;
+  flex-shrink: 0;
 }
 .mf-period__label:hover:not(:disabled),
 .mf-period__label[aria-expanded='true'] {
@@ -346,6 +357,11 @@ input {
 }
 .mf-period-chooser:focus {
   outline: none;
+}
+/* Each tab carries its key badge, so the segments pack tighter than the kit default. */
+.mf-period-chooser .kit-segmented--block .kit-segmented__btn {
+  gap: var(--space-1);
+  padding-inline: var(--space-2);
 }
 .mf-period-chooser__body {
   display: flex;

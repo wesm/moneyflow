@@ -162,6 +162,56 @@ export function gridStep(
   return index
 }
 
+const dayStepKeys: Record<string, number> = {
+  ArrowLeft: -1,
+  ArrowRight: 1,
+  ArrowUp: -7,
+  ArrowDown: 7,
+}
+
+function addDays(date: string, days: number): string {
+  const [year, month, day] = parts(date)
+  const next = new Date(Date.UTC(year, month - 1, day + days))
+  return isoDate(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate())
+}
+
+/** The days a chooser calendar can move between: first to latest transaction, inclusive. */
+export interface DayLimits {
+  first: string
+  latest: string
+}
+
+/**
+ * Moves focus in a day calendar showing `month`: Left and Right step a day, Up and Down a
+ * week. A step past `latest` or before `first` stays put. A step out of the shown month
+ * pages the calendar to the new day. Undefined for other keys.
+ */
+export function calendarStep(
+  key: string,
+  date: string,
+  month: string,
+  limits: DayLimits,
+): { date: string; month: string } | undefined {
+  const step = dayStepKeys[key]
+  if (step === undefined) return undefined
+  const next = addDays(date, step)
+  if (step > 0 ? next > limits.latest : next < limits.first) return { date, month }
+  return { date: next, month: next.slice(0, 7) === month.slice(0, 7) ? month : next }
+}
+
+/** The letter that switches the chooser to each tab. */
+export const CHOOSER_KEYS: Record<ChooserTab, string> = {
+  day: 'd',
+  month: 'm',
+  year: 'y',
+  custom: 'c',
+}
+
+/** The chooser tab a letter key switches to, if any. */
+export function chooserTabForKey(key: string): ChooserTab | undefined {
+  return (Object.keys(CHOOSER_KEYS) as ChooserTab[]).find((tab) => CHOOSER_KEYS[tab] === key)
+}
+
 /** The chooser opens on the scope's kind; All and Custom open on Month. */
 export function chooserTab(kind: ScopeKind): ChooserTab {
   return kind === 'all' || kind === 'custom' ? 'month' : kind
