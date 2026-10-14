@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -88,6 +89,91 @@ func TestRefreshConfirmationTokenAppearsOnlyInMatchingStatus(t *testing.T) {
 	document := confirmed.StructuredContent.(map[string]any)
 	assert.Equal(t, "completed", document["state"])
 	assert.Equal(t, "2", document["generation"])
+}
+
+// A provider read that panics fails its refresh and gives the refresh lease back, so the next
+// refresh starts at once instead of reporting refresh_in_progress until the lease expires.
+func TestRefreshToolStartsAgainAfterAProviderPanic(t *testing.T) {
+	service, source, closeProfile := refreshTestService(t, 1)
+	defer closeProfile()
+	client, cleanup := connectRefreshTestServer(t, service)
+	defer cleanup()
+	source.panicOnNextFetch()
+
+	failed := awaitRefreshTool(t, client)
+	retried := awaitRefreshTool(t, client)
+
+	assert.Equal(t, "failed", failed["state"])
+	assert.Equal(t, "mcp_internal_error", failed["code"])
+	assert.Equal(t, "completed", retried["state"], "%v", retried)
+}
+
+// A confirmation fold that panics gives the refresh lease back as well.
+func TestRefreshToolStartsAgainAfterAConfirmationPanic(t *testing.T) {
+	var folds *foldPanicProfile
+	service, source, closeProfile := providerTestServiceOn(t, 6, "monarch",
+		func(profile store.Profile) store.Profile {
+			folds = &foldPanicProfile{Profile: profile}
+			return folds
+		})
+	defer closeProfile()
+	client, cleanup := connectRefreshTestServer(t, service)
+	defer cleanup()
+	source.setTransactionCount(0)
+	parked := awaitRefreshTool(t, client)
+	require.Equal(t, "deletion_confirmation_required", parked["state"])
+	folds.armed.Store(true)
+
+	confirmed := callRefreshToolResult(t, client, "confirm_refresh_deletions", map[string]any{
+		"attempt_id": parked["attempt_id"], "confirmation_token": parked["confirmation_token"],
+	})
+	retried := awaitRefreshTool(t, client)
+
+	require.True(t, confirmed.IsError)
+	assert.Equal(t, "mcp_internal_error", confirmed.StructuredContent.(map[string]any)["code"])
+	assert.Equal(t, "deletion_confirmation_required", retried["state"], "%v", retried)
+}
+
+// awaitRefreshTool starts a refresh and returns its status once it stops running.
+func awaitRefreshTool(t *testing.T, client *mcpsdk.ClientSession) map[string]any {
+	t.Helper()
+	attemptID := callRefreshTool(t, client, "refresh_data", nil)["attempt_id"]
+	var status map[string]any
+	require.Eventually(t, func() bool {
+		status = callRefreshTool(t, client, "get_refresh_status",
+			map[string]any{"attempt_id": attemptID})
+		return status["state"] != "running"
+	}, 3*time.Second, time.Millisecond)
+	return status
+}
+
+// foldPanicProfile panics in the next provider fold once armed, before the fold's transaction
+// starts, like a bug in code that runs while a provider operation lease is held.
+type foldPanicProfile struct {
+	store.Profile
+	armed atomic.Bool
+}
+
+func (profile *foldPanicProfile) ApplyProviderRefresh(
+	ctx context.Context,
+	request store.AtomicRefreshRequest,
+	planner store.RefreshPlanner,
+) (store.RefreshCommit, error) {
+	if profile.armed.CompareAndSwap(true, false) {
+		panic("synthetic fold failure")
+	}
+	return profile.Profile.ApplyProviderRefresh(ctx, request, planner)
+}
+
+func (profile *foldPanicProfile) ReconcileProviderWrite(
+	ctx context.Context,
+	request store.ReconcileProviderWriteRequest,
+	planner store.RefreshPlanner,
+) (store.RefreshCommit, error) {
+	if profile.armed.CompareAndSwap(true, false) {
+		panic("synthetic fold failure")
+	}
+	return profile.Profile.ReconcileProviderWrite(ctx, request, planner)
 }
 
 func TestRefreshToolExplainsUnavailableLocalProfile(t *testing.T) {
@@ -230,6 +316,7 @@ type refreshTestSource struct {
 	started       chan<- struct{}
 	release       <-chan struct{}
 	fetches       int
+	panicNext     bool
 }
 
 func (source *refreshTestSource) Reader(context.Context, bool) (provider.Reader, provider.SessionFingerprint, error) {
@@ -284,6 +371,13 @@ func (source *refreshTestSource) fetchCalls() int {
 	return source.fetches
 }
 
+// panicOnNextFetch makes the next FetchSnapshot panic, like provider code with a bug.
+func (source *refreshTestSource) panicOnNextFetch() {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	source.panicNext = true
+}
+
 type refreshTestReader refreshTestSource
 
 func (reader *refreshTestReader) FetchSnapshot(
@@ -296,8 +390,13 @@ func (reader *refreshTestReader) FetchSnapshot(
 	snapshot := source.snapshot.Clone()
 	started, release := source.started, source.release
 	source.started, source.release = nil, nil
+	panicking := source.panicNext
+	source.panicNext = false
 	source.fetches++
 	source.mu.Unlock()
+	if panicking {
+		panic("synthetic provider failure")
+	}
 	if started != nil {
 		close(started)
 		select {

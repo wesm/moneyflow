@@ -307,6 +307,7 @@ func (service *Service) RefreshProvider(
 			service.Revision(),
 		)
 	}
+	defer service.releaseLeaseOnPanic(ctx, runtime.instanceID, store.ProviderOperationRefresh)
 	// Status shows this refresh's progress, not the counts the previous refresh ended with.
 	runtime.setProgress(provider.Progress{})
 	if runtime.provider == "simplefin" {
@@ -471,6 +472,7 @@ func (service *Service) ConfirmProviderRefresh(
 			service.Revision(),
 		)
 	}
+	defer service.releaseLeaseOnPanic(ctx, runtime.instanceID, store.ProviderOperationRefresh)
 	return service.foldProviderCandidate(
 		ctx,
 		runtime,
@@ -589,10 +591,16 @@ func (service *Service) fetchProviderCandidateWithOperationHeartbeat(
 	request provider.FetchRequest,
 ) (domain.ImportSnapshot, provider.ProfileIdentity, provider.SessionFingerprint, error) {
 	fetchContext, cancel := context.WithCancelCause(ctx)
-	defer cancel(nil)
 	heartbeatDone := make(chan error, 1)
 	stopHeartbeat := make(chan struct{})
-	go func() {
+	var heartbeat sync.WaitGroup
+	// Stop the heartbeat and wait for it on every way out, a panic in the fetch included, so no
+	// lease renewal runs after this call.
+	defer func() {
+		cancel(nil)
+		heartbeat.Wait()
+	}()
+	heartbeat.Go(func() {
 		defer func() {
 			if recover() != nil {
 				failure := provider.NewError(staleCode)
@@ -636,7 +644,7 @@ func (service *Service) fetchProviderCandidateWithOperationHeartbeat(
 				}
 			}
 		}
-	}()
+	})
 	candidate, identity, fingerprint, fetchErr := service.fetchProviderCandidate(
 		fetchContext,
 		runtime,
@@ -937,6 +945,22 @@ func (service *Service) providerRefreshWarning() string {
 
 func (service *Service) releaseProviderLease(ctx context.Context, ownerID string) error {
 	return service.profile.ReleaseRefreshLease(context.WithoutCancel(ctx), ownerID)
+}
+
+// releaseLeaseOnPanic gives back this process's provider operation lease of kind when a panic
+// passes through, then panics again with the same value. Defer it right after the lease is
+// acquired: a lease left behind turns every retry away until it expires.
+func (service *Service) releaseLeaseOnPanic(
+	ctx context.Context,
+	ownerID string,
+	kind store.ProviderOperationKind,
+) {
+	failure := recover()
+	if failure == nil {
+		return
+	}
+	_ = service.profile.ReleaseProviderOperationLease(context.WithoutCancel(ctx), ownerID, kind)
+	panic(failure)
 }
 
 func buildProviderRefreshPlan(

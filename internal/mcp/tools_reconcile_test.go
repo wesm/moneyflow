@@ -5,12 +5,104 @@ import (
 	"testing"
 	"time"
 
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/store"
 )
+
+// A provider read that panics during a reconcile fails the attempt and gives the reconcile lease
+// back, so a new reconcile starts at once.
+func TestMCPReconcileStartsAgainAfterAProviderPanic(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "monarch")
+	defer closeProfile()
+	client, cleanup := connectWriteTestServer(t, service, true)
+	defer cleanup()
+	commitRejectedDeletion(t, client, service)
+	source.panicOnNextFetch()
+
+	failed := awaitReconcileTool(t, client, service)
+	retried := awaitReconcileTool(t, client, service)
+
+	assert.Equal(t, string(AttemptFailed), failed["state"])
+	assert.Equal(t, "mcp_internal_error", failed["code"])
+	assert.Equal(t, string(AttemptCompleted), retried["state"], "%v", retried)
+}
+
+// A reconcile confirmation fold that panics gives the reconcile lease back as well.
+func TestMCPReconcileStartsAgainAfterAConfirmationPanic(t *testing.T) {
+	var folds *foldPanicProfile
+	service, source, closeProfile := providerTestServiceOn(t, 1, "monarch",
+		func(profile store.Profile) store.Profile {
+			folds = &foldPanicProfile{Profile: profile}
+			return folds
+		})
+	defer closeProfile()
+	client, cleanup := connectWriteTestServer(t, service, true)
+	defer cleanup()
+	commitRejectedDeletion(t, client, service)
+	source.setTransactionCount(0)
+	parked := awaitReconcileTool(t, client, service)
+	require.Equal(t, string(AttemptConfirmationRequired), parked["state"])
+	folds.armed.Store(true)
+
+	confirmed := callWriteTool(t, client, "confirm_reconcile",
+		reconcileArguments(t, service, map[string]any{
+			"attempt_id": parked["attempt_id"], "confirmation_token": parked["confirmation_token"],
+		}))
+	retried := awaitReconcileTool(t, client, service)
+
+	require.True(t, confirmed.IsError)
+	assert.Equal(t, "mcp_internal_error", confirmed.StructuredContent.(map[string]any)["code"])
+	assert.Equal(t, string(AttemptConfirmationRequired), retried["state"], "%v", retried)
+}
+
+// commitRejectedDeletion commits a deletion that the provider rejects, which leaves a write batch
+// that only a reconcile can finish.
+func commitRejectedDeletion(t *testing.T, client *mcpsdk.ClientSession, service *app.Service) {
+	t.Helper()
+	revision := stageDeletion(t, client, service)
+	callRefreshTool(t, client, "commit_changes",
+		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	require.Eventually(t, func() bool {
+		status, err := service.ProviderWriteStatus(t.Context())
+		return err == nil && status.Phase == store.WritePhaseAttentionRequired
+	}, 3*time.Second, 10*time.Millisecond)
+}
+
+// reconcileArguments adds the current revision and write batch version to arguments.
+func reconcileArguments(
+	t *testing.T,
+	service *app.Service,
+	arguments map[string]any,
+) map[string]any {
+	t.Helper()
+	status, err := service.ProviderWriteStatus(t.Context())
+	require.NoError(t, err)
+	arguments["expected_revision"] = strconv.FormatUint(service.Revision(), 10)
+	arguments["batch_version"] = strconv.FormatUint(status.Version, 10)
+	return arguments
+}
+
+// awaitReconcileTool starts a reconcile and returns its status once it stops running.
+func awaitReconcileTool(
+	t *testing.T,
+	client *mcpsdk.ClientSession,
+	service *app.Service,
+) map[string]any {
+	t.Helper()
+	started := callRefreshTool(t, client, "stop_and_reconcile",
+		reconcileArguments(t, service, map[string]any{}))
+	var status map[string]any
+	require.Eventually(t, func() bool {
+		status = callRefreshTool(t, client, "get_reconcile_status",
+			map[string]any{"attempt_id": started["attempt_id"]})
+		return status["state"] != string(AttemptRunning)
+	}, 3*time.Second, time.Millisecond)
+	return status
+}
 
 func TestMCPCommitStatusReportsRetryableAttentionWithoutRevisionChange(t *testing.T) {
 	service, source, closeProfile := providerTestService(t, 1, "monarch")

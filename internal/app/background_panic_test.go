@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -195,5 +196,68 @@ func TestRefreshReadPanicStopsTheLeaseHeartbeat(t *testing.T) {
 		}, observedAt)
 		require.NoError(t, err)
 		assert.True(t, acquired, "the lease is still renewed after the read panicked")
+	})
+}
+
+// blockingRenewalProfile holds every refresh lease renewal until finish closes, whatever its
+// context says, and closes renewing when the first one starts.
+type blockingRenewalProfile struct {
+	store.Profile
+	once     sync.Once
+	renewing chan struct{}
+	finish   chan struct{}
+}
+
+func (profile *blockingRenewalProfile) RenewProviderOperationLease(
+	ctx context.Context,
+	_ string,
+	_ store.ProviderOperationKind,
+	_ time.Time,
+	_ time.Time,
+) (bool, error) {
+	profile.once.Do(func() { close(profile.renewing) })
+	<-profile.finish
+	return false, ctx.Err()
+}
+
+// A read that panics while the heartbeat renews the lease waits for that renewal to end before the
+// panic leaves the service. Otherwise the renewal could still run after the caller recovered and
+// gave the profile back.
+func TestRefreshReadPanicWaitsForTheLeaseRenewal(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		_, handle := newProviderRefreshService(t)
+		profile := &blockingRenewalProfile{
+			Profile: handle, renewing: make(chan struct{}), finish: make(chan struct{}),
+		}
+		service, err := app.NewProfileService(t.Context(), profile)
+		require.NoError(t, err)
+		now := time.Now().UTC().Truncate(time.Millisecond)
+		source := &fakeProviderSource{
+			identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+			snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+		}
+		source.setFetchHook(func() error {
+			<-profile.renewing
+			panic("synthetic provider failure")
+		})
+		require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+			ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
+			Renderer: "tui", InstanceID: "instance-panic", Now: time.Now,
+			Random: &incrementingReader{}, HeartbeatInterval: 10 * time.Millisecond,
+		}))
+		recovered := make(chan any, 1)
+		go func() {
+			defer func() { recovered <- recover() }()
+			_, _ = service.RefreshProvider(t.Context(), app.ProviderRefreshRequest{
+				Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+			})
+		}()
+		<-profile.renewing
+		synctest.Wait()
+		leftEarly := len(recovered) == 1
+		close(profile.finish)
+
+		assert.False(t, leftEarly, "the panic left the service while a lease renewal still ran")
+		assert.Equal(t, "synthetic provider failure", <-recovered)
 	})
 }

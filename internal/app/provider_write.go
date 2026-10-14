@@ -1527,6 +1527,7 @@ func (service *Service) StopAndReconcileProviderWrite(
 	if err != nil {
 		return ProviderWriteResult{}, mapAppError(err, service.Revision())
 	}
+	defer service.releaseLeaseOnPanic(ctx, runtime.instanceID, store.ProviderOperationReconcile)
 	providerState, err := service.profile.ProviderState(ctx)
 	if err != nil {
 		return ProviderWriteResult{}, mapAppError(err, service.Revision())
@@ -1641,6 +1642,7 @@ func (service *Service) ConfirmProviderWriteReconcile(
 			provider.NewError(provider.CodeConfirmationInvalid), service.Revision(),
 		)
 	}
+	defer service.releaseLeaseOnPanic(ctx, runtime.instanceID, store.ProviderOperationReconcile)
 	return service.foldProviderWriteReconcile(
 		ctx, runtime, batch, providerState, confirmation.candidate,
 		confirmation.proposedIDs, confirmation.proposedSuffixes, request,
