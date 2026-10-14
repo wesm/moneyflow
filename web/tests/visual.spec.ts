@@ -154,6 +154,37 @@ async function themeColor(page: Page, property: string): Promise<string> {
   }, property)
 }
 
+/** The computed shadow of a theme custom property, such as `--shadow-raised`. */
+async function themeShadow(page: Page, property: string): Promise<string> {
+  return await page.evaluate((name) => {
+    const probe = document.createElement('div')
+    probe.style.boxShadow = `var(${name})`
+    document.body.append(probe)
+    const shadow = getComputedStyle(probe).boxShadow
+    probe.remove()
+    return shadow
+  }, property)
+}
+
+for (const theme of themes) {
+  test(`${theme} controls, fields, and panels take their depth from the theme`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
+    await openMoneyflow(page, server)
+    const raised = await themeShadow(page, '--shadow-raised')
+    const sunken = await themeShadow(page, '--shadow-sunken')
+    const panel = await themeShadow(page, '--shadow-panel')
+    for (const shadow of [raised, sunken, panel]) expect(shadow).not.toBe('none')
+    const banner = page.getByRole('banner')
+    await expect(banner.locator('.kit-filter-dropdown__btn')).toHaveCSS('box-shadow', raised)
+    await expect(banner.locator('.kit-text-input')).toHaveCSS('box-shadow', sunken)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await expect(grid).toHaveCSS('box-shadow', panel)
+  })
+}
+
 test('hover keeps the cursor and selection tints; hidden rows keep ☐ and flags bright', async ({
   page,
   server,
