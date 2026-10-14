@@ -19,11 +19,13 @@ Git hooks run through mise as well. Make remains the build and test entry point.
 The application has no Python or CGO requirement. Python and uv are needed only for the
 [documentation website](https://github.com/wesm/moneyflow/blob/main/docs/README.md).
 
-On Unix, set a private temporary directory for tests and demos before running the commands
-below. Moneyflow rejects profile paths beneath group- or world-writable ancestors,
+On Unix, set a private temporary directory and file-creation permissions for tests
+and demos before running the commands below. Go creates test subdirectories using
+the shell's umask. Moneyflow rejects profile paths beneath group- or world-writable ancestors,
 including the usual `/tmp`, even when the profile directory itself is private.
 
 ```bash
+umask 077
 export TMPDIR="$(mktemp -d "$HOME/moneyflow-dev.XXXXXX")"
 ```
 

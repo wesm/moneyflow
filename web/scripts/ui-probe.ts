@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 import { startScenarioServer, type ScenarioServer, type Observation } from './scenario-server'
+import prepareE2EBinaries from './e2e-binaries'
 
 type Role = Parameters<Page['getByRole']>[0]
 export interface BrowserAction {
@@ -214,4 +215,11 @@ async function main(): Promise<void> {
   }
 }
 
-if (import.meta.main) await main()
+if (import.meta.main) {
+  const cleanup = await prepareE2EBinaries()
+  try {
+    await main()
+  } finally {
+    await cleanup()
+  }
+}
