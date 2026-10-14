@@ -241,6 +241,16 @@ func (coordinator *Coordinator) Submit(
 	}
 	if request.Action == ActionReauthenticate && (current.state == StateIdentityMismatch ||
 		(current.state == StateFailed && current.failure != nil && current.failure.CanReenter)) {
+		if current.flow.opened == nil {
+			// A panic stopped inspection before it installed the profile, so there is no runtime
+			// to authenticate with. Inspect again, as Retry does.
+			coordinator.transitionLocked(current, StateInspect, nil)
+			current.progress = nil
+			coordinator.startJobLocked(current, coordinator.restartInspect)
+			snapshot := current.snapshot()
+			coordinator.mu.Unlock()
+			return snapshot, nil
+		}
 		driver, driverErr := flowFor(current.providerKind)
 		if driverErr != nil {
 			coordinator.mu.Unlock()
@@ -485,6 +495,9 @@ func (coordinator *Coordinator) transitionLocked(
 	state State,
 	failure *Failure,
 ) {
+	if state != StateFailed && state != StateImporting {
+		current.flow.retryState = ""
+	}
 	current.state = state
 	current.failure = failure
 	current.stateVersion++
@@ -518,8 +531,28 @@ func (coordinator *Coordinator) startJobLocked(
 				_ = release.release()
 			}
 		}()
+		defer func() {
+			if recover() != nil {
+				coordinator.failUnexpectedly(attemptID)
+			}
+		}()
 		job(ctx, attemptID)
 	}()
+}
+
+func (coordinator *Coordinator) failUnexpectedly(attemptID string) {
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	current, ok := coordinator.attempts[attemptID]
+	if !ok || current.state == StateCanceled {
+		return
+	}
+	// Import retries require retained inputs and completed credential saves.
+	canRetry := current.state != StateImporting || current.flow.retryState == StateImporting
+	coordinator.transitionLocked(current, StateFailed, &Failure{
+		Code: genericFailureCode, Message: "Setup stopped unexpectedly.",
+		CanRetry: canRetry, CanReenter: true,
+	})
 }
 
 func validateActionPayload(request SubmitRequest) error {

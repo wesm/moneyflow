@@ -226,6 +226,19 @@ func TestCancelNewProfileRemovesOnlyPristineArtifactFreeProfile(t *testing.T) {
 	assert.NoDirExists(t, entry.Root)
 }
 
+func TestCancelNewProfileFinishesACancelThatFailedAfterRetiringTheProfile(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	entry := createTestManifestProfile(t, catalog, 0x27, "Canceled", "monarch")
+	retireTestProfile(t, entry.Root)
+
+	removed, err := catalog.CancelNewProfile(context.Background(), entry.ID)
+
+	require.NoError(t, err)
+	assert.True(t, removed)
+	assertNoProfileFiles(t, catalog, entry.ID)
+}
+
 func TestCancelNewProfileAllowsEmptyMonarchRuntimeDirectories(t *testing.T) {
 	t.Parallel()
 	catalog := newTestCatalog(t, nil)

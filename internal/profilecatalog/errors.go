@@ -16,6 +16,7 @@ const (
 	CodeProfileBusy         Code = "profile_busy"
 	CodeRecoveryIncomplete  Code = "profile_recovery_incomplete"
 	CodeRecoveryUnavailable Code = "profile_recovery_unavailable"
+	CodeProfileExists       Code = "profile_exists"
 )
 
 var safeDetails = map[Code]string{
@@ -27,6 +28,7 @@ var safeDetails = map[Code]string{
 	CodeProfileBusy:         "Moneyflow profiles are busy. Wait for the current import or profile operation to finish, then retry.",
 	CodeRecoveryIncomplete:  "profile recovery is incomplete",
 	CodeRecoveryUnavailable: "profile cannot be recovered by this Moneyflow version",
+	CodeProfileExists:       "profile already exists",
 }
 
 // Error retains a trusted cause while exposing only fixed renderer-safe detail.

@@ -26,9 +26,9 @@ func TestMerchantCommitTakesPriorityOverOwnRefresh(t *testing.T) {
 			t.Parallel()
 			fixture := newProviderModel(t, 1)
 			fixture.source.writer = tuiProviderWriter{identity: fixture.source.identity}
-			started := make(chan struct{})
+			started := make(chan context.Context, 1)
 			fixture.source.setFetch(func(ctx context.Context, _ provider.ProgressFunc) (domain.ImportSnapshot, error) {
-				close(started)
+				started <- ctx
 				<-ctx.Done()
 				return domain.ImportSnapshot{}, ctx.Err()
 			})
@@ -47,7 +47,7 @@ func TestMerchantCommitTakesPriorityOverOwnRefresh(t *testing.T) {
 				defer close(done)
 				result <- command()
 			}(model.providerRefreshCommand(true, ""))
-			<-started
+			fetchContext := <-started
 
 			model = press(t, model, keyRune('m'))
 			model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})
@@ -62,12 +62,9 @@ func TestMerchantCommitTakesPriorityOverOwnRefresh(t *testing.T) {
 			if cancelCommit {
 				model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
 			}
-			var message tea.Msg
-			select {
-			case message = <-result:
-			case <-time.After(time.Second):
-				t.Fatal("Commit did not cancel the background refresh")
-			}
+			require.ErrorIs(t, fetchContext.Err(), context.Canceled, "Commit must cancel the background refresh")
+			// Command completion also waits for durable refresh cleanup.
+			message := <-result
 			updated, command := model.Update(message)
 			model = updated.(Model)
 			if cancelCommit {

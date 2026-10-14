@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
 const (
@@ -29,6 +30,8 @@ type Config struct {
 	Version        string
 	InspectSession SessionPresence
 	RecoveryFault  func(RecoveryFaultPoint) error
+	// SQLite opens every profile database. A zero MaxOpenConnections selects sqlite.DefaultOptions.
+	SQLite sqlite.Options
 }
 
 // Catalog owns filesystem discovery and profile lifecycle operations.
@@ -39,6 +42,7 @@ type Catalog struct {
 	version        string
 	inspectSession SessionPresence
 	recoveryFault  func(RecoveryFaultPoint) error
+	sqliteOptions  sqlite.Options
 }
 
 // New validates and constructs one profile catalog.
@@ -51,10 +55,13 @@ func New(config Config) (*Catalog, error) {
 	if config.Random == nil || config.Now == nil || config.Version == "" {
 		return nil, newError(CodeProfileInvalid, errors.New("catalog dependencies are incomplete"))
 	}
+	if config.SQLite.MaxOpenConnections == 0 {
+		config.SQLite = sqlite.DefaultOptions
+	}
 	return &Catalog{
 		paths: config.Paths, random: config.Random, now: config.Now,
 		version: config.Version, inspectSession: config.InspectSession,
-		recoveryFault: config.RecoveryFault,
+		recoveryFault: config.RecoveryFault, sqliteOptions: config.SQLite,
 	}, nil
 }
 
@@ -73,6 +80,8 @@ const (
 	StatusNeedsRecovery       Status = "needs_recovery"
 	StatusRequiresNewer       Status = "requires_newer_moneyflow"
 	StatusManifestUnsupported Status = "manifest_unsupported"
+	// StatusUnavailable marks a profile Survey could not inspect; Entry.Problem says why.
+	StatusUnavailable Status = "unavailable"
 )
 
 // Entry is one discovered profile without any financial contents.
@@ -83,6 +92,12 @@ type Entry struct {
 	ProviderKind string
 	Root         string
 	Status       Status
+	// Problem explains StatusUnavailable and is empty otherwise.
+	Problem string
+	// placeholderName marks a label used when the profile's actual name is unknown.
+	placeholderName bool
+	// reservedID prevents imports from taking an active recovery's profile ID.
+	reservedID string
 }
 
 // ProfilePaths returns the fixed database layout for this entry.

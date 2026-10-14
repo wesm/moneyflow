@@ -70,6 +70,17 @@ func (coordinator *Coordinator) inspectAndValidate(ctx context.Context, attemptI
 		)
 		return
 	}
+	owned := true
+	releaseOwned := func() {
+		if owned {
+			owned = false
+			_ = providerLock.Release()
+			_ = opened.Close()
+		}
+	}
+	// The attempt owns the lock and the profile only after installFlow. A panic before that
+	// must not leave them held.
+	defer releaseOwned()
 	runtime, err := coordinator.runtimeFactory(opened.Paths)
 	providerKind := coordinator.attemptProviderKind(attemptID)
 	if runtime.ProviderKind == "" {
@@ -85,8 +96,7 @@ func (coordinator *Coordinator) inspectAndValidate(ctx context.Context, attemptI
 			runtime.NewYNABClient != nil && runtime.NewYNABSource != nil
 	}
 	if err != nil || !validRuntime {
-		_ = providerLock.Release()
-		_ = opened.Close()
+		releaseOwned()
 		coordinator.fail(
 			attemptID, genericFailureCode, "The provider connection could not start.", true, false,
 		)
@@ -97,18 +107,17 @@ func (coordinator *Coordinator) inspectAndValidate(ctx context.Context, attemptI
 	}
 	connection, err := opened.Service.ProviderConnection(ctx)
 	if err != nil {
-		_ = providerLock.Release()
-		_ = opened.Close()
+		releaseOwned()
 		coordinator.fail(
 			attemptID, genericFailureCode, "The profile state could not be inspected.", true, false,
 		)
 		return
 	}
 	if !coordinator.installFlow(attemptID, opened, providerLock, runtime, connection) {
-		_ = providerLock.Release()
-		_ = opened.Close()
+		releaseOwned()
 		return
 	}
+	owned = false
 	driver, driverErr := flowFor(providerKind)
 	if driverErr != nil {
 		coordinator.fail(attemptID, genericFailureCode, "The provider connection could not start.", false, false)
@@ -414,6 +423,7 @@ func (coordinator *Coordinator) clearRetainedSession(attemptID string) {
 	if current, ok := coordinator.attempts[attemptID]; ok {
 		current.flow.retainedSession = nil
 		current.flow.identity = nil
+		current.flow.retryState = ""
 	}
 }
 
