@@ -197,105 +197,35 @@ describe('browser editing controller', () => {
     })
   })
 
-  it('sends an edit made while another is on its way after it, at the revision it left', async () => {
-    let release!: (response: Response) => void
-    const response = new Promise<Response>((resolve) => (release = resolve))
-    const request = vi
-      .fn<MutationFetch['request']>()
-      .mockImplementationOnce(async () => await response)
-      .mockImplementationOnce(async () =>
-        jsonResponse(mutationResponse('9', 'mfsel1.example' as SelectionValue)),
-      )
-    const controller = createEditingController({
-      transport: { request },
-      host: editingHost(testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' })),
-    })
-
-    const undo = controller.undo()
-    const redo = controller.redo()
-    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1))
-    await Promise.resolve()
-    expect(request).toHaveBeenCalledTimes(1)
-    release(jsonResponse(mutationResponse('8', 'mfsel1.example' as SelectionValue)))
-
-    await expect(undo).resolves.toBe(true)
-    await expect(redo).resolves.toBe(true)
-    expect(request.mock.calls.map(([path]) => path)).toEqual(['api/v1/undo', 'api/v1/redo'])
-    expect(JSON.parse(request.mock.calls[1]![1]).expected_revision).toBe('8')
-    expect(controller.state.revision).toBe(9n)
-  })
-
-  it('settles once the editing requests on their way have landed', async () => {
-    let release!: (response: Response) => void
-    const response = new Promise<Response>((resolve) => (release = resolve))
-    const controller = createEditingController({
-      transport: { request: vi.fn(async () => await response) },
-      host: editingHost(testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' })),
-    })
-    await expect(controller.settled()).resolves.toBeUndefined()
-
-    const undo = controller.undo()
-    let settled = false
-    void controller.settled().then(() => (settled = true))
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(settled).toBe(false)
-    release(jsonResponse(mutationResponse('8', 'mfsel1.example' as SelectionValue)))
-    await undo
-    await vi.waitFor(() => expect(settled).toBe(true))
-  })
-
-  it('refuses an edit whose selection changed while it waited, and sends nothing', async () => {
+  it('refuses every edit made while another is on its way, says why, and sends nothing', async () => {
     let release!: (response: Response) => void
     const response = new Promise<Response>((resolve) => (release = resolve))
     const request = vi.fn<MutationFetch['request']>(async () => await response)
     const controller = createEditingController({
       transport: { request },
-      host: editingHost(
-        testProjection({
-          revision: '7',
-          canonical_query: 'v=1&group=merchant',
-          selection: 'mfsel1.two-rows' as SelectionValue,
-        }),
-      ),
-    })
-
-    const rename = controller.submit({ action: 'transaction.edit-merchant', input: {} })
-    const remove = controller.submit({ action: 'transaction.delete', input: {} })
-    // The rename lands and clears the selection the delete was confirmed for.
-    release(jsonResponse(mutationResponse('8', 'mfsel1.cleared' as SelectionValue)))
-
-    await expect(rename).resolves.toBe(true)
-    await expect(remove).resolves.toBe(false)
-    expect(request).toHaveBeenCalledTimes(1)
-    expect(controller.state.announcement).toBe(
-      'The view or selection changed while an earlier edit was saving. Review it and try again.',
-    )
-  })
-
-  it('sends a waiting edit whose view and selection stayed the same', async () => {
-    let release!: (response: Response) => void
-    const response = new Promise<Response>((resolve) => (release = resolve))
-    const request = vi
-      .fn<MutationFetch['request']>()
-      .mockImplementationOnce(async () => await response)
-      .mockImplementationOnce(async () =>
-        jsonResponse(mutationResponse('9', 'mfsel1.example' as SelectionValue)),
-      )
-    const controller = createEditingController({
-      transport: { request },
       host: editingHost(testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' })),
     })
 
-    const first = controller.submit({ action: 'transaction.toggle-hidden', input: {} })
-    const second = controller.submit({ action: 'transaction.toggle-hidden', input: {} })
-    release(jsonResponse(mutationResponse('8', 'mfsel1.example' as SelectionValue)))
+    const first = controller.submit({ action: 'transaction.edit-merchant', input: {} })
+    for (const edit of [
+      () => controller.undo(),
+      () => controller.redo(),
+      () => controller.submit({ action: 'category.manage', input: {} }),
+      () => controller.commit(7n),
+    ]) {
+      await expect(edit()).resolves.toBe(false)
+      expect(controller.state.announcement).toBe(
+        'Wait for the previous edit to finish, then try again.',
+      )
+    }
+    expect(request).toHaveBeenCalledTimes(1)
 
+    release(jsonResponse(mutationResponse('8', 'mfsel1.example' as SelectionValue)))
     await expect(first).resolves.toBe(true)
-    await expect(second).resolves.toBe(true)
-    expect(JSON.parse(request.mock.calls[1]![1]).expected_revision).toBe('8')
+    expect(controller.state.announcement).toMatch(/^Change saved as pending\./)
   })
 
-  it('still sends the next edit after the one before it failed', async () => {
+  it('takes the next edit once a failed one has finished', async () => {
     const request = vi
       .fn<MutationFetch['request']>()
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
@@ -307,10 +237,9 @@ describe('browser editing controller', () => {
       host: editingHost(testProjection({ revision: '7', canonical_query: 'v=1&group=merchant' })),
     })
 
-    const failed = controller.undo()
-    const next = controller.undo()
-    await expect(failed).resolves.toBe(false)
-    await expect(next).resolves.toBe(true)
+    await expect(controller.undo()).resolves.toBe(false)
+    expect(controller.state.announcement).toBe('The profile request failed.')
+    await expect(controller.undo()).resolves.toBe(true)
     expect(request).toHaveBeenCalledTimes(2)
   })
 

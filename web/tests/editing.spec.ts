@@ -165,28 +165,34 @@ async function renameThenEscape(page: Page): Promise<{ release(): void }> {
   return rename
 }
 
-test('u after an editor closed during its request undoes that edit', async ({ page }) => {
+const WAIT = 'Wait for the previous edit to finish, then try again.'
+
+test('u after an editor closed during its request asks to wait, then undoes', async ({ page }) => {
   const server = await startE2EServer()
   try {
     await openMoneyflow(page, server)
     await page.keyboard.press('Enter')
     await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    let undos = 0
+    page.on('request', (request) => {
+      if (request.url().endsWith('/undo')) undos++
+    })
     await page.keyboard.press('m')
     const rename = await renameThenEscape(page)
-    const undo = page.waitForRequest('**/api/v1/profiles/*/undo')
-    // Nothing was pending before the rename, which is still on its way.
     await page.keyboard.press('u')
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(WAIT)
     rename.release()
-    await undo
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    expect(undos).toBe(0)
+    await page.keyboard.press('u')
     await expect(page.getByRole('status').filter({ hasText: /^Undid / })).toBeVisible()
     await expect(page.getByText(/1 redo/)).toBeVisible()
-    await expect(page.getByText('No pending edit to undo.')).toHaveCount(0)
   } finally {
     await server.stop()
   }
 })
 
-test('x after a bulk edit closed during its request confirms what that edit leaves', async ({
+test('x after a bulk edit closed during its request asks to wait, never deleting', async ({
   page,
 }) => {
   const server = await startE2EServer()
@@ -202,16 +208,52 @@ test('x after a bulk edit closed during its request confirms what that edit leav
     await expect(await activeRow(page)).toHaveAttribute('aria-selected', 'false')
     await page.keyboard.press('m')
     const rename = await renameThenEscape(page)
-    // The bulk rename clears the selection when it lands, so x then deletes the cursor row.
     await page.keyboard.press('x')
-    rename.release()
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(WAIT)
     const confirm = page.getByRole('alertdialog', { name: 'Confirm deletion' })
-    await expect(confirm).toContainText('Delete 1 transaction?')
+    await expect(confirm).toHaveCount(0)
+    rename.release()
+    // The bulk rename clears the selection, so x then confirms the cursor row alone.
     await expect(page.getByRole('row', { selected: true })).toHaveCount(0)
+    await page.keyboard.press('x')
+    await expect(confirm).toContainText('Delete 1 transaction?')
+  } finally {
+    await server.stop()
+  }
+})
+
+test('an undo and a category edit during a closed editor request are both refused', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
     await page.keyboard.press('Enter')
-    await expect(page.getByRole('status').filter({ hasText: /^Deleted / })).toHaveText(
-      'Deleted 1 transaction · Undo u',
-    )
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    const edits: string[] = []
+    page.on('request', (request) => {
+      const url = request.url()
+      if (url.endsWith('/undo')) edits.push('undo')
+      else if (url.endsWith('/mutations')) edits.push(String(request.postDataJSON().action))
+    })
+    await page.keyboard.press('m')
+    const rename = await renameThenEscape(page)
+    await page.keyboard.press('u')
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(WAIT)
+    await page.keyboard.press('Shift+C')
+    const manager = page.getByRole('dialog', { name: 'Manage categories' })
+    await expect(manager.getByLabel('Filter categories')).toBeFocused()
+    await page.keyboard.type('din')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('r')
+    const name = manager.getByRole('textbox', { name: 'Name' })
+    await expect(name).toBeFocused()
+    await page.keyboard.type(' Out')
+    await page.keyboard.press('Enter')
+    await expect(manager.getByText(WAIT)).toBeVisible()
+    rename.release()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    expect(edits).toEqual(['transaction.edit-merchant'])
   } finally {
     await server.stop()
   }

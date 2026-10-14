@@ -7,6 +7,7 @@ import type { LocalAction } from '../shortcuts'
 import { rowActionButtons, type RowActionButton } from '../table/actions'
 import { currentPageRows, cursorTarget, type CursorMove } from '../table/cursor-keys'
 import { availableCapabilities, unavailableReason } from './capabilities'
+import { EDIT_IN_FLIGHT } from '../controller/editing'
 import type { EditorAnchor, OverlayState } from './overlay-state.svelte'
 import { showFailure, showWarning } from './notices'
 import { activeCurrency } from './period'
@@ -62,15 +63,24 @@ export async function moveCursor(
 
 /**
  * Queues `work` after view transitions, to run once the shell has drawn their result. It runs
- * after a queued newer-insights recheck that failed, too. It also waits for an edit from a
- * dialog that closed while the edit was on its way: such edits do not pass through this queue.
+ * after a queued newer-insights recheck that failed, too.
  */
 function whenSettled(context: LocalActionContext, work: () => unknown): void {
   void context.queue(async () => {
-    await context.controller.editing.settled()
     await tick()
     await work()
   })
+}
+
+/**
+ * Says to wait if an edit from a dialog, such as an editor closed during its request, is still
+ * on its way. Keys and the row actions sheet wait for each other in the transition queue, but
+ * not for dialogs.
+ */
+function waitingForDialogEdit(context: LocalActionContext): boolean {
+  if (context.controller.editing.state.phase !== 'submitting') return false
+  status.notify(EDIT_IN_FLIGHT)
+  return true
 }
 
 /**
@@ -80,7 +90,7 @@ function whenSettled(context: LocalActionContext, work: () => unknown): void {
  */
 function ifOffered(context: LocalActionContext, capability: string, work: () => unknown): unknown {
   const projection = context.controller.projection
-  if (!projection) return undefined
+  if (!projection || waitingForDialogEdit(context)) return undefined
   if (availableCapabilities(projection).has(capability)) return work()
   status.notify(unavailableReason(projection, capability))
   return undefined
@@ -209,7 +219,7 @@ export function runRowAction(
   whenSettled(context, () => {
     const projection = context.controller.projection
     const button = projection && rowActionButtons(projection).find((b) => b.action === action)
-    if (!button) return
+    if (!button || waitingForDialogEdit(context)) return
     if (button.reason) return status.notify(button.reason)
     if (action === 'edit.hide') return hideRow(context, target)
     if (action === 'edit.merchant') openEditor(context, 'merchant', target)

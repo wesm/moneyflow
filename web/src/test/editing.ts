@@ -51,7 +51,6 @@ export function testEditingController(
     submit: vi.fn(async () => true),
     undo: vi.fn(async () => true),
     redo: vi.fn(async () => true),
-    settled: vi.fn(async () => undefined),
     commit: vi.fn(async () => true),
     catalog: vi.fn(async () => testCatalog),
     previewMerchant: vi.fn(async () => ({

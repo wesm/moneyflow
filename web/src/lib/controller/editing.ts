@@ -62,8 +62,6 @@ export interface EditingController {
   submit(intent: MutationIntent): Promise<boolean>
   undo(): Promise<boolean>
   redo(): Promise<boolean>
-  /** Resolves once no editing request is on its way. */
-  settled(): Promise<void>
   commit(reviewedRevision: bigint): Promise<boolean>
   catalog(): Promise<EditorCatalog>
   previewMerchant(
@@ -88,9 +86,8 @@ const emptyPending: PendingSummary = {
 /** What an editing request that failed without a server answer reports. */
 export const REQUEST_FAILED = 'The profile request failed.'
 
-/** Why an edit that waited for another was not sent: what it was made for is gone. */
-export const VIEW_CHANGED =
-  'The view or selection changed while an earlier edit was saving. Review it and try again.'
+/** Why an edit made while another is on its way was not sent. */
+export const EDIT_IN_FLIGHT = 'Wait for the previous edit to finish, then try again.'
 
 export function createEditingController(options: EditingControllerOptions): EditingController {
   const initial = options.host.current()
@@ -113,22 +110,13 @@ export function createEditingController(options: EditingControllerOptions): Edit
     notify()
   }
 
-  // Editing requests run one at a time, each built from the revision and view the one before it
-  // leaves. A key pressed while a closed dialog's edit is still on its way then runs after it.
-  // With none on its way, a request starts at once, from the view shown when it was made.
-  let turn: Promise<unknown> | undefined
-  function inTurn<T>(work: () => Promise<T>): Promise<T> {
-    const result = turn ? turn.then(work) : work()
-    const done = result.catch(() => undefined)
-    turn = done
-    void done.then(() => {
-      if (turn === done) turn = undefined
-    })
-    return result
-  }
-
-  async function settled(): Promise<void> {
-    while (turn) await turn
+  // An edit is built from the revision and view on screen. While another edit is on its way,
+  // both may change, so a new edit is refused, visibly, instead of waiting: one made in a dialog
+  // could otherwise act on rows its confirmation did not name, or run out of order with a key.
+  function refusedWhileBusy(): boolean {
+    if (state.phase !== 'submitting') return false
+    setState({ ...state, announcement: EDIT_IN_FLIGHT })
+    return true
   }
 
   function sync(projection: ViewProjection): void {
@@ -139,25 +127,8 @@ export function createEditingController(options: EditingControllerOptions): Edit
     })
   }
 
-  // An edit acts on the view and selection shown when it was made, such as the rows a delete
-  // confirmed. If the edit before it changed either, sending it would act on other rows.
-  function submit(intent: MutationIntent): Promise<boolean> {
-    const made = options.host.current()
-    return inTurn(async () => {
-      const shown = options.host.current()
-      if (
-        made &&
-        shown &&
-        (shown.canonical_query !== made.canonical_query || shown.selection !== made.selection)
-      ) {
-        setState({ ...state, phase: 'idle', announcement: VIEW_CHANGED })
-        return false
-      }
-      return await submitNow(intent)
-    })
-  }
-
-  async function submitNow(intent: MutationIntent): Promise<boolean> {
+  async function submit(intent: MutationIntent): Promise<boolean> {
+    if (refusedWhileBusy()) return false
     const current = options.host.current()
     if (!current) return false
     if (!projectionRevisionIsCurrent(current)) return false
@@ -174,15 +145,16 @@ export function createEditingController(options: EditingControllerOptions): Edit
     return await mutate('api/v1/mutations', body, 'Change saved as pending.', 'mutate')
   }
 
-  function undo(): Promise<boolean> {
-    return inTurn(() => moveCursor('api/v1/undo'))
+  async function undo(): Promise<boolean> {
+    return await moveCursor('api/v1/undo')
   }
 
-  function redo(): Promise<boolean> {
-    return inTurn(() => moveCursor('api/v1/redo'))
+  async function redo(): Promise<boolean> {
+    return await moveCursor('api/v1/redo')
   }
 
   async function moveCursor(path: 'api/v1/undo' | 'api/v1/redo'): Promise<boolean> {
+    if (refusedWhileBusy()) return false
     const current = options.host.current()
     if (!current) return false
     if (!projectionRevisionIsCurrent(current)) return false
@@ -202,11 +174,8 @@ export function createEditingController(options: EditingControllerOptions): Edit
     )
   }
 
-  function commit(reviewedRevision: bigint): Promise<boolean> {
-    return inTurn(() => commitNow(reviewedRevision))
-  }
-
-  async function commitNow(reviewedRevision: bigint): Promise<boolean> {
+  async function commit(reviewedRevision: bigint): Promise<boolean> {
+    if (refusedWhileBusy()) return false
     const current = options.host.current()
     if (!current) return false
     if (!projectionRevisionIsCurrent(current)) return false
@@ -443,7 +412,6 @@ export function createEditingController(options: EditingControllerOptions): Edit
     submit,
     undo,
     redo,
-    settled,
     commit,
     catalog,
     previewMerchant,
