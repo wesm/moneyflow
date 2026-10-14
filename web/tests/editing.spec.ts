@@ -145,6 +145,78 @@ test('a redo pressed while its undo is on its way runs once the undo lands', asy
   }
 })
 
+/**
+ * Stages a merchant rename from the open editor, holds its request, and closes the editor with
+ * Esc while the request is on its way. Call `release` to send it on.
+ */
+async function renameThenEscape(page: Page): Promise<{ release(): void }> {
+  const editor = page.getByRole('dialog', { name: 'Edit merchant' })
+  await expect(editor).toBeVisible()
+  const name = editor.getByRole('combobox', { name: 'Merchant' })
+  await name.fill('Browser Merchant')
+  await expect(editor.getByRole('option', { name: 'Create "Browser Merchant"' })).toBeVisible()
+  await name.press('Enter')
+  await expect(editor.getByRole('button', { name: /^Stage change/ })).toBeEnabled()
+  const rename = await holdRequest(page, 'mutations')
+  await name.press('Enter')
+  await rename.sent
+  await page.keyboard.press('Escape')
+  await expect(editor).toBeHidden()
+  return rename
+}
+
+test('u after an editor closed during its request undoes that edit', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('m')
+    const rename = await renameThenEscape(page)
+    const undo = page.waitForRequest('**/api/v1/profiles/*/undo')
+    // Nothing was pending before the rename, which is still on its way.
+    await page.keyboard.press('u')
+    rename.release()
+    await undo
+    await expect(page.getByRole('status').filter({ hasText: /^Undid / })).toBeVisible()
+    await expect(page.getByText(/1 redo/)).toBeVisible()
+    await expect(page.getByText('No pending edit to undo.')).toHaveCount(0)
+  } finally {
+    await server.stop()
+  }
+})
+
+test('x after a bulk edit closed during its request confirms what that edit leaves', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('Space')
+    await page.keyboard.press('j')
+    await page.keyboard.press('Space')
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
+    await page.keyboard.press('j')
+    await expect(await activeRow(page)).toHaveAttribute('aria-selected', 'false')
+    await page.keyboard.press('m')
+    const rename = await renameThenEscape(page)
+    // The bulk rename clears the selection when it lands, so x then deletes the cursor row.
+    await page.keyboard.press('x')
+    rename.release()
+    const confirm = page.getByRole('alertdialog', { name: 'Confirm deletion' })
+    await expect(confirm).toContainText('Delete 1 transaction?')
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(0)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('status').filter({ hasText: /^Deleted / })).toHaveText(
+      'Deleted 1 transaction · Undo u',
+    )
+  } finally {
+    await server.stop()
+  }
+})
+
 test('u and U with nothing to undo or redo say so', async ({ page }) => {
   const server = await startE2EServer()
   try {

@@ -66,7 +66,7 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
   const controller = {
     projection,
     cursorIndex,
-    editing: { submit },
+    editing: { submit, settled: () => Promise.resolve() },
     transactionInformation,
   } as unknown as ViewController
   let tail: Promise<unknown> = Promise.resolve()
@@ -313,6 +313,19 @@ describe('runRowAction', () => {
     }
   })
 
+  it('waits for a dialog edit still on its way before it runs', async () => {
+    const { context } = fromSheet()
+    let land!: () => void
+    const settled = new Promise<void>((resolve) => (land = resolve))
+    Object.assign(context.controller.editing, { settled: () => settled })
+    runRowAction(context, 'edit.hide', row)
+    await tick()
+    await tick()
+    expect(context.controller.editing.submit).not.toHaveBeenCalled()
+    land()
+    await vi.waitFor(() => expect(context.controller.editing.submit).toHaveBeenCalledTimes(1))
+  })
+
   it('waits for queued transitions before an edit reads the projection', async () => {
     const { context } = fromSheet()
     const settle = holdTransitions(context)
@@ -391,7 +404,7 @@ describe('editing keys decide availability when their turn comes', () => {
       return true
     })
     const redo = vi.fn(() => Promise.resolve(true))
-    Object.assign(context.controller, { editing: { undo, redo } })
+    Object.assign(context.controller, { editing: { undo, redo, settled: () => Promise.resolve() } })
     const actions = localActions(context)
 
     actions['edit.undo']()
@@ -404,13 +417,36 @@ describe('editing keys decide availability when their turn comes', () => {
     expect(status.notice).toBe('')
   })
 
+  it('waits for a dialog edit still on its way before it checks undo', async () => {
+    const { context } = setup(0)
+    const controller = context.controller as { projection: ReturnType<typeof testProjection> }
+    controller.projection = testProjection({ capabilities: nothingToUndo() })
+    let land!: () => void
+    const settled = new Promise<void>((resolve) => (land = resolve))
+    const undo = vi.fn(() => Promise.resolve(true))
+    Object.assign(context.controller, { editing: { undo, settled: () => settled } })
+
+    localActions(context)['edit.undo']()
+    await tick()
+    await tick()
+    expect(undo).not.toHaveBeenCalled()
+    expect(status.notice).toBe('')
+    // The editor's rename lands, which makes undo available.
+    controller.projection = testProjection({
+      capabilities: testCapabilities(['changes.undo', 'changes.redo'], ['changes.redo']),
+    })
+    land()
+    await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
+    expect(status.notice).toBe('')
+  })
+
   it('says why undo or redo is unavailable instead of doing nothing', async () => {
     const { context } = setup(0)
     const undo = vi.fn(() => Promise.resolve(true))
     const redo = vi.fn(() => Promise.resolve(true))
     Object.assign(context.controller, {
       projection: testProjection({ capabilities: nothingToUndo() }),
-      editing: { undo, redo },
+      editing: { undo, redo, settled: () => Promise.resolve() },
     })
     const actions = localActions(context)
 
@@ -452,7 +488,13 @@ describe('failures with no dialog to show them', () => {
     const { context } = setup(1)
     const refuse = vi.fn(() => Promise.resolve(false))
     Object.assign(context.controller, {
-      editing: { submit: refuse, undo: refuse, redo: refuse, state: { phase, announcement } },
+      editing: {
+        submit: refuse,
+        undo: refuse,
+        redo: refuse,
+        settled: () => Promise.resolve(),
+        state: { phase, announcement },
+      },
     })
     return context
   }

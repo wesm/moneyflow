@@ -62,10 +62,12 @@ export async function moveCursor(
 
 /**
  * Queues `work` after view transitions, to run once the shell has drawn their result. It runs
- * after a queued newer-insights recheck that failed, too.
+ * after a queued newer-insights recheck that failed, too. It also waits for an edit from a
+ * dialog that closed while the edit was on its way: such edits do not pass through this queue.
  */
 function whenSettled(context: LocalActionContext, work: () => unknown): void {
   void context.queue(async () => {
+    await context.controller.editing.settled()
     await tick()
     await work()
   })

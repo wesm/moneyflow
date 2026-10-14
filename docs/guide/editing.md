@@ -150,8 +150,13 @@ group to delete its transactions.`
 show no message; the staged values in the table and the pending-edits card already show them.
 
 **Unreleased:** An editing key pressed while an earlier edit is still on its way waits for that
-edit, so `h` then `u`, or `u` then `U`, works however quickly you press them. A key whose action
-is unavailable says why, such as `No pending edit to undo.` or `No undone edit to redo.`
+edit, so `h` then `u`, or `u` then `U`, works however quickly you press them. This includes an
+edit from an editor closed with Esc before the edit finished. A key whose action is unavailable
+says why, such as `No pending edit to undo.` or `No undone edit to redo.`
+
+An edit confirmed in a dialog while another edit is still saving waits for it. If that earlier
+edit changes the view or the selection, the waiting edit is not sent, and the dialog shows `The
+view or selection changed while an earlier edit was saving. Review it and try again.`
 
 ### Manage categories and groups
 

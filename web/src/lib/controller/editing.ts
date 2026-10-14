@@ -62,6 +62,8 @@ export interface EditingController {
   submit(intent: MutationIntent): Promise<boolean>
   undo(): Promise<boolean>
   redo(): Promise<boolean>
+  /** Resolves once no editing request is on its way. */
+  settled(): Promise<void>
   commit(reviewedRevision: bigint): Promise<boolean>
   catalog(): Promise<EditorCatalog>
   previewMerchant(
@@ -85,6 +87,10 @@ const emptyPending: PendingSummary = {
 
 /** What an editing request that failed without a server answer reports. */
 export const REQUEST_FAILED = 'The profile request failed.'
+
+/** Why an edit that waited for another was not sent: what it was made for is gone. */
+export const VIEW_CHANGED =
+  'The view or selection changed while an earlier edit was saving. Review it and try again.'
 
 export function createEditingController(options: EditingControllerOptions): EditingController {
   const initial = options.host.current()
@@ -121,6 +127,10 @@ export function createEditingController(options: EditingControllerOptions): Edit
     return result
   }
 
+  async function settled(): Promise<void> {
+    while (turn) await turn
+  }
+
   function sync(projection: ViewProjection): void {
     setState({
       ...state,
@@ -129,8 +139,22 @@ export function createEditingController(options: EditingControllerOptions): Edit
     })
   }
 
+  // An edit acts on the view and selection shown when it was made, such as the rows a delete
+  // confirmed. If the edit before it changed either, sending it would act on other rows.
   function submit(intent: MutationIntent): Promise<boolean> {
-    return inTurn(() => submitNow(intent))
+    const made = options.host.current()
+    return inTurn(async () => {
+      const shown = options.host.current()
+      if (
+        made &&
+        shown &&
+        (shown.canonical_query !== made.canonical_query || shown.selection !== made.selection)
+      ) {
+        setState({ ...state, phase: 'idle', announcement: VIEW_CHANGED })
+        return false
+      }
+      return await submitNow(intent)
+    })
   }
 
   async function submitNow(intent: MutationIntent): Promise<boolean> {
@@ -419,6 +443,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
     submit,
     undo,
     redo,
+    settled,
     commit,
     catalog,
     previewMerchant,

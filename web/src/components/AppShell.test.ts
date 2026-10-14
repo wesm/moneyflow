@@ -683,14 +683,16 @@ describe('AppShell', () => {
     const controller = stubController()
     render(AppShell, { controller })
     await fireEvent.keyDown(window, { key: 'h' })
-    expect(controller.editing.submit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'transaction.toggle-hidden',
-        target: { kind: 'transaction', identity: 'row-0' },
-      }),
+    await vi.waitFor(() =>
+      expect(controller.editing.submit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'transaction.toggle-hidden',
+          target: { kind: 'transaction', identity: 'row-0' },
+        }),
+      ),
     )
     await fireEvent.keyDown(window, { key: 'u' })
-    expect(controller.editing.undo).toHaveBeenCalled()
+    await vi.waitFor(() => expect(controller.editing.undo).toHaveBeenCalled())
     await fireEvent.keyDown(window, { key: 'U', shiftKey: true })
     await vi.waitFor(() => expect(controller.editing.redo).toHaveBeenCalled())
     await fireEvent.keyDown(window, { key: 'w' })
