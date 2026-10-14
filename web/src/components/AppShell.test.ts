@@ -1285,6 +1285,7 @@ function stubController(projection = testProjection()): ViewController {
       },
       sync: vi.fn(),
       poll: vi.fn(),
+      reread: vi.fn(),
       refresh: vi.fn(),
       confirm: vi.fn(),
       dismissConfirmation: vi.fn(),

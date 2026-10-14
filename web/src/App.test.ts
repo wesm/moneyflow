@@ -212,6 +212,7 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
       state: { phase: 'idle', announcement: '', capability: undefined },
       sync: vi.fn(),
       poll: vi.fn(async () => undefined),
+      reread: vi.fn(async () => undefined),
       refresh: vi.fn(async () => true),
       confirm: vi.fn(async () => true),
       dismissConfirmation: vi.fn(),

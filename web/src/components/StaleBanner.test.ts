@@ -70,6 +70,20 @@ describe('StaleBanner', () => {
     expect(controller.poll).toHaveBeenCalledOnce()
   })
 
+  it('rereads the view when refreshed data could not be loaded', async () => {
+    const controller = stubProvider(true, {
+      status: testProviderStatus({ last_success: '2026-10-13T11:00:00Z' }),
+      viewError: 'Refreshed provider data could not be loaded. The server did not answer.',
+    })
+    render(StaleBanner, { controller })
+    expect(screen.getByRole('status').textContent).toBe(
+      'Refreshed provider data could not be loaded. The server did not answer.',
+    )
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(controller.reread).toHaveBeenCalledOnce()
+    expect(controller.poll).not.toHaveBeenCalled()
+  })
+
   it('stays hidden while the data is current', () => {
     render(StaleBanner, {
       controller: stubProvider(true, {

@@ -50,6 +50,8 @@ export interface ProviderState {
   staleReason?: string | undefined
   /** Why the last status request failed; the next answer clears it. */
   statusError?: string | undefined
+  /** Why the view could not be reread after newer provider data; a reread that loads clears it. */
+  viewError?: string | undefined
 }
 
 export interface ProviderController {
@@ -59,6 +61,8 @@ export interface ProviderController {
   refresh(): Promise<boolean>
   confirm(): Promise<boolean>
   dismissConfirmation(): void
+  /** Rereads the view after newer provider data could not be loaded. */
+  reread(): Promise<void>
   /** Stops this tab's refresh; the dialog says Stopping… until the server has stopped it. */
   cancel(): void
   /**
@@ -285,6 +289,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       phase: 'idle',
       capability: state.capability,
       status,
+      viewError: state.viewError,
       announcement: [summary, viewNote, status.warning].filter(Boolean).join(' '),
     })
   }
@@ -311,18 +316,23 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       (shown.canonical_query === sent.canonical_query && shown.selection === sent.selection)
     ) {
       options.host.accept(projection)
+      if (state.viewError) setState({ ...state, viewError: undefined })
       return selectionCleared ? 'Selection cleared because selected rows changed.' : ''
     }
     return reread()
   }
 
+  /** Rereads the view after newer provider data; a failure stays in the stale banner. */
   async function reread(): Promise<string> {
     try {
       await options.host.reload()
-      return ''
-    } catch {
+    } catch (error) {
+      const viewError = `Refreshed provider data could not be loaded. ${failureReason(error)}`
+      setState({ ...state, viewError })
       return 'The current view could not be reread.'
     }
+    if (state.viewError) setState({ ...state, viewError: undefined })
+    return ''
   }
 
   /** The request ended because the user canceled it; status polls follow the server's stop. */
@@ -582,6 +592,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     },
     sync,
     poll,
+    reread: rereadAnnouncingFailure,
     refresh: () => refresh(true),
     confirm,
     dismissConfirmation,

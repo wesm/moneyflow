@@ -30,6 +30,8 @@
         <div class="mf-stale-banner__actions">
           {#if notice.checkFailed}
             <Button size="sm" onclick={() => void controller.poll()}>Retry</Button>
+          {:else if notice.rereadFailed}
+            <Button size="sm" onclick={() => void controller.reread()}>Retry</Button>
           {:else if notice.reconnect && onreconnect}
             <Button size="sm" tone="info" surface="solid" onclick={onreconnect}>Reconnect</Button>
           {:else}

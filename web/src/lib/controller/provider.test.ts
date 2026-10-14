@@ -841,6 +841,37 @@ describe('provider controller', () => {
     },
   )
 
+  it('keeps a visible notice until data refreshed elsewhere loads', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const host = hostStub(current)
+    host.reload.mockRejectedValue(new TypeError('Failed to fetch'))
+    const transport = transportStub()
+    const controller = createProviderController({ transport, host })
+    controller.sync(current)
+    await controller.poll()
+    vi.mocked(transport.status).mockResolvedValue(providerStatus({ generation: '2' }))
+
+    await controller.poll()
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledOnce())
+    await vi.waitFor(() =>
+      expect(staleNotice(controller.state, Date.now())).toMatchObject({
+        text:
+          'Refreshed provider data could not be loaded. ' +
+          'Moneyflow could not reach the server. Check the connection and retry.',
+        rereadFailed: true,
+      }),
+    )
+    await controller.poll()
+    expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
+
+    await controller.reread()
+    expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
+    host.reload.mockResolvedValue(undefined)
+    await controller.reread()
+    expect(staleNotice(controller.state, Date.now())).toBeUndefined()
+    expect(host.reload).toHaveBeenCalledTimes(3)
+  })
+
   it('keeps a failure while the status shows no newer data', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const host = hostStub(current)
