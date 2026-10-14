@@ -163,7 +163,7 @@ func TestLegacyManifestDoesNotInferIdentityFromCatalogBasename(t *testing.T) {
 	manifest.ProfileID = other
 	path := filepath.Join(root, ManifestFilename)
 	require.NoError(t, writeLegacyManifest(path, manifest))
-	got, err := readLegacyManifest(path)
+	got, err := ReadLegacyManifest(path)
 	require.NoError(t, err)
 	assert.Equal(t, other, got.ProfileID)
 }

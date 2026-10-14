@@ -16,14 +16,14 @@ import (
 	"github.com/wesm/moneyflow/internal/importer/amazon"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
+	"github.com/wesm/moneyflow/internal/profilepool"
 	"github.com/wesm/moneyflow/internal/simplefinonboarding"
-	webserver "github.com/wesm/moneyflow/internal/web"
 )
 
 // WebDependencies owns the profile-neutral services shared by one web server.
 type WebDependencies struct {
 	Catalog              api.ProfileCatalog
-	Registry             *webserver.ProfileRegistry
+	Registry             *profilepool.ProfileRegistry
 	Evictor              profileEvictor
 	Onboarding           *onboarding.Coordinator
 	SimpleFINOnboarding  *simplefinonboarding.Coordinator
@@ -93,8 +93,8 @@ func buildWebDependencies(
 		explicitHome: options.ExplicitHome, streams: streams, opener: opener,
 		amazonMatcher: amazonMatcher, demoID: demoProfileID, demoParent: catalog.Paths().Root,
 	}
-	registry, err := webserver.NewProfileRegistry(
-		webserver.ProfileRegistryConfig{Open: profiles.open},
+	registry, err := profilepool.NewProfileRegistry(
+		profilepool.ProfileRegistryConfig{Open: profiles.open},
 	)
 	if err != nil {
 		return WebDependencies{}, err
@@ -197,7 +197,7 @@ type webProfileOpener struct {
 
 func (profiles webProfileOpener) open(
 	ctx context.Context, profileID string,
-) (webserver.RegistryProfile, error) {
+) (result profilepool.RegistryProfile, err error) {
 	if profileID == profiles.demoID {
 		return profiles.openDemo(ctx)
 	}
@@ -205,13 +205,20 @@ func (profiles webProfileOpener) open(
 		ExplicitHome: profiles.explicitHome, Profile: profileID,
 	})
 	if err != nil {
-		return webserver.RegistryProfile{}, err
+		return profilepool.RegistryProfile{}, err
 	}
+	owned := true
+	defer func() {
+		if owned {
+			err = closeOpenedProfile(opened, err)
+		}
+	}()
 	if err = configureOpenedProvider(ctx, opened, profiles.streams, "web"); err != nil {
-		return webserver.RegistryProfile{}, closeOpenedProfile(opened, err)
+		return profilepool.RegistryProfile{}, err
 	}
 	opened.Service.ConfigureAmazonMatching(profiles.amazonMatcher)
-	return webserver.RegistryProfile{
+	owned = false
+	return profilepool.RegistryProfile{
 		ID: opened.ID, Paths: opened.Paths, Service: opened.Service, Close: opened.Close,
 	}, nil
 }
@@ -227,14 +234,16 @@ func sweepDemoRootsAtStart(root string, report io.Writer) {
 
 // openDemo seeds a temporary demo in the private catalog root. The registry keeps it open, so
 // its edits last until shutdown removes it.
-func (profiles webProfileOpener) openDemo(ctx context.Context) (webserver.RegistryProfile, error) {
+func (profiles webProfileOpener) openDemo(
+	ctx context.Context,
+) (profilepool.RegistryProfile, error) {
 	opened, err := profiles.opener(ctx, ProfileOptions{
 		Demo: true, TemporaryParent: profiles.demoParent,
 	})
 	if err != nil {
-		return webserver.RegistryProfile{}, err
+		return profilepool.RegistryProfile{}, err
 	}
-	return webserver.RegistryProfile{
+	return profilepool.RegistryProfile{
 		ID: profiles.demoID, Paths: opened.Paths, Service: opened.Service,
 		Temporary: true, Close: opened.Close,
 	}, nil
@@ -256,17 +265,17 @@ func buildDemoWebDependencies(
 	opened.ID = profileID
 	var mutex sync.Mutex
 	available := true
-	registry, err := webserver.NewProfileRegistry(webserver.ProfileRegistryConfig{
-		Open: func(_ context.Context, requestedID string) (webserver.RegistryProfile, error) {
+	registry, err := profilepool.NewProfileRegistry(profilepool.ProfileRegistryConfig{
+		Open: func(_ context.Context, requestedID string) (profilepool.RegistryProfile, error) {
 			mutex.Lock()
 			defer mutex.Unlock()
 			if !available || requestedID != profileID {
-				return webserver.RegistryProfile{}, fmt.Errorf(
+				return profilepool.RegistryProfile{}, fmt.Errorf(
 					"demo profile is unavailable: %w", api.ErrProfileNotFound,
 				)
 			}
 			available = false
-			return webserver.RegistryProfile{
+			return profilepool.RegistryProfile{
 				ID: profileID, Paths: opened.Paths, Service: opened.Service,
 				Temporary: true, Close: opened.Close,
 			}, nil

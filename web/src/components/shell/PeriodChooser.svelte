@@ -3,22 +3,25 @@
     Button,
     Calendar,
     floatingPopoverStyle,
-    IconButton,
     KbdBadge,
+    monthGridDates,
     SegmentedControl,
+    type SegmentedControlOption,
   } from '@kenn-io/kit-ui'
   import { autoReposition, dismissable } from '@kenn-io/kit-ui/utils/popover'
-  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left'
-  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right'
-  import { onMount, untrack } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
 
   import PeriodGrid from './PeriodGrid.svelte'
+  import PeriodCustom from './PeriodCustom.svelte'
+  import PeriodMonths from './PeriodMonths.svelte'
   import {
     anchorDate,
+    calendarStep,
+    CHOOSER_KEYS,
     chooserTab,
+    chooserTabForKey,
+    clampDate,
     customDraft,
-    dayLabel,
-    monthCells,
     periodContaining,
     scopeKind,
     yearCells,
@@ -41,20 +44,25 @@
 
   let { anchor, range, first, latest, onpick, ondismiss }: Props = $props()
 
-  const initial = untrack(() => ({ range, latest }))
-  const start = anchorDate(initial.range, initial.latest) ?? initial.latest
+  const initial = untrack(() => ({ range, first, latest }))
+  // A link or a currency switch can leave the period outside the data, where every cell is
+  // disabled; the chooser then starts from the nearest day that has data.
+  const start = clampDate(
+    anchorDate(initial.range, initial.latest) ?? initial.latest,
+    initial.first,
+    initial.latest,
+  )
   let tab = $state<ChooserTab>(chooserTab(scopeKind(initial.range)))
   let dayMonth = $state(start)
   let monthYear = $state(Number(start.slice(0, 4)))
   let draft = $state(customDraft(initial.range))
   let customMonth = $state(initial.range?.to ?? start)
   let panel = $state<HTMLElement>()
+  let body = $state<HTMLElement>()
   let position = $state('')
 
   const kind = $derived(scopeKind(range))
-  const firstYear = $derived(Number(first.slice(0, 4)))
-  const latestYear = $derived(Number(latest.slice(0, 4)))
-  const tabs = [
+  const tabs: SegmentedControlOption[] = [
     { value: 'day', label: 'Day' },
     { value: 'month', label: 'Month' },
     { value: 'year', label: 'Year' },
@@ -63,7 +71,7 @@
 
   function place(): void {
     if (!panel) return
-    const width = Math.min(264, window.innerWidth - 16)
+    const width = Math.min(280, window.innerWidth - 16)
     position = `${floatingPopoverStyle({
       trigger: anchor.getBoundingClientRect(),
       viewportWidth: window.innerWidth,
@@ -78,17 +86,83 @@
     onpick(periodContaining(date, 'day'))
   }
 
-  function pickCustomDay(date: string): void {
-    if (!draft.from || draft.to) draft = { from: date, to: '' }
-    else if (date < draft.from) draft = { from: date, to: draft.from }
-    else draft = { from: draft.from, to: date }
+  // Calendar days are the only buttons in the body with a pressed state.
+  const dayButtons = (): HTMLElement[] => [
+    ...(body?.querySelectorAll<HTMLElement>('button[aria-pressed]') ?? []),
+  ]
+
+  // Day and Custom each keep their own calendar month.
+  function shownMonth(): string {
+    return tab === 'day' ? dayMonth : customMonth
+  }
+
+  async function focusDay(date: string, month: string): Promise<void> {
+    if (tab === 'day') dayMonth = month
+    else customMonth = month
+    await tick()
+    dayButtons()[monthGridDates(month).indexOf(date)]?.focus()
+  }
+
+  // A calendar focuses its selected day, else the anchor, kept inside first to latest.
+  function calendarFocus(): string {
+    let date = draft.to || draft.from || start
+    if (tab === 'day') date = kind === 'day' && range ? range.from : start
+    return clampDate(date, first, latest)
+  }
+
+  /**
+   * Focuses the most relevant cell of the current tab, or the tab itself when no cell can take
+   * focus, so the chooser's keys keep working.
+   */
+  async function focusBody(): Promise<void> {
+    await tick()
+    if (tab === 'month' || tab === 'year') {
+      body?.querySelector<HTMLElement>('[role="group"] button[tabindex="0"]')?.focus()
+    } else {
+      const date = calendarFocus()
+      const month = shownMonth()
+      await focusDay(date, date.slice(0, 7) === month.slice(0, 7) ? month : date)
+    }
+    if (body?.contains(document.activeElement)) return
+    panel?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus()
+  }
+
+  function stepDay(event: KeyboardEvent): boolean {
+    if (tab !== 'day' && tab !== 'custom') return false
+    const index = event.target instanceof HTMLElement ? dayButtons().indexOf(event.target) : -1
+    const month = shownMonth()
+    const date = monthGridDates(month)[index]
+    if (date === undefined) return false
+    const next = calendarStep(event.key, date, month, { first, latest })
+    if (!next) return false
+    void focusDay(next.date, next.month)
+    return true
+  }
+
+  // The chooser's keys win over the global shortcuts while it is open.
+  function handleKey(event: KeyboardEvent): boolean {
+    if (event.key === 'a') {
+      onpick(undefined)
+      return true
+    }
+    const next = chooserTabForKey(event.key)
+    if (next) {
+      tab = next
+      void focusBody()
+      return true
+    }
+    const onTab =
+      event.target instanceof HTMLElement && event.target.getAttribute('role') === 'radio'
+    if (onTab && (event.key === 'ArrowDown' || event.key === 'Enter')) {
+      void focusBody()
+      return true
+    }
+    return stepDay(event)
   }
 
   function keydown(event: KeyboardEvent): void {
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey
-    if (event.key !== 'a' || !plain || event.defaultPrevented) return
-    event.preventDefault()
-    onpick(undefined)
+    if (plain && !event.defaultPrevented && handleKey(event)) event.preventDefault()
   }
 
   // Tabbing out closes the chooser, so its shortcut scope never outlives its focus.
@@ -100,7 +174,7 @@
 
   onMount(() => {
     place()
-    panel?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus()
+    void focusBody()
     anchor.addEventListener('focusout', focusout)
     const cleanups = [
       () => anchor.removeEventListener('focusout', focusout),
@@ -115,6 +189,10 @@
     return () => cleanups.forEach((cleanup) => cleanup())
   })
 </script>
+
+{#snippet tabLabel(option: SegmentedControlOption)}
+  {option.label}<KbdBadge keys={[CHOOSER_KEYS[option.value as ChooserTab]]} />
+{/snippet}
 
 <div
   class="mf-period-chooser kit-popover-card"
@@ -131,9 +209,10 @@
     ariaLabel="Period type"
     options={tabs}
     value={tab}
+    segment={tabLabel}
     onchange={(value) => (tab = value as ChooserTab)}
   />
-  <div class="mf-period-chooser__body">
+  <div class="mf-period-chooser__body" bind:this={body}>
     {#if tab === 'day'}
       <Calendar
         bind:month={dayMonth}
@@ -143,29 +222,11 @@
         onpick={pickDay}
       />
     {:else if tab === 'month'}
-      <div class="mf-period-chooser__stepper">
-        <IconButton
-          ariaLabel="Previous year"
-          size="sm"
-          disabled={monthYear <= firstYear}
-          onclick={() => (monthYear -= 1)}
-        >
-          <ChevronLeftIcon size={14} aria-hidden="true" />
-        </IconButton>
-        <span aria-live="polite">{monthYear}</span>
-        <IconButton
-          ariaLabel="Next year"
-          size="sm"
-          disabled={monthYear >= latestYear}
-          onclick={() => (monthYear += 1)}
-        >
-          <ChevronRightIcon size={14} aria-hidden="true" />
-        </IconButton>
-      </div>
-      <PeriodGrid
-        label="Months of {monthYear}"
-        columns={4}
-        cells={monthCells(monthYear, range, first, latest)}
+      <PeriodMonths
+        bind:year={monthYear}
+        {range}
+        {first}
+        {latest}
         starts={[start, latest].map((date) => periodContaining(date, 'month').start)}
         onpick={(date) => onpick(periodContaining(date, 'month'))}
       />
@@ -173,43 +234,12 @@
       <PeriodGrid
         label="Years"
         columns={4}
-        cells={yearCells(firstYear, latestYear, range)}
+        cells={yearCells(Number(first.slice(0, 4)), Number(latest.slice(0, 4)), range)}
         starts={[start, latest].map((date) => periodContaining(date, 'year').start)}
         onpick={(date) => onpick(periodContaining(date, 'year'))}
       />
     {:else}
-      <dl class="mf-period-chooser__endpoints" aria-live="polite">
-        <div
-          class="mf-period-chooser__endpoint"
-          class:mf-period-chooser__endpoint--next={!draft.from || draft.to !== ''}
-        >
-          <dt>From</dt>
-          <dd>{draft.from ? dayLabel(draft.from) : '—'}</dd>
-        </div>
-        <div
-          class="mf-period-chooser__endpoint"
-          class:mf-period-chooser__endpoint--next={draft.from !== '' && draft.to === ''}
-        >
-          <dt>To</dt>
-          <dd>{draft.to ? dayLabel(draft.to) : '—'}</dd>
-        </div>
-      </dl>
-      <Calendar
-        bind:month={customMonth}
-        locale="en-US"
-        selected={draft.from ? { from: draft.from, to: draft.to || draft.from } : null}
-        maxDate={latest}
-        onpick={pickCustomDay}
-      />
-      <Button
-        size="sm"
-        tone="info"
-        surface="solid"
-        disabled={!draft.from || !draft.to}
-        onclick={() => onpick({ start: draft.from, end: draft.to })}
-      >
-        Apply
-      </Button>
+      <PeriodCustom bind:month={customMonth} bind:draft {latest} onapply={onpick} />
     {/if}
   </div>
   <div class="mf-period-chooser__footer">

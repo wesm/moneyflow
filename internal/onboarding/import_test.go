@@ -53,6 +53,41 @@ func TestReconnectRequiredDuringImportReturnsToAuthentication(t *testing.T) {
 	assert.Equal(t, 2, source.fetchCallCount())
 }
 
+func TestReconnectVaultPanicRequiresCredentialsInsteadOfImportRetry(t *testing.T) {
+	source := newImportTestSource(t)
+	source.fetchErrors = []error{
+		provider.NewError(provider.CodeReconnectRequired),
+		provider.NewError(provider.CodeReconnectRequired),
+	}
+	vault := &fakeCredentialVault{existsPanic: true}
+	coordinator, started, connector, _ := newImportCoordinator(t, source, vault)
+
+	failed := waitForState(t, coordinator, started, StateFailed)
+	require.NotNil(t, failed.Failure)
+	require.False(t, failed.Failure.CanRetry)
+	require.True(t, failed.Failure.CanReenter)
+	_, err := coordinator.Submit(t.Context(), SubmitRequest{
+		ProfileID: testProfileID, AttemptID: failed.AttemptID,
+		ExpectedStateVersion: failed.StateVersion, Action: ActionRetry,
+	})
+	require.Error(t, err)
+
+	vault.mu.Lock()
+	vault.existsPanic = false
+	vault.mu.Unlock()
+	connector.connectSession = validTestSession("subscription-example", "USD", 2)
+	next, err := coordinator.Submit(t.Context(), SubmitRequest{
+		ProfileID: testProfileID, AttemptID: failed.AttemptID,
+		ExpectedStateVersion: failed.StateVersion, Action: ActionReauthenticate,
+	})
+	require.NoError(t, err)
+	require.Equal(t, StateCredentialsRequired, next.State)
+	next, err = coordinator.Submit(t.Context(), credentialSubmitRequest(next))
+	require.NoError(t, err)
+	complete := waitForState(t, coordinator, next, StateComplete)
+	assert.Equal(t, 1, complete.Progress.Imported)
+}
+
 func TestCancelWaitsForProviderFetchBeforeReleasingResources(t *testing.T) {
 	source := newImportTestSource(t)
 	source.block = make(chan struct{})

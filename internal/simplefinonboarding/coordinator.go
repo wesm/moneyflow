@@ -109,6 +109,13 @@ func (c *Coordinator) Submit(ctx context.Context, request SubmitRequest) (Snapsh
 	f := a.flow
 	switch {
 	case request.Action == ActionConnect && (a.snapshot.State == StateCredentialsRequired || a.snapshot.State == StateIdentityMismatch || a.snapshot.State == StateFailed && a.snapshot.Failure != nil && a.snapshot.Failure.CanReenter):
+		if f.opened == nil {
+			// A panic stopped inspect before it installed the profile, so there is no runtime to claim
+			// with. Inspect again. This token is not claimed, so the user can enter it once more.
+			c.transition(a, StateInspect, nil)
+			c.startJob(a, func(ctx context.Context) { c.inspect(ctx, a) })
+			return a.view(), nil
+		}
 		input := strings.TrimSpace(string(request.Input))
 		if input == "" || len(input) > 8192 || request.Settings.Validate() != nil {
 			return Snapshot{}, &Error{Code: "input_invalid"}
@@ -119,6 +126,7 @@ func (c *Coordinator) Submit(ctx context.Context, request SubmitRequest) (Snapsh
 		}
 		settings := request.Settings
 		a.snapshot.Settings = &settings
+		f.session, f.saved = nil, false
 		c.transition(a, StateClaiming, nil)
 		// A lost POST response may still consume the token. Never roll back from here.
 		f.retain = true
@@ -170,10 +178,20 @@ func (c *Coordinator) inspect(ctx context.Context, a *attempt) {
 		c.fail(a, "store_error", "Another setup is using this profile. Close it and try again.", false, false)
 		return
 	}
+	owned := true
+	releaseOwned := func() {
+		if owned {
+			owned = false
+			_ = lock.Release()
+			_ = opened.Close()
+		}
+	}
+	// The attempt owns the lock and the profile only after the install below. A panic before that
+	// must not leave them held.
+	defer releaseOwned()
 	runtime, err := c.config.Runtime(opened.Paths)
 	if err != nil || runtime.Sessions == nil || runtime.Claim == nil || runtime.NewSource == nil || runtime.InstanceID == "" {
-		_ = lock.Release()
-		_ = opened.Close()
+		releaseOwned()
 		c.fail(a, "store_error", "The connection could not start.", false, false)
 		return
 	}
@@ -182,22 +200,21 @@ func (c *Coordinator) inspect(ctx context.Context, a *attempt) {
 	}
 	connection, err := opened.Service.ProviderConnection(ctx)
 	if err != nil {
-		_ = lock.Release()
-		_ = opened.Close()
+		releaseOwned()
 		c.fail(a, "store_error", "The profile could not be inspected.", false, false)
 		return
 	}
 	c.mu.Lock()
 	if a.snapshot.State == StateCanceled {
 		c.mu.Unlock()
-		_ = lock.Release()
-		_ = opened.Close()
+		releaseOwned()
 		return
 	}
 	a.flow.opened = &opened
 	a.flow.lock = lock
 	a.flow.runtime = runtime
 	a.flow.connection = connection
+	owned = false
 	c.mu.Unlock()
 	if (!connection.Bound && !connection.Pristine) || (connection.Bound && connection.Kind != "simplefin") {
 		c.fail(a, "input_invalid", "Create a new profile for this SimpleFIN connection.", false, false)
@@ -313,6 +330,26 @@ func (c *Coordinator) startJob(a *attempt, job func(context.Context)) {
 		defer close(done)
 		ctx, cancel := context.WithTimeout(a.ctx, 10*time.Minute)
 		defer cancel()
+		defer func() {
+			if recover() != nil {
+				c.mu.Lock()
+				defer c.mu.Unlock()
+				if a.snapshot.State == StateCanceled {
+					return
+				}
+				failure := &Failure{Code: "store_error", Message: "Setup stopped unexpectedly."}
+				switch {
+				case a.flow.saved:
+					failure.CanRetry = true
+				case a.flow.session != nil:
+					failure.Code = "session_save_failed"
+					failure.CanRetry = true
+				default:
+					failure.CanReenter = true
+				}
+				c.transition(a, StateFailed, failure)
+			}
+		}()
 		job(ctx)
 	}()
 }

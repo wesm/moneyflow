@@ -1,4 +1,5 @@
-package web
+// Package profilepool keeps opened profile services shared and evictable.
+package profilepool
 
 import (
 	"context"
@@ -138,7 +139,7 @@ func (registry *ProfileRegistry) Acquire(
 		registry.signalLocked()
 		registry.mutex.Unlock()
 
-		profile, err := registry.open(ctx, profileID)
+		profile, err := registry.openPendingProfile(ctx, profileID, entry)
 		opened := err == nil
 		if opened {
 			err = validateRegistryProfile(profile, profileID)
@@ -169,6 +170,25 @@ func (registry *ProfileRegistry) Acquire(
 		registry.mutex.Unlock()
 		return &profileLease{registry: registry, entry: entry}, nil
 	}
+}
+
+func (registry *ProfileRegistry) openPendingProfile(
+	ctx context.Context,
+	profileID string,
+	entry *registryEntry,
+) (RegistryProfile, error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			registry.mutex.Lock()
+			entry.opening = false
+			delete(registry.entries, profileID)
+			close(entry.ready)
+			registry.signalLocked()
+			registry.mutex.Unlock()
+			panic(recovered)
+		}
+	}()
+	return registry.open(ctx, profileID)
 }
 
 func validateRegistryProfile(profile RegistryProfile, expectedID string) error {

@@ -124,7 +124,7 @@ func (catalog *Catalog) RecoveryPlan(ctx context.Context, selector string) (Reco
 	if found {
 		return active, nil
 	}
-	code, err := recoverableOriginalCode(ctx, entry.ProfilePaths())
+	code, err := catalog.recoverableOriginalCode(ctx, entry.ProfilePaths())
 	if err != nil {
 		return RecoveryPlan{}, err
 	}
@@ -177,7 +177,7 @@ func (catalog *Catalog) Recreate(ctx context.Context, request RecoveryRequest) (
 		return RecoveryResult{}, err
 	}
 	if !found {
-		code, codeErr := recoverableOriginalCode(ctx, entry.ProfilePaths())
+		code, codeErr := catalog.recoverableOriginalCode(ctx, entry.ProfilePaths())
 		if codeErr != nil {
 			return RecoveryResult{}, codeErr
 		}
@@ -227,7 +227,7 @@ func (catalog *Catalog) beginRecovery(
 	entry Entry,
 	plan RecoveryPlan,
 ) error {
-	checkpointErr := sqlite.CheckpointProfile(ctx, entry.ProfilePaths(), sqlite.DefaultOptions)
+	checkpointErr := sqlite.CheckpointProfile(ctx, entry.ProfilePaths(), catalog.sqliteOptions)
 	if checkpointErr != nil && plan.OriginalCode != store.CodeStoreCorrupt {
 		return checkpointErr
 	}
@@ -267,7 +267,7 @@ func (catalog *Catalog) rollForwardRecovery(
 	plan RecoveryPlan,
 	keepMarker bool,
 ) error {
-	state, err := inspectRecoveryState(ctx, entry.ProfilePaths(), plan.BackupPath)
+	state, err := catalog.inspectRecoveryState(ctx, entry.ProfilePaths(), plan.BackupPath)
 	if err != nil {
 		return err
 	}
@@ -321,13 +321,14 @@ func (catalog *Catalog) installRecoveredProfile(
 	if err = catalog.recoveryFaultAt(RecoveryAfterEmptyCreate); err != nil {
 		return err
 	}
-	if err = sqlite.InstallPristineProfile(ctx, entry.ProfilePaths(), sqlite.DefaultOptions); err != nil {
+	err = sqlite.InstallPristineProfile(ctx, entry.ProfilePaths(), catalog.sqliteOptions)
+	if err != nil {
 		return newError(CodeRecoveryIncomplete, err)
 	}
 	if err = catalog.recoveryFaultAt(RecoveryAfterSchemaInstall); err != nil {
 		return err
 	}
-	inspection, err := sqlite.InspectProfile(ctx, entry.ProfilePaths(), sqlite.DefaultOptions)
+	inspection, err := sqlite.InspectProfile(ctx, entry.ProfilePaths(), catalog.sqliteOptions)
 	if err != nil || inspection.Schema != sqlite.SchemaCurrent || !inspection.Pristine {
 		return newError(CodeRecoveryIncomplete, errors.New("replacement profile did not verify"))
 	}
@@ -383,8 +384,11 @@ func validateRecoveryRequest(entry Entry, plan RecoveryPlan, code store.ErrorCod
 	return nil
 }
 
-func recoverableOriginalCode(ctx context.Context, paths home.Paths) (store.ErrorCode, error) {
-	original, _, err := inspectRecoveryOriginal(ctx, paths)
+func (catalog *Catalog) recoverableOriginalCode(
+	ctx context.Context,
+	paths home.Paths,
+) (store.ErrorCode, error) {
+	original, _, err := catalog.inspectRecoveryOriginal(ctx, paths)
 	if err != nil {
 		return "", err
 	}
@@ -398,7 +402,7 @@ func recoverableOriginalCode(ctx context.Context, paths home.Paths) (store.Error
 	}
 }
 
-func inspectRecoveryState(
+func (catalog *Catalog) inspectRecoveryState(
 	ctx context.Context,
 	paths home.Paths,
 	backupPath string,
@@ -407,7 +411,7 @@ func inspectRecoveryState(
 	if err != nil {
 		return recoveryState{}, newError(CodeRecoveryIncomplete, err)
 	}
-	original, originalMain, err := inspectRecoveryOriginal(ctx, paths)
+	original, originalMain, err := catalog.inspectRecoveryOriginal(ctx, paths)
 	if err != nil {
 		return recoveryState{}, err
 	}
@@ -416,7 +420,7 @@ func inspectRecoveryState(
 	}, nil
 }
 
-func inspectRecoveryOriginal(
+func (catalog *Catalog) inspectRecoveryOriginal(
 	ctx context.Context,
 	paths home.Paths,
 ) (recoveryOriginal, bool, error) {
@@ -430,7 +434,7 @@ func inspectRecoveryOriginal(
 	if info.Size() == 0 {
 		return recoveryOriginalEmpty, true, nil
 	}
-	inspection, err := sqlite.InspectProfile(ctx, paths, sqlite.DefaultOptions)
+	inspection, err := sqlite.InspectProfile(ctx, paths, catalog.sqliteOptions)
 	if err != nil {
 		var failure *store.Error
 		if errors.As(err, &failure) && failure.Code == store.CodeStoreCorrupt {

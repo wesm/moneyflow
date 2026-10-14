@@ -23,6 +23,7 @@ import (
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
+	"github.com/wesm/moneyflow/internal/profilepool"
 	webserver "github.com/wesm/moneyflow/internal/web"
 )
 
@@ -598,9 +599,9 @@ func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 
 func TestRunWebLogsServerFailuresToStandardError(t *testing.T) {
 	t.Parallel()
-	registry, err := webserver.NewProfileRegistry(webserver.ProfileRegistryConfig{
-		Open: func(context.Context, string) (webserver.RegistryProfile, error) {
-			return webserver.RegistryProfile{}, errors.New("synthetic open failure")
+	registry, err := profilepool.NewProfileRegistry(profilepool.ProfileRegistryConfig{
+		Open: func(context.Context, string) (profilepool.RegistryProfile, error) {
+			return profilepool.RegistryProfile{}, errors.New("synthetic open failure")
 		},
 	})
 	require.NoError(t, err)
@@ -852,9 +853,9 @@ func testWebDependencies(t testing.TB) WebDependencies {
 	service, err := app.NewService(nil)
 	require.NoError(t, err)
 	root := t.TempDir()
-	registry, err := webserver.NewProfileRegistry(webserver.ProfileRegistryConfig{
-		Open: func(context.Context, string) (webserver.RegistryProfile, error) {
-			return webserver.RegistryProfile{
+	registry, err := profilepool.NewProfileRegistry(profilepool.ProfileRegistryConfig{
+		Open: func(context.Context, string) (profilepool.RegistryProfile, error) {
+			return profilepool.RegistryProfile{
 				ID:      "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa",
 				Paths:   home.Paths{Root: root, Database: root + "/moneyflow.db"},
 				Service: service, Close: func() error { return nil },

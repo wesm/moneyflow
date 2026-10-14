@@ -587,9 +587,17 @@ func (service *Service) fetchProviderCandidateWithOperationHeartbeat(
 	request provider.FetchRequest,
 ) (domain.ImportSnapshot, provider.ProfileIdentity, provider.SessionFingerprint, error) {
 	fetchContext, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	heartbeatDone := make(chan error, 1)
 	stopHeartbeat := make(chan struct{})
 	go func() {
+		defer func() {
+			if recover() != nil {
+				failure := provider.NewError(staleCode)
+				cancel(failure)
+				heartbeatDone <- failure
+			}
+		}()
 		ticker := time.NewTicker(runtime.heartbeatInterval)
 		defer ticker.Stop()
 		for {
@@ -634,7 +642,6 @@ func (service *Service) fetchProviderCandidateWithOperationHeartbeat(
 	)
 	close(stopHeartbeat)
 	heartbeatErr := <-heartbeatDone
-	cancel(nil)
 	if heartbeatErr != nil {
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, fingerprint, heartbeatErr
 	}

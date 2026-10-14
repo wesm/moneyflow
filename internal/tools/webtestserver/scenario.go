@@ -19,6 +19,7 @@ import (
 	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
+	"github.com/wesm/moneyflow/internal/profilepool"
 	"github.com/wesm/moneyflow/internal/store"
 	"github.com/wesm/moneyflow/internal/uitest"
 	scenario "github.com/wesm/moneyflow/internal/uitest/runtime"
@@ -85,31 +86,32 @@ func runScenario(ctx context.Context, root, descriptorPath, listen, basePath str
 	}
 	var mutex sync.Mutex
 	var active *scenario.Runtime
-	registry, err := webserver.NewProfileRegistry(webserver.ProfileRegistryConfig{
+	registry, err := profilepool.NewProfileRegistry(profilepool.ProfileRegistryConfig{
 		Now: clock,
-		Open: func(openContext context.Context, profileID string) (webserver.RegistryProfile, error) {
+		Open: func(openContext context.Context, profileID string) (profilepool.RegistryProfile, error) {
 			if profileID != descriptor.ProfileID {
-				return webserver.RegistryProfile{}, errors.New("unknown scenario profile")
+				return profilepool.RegistryProfile{}, errors.New("unknown scenario profile")
 			}
 			entry, resolveErr := catalog.Resolve(openContext, profileID)
 			if resolveErr != nil {
-				return webserver.RegistryProfile{}, resolveErr
+				return profilepool.RegistryProfile{}, resolveErr
 			}
 			lock, lockErr := home.TryLockExisting(entry.Root, home.LockProfile, home.LockShared)
 			if lockErr != nil {
-				return webserver.RegistryProfile{}, lockErr
+				return profilepool.RegistryProfile{}, lockErr
 			}
 			if validateErr := catalog.ValidateEntry(entry); validateErr != nil {
-				return webserver.RegistryProfile{}, errors.Join(validateErr, lock.Release())
+				return profilepool.RegistryProfile{}, errors.Join(validateErr, lock.Release())
 			}
 			run, openErr := scenario.OpenProfile(openContext, entry.ProfilePaths(), providerRoot, "web")
 			if openErr != nil {
-				return webserver.RegistryProfile{}, errors.Join(openErr, lock.Release())
+				return profilepool.RegistryProfile{}, errors.Join(openErr, lock.Release())
 			}
 			mutex.Lock()
 			active = run
 			mutex.Unlock()
-			return webserver.RegistryProfile{ID: profileID, Paths: entry.ProfilePaths(), Service: run.Service,
+			return profilepool.RegistryProfile{
+				ID: profileID, Paths: entry.ProfilePaths(), Service: run.Service,
 				Close: func() error { return errors.Join(run.Close(), lock.Release()) }}, nil
 		},
 	})
