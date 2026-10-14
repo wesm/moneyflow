@@ -490,6 +490,7 @@ describe('provider controller', () => {
     controller.cancel()
     host.current.mockReturnValue(current)
     controller.sync(current)
+    expect(controller.state.staleReason).toBe(REFRESH_CANCELED)
     await controller.poll()
     expect(transport.mutations.request).not.toHaveBeenCalled()
 
@@ -581,23 +582,6 @@ describe('provider controller', () => {
     expect(controller.state.staleReason).toBeUndefined()
     expect(controller.state.announcement).not.toContain('no provider data changed')
     expect(getFlashes()).toEqual([])
-  })
-
-  it('cancels a refresh still waiting for the first view without sending it', async () => {
-    const host = hostStub()
-    host.current.mockReturnValue(undefined as unknown as ViewProjection)
-    const transport = transportStub({
-      status: providerStatus({ provider_kind: 'monarch', refresh_due: 'recent' }),
-    })
-    const controller = createProviderController({ transport, host })
-
-    await controller.poll()
-    expect(controller.state.dialog?.view).toBe('progress')
-    controller.cancel()
-    controller.sync(testProjection({ capabilities: [capability(true)] }))
-
-    expect(transport.mutations.request).not.toHaveBeenCalled()
-    expect(controller.state.staleReason).toBe(REFRESH_CANCELED)
   })
 
   it('opens the dialog for a due refresh before the first view arrives', async () => {
