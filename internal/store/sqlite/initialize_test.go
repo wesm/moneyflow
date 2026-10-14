@@ -214,8 +214,36 @@ func TestEnsureCurrentSchemaDeadlineMapsInspectionFailureToStoreBusy(t *testing.
 	)
 	defer cancel()
 
-	err = ensureCurrentSchema(deadlineContext, database, DefaultOptions)
+	err = ensureCurrentSchema(deadlineContext, database, DefaultOptions, currentProfileSchema)
 	assertStoreCode(t, err, store.CodeStoreBusy)
+}
+
+func TestEnsureCurrentSchemaDeadlineDuringInstallMapsToStoreBusy(t *testing.T) {
+	t.Parallel()
+
+	paths := temporaryPaths(t)
+	require.NoError(t, home.PrepareDatabase(paths))
+	database, err := sql.Open(driverName, dataSourceName(paths.Database, DefaultOptions))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	options := DefaultOptions
+	options.StartupDeadline = 50 * time.Millisecond
+	// The deadline interrupts this unbounded computation after the install holds its lock.
+	slowInstall := `
+		CREATE TABLE install_marker(id INTEGER PRIMARY KEY) STRICT;
+		WITH RECURSIVE counter(value) AS (
+			SELECT 1 UNION ALL SELECT value + 1 FROM counter
+		)
+		SELECT max(value) FROM counter;
+	`
+
+	err = ensureCurrentSchema(context.Background(), database, options, slowInstall)
+	assertStoreCode(t, err, store.CodeStoreBusy)
+	var markerCount int
+	require.NoError(t, database.QueryRowContext(context.Background(), `
+		SELECT count(*) FROM sqlite_schema
+		WHERE type = 'table' AND name = 'install_marker'`).Scan(&markerCount))
+	assert.Zero(t, markerCount)
 }
 
 func TestOpenWaitsBeyondMutationTimeoutAndRechecksInstalledSchema(t *testing.T) {
@@ -225,6 +253,9 @@ func TestOpenWaitsBeyondMutationTimeoutAndRechecksInstalledSchema(t *testing.T) 
 	options.MutationBusyTimeout = 20 * time.Millisecond
 	options.StartupDeadline = time.Second
 	database, connection := lockedEmptyDatabase(t, paths, options)
+	// Another opener installs the schema while holding the lock, so Open only waits and rechecks.
+	_, err := connection.ExecContext(context.Background(), currentProfileSchema)
+	require.NoError(t, err)
 
 	type result struct {
 		profile store.Profile
@@ -236,7 +267,7 @@ func TestOpenWaitsBeyondMutationTimeoutAndRechecksInstalledSchema(t *testing.T) 
 		resultChannel <- result{profile: opened, err: openErr}
 	}()
 	time.Sleep(75 * time.Millisecond)
-	_, err := connection.ExecContext(context.Background(), "ROLLBACK")
+	_, err = connection.ExecContext(context.Background(), "COMMIT")
 	require.NoError(t, err)
 	require.NoError(t, connection.Close())
 	require.NoError(t, database.Close())

@@ -29,7 +29,12 @@ const (
 	schemaNewer
 )
 
-func ensureCurrentSchema(ctx context.Context, database *sql.DB, options Options) error {
+func ensureCurrentSchema(
+	ctx context.Context,
+	database *sql.DB,
+	options Options,
+	schemaSQL string,
+) error {
 	deadlineContext, cancel := context.WithTimeout(ctx, options.StartupDeadline)
 	defer cancel()
 
@@ -55,11 +60,14 @@ func ensureCurrentSchema(ctx context.Context, database *sql.DB, options Options)
 			// Continue below and serialize the one permitted schema installation.
 		}
 
-		err = installCurrentSchema(deadlineContext, database, options, currentProfileSchema)
+		err = installCurrentSchema(deadlineContext, database, options, schemaSQL)
 		if err == nil {
 			return nil
 		}
-		if errors.Is(err, errStartupBusy) || isBusy(err) {
+		// A startup deadline that interrupts the install itself is the same expired wait as one
+		// that ends while another connection holds the install lock.
+		if errors.Is(err, errStartupBusy) || isBusy(err) ||
+			errors.Is(deadlineContext.Err(), context.DeadlineExceeded) {
 			if waitErr := waitForStartup(deadlineContext); waitErr != nil {
 				return store.NewError(store.CodeStoreBusy, err)
 			}
