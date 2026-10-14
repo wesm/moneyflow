@@ -701,7 +701,7 @@ test('Esc at the top level and a on All time change nothing and say nothing', as
   await expect(breadcrumb(page)).toHaveText('Merchants')
   await expect(
     page.getByRole('banner').locator('button[aria-haspopup="dialog"][aria-keyshortcuts="t"]'),
-  ).toHaveText('All time')
+  ).toHaveAccessibleName('All time')
 
   for (const key of ['Escape', 'a']) {
     const answer = page.waitForResponse(
