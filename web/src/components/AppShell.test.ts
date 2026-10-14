@@ -690,7 +690,7 @@ describe('AppShell', () => {
       }),
     )
     await fireEvent.keyDown(window, { key: 'u' })
-    expect(controller.editing.undo).toHaveBeenCalled()
+    await vi.waitFor(() => expect(controller.editing.undo).toHaveBeenCalled())
     await fireEvent.keyDown(window, { key: 'U', shiftKey: true })
     await vi.waitFor(() => expect(controller.editing.redo).toHaveBeenCalled())
     await fireEvent.keyDown(window, { key: 'w' })

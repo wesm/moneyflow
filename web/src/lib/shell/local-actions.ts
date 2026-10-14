@@ -83,6 +83,28 @@ function waitingForDialogEdit(context: LocalActionContext): boolean {
   return true
 }
 
+/** Editing keys and row actions sheet items queued or running in each shell's queue. */
+const queuedEdits = new WeakMap<LocalActionContext, number>()
+
+/**
+ * Queues an editing key's or sheet item's `work` as `whenSettled` does. With no editing key
+ * ahead of it, an edit already on its way came from a dialog, so the key is refused at once:
+ * waiting behind a slow view change instead could let another dialog's edit go first. A key
+ * behind another key's edit still waits, so a redo runs after the undo pressed before it.
+ */
+function queueEdit(context: LocalActionContext, work: () => unknown): void {
+  const ahead = queuedEdits.get(context) ?? 0
+  if (ahead === 0 && waitingForDialogEdit(context)) return
+  queuedEdits.set(context, ahead + 1)
+  whenSettled(context, async () => {
+    try {
+      await work()
+    } finally {
+      queuedEdits.set(context, (queuedEdits.get(context) ?? 1) - 1)
+    }
+  })
+}
+
 /**
  * Runs an editing key's `work` if the view shown when the key's turn comes offers `capability`,
  * or else says why it does not. Edits queued before the key decide that: a redo pressed while
@@ -159,8 +181,8 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
   const { controller, overlays } = context
   const row = () => focusedRow(controller.projection, controller.cursorIndex)
   const later = (work: () => unknown) => () => whenSettled(context, work)
-  const offered = (capability: string, work: () => unknown) =>
-    later(() => ifOffered(context, capability, work))
+  const offered = (capability: string, work: () => unknown) => () =>
+    queueEdit(context, () => ifOffered(context, capability, work))
   return {
     'cursor.up': () => void context.queue(() => controller.moveCursor(-1)),
     'cursor.down': () => void context.queue(() => controller.moveCursor(1)),
@@ -216,7 +238,7 @@ export function runRowAction(
   if (action === 'transaction.info')
     return void openTransactionInformation(context, target.identity)
   if (action === 'edit.hide') context.overlays.close()
-  whenSettled(context, () => {
+  queueEdit(context, () => {
     const projection = context.controller.projection
     const button = projection && rowActionButtons(projection).find((b) => b.action === action)
     if (!button || waitingForDialogEdit(context)) return

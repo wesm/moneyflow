@@ -436,6 +436,46 @@ describe('editing keys decide availability when their turn comes', () => {
     expect(overlays.current).toBeUndefined()
   })
 
+  it('refuses a key at once while a dialog edit saves, even behind a held transition', async () => {
+    const { context } = setup(0)
+    const settle = holdTransitions(context)
+    const state = { phase: 'submitting', announcement: '' }
+    const undo = vi.fn(() => Promise.resolve(true))
+    Object.assign(context.controller, { editing: { undo, state } })
+
+    localActions(context)['edit.undo']()
+    expect(status.notice).toBe('Wait for the previous edit to finish, then try again.')
+    // The dialog's edit lands before the transition does; the refused key still does nothing.
+    state.phase = 'idle'
+    settle()
+    await tick()
+    await tick()
+    expect(undo).not.toHaveBeenCalled()
+  })
+
+  it('lets a key wait behind the editing key before it instead of refusing it', async () => {
+    const { context } = setup(0)
+    const state = { phase: 'idle', announcement: '' }
+    let land!: () => void
+    const landed = new Promise<void>((resolve) => (land = resolve))
+    const undo = vi.fn(async () => {
+      state.phase = 'submitting'
+      await landed
+      state.phase = 'idle'
+      return true
+    })
+    const redo = vi.fn(() => Promise.resolve(true))
+    Object.assign(context.controller, { editing: { undo, redo, state } })
+    const actions = localActions(context)
+
+    actions['edit.undo']()
+    await vi.waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
+    actions['edit.redo']()
+    expect(status.notice).toBe('')
+    land()
+    await vi.waitFor(() => expect(redo).toHaveBeenCalledTimes(1))
+  })
+
   it('says why undo or redo is unavailable instead of doing nothing', async () => {
     const { context } = setup(0)
     const undo = vi.fn(() => Promise.resolve(true))

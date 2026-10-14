@@ -85,15 +85,15 @@ async function holdRequest(
   const released = new Promise<void>((resolve) => (release = resolve))
   let markSent!: () => void
   const sent = new Promise<void>((resolve) => (markSent = resolve))
-  await page.route(
-    `**/api/v1/profiles/*/${path}`,
-    async (route) => {
-      markSent()
-      await released
-      await route.continue()
-    },
-    { times: 1 },
-  )
+  // Not `times: 1`: with two requests held that way, releasing one also released the other.
+  let held = false
+  await page.route(`**/api/v1/profiles/*/${path}`, async (route) => {
+    if (held) return await route.fallback()
+    held = true
+    markSent()
+    await released
+    await route.continue()
+  })
   return { sent, release }
 }
 
@@ -254,6 +254,70 @@ test('an undo and a category edit during a closed editor request are both refuse
     rename.release()
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
     expect(edits).toEqual(['transaction.edit-merchant'])
+  } finally {
+    await server.stop()
+  }
+})
+
+test('u pressed while a dialog edit saves is refused at once, even behind a slow key', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    const edits: string[] = []
+    page.on('request', (request) => {
+      const url = request.url()
+      if (url.endsWith('/undo')) edits.push('undo')
+      else if (url.endsWith('/mutations')) edits.push(String(request.postDataJSON().action))
+    })
+    await page.keyboard.press('m')
+    const rename = await renameThenEscape(page)
+    // i holds the shell's queue while its answer is delayed, so u waits behind it.
+    const information = await holdRequest(page, 'transaction-information')
+    await page.keyboard.press('i')
+    await information.sent
+    await page.keyboard.press('u')
+    await expect.soft(page.getByRole('status', { name: 'Notice' })).toHaveText(WAIT)
+    rename.release()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    // A category edit from a dialog goes out before u's turn comes.
+    await page.keyboard.press('Shift+C')
+    const manager = page.getByRole('dialog', { name: 'Manage categories' })
+    await expect(manager.getByLabel('Filter categories')).toBeFocused()
+    await page.keyboard.type('din')
+    await expect(manager.getByRole('listbox').getByRole('option')).toHaveCount(1)
+    await page.keyboard.press('ArrowDown')
+    await expect(manager.getByRole('listbox')).toBeFocused()
+    await page.keyboard.press('r')
+    await expect(manager.getByRole('textbox', { name: 'Name' })).toBeFocused()
+    await page.keyboard.type(' Out')
+    await page.keyboard.press('Enter')
+    await expect(page.getByText(/2 pending edit/)).toBeVisible()
+    // The first Esc clears the filter; the second closes the manager.
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await expect(manager).toBeHidden()
+    // The information answers for an older revision; either way, i's turn ends with it.
+    const answered = page.waitForResponse('**/api/v1/profiles/*/transaction-information')
+    information.release()
+    await answered
+    // A hide queued after u marks that u's turn has passed.
+    const hidden = page.waitForRequest(
+      (request) =>
+        request.url().endsWith('/mutations') &&
+        request.postDataJSON().action === 'transaction.toggle-hidden',
+    )
+    await page.keyboard.press('h')
+    await hidden
+    expect(edits).toEqual([
+      'transaction.edit-merchant',
+      'category.manage',
+      'transaction.toggle-hidden',
+    ])
+    await expect(page.getByText(/3 pending edit/)).toBeVisible()
   } finally {
     await server.stop()
   }
