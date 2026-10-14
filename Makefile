@@ -64,8 +64,9 @@ test: web-embed
 	go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$$' -count=1
 	go test ./internal/api -run '^Test(Projection|DuplicateProjection)Performance100K$$' -count=1
 
+# The pre-commit hook runs this. It omits -shuffle so Go can reuse cached test results.
 test-go-quick: web-embed
-	MONEYFLOW_SKIP_PERF=1 go test -short $(GOFLAGS_TEST) ./...
+	MONEYFLOW_SKIP_PERF=1 go test -short ./...
 
 test-mcp: build
 	MONEYFLOW_MCP_TEST_BINARY="$(abspath $(BINARY))" MONEYFLOW_SKIP_PERF=1 go test \
