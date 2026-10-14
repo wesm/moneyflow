@@ -73,11 +73,15 @@ func (UnavailableError) Unwrap() error { return ErrProfileUnavailable }
 type RegisterOptions struct {
 	// Classes lists the classes to register. It must not be empty.
 	Classes []access.Class
-	// Prefix is prepended to every tool name and matches ^[A-Za-z0-9_.-]*$.
+	// Prefix is prepended to every tool name and matches ^[A-Za-z0-9_.-]*$. The longest resulting
+	// tool name must not exceed 128 characters, the MCP SDK's limit.
 	Prefix string
 }
 
 var toolPrefixPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]*$`)
+
+// maxToolNameLength is the longest tool name the MCP SDK accepts.
+const maxToolNameLength = 128
 
 var toolClasses = map[string]access.Class{
 	"search_transactions":            access.Read,
@@ -137,6 +141,10 @@ func Register(sdk *mcpsdk.Server, profiles Profiles, options RegisterOptions) er
 		return fmt.Errorf("register MCP tools: prefix %q must match %s",
 			options.Prefix, toolPrefixPattern)
 	}
+	if longest := len(options.Prefix) + longestToolName(classes); longest > maxToolNameLength {
+		return fmt.Errorf("register MCP tools: a prefix of %d characters makes a tool name %d "+
+			"characters long; the limit is %d", len(options.Prefix), longest, maxToolNameLength)
+	}
 	server := &Server{SDK: sdk, profiles: profiles, prefix: options.Prefix, classes: classes}
 	if classes[access.Read] {
 		registerListProfiles(server, profiles)
@@ -145,6 +153,18 @@ func Register(sdk *mcpsdk.Server, profiles Profiles, options RegisterOptions) er
 	registerExportTools(server)
 	registerWriteTools(server)
 	return nil
+}
+
+// longestToolName returns the length of the longest unprefixed name among the tools that classes
+// register.
+func longestToolName(classes map[access.Class]bool) int {
+	longest := 0
+	for name, class := range toolClasses {
+		if classes[class] {
+			longest = max(longest, len(name))
+		}
+	}
+	return longest
 }
 
 // ListProfilesInput takes no arguments.

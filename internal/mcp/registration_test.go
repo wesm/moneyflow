@@ -176,6 +176,57 @@ func TestRegisterRejectsInvalidOptions(t *testing.T) {
 	require.Error(t, Register(sdk, nil, RegisterOptions{Classes: allClasses}))
 }
 
+func longestName(names []string) int {
+	longest := 0
+	for _, name := range names {
+		longest = max(longest, len(name))
+	}
+	return longest
+}
+
+// The go-sdk accepts tool names of up to 128 characters. It only logs a longer name and registers
+// the tool anyway, so Register must refuse the prefix that makes one.
+func TestRegisterRejectsAPrefixThatMakesAToolNameTooLong(t *testing.T) {
+	const sdkNameLimit = 128
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": nil}, "profile-a")
+	unprefixed, err := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses}).
+		ListTools(t.Context(), nil)
+	require.NoError(t, err)
+	longest := longestName(toolNames(unprefixed.Tools))
+
+	t.Run("at the limit", func(t *testing.T) {
+		var mu sync.Mutex
+		var logged strings.Builder
+		sdk := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "host", Version: "1"},
+			&mcpsdk.ServerOptions{
+				Logger: slog.New(slog.NewTextHandler(&lockedWriter{mu: &mu, out: &logged}, nil)),
+			})
+		prefix := strings.Repeat("p", sdkNameLimit-longest)
+
+		require.NoError(t, Register(sdk, profiles, RegisterOptions{Classes: allClasses, Prefix: prefix}))
+
+		tools, err := connectSDK(t, sdk).ListTools(t.Context(), nil)
+		require.NoError(t, err)
+		assert.Equal(t, sdkNameLimit, longestName(toolNames(tools.Tools)))
+		mu.Lock()
+		defer mu.Unlock()
+		assert.NotContains(t, logged.String(), "invalid tool name")
+	})
+
+	t.Run("over the limit", func(t *testing.T) {
+		sdk := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "host", Version: "1"}, nil)
+		prefix := strings.Repeat("p", sdkNameLimit-longest+1)
+
+		err := Register(sdk, profiles, RegisterOptions{Classes: allClasses, Prefix: prefix})
+
+		require.Error(t, err)
+		assert.ErrorContains(t, err, strconv.Itoa(sdkNameLimit))
+		tools, listErr := connectSDK(t, sdk).ListTools(t.Context(), nil)
+		require.NoError(t, listErr)
+		assert.Empty(t, tools.Tools, "a refused registration must add no tools")
+	})
+}
+
 func TestProfileArgumentChoosesAmongSeveralProfiles(t *testing.T) {
 	first, closeFirst := writeTestService(t, 1)
 	defer closeFirst()
