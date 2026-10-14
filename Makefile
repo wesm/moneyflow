@@ -12,8 +12,14 @@ RELEASE_DIR ?= dist/release
 DEV_WEB_PORT ?= 5173
 DEV_BACKEND_PORT ?= 8081
 DEV_HOME := $(CURDIR)/tmp/dev-home
+# `make dev PROFILE=<name>` opens that real profile instead of the synthetic one. Only the
+# command line sets it, so an exported PROFILE cannot open a real profile by accident.
+ifneq ($(origin PROFILE),command line)
+PROFILE :=
+endif
 DEV_URL := http://127.0.0.1:$(DEV_WEB_PORT)/
-DEV_ENV = DEV_WEB_PORT=$(DEV_WEB_PORT) DEV_BACKEND_PORT=$(DEV_BACKEND_PORT) DEV_HOME="$(DEV_HOME)"
+DEV_ENV = DEV_WEB_PORT=$(DEV_WEB_PORT) DEV_BACKEND_PORT=$(DEV_BACKEND_PORT) DEV_HOME="$(DEV_HOME)" \
+	DEV_PROFILE="$(PROFILE)"
 ifeq ($(OS),Windows_NT)
 BINARY := bin/moneyflow.exe
 endif
@@ -194,9 +200,9 @@ verify-web: ## Run every browser, API, and embedded-asset check
 	go test ./internal/api -run 'Test(Projection|DuplicateProjection)Performance100K' -count=1
 
 # Run the steps in order even when MAKEFLAGS includes -j, as verify-web does.
-dev: ## Run Go under air behind Vite with live reload
+dev: ## Run Go under air behind Vite with live reload; PROFILE=<name> opens a real profile
 	@$(MAKE) web-install
-	@$(MAKE) web-embed dev-profile
+	@$(MAKE) web-embed $(if $(PROFILE),,dev-profile)
 	@printf '\n%s\n%s\n%s\n\n' \
 		'make dev: open the "Moneyflow web:" URL that the backend prints when it starts.' \
 		'$(DEV_URL) shows the profile chooser. Logs are in tmp/logs.' \
@@ -209,7 +215,7 @@ dev-profile: ## Seed the synthetic dev profile in tmp/dev-home if it is missing
 dev-reset: ## Delete the dev profile; the next make dev seeds a fresh one
 	rm -rf tmp/dev-home
 
-dev-backend: dev-profile ## Run only the Go server under air; needs web-embed once
+dev-backend: $(if $(PROFILE),,dev-profile) ## Run only the Go server under air; needs web-embed once
 	@$(DEV_ENV) bash scripts/dev.sh backend
 
 dev-web: ## Run only the Vite dev server

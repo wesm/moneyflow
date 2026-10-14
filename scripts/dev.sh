@@ -6,12 +6,14 @@
 # With no argument, runs both servers and stops the other when either exits. It then exits
 # with the failed server's status, or 1 if that server exited cleanly. SIGINT and SIGTERM stop
 # both servers and exit 130 or 143. The Makefile sets DEV_WEB_PORT, DEV_BACKEND_PORT, and
-# DEV_HOME.
+# DEV_HOME. A non-empty DEV_PROFILE opens that real profile from the usual Moneyflow home
+# instead of the synthetic profile in DEV_HOME.
 set -euo pipefail
 
 : "${DEV_WEB_PORT:?set by make dev}"
 : "${DEV_BACKEND_PORT:?set by make dev}"
 : "${DEV_HOME:?set by make dev}"
+DEV_PROFILE=${DEV_PROFILE:-}
 
 # Prints the port as a plain decimal number so that equal ports compare equal.
 normalize_port() {
@@ -34,9 +36,23 @@ cd "$(dirname "$0")/.."
 mkdir -p -m 700 tmp
 mkdir -p tmp/logs
 
+# air joins the server arguments with spaces and runs them with /bin/sh -c, so an argument
+# with spaces or quotes must reach air already quoted for sh.
+sh_quote() {
+  local escaped="'\\''"
+  printf "'%s'" "${1//\'/$escaped}"
+}
+
 run_backend() {
-  MONEYFLOW_HOME="$DEV_HOME" exec air -c .air.toml -- web --open=false --profile Moneyflow \
-    --listen "127.0.0.1:$DEV_BACKEND_PORT" --external-url "http://127.0.0.1:$DEV_WEB_PORT/"
+  local home=$DEV_HOME profile=Moneyflow
+  if [ -n "$DEV_PROFILE" ]; then
+    home=${MONEYFLOW_HOME:-}
+    profile=$DEV_PROFILE
+  fi
+  # An empty MONEYFLOW_HOME selects the usual home, as it does for the installed binary.
+  MONEYFLOW_HOME="$home" exec air -c .air.toml -- web --open=false \
+    --profile "$(sh_quote "$profile")" --listen "127.0.0.1:$DEV_BACKEND_PORT" \
+    --external-url "http://127.0.0.1:$DEV_WEB_PORT/"
 }
 
 run_web() {
@@ -90,6 +106,14 @@ require_free_port() {
 
 if [ $# -eq 0 ] || [ "$1" = backend ]; then
   require_free_port "$DEV_BACKEND_PORT" DEV_BACKEND_PORT
+  if [ -n "$DEV_PROFILE" ]; then
+    {
+      echo "dev.sh: opening the real profile '$DEV_PROFILE'" \
+        "from ${MONEYFLOW_HOME:-the usual Moneyflow home}."
+      echo "dev.sh: edits are saved to it," \
+        "and committed provider edits are written to the provider."
+    } >&2
+  fi
 fi
 if [ $# -eq 0 ] || [ "$1" = web ]; then
   require_free_port "$DEV_WEB_PORT" DEV_WEB_PORT
