@@ -54,6 +54,30 @@ describe('StaleBanner', () => {
     expect(screen.getByText(/^Available at \d{1,2}:05/)).not.toBeNull()
   })
 
+  it('explains an unfinished SimpleFIN refresh and waits before allowing another', async () => {
+    vi.useFakeTimers({ now })
+    const controller = stubProvider(true, {
+      status: testProviderStatus({
+        provider_kind: 'simplefin',
+        last_success: '2026-10-03T12:00:00Z',
+        last_attempt: '2026-10-13T11:05:00Z',
+        next_eligible: '2026-10-13T12:05:00Z',
+      }),
+    })
+    render(StaleBanner, { controller })
+    expect(screen.getByRole('status').textContent).toContain(
+      'The last refresh did not finish. Automatic refresh is paused.',
+    )
+    expect(screen.getByRole('button', { name: 'Refresh' }).hasAttribute('disabled')).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(300_000)
+
+    const refresh = screen.getByRole('button', { name: 'Refresh' })
+    expect(refresh.hasAttribute('disabled')).toBe(false)
+    await fireEvent.click(refresh)
+    expect(controller.refresh).toHaveBeenCalledOnce()
+  })
+
   it('offers reconnect when the provider needs it', async () => {
     vi.useFakeTimers({ now })
     const onreconnect = vi.fn()

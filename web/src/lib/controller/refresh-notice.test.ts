@@ -76,6 +76,23 @@ describe('refresh notice', () => {
   })
 
   it.each([
+    { refreshing: true },
+    { last_attempt: '2026-10-13T11:00:00Z' },
+    { provider_kind: 'monarch' },
+  ])('does not mistake %j for an unfinished SimpleFIN refresh', (overrides) => {
+    expect(
+      statusStaleReason(
+        testProviderStatus({
+          provider_kind: 'simplefin',
+          last_success: '2026-10-13T11:00:00Z',
+          last_attempt: '2026-10-13T12:00:00Z',
+          ...overrides,
+        }),
+      ),
+    ).toBeUndefined()
+  })
+
+  it.each([
     [
       'provider_unavailable',
       'The provider is temporarily unavailable.',

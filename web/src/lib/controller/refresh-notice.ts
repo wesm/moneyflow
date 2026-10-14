@@ -71,8 +71,8 @@ const FRESH_CODES = new Set(['provider_refresh_stale', 'provider_refresh_in_prog
 
 /**
  * Why the data `status` describes predates a refresh that did not complete, or undefined when it
- * does not. The data is stale while no refresh runs and either the last attempt failed, or the
- * server says a refresh is due (app.ProviderRefreshDue) but refresh is unavailable.
+ * does not. The data is stale while no refresh runs and the last attempt failed or remains
+ * unfinished, or the server says a refresh is due (app.ProviderRefreshDue) but it is unavailable.
  */
 export function statusStaleReason(status: ProviderStatus): string | undefined {
   if (status.refreshing) return undefined
@@ -85,6 +85,12 @@ export function statusStaleReason(status: ProviderStatus): string | undefined {
   }
   if (code && !FRESH_CODES.has(code)) {
     return `Last refresh failed. ${status.code_detail ?? 'The provider reported an error.'}`
+  }
+  if (
+    status.provider_kind === 'simplefin' &&
+    (Date.parse(status.last_attempt ?? '') || 0) > (Date.parse(status.last_success ?? '') || 0)
+  ) {
+    return 'The last refresh did not finish. Automatic refresh is paused.'
   }
   if (status.refresh_due !== 'none' && !status.capability.available) {
     return status.capability.reason ?? 'Refresh is unavailable.'

@@ -603,15 +603,19 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       if (status.refreshing) return setState({ ...base, phase: 'refreshing' })
       return finishWatched(status, dialog.view === 'stopping')
     }
-    if (status.refreshing && !inFlight && pending === undefined && !dialog) {
-      const opened = openDialog('other')
+    if (
+      status.refreshing &&
+      !inFlight &&
+      pending === undefined &&
+      (!dialog || dialog.view === 'failed' || dialog.view === 'reconnect')
+    ) {
       attempt++
       watched = status.generation
       setState({
         ...base,
         phase: 'refreshing',
         kind: undefined,
-        dialog: opened,
+        dialog: { view: 'other', startedAt: now() },
         announcement: `${refreshOwner(status.owner_renderer)} is refreshing this profile.`,
       })
       return
