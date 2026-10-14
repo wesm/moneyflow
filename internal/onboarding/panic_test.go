@@ -3,6 +3,7 @@ package onboarding
 import (
 	"bytes"
 	"context"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,6 +18,62 @@ import (
 	"github.com/wesm/moneyflow/internal/provider/ynab"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
+
+func TestCredentialReentryAfterSessionLoadPanicCompletesImport(t *testing.T) {
+	paths, err := home.ResolveRoot(t.TempDir(), nil, "")
+	require.NoError(t, err)
+	sessions := &fakeSessionStore{panicFirstLoad: true, loadErr: os.ErrNotExist}
+	connector := &fakeConnector{
+		connectSession: validTestSession("subscription-example", "USD", 2),
+	}
+	source := newImportTestSource(t)
+	coordinator, err := NewCoordinator(Config{
+		Random: bytes.NewReader(bytes.Repeat([]byte{0x42}, 128)),
+		Now:    time.Now, InstanceID: "test-instance",
+		OpenProfile: func(ctx context.Context, id string) (OpenedProfile, error) {
+			handle, openErr := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
+			if openErr != nil {
+				return OpenedProfile{}, openErr
+			}
+			service, openErr := app.NewProfileService(ctx, handle)
+			if openErr != nil {
+				_ = handle.Close()
+				return OpenedProfile{}, openErr
+			}
+			return OpenedProfile{ID: id, Paths: paths, Service: service, Close: handle.Close}, nil
+		},
+		Runtime: func(home.Paths) (Runtime, error) {
+			return Runtime{
+				Sessions: sessions, Credentials: &fakeCredentialVault{},
+				NewConnector: func(monarch.ImportConfig) (provider.Connector, error) {
+					return connector, nil
+				},
+				NewSources: func(monarch.ImportConfig) (provider.ReaderSource, provider.WriterSource, error) {
+					return source, source, nil
+				},
+				InstanceID: "provider-instance", Now: time.Now,
+			}, nil
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, coordinator.Close(context.Background())) })
+	started, err := coordinator.Start(t.Context(), StartRequest{
+		ProfileID: testProfileID, Settings: &SettingsInput{Currency: "USD", Scale: 2},
+	})
+	require.NoError(t, err)
+	failed := waitForState(t, coordinator, started, StateFailed)
+	require.True(t, failed.Failure.CanReenter)
+	restarted, err := coordinator.Submit(t.Context(), SubmitRequest{
+		ProfileID: testProfileID, AttemptID: failed.AttemptID,
+		ExpectedStateVersion: failed.StateVersion, Action: ActionReauthenticate,
+	})
+	require.NoError(t, err)
+	credentials := waitForState(t, coordinator, restarted, StateCredentialsRequired)
+	submitted, err := coordinator.Submit(t.Context(), credentialSubmitRequest(credentials))
+	require.NoError(t, err)
+	complete := waitForState(t, coordinator, submitted, StateComplete)
+	assert.Equal(t, 1, complete.Progress.Imported)
+}
 
 func TestAuthenticationPanicAfterReentryRetriesInspection(t *testing.T) {
 	for _, providerKind := range []string{"monarch", "ynab"} {

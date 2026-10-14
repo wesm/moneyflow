@@ -457,19 +457,23 @@ func validTestSession(remoteID string, currency domain.Currency, scale uint8) mo
 }
 
 type fakeSessionStore struct {
-	mu        sync.Mutex
-	session   monarch.Session
-	loadErr   error
-	saveErr   error
-	loadCalls int
-	saveCalls int
-	order     *[]string
+	mu             sync.Mutex
+	session        monarch.Session
+	loadErr        error
+	saveErr        error
+	loadCalls      int
+	panicFirstLoad bool
+	saveCalls      int
+	order          *[]string
 }
 
 func (store *fakeSessionStore) Load() (monarch.Session, provider.SessionFingerprint, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.loadCalls++
+	if store.panicFirstLoad && store.loadCalls == 1 {
+		panic("synthetic session load failure")
+	}
 	return store.session, "session-fingerprint", store.loadErr
 }
 

@@ -241,9 +241,10 @@ func (coordinator *Coordinator) Submit(
 	}
 	if request.Action == ActionReauthenticate && (current.state == StateIdentityMismatch ||
 		(current.state == StateFailed && current.failure != nil && current.failure.CanReenter)) {
-		if current.flow.opened == nil {
-			// A panic stopped inspection before it installed the profile, so there is no runtime
-			// to authenticate with. Inspect again, as Retry does.
+		if current.flow.opened == nil ||
+			(current.providerKind == "monarch" && current.flow.selectedConfig == nil) {
+			// A panic stopped inspection before it prepared the profile or Monarch settings
+			// needed for authentication. Inspect again, as Retry does.
 			coordinator.transitionLocked(current, StateInspect, nil)
 			current.progress = nil
 			coordinator.startJobLocked(current, coordinator.restartInspect)
