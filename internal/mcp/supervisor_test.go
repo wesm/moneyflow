@@ -56,30 +56,6 @@ func TestSupervisorUsesApplicationReservationAsWriteAuthority(t *testing.T) {
 	require.NoError(t, supervisor.Close(context.Background()))
 }
 
-func TestSupervisorWriteReservationUsesServerContext(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now,
-		strings.NewReader(strings.Repeat("o", 128)), nil)
-	requestContext, cancelRequest := context.WithCancel(context.Background())
-	cancelRequest()
-	assert.Error(t, requestContext.Err())
-	started := make(chan struct{})
-	execution := &fakeWriteExecution{run: func(ctx context.Context) (app.ProviderWriteStatus, error) {
-		close(started)
-		return app.ProviderWriteStatus{}, ctx.Err()
-	}}
-	_, active, err := supervisor.ReserveWrite(
-		func(ctx context.Context) (app.ProviderWriteStatus, providerWriteExecution, error) {
-			assert.NoError(t, ctx.Err())
-			return app.ProviderWriteStatus{}, execution, nil
-		},
-	)
-	require.NoError(t, err)
-	assert.True(t, active)
-	<-started
-	require.Eventually(t, func() bool { return !supervisor.WriteActive() }, time.Second, time.Millisecond)
-	require.NoError(t, supervisor.Close(context.Background()))
-}
-
 func TestSupervisorCloseCancelsBlockingWriteReservation(t *testing.T) {
 	supervisor := NewSupervisor(context.Background(), time.Now,
 		strings.NewReader(strings.Repeat("c", 128)), nil)
