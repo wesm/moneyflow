@@ -398,8 +398,10 @@ func (service *Service) prepareProviderWrite(
 
 // ReserveProviderWriteExecution performs the authoritative resume transition and reserves the
 // single process-local worker. Explicit resume can first read an uncertain transaction
-// to verify whether another attempt is needed. A nil execution means another local
-// worker already owns the reservation.
+// to verify whether another attempt is needed. A nil execution with a nil error means there is
+// nothing to run: another local worker already owns the reservation, or the profile has no write
+// batch. A batch that cannot run, such as one with a stale version or one that parked, returns an
+// error and a nil execution.
 func (service *Service) ReserveProviderWriteExecution(
 	ctx context.Context,
 	expectedVersion uint64,

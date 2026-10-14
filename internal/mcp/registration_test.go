@@ -836,6 +836,40 @@ func TestPanicDuringAWriteReservationLeavesNothingHeldAndCloseFinishes(t *testin
 	assert.NoError(t, supervisor.Close(closing), "Close is still waiting for the reservation")
 }
 
+// Provider code can panic in the resumed run itself, outside the calls that the run turns into
+// errors. The batch then still reads as writing, so the status must say why the run stopped, and
+// the supervisor must still see the panic.
+func TestPanicInAResumedWriteRunIsReportedAsARunFailure(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "monarch")
+	defer closeProfile()
+	source.deleteFailure = provider.NewWriteFailure(provider.WriteResponseIncomplete)
+	panicking := &panickingWriterSource{refreshTestSource: source}
+	configureWriteSource(t, service, source, panicking)
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	supervisor := profiles.entries["profile-a"].Supervisor
+	logged := captureSupervisorLog(supervisor)
+	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
+	revision := stageDeletion(t, client, service)
+	callRefreshTool(t, client, "commit_changes",
+		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	status := awaitParkedWrite(t, service, profiles)
+	panicking.armed.Store(true)
+
+	callRefreshTool(t, client, "resume_commit",
+		map[string]any{"batch_version": strconv.FormatUint(status.Version, 10)})
+	require.Eventually(t, func() bool {
+		return !supervisor.WriteActive() && profiles.leases.Load() == 0
+	}, 3*time.Second, 10*time.Millisecond)
+
+	commit := callRefreshTool(t, client, "get_commit_status", nil)
+	write := commit["write"].(map[string]any)
+	assert.Equal(t, string(store.WritePhaseWriting), write["phase"])
+	failure, ok := write["run_failure"].(map[string]any)
+	require.True(t, ok, "status has no run_failure: %v", write)
+	assert.Equal(t, "internal_error", failure["code"])
+	assert.Contains(t, logged(), "moneyflow_cause=internal_error")
+}
+
 // captureSupervisorLog sends the supervisor's log to a buffer and returns a reader for it.
 func captureSupervisorLog(supervisor *Supervisor) func() string {
 	var mu sync.Mutex
