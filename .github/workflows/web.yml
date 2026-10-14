@@ -37,27 +37,8 @@ jobs:
       - name: Install frozen frontend dependencies
         run: make web-install
 
-      - name: Name the Playwright browser cache
-        id: playwright
-        run: |
-          version="$(jq -er '.devDependencies["@playwright/test"]' web/package.json)"
-          . /etc/os-release
-          echo "cache-key=playwright-$ID-$VERSION_ID-$RUNNER_ARCH-$version" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ steps.playwright.outputs.cache-key }}
-
       - name: Install pinned Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: bun run --cwd web playwright install --with-deps chromium firefox webkit
-
-      - name: Install Playwright system dependencies
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: bun run --cwd web playwright install-deps chromium firefox webkit
 
       - name: Check frontend and run browser workflows
         env:
