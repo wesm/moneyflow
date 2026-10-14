@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/uitest"
 )
@@ -102,4 +103,78 @@ func TestProviderBlockedWriteCancelsBeforeApplication(t *testing.T) {
 		t.Fatal("provider write did not stop after cancellation")
 	}
 	assert.False(t, source.State().Transactions["current-a"].Hidden)
+}
+
+func TestProviderRefreshFaultsApplyToOneSnapshot(t *testing.T) {
+	source, err := uitest.OpenProvider(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, source.SetRefreshFault(uitest.RefreshFail))
+	_, err = source.FetchSnapshot(t.Context(), provider.FetchRequest{}, nil)
+	code, ok := provider.CodeOf(err)
+	require.True(t, ok, "the failure is a provider error: %v", err)
+	assert.Equal(t, provider.CodeUnavailable, code)
+
+	require.NoError(t, source.SetRefreshFault(uitest.RefreshRemove))
+	removed, err := source.FetchSnapshot(t.Context(), provider.FetchRequest{}, nil)
+	require.NoError(t, err)
+	assert.Len(t, removed.Snapshot.Transactions, 2, "the snapshot omits five of seven rows")
+	assert.Len(t, source.State().Transactions, 7, "the remote rows stay for a later refresh")
+
+	complete, err := source.FetchSnapshot(t.Context(), provider.FetchRequest{}, nil)
+	require.NoError(t, err)
+	assert.Len(t, complete.Snapshot.Transactions, 7, "a fault applies to one snapshot")
+}
+
+func TestProviderBlockedRefreshReportsProgressAndStopsWhenCanceled(t *testing.T) {
+	source, err := uitest.OpenProvider(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, source.SetRefreshFault(uitest.RefreshBlock))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	progressed := make(chan provider.Progress, 1)
+	done := make(chan error, 1)
+	go func() {
+		_, fetchErr := source.FetchSnapshot(ctx, provider.FetchRequest{}, func(progress provider.Progress) {
+			progressed <- progress
+		})
+		done <- fetchErr
+	}()
+	progress := <-progressed
+	assert.Equal(t, 3, progress.Fetched)
+	assert.Equal(t, 7, progress.Total)
+	cancel()
+	select {
+	case err = <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("provider refresh did not stop after cancellation")
+	}
+
+	require.NoError(t, source.SetRefreshFault(uitest.RefreshBlock))
+	go func() {
+		_, fetchErr := source.FetchSnapshot(t.Context(), provider.FetchRequest{}, nil)
+		done <- fetchErr
+	}()
+	require.Eventually(t, func() bool { return source.Blocked() }, time.Second, time.Millisecond)
+	source.Release()
+	require.NoError(t, <-done)
+}
+
+func TestProviderSnapshotKeepsOnlyTheRequestedWindow(t *testing.T) {
+	source, err := uitest.OpenProvider(t.TempDir())
+	require.NoError(t, err)
+	start, err := domain.ParseDate("2026-07-17")
+	require.NoError(t, err)
+	end, err := domain.ParseDate("2026-10-15")
+	require.NoError(t, err)
+	window := domain.DateRange{Start: start, End: end}
+	request := provider.FetchRequest{TransactionWindow: &window}
+	result, err := source.FetchSnapshot(t.Context(), request, nil)
+	require.NoError(t, err)
+	require.NotNil(t, result.Snapshot.TransactionWindow, "a recent refresh needs its window back")
+	assert.Equal(t, window, *result.Snapshot.TransactionWindow)
+	assert.Len(t, result.Snapshot.Transactions, 6, "the 2025 row is outside the window")
+	for _, transaction := range result.Snapshot.Transactions {
+		assert.True(t, result.Snapshot.InTransactionWindow(transaction.Date), transaction.ExternalID)
+	}
 }

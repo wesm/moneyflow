@@ -17,6 +17,8 @@
     overlays: OverlayState
     /** Its announcement says why the server refused the delete. */
     editing: EditingController
+    /** True while the refresh dialog covers this overlay; its keys then do nothing here. */
+    suspended?: boolean
     /** Stages the delete. Resolves whether the server accepted it. */
     onconfirm: () => Promise<boolean>
     /** Esc, Cancel, or a press on the phone sheet's scrim. */
@@ -25,8 +27,17 @@
     ondismiss: () => void
   }
 
-  let { count, compact, anchor, overlays, editing, onconfirm, oncancel, ondismiss }: Props =
-    $props()
+  let {
+    count,
+    compact,
+    anchor,
+    overlays,
+    editing,
+    suspended = false,
+    onconfirm,
+    oncancel,
+    ondismiss,
+  }: Props = $props()
   const id = 'mf-delete'
   let body = $state<HTMLElement>()
   /** True while staging runs, and for good once it is accepted, so the delete stages once. */
@@ -54,7 +65,7 @@
    * Enter's repeats stage nothing.
    */
   function keydown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' || event.defaultPrevented) return
+    if (suspended || event.key !== 'Enter' || event.defaultPrevented) return
     const target = event.target
     const panel = body?.closest('[role="alertdialog"]')
     if (!(target instanceof Node) || !(panel?.contains(target) || target === document.body)) return

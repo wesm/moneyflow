@@ -1523,6 +1523,8 @@ export interface components {
       provider_kind?: string
       /** @enum {string} */
       refresh_due: 'none' | 'recent' | 'full'
+      /** @description A refresh is running now */
+      refreshing: boolean
       revision: string
       summary: components['schemas']['ProviderRefreshSummary']
       version: string

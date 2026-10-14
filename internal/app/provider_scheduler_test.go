@@ -311,3 +311,122 @@ func TestProviderSchedulerSixHourStalenessAndNextEligible(t *testing.T) {
 		assert.Equal(t, none, app.ProviderRefreshDue(app.ProviderStatus{Code: code}, now), code)
 	}
 }
+
+func TestProviderStatusReportsOnlyALiveRefreshLeaseAsRunning(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	service, handle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 16, 9, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 2), fingerprint: "session-a",
+	}
+	clock := now
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "web", InstanceID: "instance-web",
+		Now: func() time.Time { return clock }, Random: &incrementingReader{},
+	}))
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	status, err := service.ProviderStatus(ctx)
+	require.NoError(t, err)
+	assert.False(t, status.Refreshing, "a finished refresh released its lease")
+
+	_, acquired, err := handle.AcquireRefreshLease(ctx, store.RefreshLease{
+		OwnerID: "instance-terminal", Renderer: "tui", ExpiresAt: now.Add(time.Minute),
+	}, now)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	status, err = service.ProviderStatus(ctx)
+	require.NoError(t, err)
+	assert.True(t, status.Refreshing)
+	assert.Equal(t, "tui", status.OwnerRenderer)
+
+	clock = now.Add(2 * time.Minute)
+	status, err = service.ProviderStatus(ctx)
+	require.NoError(t, err)
+	assert.False(t, status.Refreshing, "an expired lease belongs to a process that stopped")
+}
+
+func TestStoredProviderStatusReportsFreshnessWithoutAProviderRuntime(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	configured, handle := newProviderRefreshService(t)
+	refreshedAt := time.Date(2026, time.August, 16, 9, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, refreshedAt, 2), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, configured, source, refreshedAt, "instance-a")
+	_, err := configured.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+
+	locked, err := app.NewProfileService(ctx, handle)
+	require.NoError(t, err)
+	locked.SetClock(func() time.Time { return refreshedAt.Add(7 * time.Hour) })
+	status, err := locked.StoredProviderStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "monarch", status.ProviderKind)
+	assert.Equal(t, refreshedAt, status.LastSuccess.UTC())
+	assert.Empty(t, status.Code)
+	assert.Equal(t, app.ProviderRefreshRecent, status.RefreshDue)
+	assert.False(t, status.Refreshing)
+}
+
+func TestStoredProviderStatusIsEmptyForAnUnboundProfile(t *testing.T) {
+	t.Parallel()
+
+	service, _ := newProviderRefreshService(t)
+	status, err := service.StoredProviderStatus(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, app.ProviderStatus{}, status)
+}
+
+func TestProviderStatusStartsANewRefreshWithoutTheLastRefreshProgress(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	service, _ := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 16, 9, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 2), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "instance-a")
+	request := app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	}
+	_, err := service.RefreshProvider(ctx, request)
+	require.NoError(t, err)
+	finished, err := service.ProviderStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, finished.Total, "the finished refresh reported its progress")
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	source.setFetchHook(func() error {
+		close(entered)
+		<-release
+		return nil
+	})
+	done := make(chan error, 1)
+	go func() {
+		_, refreshErr := service.RefreshProvider(ctx, request)
+		done <- refreshErr
+	}()
+	<-entered
+	running, err := service.ProviderStatus(ctx)
+	require.NoError(t, err)
+	assert.True(t, running.Refreshing)
+	assert.Zero(t, running.Fetched, "a new refresh has fetched nothing yet")
+	assert.Zero(t, running.Total)
+	close(release)
+	require.NoError(t, <-done)
+}

@@ -25,6 +25,10 @@ export interface ScenarioServer {
   root: string
   observe(): Promise<Observation>
   fault(fault: 'block' | 'block-after' | 'reject' | 'unknown'): Promise<void>
+  /** Arms the next provider snapshot read: wait for release, fail, or omit five rows. */
+  refreshFault(fault: 'block' | 'fail' | 'remove'): Promise<void>
+  /** Holds or releases the refresh lease as another interface, such as the TUI, would. */
+  otherRefresh(renderer: string, hold: boolean): Promise<void>
   release(): Promise<void>
   advance(seconds: number): Promise<void>
   restart(crash?: boolean): Promise<void>
@@ -147,6 +151,12 @@ export async function startScenarioServer(requestedRoot: string): Promise<Scenar
     },
     async fault(fault) {
       await control('fault', { fault })
+    },
+    async refreshFault(fault) {
+      await control('refresh-fault', { fault })
+    },
+    async otherRefresh(renderer, hold) {
+      await control('other-refresh', { renderer, hold })
     },
     async release() {
       await control('release', {})

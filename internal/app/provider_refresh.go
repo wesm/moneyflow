@@ -108,6 +108,7 @@ type ProviderRefreshResult struct {
 
 // ProviderStatus is the renderer-neutral, counts-only refresh projection.
 type ProviderStatus struct {
+	Revision          uint64
 	ProviderKind      string
 	LastAttempt       time.Time
 	Code              provider.ErrorCode
@@ -124,6 +125,9 @@ type ProviderStatus struct {
 	LastFullRefresh time.Time
 	// RefreshDue is the refresh a scheduler should start now.
 	RefreshDue ProviderRefreshScope
+	// Refreshing reports that a refresh holds the profile's refresh lease now, in this process
+	// or another. OwnerRenderer names the interface that runs it.
+	Refreshing bool
 	// Warning reports a problem that did not stop the refresh, or is empty.
 	Warning string
 }
@@ -301,6 +305,8 @@ func (service *Service) RefreshProvider(
 			service.Revision(),
 		)
 	}
+	// Status shows this refresh's progress, not the counts the previous refresh ended with.
+	runtime.setProgress(provider.Progress{})
 	if runtime.provider == "simplefin" {
 		// Read again under ownership: an earlier process may have admitted an attempt
 		// after our pre-lease status read, without changing the data generation.
@@ -330,7 +336,7 @@ func (service *Service) RefreshProvider(
 	)
 	if fetchErr != nil {
 		if errors.Is(fetchErr, context.Canceled) || errors.Is(fetchErr, context.DeadlineExceeded) {
-			return service.stopProviderRefresh(ctx, runtime, providerState, now, fingerprint, fetchErr)
+			return service.stopProviderRefresh(ctx, runtime, now, fingerprint, fetchErr)
 		}
 		var storage *store.Error
 		if errors.As(fetchErr, &storage) {
@@ -341,10 +347,10 @@ func (service *Service) RefreshProvider(
 			_ = service.releaseProviderLease(ctx, runtime.instanceID)
 			return ProviderRefreshResult{}, providerAppError(code, service.Revision())
 		}
-		return service.failProviderRefresh(ctx, runtime, providerState, now, fingerprint, fetchErr)
+		return service.failProviderRefresh(ctx, runtime, now, fingerprint, fetchErr)
 	}
 	if err = validateRefreshIdentity(runtime, providerState.Binding, remoteIdentity); err != nil {
-		return service.failProviderRefresh(ctx, runtime, providerState, now, fingerprint, err)
+		return service.failProviderRefresh(ctx, runtime, now, fingerprint, err)
 	}
 	existing, removed := 0, 0
 	if runtime.provider != "simplefin" {
@@ -379,7 +385,6 @@ func (service *Service) RefreshProvider(
 		result, failErr := service.failProviderRefresh(
 			ctx,
 			runtime,
-			providerState,
 			now,
 			fingerprint,
 			failure,
@@ -733,7 +738,6 @@ func normalizeProviderError(err error) error {
 func (service *Service) failProviderRefresh(
 	ctx context.Context,
 	runtime *providerRuntimeState,
-	state store.ProviderState,
 	attemptedAt time.Time,
 	fingerprint provider.SessionFingerprint,
 	failure error,
@@ -764,6 +768,10 @@ func (service *Service) failProviderRefresh(
 		OwnerID: runtime.instanceID, Code: string(code), AttemptedAt: attemptedAt,
 		NextEligible: nextEligible,
 	})
+	// Read after recording the failure, while this attempt still owns the lease. Edits may
+	// have advanced the revision during the download; another refresh must not replace this
+	// attempt's outcome before its status is read.
+	state, stateErr := service.profile.ProviderState(ctx)
 	releaseErr := service.releaseProviderLease(ctx, runtime.instanceID)
 	if recordErr != nil {
 		return ProviderRefreshResult{}, mapAppError(recordErr, service.Revision())
@@ -771,16 +779,16 @@ func (service *Service) failProviderRefresh(
 	if releaseErr != nil {
 		return ProviderRefreshResult{}, mapAppError(releaseErr, service.Revision())
 	}
+	if stateErr != nil {
+		return ProviderRefreshResult{}, mapAppError(stateErr, service.Revision())
+	}
 	if code == provider.CodeReconnectRequired {
 		runtime.setFingerprint(fingerprint, true)
 	}
+	state.Lease = nil // The lease was released after reading this attempt's status.
 	status := providerStatusFromState(state, runtime.provider)
-	status.LastAttempt = attemptedAt
-	status.Code = code
-	status.NextEligible = nextEligible
-	status.Generation = state.Refresh.Generation
 	return ProviderRefreshResult{Status: status}, newAppError(
-		AppErrorCode(code), service.Revision(), failure,
+		AppErrorCode(code), state.Revision, failure,
 	)
 }
 
@@ -793,13 +801,12 @@ func (service *Service) failProviderRefresh(
 func (service *Service) stopProviderRefresh(
 	ctx context.Context,
 	runtime *providerRuntimeState,
-	state store.ProviderState,
 	attemptedAt time.Time,
 	fingerprint provider.SessionFingerprint,
 	stopErr error,
 ) (ProviderRefreshResult, error) {
 	result, err := service.failProviderRefresh(
-		context.WithoutCancel(ctx), runtime, state, attemptedAt, fingerprint,
+		context.WithoutCancel(ctx), runtime, attemptedAt, fingerprint,
 		provider.NewError(provider.CodeUnavailable),
 	)
 	if result.Status.Code != provider.CodeUnavailable || ctx.Err() == nil {
@@ -823,7 +830,7 @@ func (service *Service) foldProviderCandidate(
 	// A candidate can outlive its credential file, especially while awaiting
 	// deletion confirmation. Validate its own generation, not the latest fetch's.
 	if changed, err := runtime.readSource.Changed(fingerprint); err != nil || changed {
-		return service.failProviderRefresh(ctx, runtime, providerState, runtime.now(), fingerprint, provider.NewError(provider.CodeReconnectRequired))
+		return service.failProviderRefresh(ctx, runtime, runtime.now(), fingerprint, provider.NewError(provider.CodeReconnectRequired))
 	}
 	binding := providerState.Binding
 	if binding == nil {
@@ -1389,6 +1396,7 @@ func (service *Service) providerProjectionResult(
 
 func providerStatusFromState(state store.ProviderState, configuredKind string) ProviderStatus {
 	status := ProviderStatus{
+		Revision:     state.Revision,
 		ProviderKind: configuredKind,
 		LastAttempt:  state.Refresh.LastAttempt,
 		Generation:   state.Refresh.Generation,

@@ -182,7 +182,40 @@ func (service *Service) ProviderStatus(ctx context.Context) (ProviderStatus, err
 		status.Code = ""
 	}
 	status.LastFullRefresh = service.profile.LastFullProviderRefresh()
-	status.RefreshDue = ProviderRefreshDue(status, runtime.now())
+	now := runtime.now()
+	status.RefreshDue = ProviderRefreshDue(status, now)
+	status.Refreshing = refreshRunning(state.Lease, now)
 	status.Warning = service.providerRefreshWarning()
 	return status, nil
+}
+
+// StoredProviderStatus returns a bound profile's recorded refresh status without a provider
+// runtime, so an interface can say how old the data is while refresh is unavailable, such as
+// before YNAB credentials are unlocked. Unbound profiles report only their revision.
+func (service *Service) StoredProviderStatus(ctx context.Context) (ProviderStatus, error) {
+	if service.profile == nil {
+		return ProviderStatus{Revision: service.Revision()}, nil
+	}
+	state, err := service.profile.ProviderState(ctx)
+	if err != nil {
+		return ProviderStatus{}, mapAppError(err, service.Revision())
+	}
+	if state.Binding == nil {
+		return ProviderStatus{Revision: state.Revision}, nil
+	}
+	now := time.Now()
+	if clock := service.clock(); clock != nil {
+		now = clock()
+	}
+	status := providerStatusFromState(state, state.Binding.Kind)
+	status.LastFullRefresh = service.profile.LastFullProviderRefresh()
+	status.RefreshDue = ProviderRefreshDue(status, now)
+	status.Refreshing = refreshRunning(state.Lease, now)
+	return status, nil
+}
+
+// refreshRunning reports whether a refresh holds the operation lease at now. An expired lease
+// belongs to a process that stopped without releasing it.
+func refreshRunning(lease *store.ProviderOperationLease, now time.Time) bool {
+	return lease != nil && lease.Kind == store.ProviderOperationRefresh && lease.ExpiresAt.After(now)
 }

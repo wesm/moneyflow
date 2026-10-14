@@ -33,6 +33,8 @@
   const draft = $derived(overlays.editorDraft)
   const onclose = () => overlays.close()
   const onwrite = () => overlays.open('write')
+  /** The refresh dialog is modal over every overlay, so overlay key handlers wait for it. */
+  const suspended = $derived(controller.provider.state.dialog !== undefined)
   // On phones the editor and the delete confirmation are bottom sheets. Staging an edit returns
   // focus to the edited row, not the ⋯.
   const compact = new MediaQuery(MEDIA.compact)
@@ -88,12 +90,13 @@
     review={controller.review}
     providerWrite={controller.providerWrite}
     providerName={providerName(projection.profile_kind)}
+    {suspended}
     {onclose}
     {onwrite}
     {onreconnect}
   />
 {:else if overlay === 'duplicates'}
-  <DuplicateReview controller={controller.duplicates} {onclose} />
+  <DuplicateReview controller={controller.duplicates} {suspended} {onclose} />
 {:else if overlay === 'delete' && overlays.deleteTarget}
   <DeleteConfirm
     count={overlays.deleteCount}
@@ -101,12 +104,13 @@
     anchor={overlays.anchor}
     {overlays}
     editing={controller.editing}
+    {suspended}
     onconfirm={onconfirmdelete}
     oncancel={onclose}
     ondismiss={() => overlays.close('keep')}
   />
 {:else if overlay === 'export'}
-  <ExportDialog controller={controller.export} {onclose} />
+  <ExportDialog controller={controller.export} {suspended} {onclose} />
 {:else if overlay === 'information' && information}
   <TransactionInformationDrawer {information} {onclose} />
 {/if}

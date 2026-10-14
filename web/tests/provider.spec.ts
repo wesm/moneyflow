@@ -37,7 +37,12 @@ test('r refreshes through the protected base-path API without leaking provider s
 
     await page.keyboard.press('r')
 
-    await expect(page.getByText('Provider refresh complete.')).toBeAttached()
+    await expect(
+      page
+        .locator('.kit-flash-banner')
+        .filter({ hasText: 'Refresh complete: 40 imported, 0 removed.' }),
+    ).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Refreshing from Monarch' })).toHaveCount(0)
     expect(fixture.refreshBodies).toHaveLength(1)
     expect(fixture.refreshBodies[0]).toMatchObject({ manual: true, query: 'cur=USD%3A2&v=1' })
     const historyText = await page.evaluate(() => JSON.stringify(history.state))
@@ -70,13 +75,11 @@ test('a refresh the server cannot complete shows a visible error', async ({ page
 
     await page.keyboard.press('r')
 
-    await expect(
-      page.getByRole('status').filter({
-        hasText:
-          'Provider refresh failed: The request could not be completed. ' +
-          'The terminal running moneyflow web shows the cause.',
-      }),
-    ).toBeVisible()
+    const dialog = page.getByRole('dialog', { name: 'Refresh from Monarch failed' })
+    await expect(dialog.getByRole('alert')).toHaveText(
+      'The request could not be completed. The terminal running moneyflow web shows the cause.',
+    )
+    await expect(dialog.getByRole('button', { name: 'Retry' })).toBeFocused()
   } finally {
     await server.stop()
   }
@@ -96,7 +99,8 @@ test('keyboard-only deletion confirmation applies only after explicit Enter', as
     await page.keyboard.press('Enter')
 
     await expect(dialog).toBeHidden()
-    expect(fixture.confirmBodies).toHaveLength(1)
+    // The confirmed refresh reads the status before it sends the confirmation.
+    await expect.poll(() => fixture.confirmBodies.length).toBe(1)
     expect(fixture.confirmBodies[0]).toMatchObject({
       manual: true,
       confirmation_token: 'opaque-confirmation',
@@ -120,6 +124,9 @@ test('Escape cancels deletion confirmation and a later refresh fetches a new can
     await page.keyboard.press('Escape')
     await expect(dialog).toBeHidden()
     expect(fixture.confirmBodies).toHaveLength(0)
+    await expect(page.locator('.mf-stale-banner')).toContainText(
+      'Refresh was not confirmed; no provider data changed.',
+    )
 
     await page.keyboard.press('r')
     await expect(dialog).toBeVisible()
@@ -160,8 +167,10 @@ async function installProviderRoutes(page: Page, requireConfirmation: boolean) {
     version: '1',
     revision: String(projection?.revision ?? '0'),
     generation: '1',
+    provider_kind: 'monarch',
     last_success: new Date().toISOString(),
     refresh_due: 'none',
+    refreshing: false,
     progress: { fetched: 20, total: 40 },
     summary: summary(0),
     capability: refreshCapability(),

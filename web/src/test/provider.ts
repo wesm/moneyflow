@@ -20,6 +20,7 @@ export function testProviderStatus(overrides: Partial<ProviderStatus> = {}): Pro
     revision: '1',
     generation: '1',
     refresh_due: 'none',
+    refreshing: false,
     progress: { fetched: 0, total: 0 },
     summary: {
       imported_accounts: 0,
@@ -55,8 +56,11 @@ export function stubProvider(
     },
     sync: vi.fn(),
     poll: vi.fn(async () => undefined),
+    reread: vi.fn(async () => undefined),
     refresh: vi.fn(async () => true),
     confirm: vi.fn(async () => true),
     dismissConfirmation: vi.fn(),
+    cancel: vi.fn(),
+    continueStale: vi.fn(),
   }
 }

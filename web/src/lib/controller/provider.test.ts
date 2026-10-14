@@ -2,7 +2,13 @@ import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ProviderStatus, ViewProjection } from '../api/client'
-import { createProviderController } from './provider'
+import {
+  createProviderController,
+  REFRESH_CANCELED,
+  REFRESH_NOT_CONFIRMED,
+  REFRESH_STOPPED,
+} from './provider'
+import { staleNotice } from './refresh-notice'
 import { testProjection } from '../../test/projection'
 
 describe('provider controller', () => {
@@ -57,7 +63,14 @@ describe('provider controller', () => {
     controller.sync(current)
 
     await controller.refresh()
-    expect(controller.state.announcement).toBe(`Provider refresh complete. ${warning}`)
+    expect(controller.state.announcement).toBe(
+      `Refresh complete: 0 imported, 0 removed. ${warning}`,
+    )
+    expect(getFlashes().map(({ message, tone }) => ({ message, tone }))).toEqual([
+      { message: 'Refresh complete: 0 imported, 0 removed.', tone: 'success' },
+      { message: warning, tone: 'warning' },
+    ])
+    expect(controller.state.dialog).toBeUndefined()
   })
 
   it('does not dispatch an unavailable refresh and announces the server reason', async () => {
@@ -103,25 +116,46 @@ describe('provider controller', () => {
     })
   })
 
-  it('says so when the view changed during a refresh and cannot be reread', async () => {
-    const sent = testProjection({ canonical_query: 'v=1', capabilities: [capability(true)] })
-    const host = hostStub(sent)
-    host.reload.mockRejectedValue(new Error('offline'))
-    const transport = transportStub({
-      mutationResponse: Response.json(refreshResponse(sent, 'preserved')),
+  it('closes a completed refresh while the queued view reread loads, then reports its failure', async () => {
+    const sent = testProjection({
+      revision: '1',
+      canonical_query: 'v=1',
+      capabilities: [capability(true)],
     })
+    const host = hostStub(sent)
+    const viewChange = Promise.withResolvers<void>()
+    host.serially = (work) => viewChange.promise.then(work)
+    const reread = Promise.withResolvers<undefined>()
+    host.reload.mockReturnValueOnce(reread.promise)
+    const transport = transportStub()
     vi.mocked(transport.mutations.request).mockImplementation(async () => {
-      host.current.mockReturnValue(testProjection({ canonical_query: 'group=category&v=1' }))
-      return Response.json(refreshResponse(sent, 'preserved'))
+      host.current.mockReturnValue(
+        testProjection({ revision: '1', canonical_query: 'group=category&v=1' }),
+      )
+      return Response.json(refreshResponse({ ...sent, revision: '2' }, 'preserved'))
     })
     const controller = createProviderController({ transport, host })
     controller.sync(sent)
 
-    await expect(controller.refresh()).resolves.toBe(true)
+    const refresh = controller.refresh()
+    await settle()
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.phase).toBe('idle')
+    expect(staleNotice(controller.state, Date.now())?.loading).toBe(true)
+    expect(host.reload).not.toHaveBeenCalled()
+
+    viewChange.resolve()
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledOnce())
+    expect(controller.state.dialog).toBeUndefined()
+    expect(staleNotice(controller.state, Date.now())?.loading).toBe(true)
+    reread.reject(new Error('offline'))
+    await expect(refresh).resolves.toBe(true)
 
     expect(host.accept).not.toHaveBeenCalled()
+    expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
     expect(controller.state.announcement).toBe(
-      'Provider refresh complete. The current view could not be reread.',
+      'Refresh complete: 0 imported, 0 removed. The current view could not be reread.',
     )
   })
 
@@ -149,7 +183,7 @@ describe('provider controller', () => {
     expect(transport.mutations.request).toHaveBeenCalledTimes(2)
 
     vi.mocked(transport.status).mockResolvedValueOnce(
-      providerStatus({ last_success: new Date().toISOString() }),
+      providerStatus({ generation: '2', revision: '2', last_success: new Date().toISOString() }),
     )
     await controller.poll()
     expect(controller.state.phase).toBe('idle')
@@ -157,36 +191,98 @@ describe('provider controller', () => {
     expect(transport.mutations.request).toHaveBeenCalledTimes(2)
   })
 
-  it('requires explicit confirmation and refetches status after an invalid token', async () => {
-    const current = testProjection({ capabilities: [capability(true)] })
-    const pending = providerStatus({
-      code: 'provider_deletion_confirmation_required',
-      confirmation_token: 'opaque-confirmation',
-      summary: { ...emptySummary(), removed_transactions: 5 },
-    })
-    const transport = transportStub({
-      mutationResponse: problemResponse(
-        'provider_deletion_confirmation_required',
-        'Confirm provider removals.',
-        pending,
-      ),
-      status: providerStatus(),
-    })
-    const controller = createProviderController({ transport, host: hostStub(current) })
-    controller.sync(current)
+  it.each(['with', 'without'] as const)(
+    'offers reconnect after Continue for a reconnect error %s its provider status',
+    async (sent) => {
+      const current = testProjection({ capabilities: [capability(true)] })
+      const reconnect = providerStatus({
+        provider_kind: 'monarch',
+        code: 'provider_reconnect_required',
+        last_success: '2026-10-03T12:00:00Z',
+      })
+      const transport = transportStub({
+        status: providerStatus({
+          provider_kind: 'monarch',
+          last_success: '2026-10-03T12:00:00Z',
+          next_eligible: '2999-01-01T00:00:00Z',
+        }),
+        mutationResponse: problemResponse(
+          'provider_reconnect_required',
+          'Reconnect through the command line.',
+          sent === 'with' ? reconnect : undefined,
+        ),
+      })
+      const controller = createProviderController({ transport, host: hostStub(current) })
+      controller.sync(current)
+      await controller.poll()
+      await controller.refresh()
 
-    await expect(controller.refresh()).resolves.toBe(false)
-    expect(controller.state.phase).toBe('confirmation')
-    expect(controller.state.status?.summary.removed_transactions).toBe(5)
+      controller.continueStale()
 
-    vi.mocked(transport.mutations.request).mockResolvedValueOnce(
-      problemResponse('provider_confirmation_invalid', 'Confirmation expired.'),
-    )
-    await expect(controller.confirm()).resolves.toBe(false)
-    expect(transport.status).toHaveBeenCalledTimes(1)
-    expect(transport.mutations.request).toHaveBeenCalledTimes(2)
-    expect(controller.state.phase).toBe('failed')
-  })
+      expect(staleNotice(controller.state, Date.now())?.reconnect).toBe(true)
+      expect(controller.state.status?.code).toBe('provider_reconnect_required')
+    },
+  )
+
+  it.each(['none', 'retry', 'poll'] as const)(
+    'shows an expired confirmation before its status read, preserving a later %s',
+    async (later) => {
+      const current = testProjection({ capabilities: [capability(true)] })
+      const pending = providerStatus({
+        code: 'provider_deletion_confirmation_required',
+        confirmation_token: 'opaque-confirmation',
+        summary: { ...emptySummary(), removed_transactions: 5 },
+      })
+      const transport = transportStub({
+        mutationResponse: problemResponse(
+          'provider_deletion_confirmation_required',
+          'Confirm provider removals.',
+          pending,
+        ),
+        status: providerStatus(),
+      })
+      const controller = createProviderController({ transport, host: hostStub(current) })
+      controller.sync(current)
+
+      await expect(controller.refresh()).resolves.toBe(false)
+      expect(controller.state.phase).toBe('confirmation')
+      expect(controller.state.status?.summary.removed_transactions).toBe(5)
+
+      vi.mocked(transport.mutations.request).mockResolvedValueOnce(
+        problemResponse('provider_confirmation_invalid', 'Confirmation expired.'),
+      )
+      const statusRead = Promise.withResolvers<ProviderStatus>()
+      transport.status.mockReturnValueOnce(statusRead.promise)
+      const confirmation = controller.confirm()
+      await settle()
+
+      expect(controller.state.dialog?.view).toBe('failed')
+      expect(controller.state.dialog?.reason).toContain('Confirmation expired.')
+      expect(transport.mutations.request).toHaveBeenCalledTimes(2)
+      controller.continueStale()
+      expect(controller.state.dialog).toBeUndefined()
+      if (later === 'retry') {
+        transport.mutations.request.mockResolvedValueOnce(
+          problemResponse('provider_reconnect_required', 'Reconnect.'),
+        )
+        await controller.refresh()
+        expect(controller.state.dialog?.view).toBe('reconnect')
+      } else if (later === 'poll') {
+        transport.status.mockResolvedValueOnce(providerStatus({ code: 'provider_unavailable' }))
+        await controller.poll()
+      }
+      const latest = controller.state
+      statusRead.resolve(providerStatus())
+      await expect(confirmation).resolves.toBe(false)
+
+      if (later === 'none') {
+        expect(controller.state.status?.confirmation_token).toBeUndefined()
+        expect(controller.state.dialog).toBeUndefined()
+      } else {
+        expect(controller.state).toEqual(latest)
+      }
+    },
+  )
 
   it('keeps the failure and the status returned with a refresh error', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
@@ -209,11 +305,14 @@ describe('provider controller', () => {
     await expect(controller.refresh()).resolves.toBe(false)
 
     expect(controller.state.phase).toBe('failed')
-    expect(controller.state.announcement).toBe('The provider is temporarily unavailable.')
+    expect(controller.state.dialog).toMatchObject({
+      view: 'failed',
+      reason: 'The provider is temporarily unavailable.',
+    })
     expect(controller.state.status).toEqual(failed)
   })
 
-  it('shows a failed refresh in an error banner', async () => {
+  it('keeps a failed refresh in its dialog instead of a passing banner', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const transport = transportStub({
       mutationResponse: problemResponse(
@@ -226,12 +325,8 @@ describe('provider controller', () => {
 
     await controller.refresh()
 
-    expect(getFlashes().map(({ message, tone }) => ({ message, tone }))).toEqual([
-      {
-        message: 'Provider refresh failed: The provider is temporarily unavailable.',
-        tone: 'danger',
-      },
-    ])
+    expect(controller.state.dialog?.view).toBe('failed')
+    expect(getFlashes()).toEqual([])
   })
 
   it('points an unexpected server error to the server log', async () => {
@@ -249,16 +344,13 @@ describe('provider controller', () => {
 
     await controller.refresh()
 
-    const reason =
-      'The request could not be completed. The terminal running moneyflow web shows the cause.'
     expect(controller.state.phase).toBe('failed')
-    expect(controller.state.announcement).toBe(reason)
-    expect(getFlashes().map(({ message }) => message)).toEqual([
-      `Provider refresh failed: ${reason}`,
-    ])
+    expect(controller.state.dialog?.reason).toBe(
+      'The request could not be completed. The terminal running moneyflow web shows the cause.',
+    )
   })
 
-  it('shows a refresh that never reached the server in an error banner', async () => {
+  it('explains a refresh that never reached the server', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const transport = transportStub()
     vi.mocked(transport.mutations.request).mockRejectedValueOnce(new TypeError('Failed to fetch'))
@@ -267,12 +359,12 @@ describe('provider controller', () => {
 
     await controller.refresh()
 
-    expect(getFlashes().map(({ message }) => message)).toEqual([
-      'Provider refresh failed. Press r to try again.',
-    ])
+    expect(controller.state.dialog?.reason).toBe(
+      'Moneyflow could not reach the server. Check the connection and retry.',
+    )
   })
 
-  it('shows a failed background refresh in an error banner', async () => {
+  it('opens the dialog for a background refresh and keeps it open when it fails', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const transport = transportStub({
       status: providerStatus({
@@ -292,10 +384,298 @@ describe('provider controller', () => {
 
     await controller.poll()
 
-    expect(getFlashes().map(({ message }) => message)).toEqual([
-      'Provider refresh failed: The refresh did not finish within 30 minutes, so Moneyflow ' +
-        'stopped it.',
-    ])
+    expect(controller.state.dialog).toMatchObject({
+      view: 'failed',
+      reason: 'The refresh did not finish within 30 minutes, so Moneyflow stopped it.',
+    })
+    await controller.poll()
+    expect(controller.state.dialog?.view).toBe('failed')
+    expect(transport.mutations.request).toHaveBeenCalledOnce()
+  })
+
+  it('continues with stale data under the failure the dialog showed', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({
+      mutationResponse: problemResponse('provider_rate_limited', 'Rate limited.'),
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    await controller.refresh()
+
+    controller.continueStale()
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.staleReason).toBe('Rate limited.')
+  })
+
+  it('retries from the failed dialog with a new manual refresh', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({
+      mutationResponse: problemResponse('provider_unavailable', 'Unavailable.'),
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    await controller.refresh()
+    vi.mocked(transport.mutations.request).mockResolvedValueOnce(
+      Response.json(refreshResponse(current, 'preserved')),
+    )
+
+    await expect(controller.refresh()).resolves.toBe(true)
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.staleReason).toBeUndefined()
+  })
+
+  it('cancels by aborting the request and waits for the server to stop', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({ status: providerStatus({ refreshing: true }) })
+    let signal: AbortSignal | undefined
+    vi.mocked(transport.mutations.request).mockImplementation(async (_path, _body, sent) => {
+      signal = sent
+      return new Promise<Response>((_resolve, reject) =>
+        sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+      )
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    const refreshing = controller.refresh()
+    await vi.waitFor(() => expect(signal).toBeDefined())
+
+    controller.cancel()
+
+    expect(signal?.aborted).toBe(true)
+    await expect(refreshing).resolves.toBe(false)
+    expect(controller.state.dialog?.view).toBe('stopping')
+
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ code: 'provider_unavailable', last_success: '2026-10-03T12:00:00Z' }),
+    )
+    await controller.poll()
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.announcement).toBe(REFRESH_STOPPED)
+  })
+
+  it('lets the user leave a stopping dialog whose status checks fail', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({
+      status: providerStatus({ refreshing: true, last_success: '2026-10-03T12:00:00Z' }),
+    })
+    vi.mocked(transport.mutations.request).mockImplementation(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    await controller.poll()
+    void controller.refresh()
+    controller.cancel()
+    vi.mocked(transport.status).mockRejectedValue(new TypeError('Failed to fetch'))
+    await controller.poll()
+    expect(controller.state.dialog?.view).toBe('stopping')
+
+    controller.continueStale()
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(staleNotice(controller.state, Date.parse('2026-10-13T12:00:00Z'))?.checkFailed).toBe(
+      true,
+    )
+  })
+
+  it('lets the user leave another interface refresh once status checks fail', async () => {
+    const transport = transportStub({ status: providerStatus({ refreshing: true }) })
+    const controller = createProviderController({ transport, host: hostStub() })
+    await controller.poll()
+    vi.mocked(transport.status).mockRejectedValue(new TypeError('Failed to fetch'))
+    await controller.poll()
+
+    controller.continueStale()
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(staleNotice(controller.state, Date.now())?.checkFailed).toBe(true)
+  })
+
+  it('does not restart a due refresh the user canceled before the server took it', async () => {
+    let clock = Date.parse('2026-10-13T12:00:00Z')
+    const current = testProjection({ capabilities: [capability(true)] })
+    const due = providerStatus({ provider_kind: 'monarch', refresh_due: 'recent' })
+    const transport = transportStub({ status: due })
+    vi.mocked(transport.mutations.request).mockImplementation(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    const controller = createProviderController({
+      transport,
+      host: hostStub(current),
+      now: () => clock,
+    })
+    controller.sync(current)
+
+    void controller.poll()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+    controller.cancel()
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+    await controller.poll()
+
+    expect(transport.mutations.request).toHaveBeenCalledOnce()
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.announcement).toBe(REFRESH_STOPPED)
+
+    clock += 5 * 60_000
+    void controller.poll()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledTimes(2))
+    controller.cancel()
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+  })
+
+  it('refreshes on request right after a canceled automatic refresh', async () => {
+    const host = hostStub()
+    host.current.mockReturnValue(undefined as unknown as ViewProjection)
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub({
+      status: providerStatus({ provider_kind: 'monarch', refresh_due: 'recent' }),
+      mutationResponse: Response.json(refreshResponse(current, 'preserved')),
+    })
+    const controller = createProviderController({ transport, host })
+
+    await controller.poll()
+    controller.cancel()
+    host.current.mockReturnValue(current)
+    controller.sync(current)
+    expect(controller.state.staleReason).toBe(REFRESH_CANCELED)
+    await controller.poll()
+    expect(transport.mutations.request).not.toHaveBeenCalled()
+
+    await expect(controller.refresh()).resolves.toBe(true)
+    expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(true)
+  })
+
+  it('follows a conflicting refresh from the generation the server reported', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const earlier = { ...emptySummary(), imported_transactions: 40 }
+    const transport = transportStub({ status: providerStatus({ summary: earlier }) })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    await controller.poll()
+    vi.mocked(transport.mutations.request).mockResolvedValueOnce(
+      problemResponse(
+        'provider_refresh_in_progress',
+        'Another refresh is running.',
+        providerStatus({ generation: '2', summary: earlier }),
+        503,
+      ),
+    )
+    await controller.refresh()
+    expect(controller.state.dialog?.view).toBe('other')
+
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ generation: '2', code: 'provider_unavailable', summary: earlier }),
+    )
+    await controller.poll()
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.announcement).toBe('The other refresh ended.')
+    expect(getFlashes()).toEqual([])
+  })
+
+  it('does not attribute saved data to a canceled retry', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const failure = (generation: string) =>
+      problemResponse(
+        'provider_unavailable',
+        'Unavailable.',
+        providerStatus({ generation, code: 'provider_unavailable' }),
+      )
+    const transport = transportStub({ mutationResponse: failure('1') })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    await controller.poll()
+    await controller.refresh()
+    vi.mocked(transport.mutations.request).mockResolvedValueOnce(failure('2'))
+    await controller.refresh()
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ generation: '2', code: 'provider_unavailable' }),
+    )
+    vi.mocked(transport.mutations.request).mockImplementationOnce(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    void controller.refresh()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledTimes(3))
+
+    controller.cancel()
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+
+    expect(controller.state.announcement).toBe(REFRESH_STOPPED)
+    expect(getFlashes()).toEqual([])
+  })
+
+  it('keeps a canceled attempt unclaimed when status polling failed', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const host = hostStub(current)
+    const transport = transportStub()
+    vi.mocked(transport.mutations.request).mockImplementation(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    const controller = createProviderController({ transport, host })
+    controller.sync(current)
+    await controller.poll()
+    vi.mocked(transport.status).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await controller.poll()
+
+    void controller.refresh()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+    vi.mocked(transport.status).mockResolvedValue(providerStatus({ generation: '2' }))
+    controller.cancel()
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+
+    expect(getFlashes()).toEqual([])
+    expect(controller.state.staleReason).toBe(REFRESH_STOPPED)
+    expect(controller.state.announcement).not.toContain('no provider data changed')
+    expect(host.reload).toHaveBeenCalledOnce()
+  })
+
+  it('opens the dialog for a due refresh before the first view arrives', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const host = hostStub(current)
+    host.current.mockReturnValue(undefined as unknown as ViewProjection)
+    const transport = transportStub({
+      status: providerStatus({ provider_kind: 'monarch', refresh_due: 'recent' }),
+      mutationResponse: Response.json(refreshResponse(current, 'preserved')),
+    })
+    const controller = createProviderController({ transport, host })
+
+    await controller.poll()
+    expect(controller.state.dialog?.view).toBe('progress')
+    expect(controller.state.kind).toBe('recent')
+    expect(transport.mutations.request).not.toHaveBeenCalled()
+
+    host.current.mockReturnValue(current)
+    controller.sync(current)
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+    expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(false)
+  })
+
+  it('reports a status request that failed', async () => {
+    const transport = transportStub()
+    vi.mocked(transport.status).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const controller = createProviderController({ transport, host: hostStub() })
+
+    await controller.poll()
+
+    expect(controller.state.statusError).toBe(
+      'Moneyflow could not reach the server. Check the connection and retry.',
+    )
+    await controller.poll()
+    expect(controller.state.statusError).toBeUndefined()
   })
 
   it('asks for confirmation without an error banner', async () => {
@@ -317,7 +697,12 @@ describe('provider controller', () => {
     await controller.refresh()
 
     expect(controller.state.phase).toBe('confirmation')
+    expect(controller.state.dialog?.view).toBe('confirmation')
     expect(getFlashes()).toEqual([])
+
+    controller.dismissConfirmation()
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.staleReason).toBe(REFRESH_NOT_CONFIRMED)
   })
 
   it('reports a failed last attempt from a poll', async () => {
@@ -375,7 +760,8 @@ describe('provider controller', () => {
     controller.sync(current)
 
     const scheduled = controller.poll()
-    await vi.waitFor(() => expect(controller.state.kind).toBe('recent'))
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+    expect(controller.state.kind).toBe('recent')
     finish(
       Response.json({
         ...refreshResponse(current, 'preserved'),
@@ -387,6 +773,7 @@ describe('provider controller', () => {
 
     const manual = controller.refresh()
     expect(controller.state.kind).toBe('full')
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledTimes(2))
     finish(Response.json(refreshResponse(current, 'preserved')))
     await manual
   })
@@ -404,35 +791,720 @@ describe('provider controller', () => {
       controller.sync(current)
 
       const refreshing = controller.refresh()
+      await vi.advanceTimersByTimeAsync(0)
+      const started = transport.status.mock.calls.length
       await vi.advanceTimersByTimeAsync(2_000)
-      expect(transport.status).toHaveBeenCalledTimes(2)
+      expect(transport.status).toHaveBeenCalledTimes(started + 2)
 
       finish(Response.json(refreshResponse(current, 'preserved')))
       await refreshing
       await vi.advanceTimersByTimeAsync(5_000)
-      expect(transport.status).toHaveBeenCalledTimes(2)
+      expect(transport.status).toHaveBeenCalledTimes(started + 2)
       expect(controller.state.phase).toBe('idle')
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('reports another process progress without starting a competing refresh', async () => {
-    const current = testProjection({ capabilities: [capability(true)] })
-    const transport = transportStub({
-      status: providerStatus({
-        code: 'provider_refresh_in_progress',
-        progress: { fetched: 20, total: 40 },
+  it.each([undefined, 'provider_unavailable', 'provider_reconnect_required'])(
+    'follows another interface refresh after %s without starting a competing one',
+    async (code) => {
+      const current = testProjection({ capabilities: [capability(true)] })
+      const host = hostStub(current)
+      const transport = transportStub({
+        status: providerStatus({
+          refreshing: true,
+          owner_renderer: 'tui',
+          refresh_due: 'full',
+          progress: { fetched: 20, total: 40 },
+        }),
+      })
+      let now = 1_000
+      const controller = createProviderController({ transport, host, now: () => now })
+      controller.sync(current)
+      if (code) {
+        transport.mutations.request.mockResolvedValueOnce(problemResponse(code, 'Unavailable.'))
+        await controller.refresh()
+      }
+      const requests = transport.mutations.request.mock.calls.length
+      now = 2_000
+
+      await controller.poll()
+
+      expect(controller.state.phase).toBe('refreshing')
+      expect(controller.state.dialog?.view).toBe('other')
+      expect(controller.state.dialog?.startedAt).toBe(2_000)
+      expect(controller.state.status?.progress).toEqual({ fetched: 20, total: 40 })
+      expect(controller.state.announcement).toBe(
+        'The terminal app (moneyflow tui) is refreshing this profile.',
+      )
+      expect(transport.mutations.request).toHaveBeenCalledTimes(requests)
+
+      vi.mocked(transport.status).mockResolvedValueOnce(
+        providerStatus({
+          generation: '2',
+          summary: { ...emptySummary(), imported_transactions: 7 },
+        }),
+      )
+      await controller.poll()
+      await vi.waitFor(() => expect(controller.state.phase).toBe('idle'))
+      expect(controller.state.dialog).toBeUndefined()
+      expect(host.reload).toHaveBeenCalledOnce()
+      expect(controller.state.announcement).toBe('Refresh complete: 7 imported, 0 removed.')
+    },
+  )
+
+  it.each(['open', 'continued'] as const)(
+    'clears a %s failure once another interface refreshes successfully',
+    async (failure) => {
+      const current = testProjection({ capabilities: [capability(true)] })
+      const host = hostStub(current)
+      const failedStatus = providerStatus({
+        code: 'provider_unavailable',
+        last_success: '2026-10-03T12:00:00Z',
+      })
+      const transport = transportStub({
+        mutationResponse: problemResponse('provider_unavailable', 'Unavailable.', failedStatus),
+      })
+      const controller = createProviderController({ transport, host })
+      controller.sync(current)
+      await controller.refresh()
+      if (failure === 'continued') controller.continueStale()
+
+      vi.mocked(transport.status).mockResolvedValue(
+        providerStatus({ generation: '2', last_success: '2026-10-13T12:00:00Z' }),
+      )
+      await controller.poll()
+
+      expect(controller.state.dialog).toBeUndefined()
+      expect(controller.state.staleReason).toBeUndefined()
+      expect(controller.state.phase).toBe('idle')
+      expect(host.reload).toHaveBeenCalledOnce()
+      expect(transport.mutations.request).toHaveBeenCalledOnce()
+    },
+  )
+
+  it('keeps loading newer data until a reread installs it', async () => {
+    const shown = testProjection({ revision: '1', capabilities: [capability(true)] })
+    const host = hostStub(shown)
+    const transport = transportStub({ status: providerStatus({ revision: '1' }) })
+    const controller = createProviderController({ transport, host })
+    controller.sync(shown)
+    await controller.poll()
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ generation: '2', revision: '2' }),
+    )
+
+    // The reread answers, but a view change that started meanwhile owns the view and fails, so
+    // the view stays at revision 1.
+    await controller.poll()
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledOnce())
+    await settle()
+    expect(staleNotice(controller.state, Date.now())?.text).toBe('Newer provider data is loading.')
+
+    host.reload.mockImplementation(async () => {
+      host.current.mockReturnValue(testProjection({ revision: '2' }))
+      return undefined
+    })
+    await controller.poll()
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledTimes(2))
+    await settle()
+    expect(staleNotice(controller.state, Date.now())).toBeUndefined()
+  })
+
+  it('rereads when the first status is newer than the initial view', async () => {
+    const host = hostStub(testProjection({ revision: '1' }))
+    const transport = transportStub({ status: providerStatus({ generation: '2', revision: '2' }) })
+    host.reload.mockRejectedValue(new Error('offline'))
+    const controller = createProviderController({ transport, host })
+    controller.sync(host.current())
+
+    await controller.poll()
+    await settle()
+
+    expect(host.reload).toHaveBeenCalledOnce()
+    expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
+  })
+
+  it('rereads a restored search projection after the newest data was already shown', async () => {
+    const host = hostStub(testProjection({ revision: '2' }))
+    const transport = transportStub({ status: providerStatus({ generation: '2', revision: '2' }) })
+    const controller = createProviderController({ transport, host })
+    controller.sync(host.current())
+    await controller.poll()
+    host.current.mockReturnValue(testProjection({ revision: '1' }))
+
+    controller.sync(host.current())
+    await settle()
+
+    expect(host.reload).toHaveBeenCalledOnce()
+    expect(staleNotice(controller.state, Date.now())?.text).toBe('Newer provider data is loading.')
+  })
+
+  it.each([false, true])(
+    'ignores a delayed poll after a newer poll (reread fails: %s)',
+    async (fails) => {
+      const host = hostStub(testProjection({ revision: '1' }))
+      if (fails) host.reload.mockRejectedValue(new Error('offline'))
+      const transport = transportStub({ status: providerStatus({ revision: '1' }) })
+      const controller = createProviderController({ transport, host })
+      await controller.poll()
+      const older = Promise.withResolvers<ProviderStatus>()
+      transport.status.mockReturnValueOnce(older.promise)
+      const delayed = controller.poll()
+      transport.status.mockResolvedValue(providerStatus({ generation: '3', revision: '3' }))
+      await controller.poll()
+      await settle()
+      const notice = staleNotice(controller.state, Date.now())
+
+      older.resolve(providerStatus({ generation: '2', revision: '1' }))
+      await delayed
+
+      expect(controller.state.status?.generation).toBe('3')
+      expect(staleNotice(controller.state, Date.now())).toEqual(notice)
+      expect(notice).toBeDefined()
+    },
+  )
+
+  it.each(['success', 'later failure'] as const)(
+    'clears a continued failure when a watched refresh saves data, then polls %s during reread',
+    async (outcome) => {
+      const current = testProjection({ revision: '1', capabilities: [capability(true)] })
+      const host = hostStub(current)
+      const reread = Promise.withResolvers<undefined>()
+      host.reload.mockReturnValueOnce(reread.promise)
+      const transport = transportStub({
+        status: providerStatus({ revision: '1' }),
+        mutationResponse: problemResponse('provider_rate_limited', 'Rate limited.'),
+      })
+      const controller = createProviderController({ transport, host })
+      controller.sync(current)
+      await controller.poll()
+      await controller.refresh()
+      controller.continueStale()
+      expect(staleNotice(controller.state, Date.now())?.text).toContain('Rate limited.')
+
+      transport.status.mockResolvedValue(providerStatus({ refreshing: true, revision: '1' }))
+      await controller.poll()
+      expect(controller.state.dialog?.view).toBe('other')
+      transport.status.mockResolvedValue(providerStatus({ generation: '2', revision: '2' }))
+      await controller.poll()
+      transport.status.mockResolvedValue(
+        providerStatus({
+          generation: '2',
+          revision: '2',
+          ...(outcome === 'later failure' ? { code: 'provider_unavailable' } : {}),
+        }),
+      )
+      await controller.poll()
+
+      host.current.mockReturnValue(testProjection({ revision: '2' }))
+      reread.resolve(undefined)
+      await settle()
+
+      const notice = staleNotice(controller.state, Date.now())
+      if (outcome === 'later failure') {
+        expect(controller.state.status?.code).toBe('provider_unavailable')
+        expect(notice?.text).toContain('Last refresh failed.')
+        expect(notice?.text).not.toContain('Rate limited.')
+      } else {
+        expect(notice).toBeUndefined()
+      }
+    },
+  )
+
+  it('keeps newer status when a watched refresh finishes rereading', async () => {
+    const host = hostStub(testProjection({ revision: '1' }))
+    const reread = Promise.withResolvers<undefined>()
+    host.reload.mockReturnValueOnce(reread.promise)
+    const transport = transportStub({ status: providerStatus({ refreshing: true, revision: '1' }) })
+    const controller = createProviderController({ transport, host })
+    await controller.poll()
+    transport.status.mockResolvedValue(providerStatus({ generation: '2', revision: '2' }))
+    await controller.poll()
+    transport.status.mockResolvedValue(providerStatus({ generation: '3', revision: '3' }))
+    await controller.poll()
+
+    host.current.mockReturnValue(testProjection({ revision: '2' }))
+    reread.resolve(undefined)
+    await settle()
+
+    expect(controller.state.status?.generation).toBe('3')
+    expect(staleNotice(controller.state, Date.now())?.text).toBe('Newer provider data is loading.')
+    expect(getFlashes().map(({ message }) => message)).toEqual([
+      'Refresh complete: 0 imported, 0 removed.',
+    ])
+  })
+
+  it('keeps a newer failure when a successful response finishes late', async () => {
+    const current = testProjection({ revision: '1', capabilities: [capability(true)] })
+    const host = hostStub(current)
+    host.reload.mockRejectedValue(new Error('offline'))
+    const response = Promise.withResolvers<Response>()
+    const transport = transportStub()
+    transport.mutations.request.mockReturnValueOnce(response.promise)
+    const controller = createProviderController({ transport, host })
+    controller.sync(current)
+    const refresh = controller.refresh()
+    transport.status.mockResolvedValue(
+      providerStatus({
+        generation: '3',
+        revision: '3',
+        code: 'provider_unavailable',
       }),
+    )
+    await controller.poll()
+
+    response.resolve(Response.json(refreshResponse(testProjection({ revision: '2' }), 'preserved')))
+    await refresh
+    await settle()
+
+    expect(controller.state.status).toMatchObject({ generation: '3', code: 'provider_unavailable' })
+    expect(host.accept).not.toHaveBeenCalled()
+    expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
+    expect(getFlashes().map(({ message }) => message)).toEqual([
+      'Refresh complete: 0 imported, 0 removed.',
+    ])
+  })
+
+  it('ignores a delayed poll even when the generation and revision have not changed', async () => {
+    const transport = transportStub()
+    const controller = createProviderController({ transport, host: hostStub() })
+    const delayed = Promise.withResolvers<ProviderStatus>()
+    transport.status.mockReturnValueOnce(delayed.promise)
+    const poll = controller.poll()
+    transport.status.mockResolvedValue(providerStatus({ code: 'provider_unavailable' }))
+    await controller.poll()
+    delayed.resolve(providerStatus())
+    await poll
+
+    expect(controller.state.status?.code).toBe('provider_unavailable')
+    expect(staleNotice(controller.state, Date.now())?.text).toContain('Last refresh failed.')
+  })
+
+  it('accepts a slow poll while the following poll is still pending', async () => {
+    const transport = transportStub({ status: providerStatus({ refreshing: true }) })
+    const controller = createProviderController({ transport, host: hostStub() })
+    await controller.poll()
+    const first = Promise.withResolvers<ProviderStatus>()
+    const second = Promise.withResolvers<ProviderStatus>()
+    transport.status.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    const firstPoll = controller.poll()
+    const secondPoll = controller.poll()
+
+    first.resolve(providerStatus({ code: 'provider_unavailable' }))
+    await firstPoll
+    expect(controller.state.dialog).toBeUndefined()
+
+    second.resolve(providerStatus({ code: 'provider_unavailable' }))
+    await secondPoll
+  })
+
+  it('keeps a newer status-check failure when a completed refresh finishes rereading', async () => {
+    const host = hostStub(testProjection({ revision: '1' }))
+    const reread = Promise.withResolvers<undefined>()
+    host.reload.mockReturnValueOnce(reread.promise)
+    const transport = transportStub({ status: providerStatus({ refreshing: true, revision: '1' }) })
+    const controller = createProviderController({ transport, host })
+    await controller.poll()
+    transport.status.mockResolvedValue(providerStatus({ generation: '2', revision: '2' }))
+    await controller.poll()
+    transport.status.mockRejectedValueOnce(new Error('offline'))
+    await controller.poll()
+
+    host.current.mockReturnValue(testProjection({ revision: '2' }))
+    reread.resolve(undefined)
+    await settle()
+
+    expect(controller.state.statusError).toBeDefined()
+    expect(staleNotice(controller.state, Date.now())?.checkFailed).toBe(true)
+  })
+
+  it('keeps a newly observed lease when its own completed response finishes displaying', async () => {
+    const current = testProjection({ revision: '1', capabilities: [capability(true)] })
+    const host = hostStub(current)
+    const viewChange = Promise.withResolvers<void>()
+    host.serially = (work) => viewChange.promise.then(work)
+    const transport = transportStub({
+      mutationResponse: Response.json(
+        refreshResponse(testProjection({ revision: '2' }), 'preserved'),
+      ),
+    })
+    const controller = createProviderController({ transport, host })
+    controller.sync(current)
+    const refresh = controller.refresh()
+    await settle()
+    transport.status.mockResolvedValue(
+      providerStatus({ generation: '2', revision: '2', refreshing: true }),
+    )
+    await controller.poll()
+
+    viewChange.resolve()
+    await refresh
+
+    expect(controller.state.status?.refreshing).toBe(true)
+    expect(controller.state.dialog?.view).toBe('other')
+    transport.status.mockResolvedValue(providerStatus({ generation: '2', revision: '2' }))
+    await controller.poll()
+  })
+
+  it('preserves a newer reconnect status when an older failed response arrives', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const transport = transportStub()
+    const response = Promise.withResolvers<Response>()
+    transport.mutations.request.mockReturnValueOnce(response.promise)
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+    const refresh = controller.refresh()
+    transport.status.mockResolvedValue(
+      providerStatus({
+        code: 'provider_reconnect_required',
+        last_attempt: '2026-10-13T12:01:00Z',
+      }),
+    )
+    await controller.poll()
+
+    response.resolve(
+      problemResponse(
+        'provider_unavailable',
+        'Unavailable.',
+        providerStatus({
+          code: 'provider_unavailable',
+          last_attempt: '2026-10-13T12:00:00Z',
+        }),
+      ),
+    )
+    await refresh
+    controller.continueStale()
+
+    expect(controller.state.status?.code).toBe('provider_reconnect_required')
+    expect(staleNotice(controller.state, Date.now())?.reconnect).toBe(true)
+  })
+
+  it.each([
+    { provider_kind: 'simplefin', polledAttempt: '12:00', refreshing: true, dialog: 'failed' },
+    { provider_kind: 'simplefin', polledAttempt: '13:00', refreshing: true, dialog: 'other' },
+    { provider_kind: 'simplefin', polledAttempt: '13:00', refreshing: false, dialog: undefined },
+    { provider_kind: 'monarch', polledAttempt: '12:00', refreshing: true, dialog: 'other' },
+  ] as const)(
+    'handles a $provider_kind failure from 12:00 after polling $polledAttempt (running: $refreshing)',
+    async ({ provider_kind, polledAttempt, refreshing, dialog }) => {
+      const current = testProjection({ revision: '1', capabilities: [capability(true)] })
+      const transport = transportStub({
+        status: providerStatus({
+          provider_kind,
+          revision: '1',
+          last_attempt: '2026-10-13T10:00:00Z',
+        }),
+      })
+      const response = Promise.withResolvers<Response>()
+      transport.mutations.request.mockReturnValueOnce(response.promise)
+      const controller = createProviderController({ transport, host: hostStub(current) })
+      controller.sync(current)
+      await controller.poll()
+      const refresh = controller.refresh()
+      const polled = providerStatus({
+        provider_kind,
+        revision: '1',
+        last_attempt: `2026-10-13T${polledAttempt}:00Z`,
+        refreshing,
+        ...(refreshing ? {} : { code: 'provider_reconnect_required' }),
+      })
+      transport.status.mockResolvedValue(polled)
+      await controller.poll()
+
+      const failed = providerStatus({
+        provider_kind,
+        revision: '1',
+        last_attempt: '2026-10-13T12:00:00Z',
+        code: 'provider_unavailable',
+      })
+      response.resolve(problemResponse('provider_unavailable', 'Unavailable.', failed))
+      await refresh
+
+      expect(controller.state.dialog?.view).toBe(dialog)
+      if (dialog === 'failed') {
+        expect(controller.state.dialog?.reason).toBe('Unavailable.')
+        transport.status.mockResolvedValue(failed)
+        await controller.poll()
+        expect(controller.state.dialog?.view).toBe('failed')
+      } else {
+        expect(controller.state.status).toEqual(polled)
+        // Finish the external lease so its progress polling ends.
+        transport.status.mockResolvedValue({ ...polled, refreshing: false })
+        await controller.poll()
+      }
+    },
+  )
+
+  it.each<{
+    phase: 'running' | 'finished'
+    revision: string
+    newer?: 'generation' | 'attempt'
+  }>([
+    { phase: 'running', revision: '2' },
+    { phase: 'finished', revision: '2' },
+    { phase: 'running', revision: '3' },
+    { phase: 'finished', revision: '3' },
+    { phase: 'finished', revision: '3', newer: 'generation' },
+    { phase: 'finished', revision: '3', newer: 'attempt' },
+  ])(
+    'handles deletion confirmation after polling $phase at revision $revision (newer: $newer)',
+    async ({ phase, revision, newer }) => {
+      const current = testProjection({ revision: '1', capabilities: [capability(true)] })
+      const transport = transportStub({
+        status: providerStatus({ revision: '1', last_attempt: '2026-10-13T12:00:00Z' }),
+      })
+      const response = Promise.withResolvers<Response>()
+      transport.mutations.request.mockReturnValueOnce(response.promise)
+      const controller = createProviderController({ transport, host: hostStub(current) })
+      controller.sync(current)
+      await controller.poll()
+      const refresh = controller.refresh()
+      transport.status.mockResolvedValue(
+        providerStatus({ revision, refreshing: true, last_attempt: '2026-10-13T12:00:00Z' }),
+      )
+      await controller.poll()
+      if (phase === 'finished') {
+        transport.status.mockResolvedValue(
+          providerStatus({
+            revision,
+            generation: newer === 'generation' ? '2' : '1',
+            code: 'provider_deletion_confirmation_required',
+            last_attempt: newer === 'attempt' ? '2026-10-13T12:02:00Z' : '2026-10-13T12:01:00Z',
+          }),
+        )
+        await controller.poll()
+      }
+      response.resolve(
+        problemResponse(
+          'provider_deletion_confirmation_required',
+          'Confirm removals.',
+          providerStatus({
+            revision: '2',
+            code: 'provider_deletion_confirmation_required',
+            last_attempt: '2026-10-13T12:01:00Z',
+            confirmation_token: 'candidate-after-progress',
+            summary: { ...emptySummary(), removed_transactions: 5 },
+          }),
+        ),
+      )
+      await refresh
+
+      expect(controller.state.status?.revision).toBe(revision)
+      if (newer) {
+        expect(controller.state.dialog).toBeUndefined()
+        expect(controller.state.status?.confirmation_token).toBeUndefined()
+      } else {
+        expect(controller.state.dialog?.view).toBe('confirmation')
+        expect(controller.state.status?.confirmation_token).toBe('candidate-after-progress')
+        expect(controller.state.status?.summary.removed_transactions).toBe(5)
+      }
+    },
+  )
+
+  it('does not credit an intervening refresh to a canceled request', async () => {
+    const current = testProjection({ revision: '1', capabilities: [capability(true)] })
+    const transport = transportStub({ status: providerStatus({ revision: '1' }) })
+    transport.mutations.request.mockImplementation(async (_path, _body, signal) => {
+      // Another process commits after the preceding status read, before this request is admitted.
+      transport.status.mockResolvedValue(
+        providerStatus({
+          generation: '2',
+          revision: '2',
+          code: 'provider_unavailable',
+          summary: { ...emptySummary(), imported_transactions: 40 },
+        }),
+      )
+      return new Promise<Response>((_resolve, reject) =>
+        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+      )
     })
     const controller = createProviderController({ transport, host: hostStub(current) })
     controller.sync(current)
+    await controller.poll()
+    const refresh = controller.refresh()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+
+    controller.cancel()
+    await refresh
+    await settle()
+
+    expect(getFlashes()).toEqual([])
+    expect(controller.state.announcement).not.toContain('no provider data changed')
+    expect(controller.state.dialog).toBeUndefined()
+  })
+
+  it('rereads the view when a canceled refresh finds newer saved data', async () => {
+    const shown = testProjection({ revision: '1', capabilities: [capability(true)] })
+    const host = hostStub(shown)
+    const transport = transportStub({ status: providerStatus({ revision: '1' }) })
+    vi.mocked(transport.mutations.request).mockImplementation(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    const controller = createProviderController({ transport, host })
+    controller.sync(shown)
+    await controller.poll()
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({
+        generation: '2',
+        revision: '2',
+        code: 'provider_unavailable',
+        summary: { ...emptySummary(), imported_transactions: 40 },
+      }),
+    )
+
+    void controller.refresh()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+    controller.cancel()
+    await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
+
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledOnce())
+    expect(controller.state.announcement).toBe(REFRESH_STOPPED)
+    expect(getFlashes()).toEqual([])
+  })
+
+  it('keeps the failure when an older reread succeeds after a newer one failed', async () => {
+    const shown = testProjection({ revision: '1', capabilities: [capability(true)] })
+    const host = hostStub(shown)
+    let finishOlder: () => void = () => undefined
+    host.reload
+      .mockImplementationOnce(
+        () =>
+          new Promise<undefined>((resolve) => {
+            finishOlder = () => {
+              host.current.mockReturnValue(testProjection({ revision: '2' }))
+              resolve(undefined)
+            }
+          }),
+      )
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const transport = transportStub({ status: providerStatus({ revision: '1' }) })
+    const controller = createProviderController({ transport, host })
+    controller.sync(shown)
+    await controller.poll()
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ generation: '2', revision: '3' }),
+    )
+
+    await controller.poll()
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledOnce())
+    await controller.reread()
+    expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
+
+    finishOlder()
+    await settle()
+    expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
+  })
+
+  it('keeps a visible notice until data refreshed elsewhere loads', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const host = hostStub(current)
+    host.reload.mockRejectedValue(new TypeError('Failed to fetch'))
+    const transport = transportStub()
+    const controller = createProviderController({ transport, host })
+    controller.sync(current)
+    await controller.poll()
+    vi.mocked(transport.status).mockResolvedValue(providerStatus({ generation: '2' }))
+
+    await controller.poll()
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledOnce())
+    await vi.waitFor(() =>
+      expect(staleNotice(controller.state, Date.now())).toMatchObject({
+        text:
+          'Refreshed provider data could not be loaded. ' +
+          'Moneyflow could not reach the server. Check the connection and retry.',
+        rereadFailed: true,
+      }),
+    )
+    await controller.poll()
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledTimes(2))
+    expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
+
+    await controller.reread()
+    expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
+    host.reload.mockImplementation(async () => {
+      host.current.mockReturnValue(testProjection({ revision: '1' }))
+      return undefined
+    })
+    await controller.reread()
+    expect(staleNotice(controller.state, Date.now())).toBeUndefined()
+    expect(host.reload).toHaveBeenCalledTimes(4)
+  })
+
+  it('keeps a failure while the status shows no newer data', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const host = hostStub(current)
+    const failedStatus = providerStatus({
+      code: 'provider_unavailable',
+      last_success: '2026-10-03T12:00:00Z',
+    })
+    const transport = transportStub({
+      status: failedStatus,
+      mutationResponse: problemResponse('provider_unavailable', 'Unavailable.', failedStatus),
+    })
+    const controller = createProviderController({ transport, host })
+    controller.sync(current)
+    await controller.refresh()
+    controller.continueStale()
 
     await controller.poll()
 
+    expect(controller.state.staleReason).toBe('Unavailable.')
+    expect(host.reload).not.toHaveBeenCalled()
+  })
+
+  it('keeps a new refresh running when the previous refresh finishes its reread', async () => {
+    const current = testProjection({ capabilities: [capability(true)] })
+    const host = hostStub(current)
+    let reread: () => void = () => undefined
+    host.reload.mockImplementationOnce(
+      () => new Promise<undefined>((resolve) => (reread = () => resolve(undefined))),
+    )
+    const transport = transportStub({ status: providerStatus({ refreshing: true }) })
+    vi.mocked(transport.mutations.request).mockImplementation(
+      async (_path, _body, sent) =>
+        new Promise<Response>((_resolve, reject) =>
+          sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+        ),
+    )
+    const controller = createProviderController({ transport, host })
+    controller.sync(current)
+    await controller.poll()
+    vi.mocked(transport.status).mockResolvedValue(
+      providerStatus({ generation: '2', summary: { ...emptySummary(), imported_transactions: 7 } }),
+    )
+    await controller.poll()
+    expect(controller.state.dialog).toBeUndefined()
+
+    void controller.refresh()
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
+    reread()
+    await vi.waitFor(() => expect(getFlashes()).not.toEqual([]))
+
+    expect(controller.state.dialog?.view).toBe('progress')
     expect(controller.state.phase).toBe('refreshing')
-    expect(controller.state.status?.progress).toEqual({ fetched: 20, total: 40 })
-    expect(transport.mutations.request).not.toHaveBeenCalled()
+    expect(getFlashes().map(({ message }) => message)).toEqual([
+      'Refresh complete: 7 imported, 0 removed.',
+    ])
+    controller.cancel()
+  })
+
+  it('closes the dialog when another interface refresh stops without new data', async () => {
+    const transport = transportStub({ status: providerStatus({ refreshing: true }) })
+    const controller = createProviderController({ transport, host: hostStub() })
+    await controller.poll()
+    vi.mocked(transport.status).mockResolvedValueOnce(
+      providerStatus({ code: 'provider_unavailable', last_success: '2026-10-03T12:00:00Z' }),
+    )
+
+    await controller.poll()
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.phase).toBe('failed')
   })
 })
 
@@ -448,9 +1520,10 @@ function capability(available: boolean, reason?: string) {
 }
 
 function hostStub(current = testProjection()) {
+  const shown = vi.fn(() => current)
   return {
-    current: vi.fn(() => current),
-    accept: vi.fn(),
+    current: shown,
+    accept: vi.fn((projection: ViewProjection) => shown.mockReturnValue(projection)),
     reload: vi.fn(async () => undefined),
     serially: <T>(work: () => Promise<T>) => work(),
   }
@@ -473,9 +1546,10 @@ function transportStub(options: { mutationResponse?: Response; status?: Provider
 function providerStatus(overrides: Partial<ProviderStatus> = {}): ProviderStatus {
   return {
     version: '1',
-    revision: '1',
+    revision: String(BigInt(overrides.generation ?? '1') - 1n),
     generation: '1',
     refresh_due: 'none',
+    refreshing: false,
     progress: { fetched: 0, total: 0 },
     summary: emptySummary(),
     capability: capability(true),
@@ -528,4 +1602,9 @@ function problemResponse(
     status: httpStatus,
     headers: { 'Content-Type': 'application/problem+json' },
   })
+}
+
+/** Lets pending promise callbacks run. */
+function settle(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve))
 }

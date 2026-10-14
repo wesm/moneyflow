@@ -163,7 +163,7 @@ test-editing-e2e: test-editing-go
 	bun run --cwd web test:e2e -- base-path.spec.ts editing.spec.ts managers.spec.ts origin.spec.ts restart.spec.ts review.spec.ts --project=chromium
 
 test-provider-e2e: web-embed
-	bun run --cwd web test:e2e -- provider.spec.ts --project=chromium
+	bun run --cwd web test:e2e -- provider.spec.ts refresh.spec.ts --project=chromium
 
 web-build:
 	bun run --cwd web build

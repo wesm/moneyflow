@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/provider"
+	"github.com/wesm/moneyflow/internal/store"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
@@ -45,6 +47,55 @@ func TestProviderStatusEndpointUsesBasePathAndCountsOnlyWireShape(t *testing.T) 
 
 	outside := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
 	assert.Equal(t, http.StatusNotFound, outside.Code)
+}
+
+func TestProviderStatusPairsGenerationWithItsSnapshotRevision(t *testing.T) {
+	for _, configured := range []bool{false, true} {
+		t.Run(fmt.Sprint(configured), func(t *testing.T) {
+			fixture := newProviderAPIFixture(t, "/", 3)
+			profile := &statusReadProfile{Profile: fixture.profile}
+			service, err := app.NewProfileService(t.Context(), profile)
+			require.NoError(t, err)
+			if configured {
+				require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+					ReadSource: fixture.source, Provider: "monarch", Currency: "USD", Scale: 2,
+					Renderer: "web", InstanceID: "status-reader",
+				}))
+			}
+			server, err := New(Config{
+				Resolver: resolverForService(testProfileID, service), LegacyProfileID: testProfileID,
+				Origin: fixture.server.security.origin, Security: fixture.server.security,
+			})
+			require.NoError(t, err)
+			profile.beforeStatus = func() {
+				fixture.source.setSnapshot(apiProviderSnapshot(t, fixture.now.Add(time.Minute), 4))
+				_, refreshErr := fixture.service.RefreshProvider(t.Context(), app.ProviderRefreshRequest{
+					Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+				})
+				require.NoError(t, refreshErr)
+			}
+
+			response := requestServer(t, server, http.MethodGet, "/api/v1/provider/status", nil)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			var status ProviderStatusResponse
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+			assert.Equal(t, "2", status.Generation)
+			assert.Equal(t, "2", status.Revision)
+		})
+	}
+}
+
+type statusReadProfile struct {
+	store.Profile
+	beforeStatus func()
+}
+
+func (profile *statusReadProfile) ProviderState(ctx context.Context) (store.ProviderState, error) {
+	if before := profile.beforeStatus; before != nil {
+		profile.beforeStatus = nil
+		before()
+	}
+	return profile.Profile.ProviderState(ctx)
 }
 
 func TestProviderRefreshEndpointIsProtectedAndReturnsAuthoritativeProjection(t *testing.T) {
@@ -114,10 +165,85 @@ func TestProviderDeletionConfirmationUsesOpaqueProtectedSecondRequest(t *testing
 	assert.Equal(t, string(CodeProviderConfirmationInvalid), problem.Code)
 }
 
+func TestProviderDeletionConfirmationIncludesConcurrentEditRevision(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 10)
+	fixture.source.setSnapshot(apiProviderSnapshot(t, fixture.now.Add(time.Minute), 5))
+	paths, err := home.ResolveRoot(fixture.root, nil, "")
+	require.NoError(t, err)
+	otherProfile, err := sqlite.Open(t.Context(), paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, otherProfile.Close()) })
+	other, err := app.NewProfileService(t.Context(), otherProfile)
+	require.NoError(t, err)
+	projection, err := other.ProjectView(app.DefaultViewState(), app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	require.NotEmpty(t, projection.AggregateRows)
+
+	started, release := make(chan struct{}), make(chan struct{})
+	releaseFetch := sync.OnceFunc(func() { close(release) })
+	defer releaseFetch()
+	fixture.source.blockNextFetch(started, release)
+	body := ProviderRefreshBody{
+		Version: ProviderSchemaVersion, Manual: true, Query: "v=1",
+		Selection: string(app.EmptySelection()), Window: Window{Limit: 200},
+	}
+	responseDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		responseDone <- requestProtectedJSON(t, fixture.server, "/api/v1/provider/refresh", body)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("provider fetch did not start")
+	}
+
+	_, err = other.Mutate(t.Context(), app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: 1, State: app.DefaultViewState(),
+		Selection: app.EmptySelection(),
+		Target: &app.RowTarget{
+			Kind: app.IdentityAggregate, Identity: projection.AggregateRows[0].Identity,
+		},
+		Input: app.EditInput{Scope: app.EditScopeEntity, Label: "Updated Merchant"},
+	})
+	require.NoError(t, err)
+	polled := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.Equal(t, http.StatusOK, polled.Code, polled.Body.String())
+	var status ProviderStatusResponse
+	require.NoError(t, json.Unmarshal(polled.Body.Bytes(), &status))
+	require.Equal(t, "2", status.Revision)
+	require.True(t, status.Refreshing)
+
+	releaseFetch()
+	response := <-responseDone
+	require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	require.Equal(t, string(CodeProviderDeletionConfirmationRequired), problem.Code)
+	require.NotNil(t, problem.Provider)
+	assert.Equal(t, "2", problem.Provider.Revision)
+	assert.Equal(t, "1", problem.Provider.Generation)
+	require.NotEmpty(t, problem.Provider.ConfirmationToken)
+	assert.Equal(t, 5, problem.Provider.Summary.RemovedTransactions)
+
+	// The parked candidate must be confirmable without another provider download.
+	fixture.source.failNextFetch(apiFetchPanics, nil)
+	confirmed := requestProtectedJSON(t, fixture.server, "/api/v1/provider/refresh/confirm", ProviderConfirmationBody{
+		ProviderRefreshBody: body, ConfirmationToken: problem.Provider.ConfirmationToken,
+	})
+	require.Equal(t, http.StatusOK, confirmed.Code, confirmed.Body.String())
+	var result ProviderRefreshResponse
+	require.NoError(t, json.Unmarshal(confirmed.Body.Bytes(), &result))
+	assert.Equal(t, "2", result.Generation)
+	assert.Equal(t, 5, result.Status.Summary.ImportedTransactions)
+}
+
 func TestProviderTypesNeverExposeRemoteRowsOrIdentifiers(t *testing.T) {
 	t.Parallel()
 
-	status := providerStatusToWire(7, app.ProviderStatus{
+	status := providerStatusToWire(app.ProviderStatus{
+		Revision:   7,
 		Generation: 4, OwnerRenderer: "web", OwnerInstanceID: "instance-opaque",
 		Fetched: 20, Total: 40,
 	})
@@ -237,6 +363,62 @@ func TestProviderStatusRemainsResponsiveDuringProviderFetch(t *testing.T) {
 
 	close(release)
 	require.NoError(t, <-refreshDone)
+}
+
+func TestProviderStatusReportsTheRefreshThatIsRunning(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	fixture.source.blockNextFetch(started, release)
+	refreshDone := make(chan error, 1)
+	go func() {
+		_, err := fixture.service.RefreshProvider(context.Background(), app.ProviderRefreshRequest{
+			Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		})
+		refreshDone <- err
+	}()
+	<-started
+
+	var status ProviderStatusResponse
+	response := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+	assert.True(t, status.Refreshing)
+	assert.Equal(t, "web", status.OwnerRenderer)
+
+	close(release)
+	require.NoError(t, <-refreshDone)
+	response = requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+	assert.False(t, status.Refreshing)
+	assert.Contains(t, response.Body.String(), `"refreshing":false`, "the field is always present")
+}
+
+func TestProviderStatusReportsDataAgeWhileRefreshIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	unconfigured, err := app.NewProfileService(context.Background(), fixture.profile)
+	require.NoError(t, err)
+	unconfigured.SetClock(func() time.Time { return fixture.now.Add(7 * time.Hour) })
+	origin, err := ResolveOrigin("127.0.0.1:8080", "/", "")
+	require.NoError(t, err)
+	server, err := New(Config{
+		Resolver: resolverForService(testProfileID, unconfigured), LegacyProfileID: testProfileID,
+		BasePath: "/", Version: "test", Origin: origin,
+	})
+	require.NoError(t, err)
+
+	var status ProviderStatusResponse
+	response := requestServer(t, server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+	assert.False(t, status.Capability.Available)
+	assert.Equal(t, "Reconnect the provider through the command line.", status.Capability.Reason)
+	assert.Equal(t, "monarch", status.ProviderKind)
+	assert.Equal(t, fixture.now.Format(time.RFC3339Nano), status.LastSuccess)
+	assert.Equal(t, "recent", status.RefreshDue)
 }
 
 func TestProviderRefreshThatRunsOutOfTimeExplainsTheLimit(t *testing.T) {
@@ -415,6 +597,7 @@ func assertLogOmitsRequestSecrets(t *testing.T, logged string, token string) {
 type providerAPIFixture struct {
 	server   *Server
 	service  *app.Service
+	profile  store.Profile
 	source   *apiProviderSource
 	now      time.Time
 	root     string
@@ -458,8 +641,8 @@ func newProviderAPIFixture(t testing.TB, basePath string, count int) providerAPI
 	})
 	require.NoError(t, err)
 	return providerAPIFixture{
-		server: server, service: service, source: source, now: now, root: paths.Root,
-		errorLog: errorLog,
+		server: server, service: service, profile: profile, source: source, now: now,
+		root: paths.Root, errorLog: errorLog,
 	}
 }
 

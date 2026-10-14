@@ -29,6 +29,23 @@ const (
 	FaultBlockAfter Fault = "block-after"
 )
 
+// RefreshFault controls the next snapshot read, so browser tests can drive each refresh outcome.
+type RefreshFault string
+
+// Refresh faults affect one snapshot read; the consumed fault is persisted before it acts.
+const (
+	RefreshNone RefreshFault = ""
+	// RefreshBlock reports partial progress, then waits for Release or cancellation.
+	RefreshBlock RefreshFault = "block"
+	// RefreshFail fails the read as a temporarily unavailable provider.
+	RefreshFail RefreshFault = "fail"
+	// RefreshRemove omits five of the seven fixture rows, which needs removal confirmation.
+	RefreshRemove RefreshFault = "remove"
+)
+
+// refreshRemovedRows is how many rows RefreshRemove omits from the snapshot.
+const refreshRemovedRows = 5
+
 // Call records one actual provider invocation, independently of the local journal.
 type Call struct {
 	Method  string                      `json:"method"`
@@ -44,6 +61,7 @@ type ProviderState struct {
 	Transactions map[string]domain.ImportTransaction `json:"transactions"`
 	Calls        []Call                              `json:"calls"`
 	Fault        Fault                               `json:"fault"`
+	RefreshFault RefreshFault                        `json:"refresh_fault,omitempty"`
 }
 
 // Provider implements synthetic reads, writes and exact-transaction recovery.
@@ -141,6 +159,26 @@ func (source *Provider) SetFault(fault Fault) error {
 	return source.saveLocked()
 }
 
+// SetRefreshFault arms one snapshot read.
+func (source *Provider) SetRefreshFault(fault RefreshFault) error {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	switch fault {
+	case RefreshNone, RefreshBlock, RefreshFail, RefreshRemove:
+	default:
+		return fmt.Errorf("unknown refresh fault %q", fault)
+	}
+	source.state.RefreshFault = fault
+	return source.saveLocked()
+}
+
+// Blocked reports whether a call waits for Release.
+func (source *Provider) Blocked() bool {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	return source.release != nil
+}
+
 // Release allows a deliberately delayed call to finish.
 func (source *Provider) Release() {
 	source.mu.Lock()
@@ -157,6 +195,20 @@ func (source *Provider) snapshotLocked() domain.ImportSnapshot {
 	for _, id := range slices.Sorted(maps.Keys(source.state.Transactions)) {
 		snapshot.Transactions = append(snapshot.Transactions, source.state.Transactions[id])
 	}
+	return snapshot
+}
+
+// windowedSnapshotLocked keeps the rows a recent refresh asked for, as Monarch does, and
+// echoes the window so the refresh can scope removals to it.
+func (source *Provider) windowedSnapshotLocked(window *domain.DateRange) domain.ImportSnapshot {
+	snapshot := source.snapshotLocked()
+	if window == nil {
+		return snapshot
+	}
+	scope := *window
+	snapshot.TransactionWindow = &scope
+	outside := func(row domain.ImportTransaction) bool { return !snapshot.InTransactionWindow(row.Date) }
+	snapshot.Transactions = slices.DeleteFunc(snapshot.Transactions, outside)
 	return snapshot
 }
 
@@ -187,14 +239,39 @@ func (source *Provider) ProbeIdentity(ctx context.Context) (provider.ProfileIden
 }
 
 // FetchSnapshot records full downloads so tests can enforce their request budget.
-func (source *Provider) FetchSnapshot(ctx context.Context, _ provider.FetchRequest, _ provider.ProgressFunc) (provider.SnapshotResult, error) {
+func (source *Provider) FetchSnapshot(
+	ctx context.Context, request provider.FetchRequest, progress provider.ProgressFunc,
+) (provider.SnapshotResult, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return provider.SnapshotResult{}, err
 	}
+	fault := source.state.RefreshFault
+	source.state.RefreshFault = RefreshNone
+	index := len(source.state.Calls)
 	source.state.Calls = append(source.state.Calls, Call{Method: "snapshot", Outcome: "ok"})
-	return provider.SnapshotResult{Identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "synthetic-ui-scenario"}, Snapshot: source.snapshotLocked()}, source.saveLocked()
+	if err := source.saveLocked(); err != nil {
+		return provider.SnapshotResult{}, err
+	}
+	snapshot := source.windowedSnapshotLocked(request.TransactionWindow)
+	switch fault {
+	case RefreshFail:
+		source.state.Calls[index].Outcome = "failed"
+		return provider.SnapshotResult{}, errors.Join(provider.NewError(provider.CodeUnavailable), source.saveLocked())
+	case RefreshRemove:
+		snapshot.Transactions = snapshot.Transactions[refreshRemovedRows:]
+	case RefreshBlock:
+		if progress != nil {
+			progress(provider.Progress{Partition: "all", Fetched: 3, Total: len(snapshot.Transactions), Attempt: 1, Pass: 1})
+		}
+		source.state.Calls[index].Outcome = "started"
+		if err := source.waitLocked(ctx, index); err != nil {
+			return provider.SnapshotResult{}, err
+		}
+		source.state.Calls[index].Outcome = "ok"
+	}
+	return provider.SnapshotResult{Identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "synthetic-ui-scenario"}, Snapshot: snapshot}, source.saveLocked()
 }
 
 func (source *Provider) resultLocked(row domain.ImportTransaction) provider.TransactionUpdateResult {

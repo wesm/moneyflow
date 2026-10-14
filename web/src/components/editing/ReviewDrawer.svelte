@@ -17,14 +17,25 @@
     review: ReviewController
     providerWrite: ProviderWriteController
     providerName: string
+    /** True while the refresh dialog covers this overlay; its keys then do nothing here. */
+    suspended?: boolean
     onclose: () => void
     /** Switches the drawer to write mode once a commit starts a provider write. */
     onwrite: () => void
     onreconnect?: (() => void) | undefined
   }
 
-  let { mode, editing, review, providerWrite, providerName, onclose, onwrite, onreconnect }: Props =
-    $props()
+  let {
+    mode,
+    editing,
+    review,
+    providerWrite,
+    providerName,
+    suspended = false,
+    onclose,
+    onwrite,
+    onreconnect,
+  }: Props = $props()
   const title = $derived(
     mode === 'review' ? 'Review pending changes' : `${providerName} write status`,
   )
@@ -91,7 +102,7 @@
   }
 
   function keydown(event: KeyboardEvent): void {
-    if (mode !== 'review') return
+    if (suspended || mode !== 'review') return
     const decision = reviewEnter(event, surface(), commitButton(), initialLoad)
     if (decision === 'pass') return
     event.preventDefault()

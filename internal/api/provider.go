@@ -64,6 +64,7 @@ type ProviderStatusResponse struct {
 	Code              provider.ErrorCode     `json:"code,omitempty"`
 	CodeDetail        string                 `json:"code_detail,omitempty" doc:"Explains code"`
 	RefreshDue        string                 `json:"refresh_due" enum:"none,recent,full"`
+	Refreshing        bool                   `json:"refreshing" doc:"A refresh is running now"`
 	Warning           string                 `json:"warning,omitempty" doc:"A problem that did not stop the refresh"`
 	LastSuccess       string                 `json:"last_success,omitempty" format:"date-time"`
 	NextEligible      string                 `json:"next_eligible,omitempty" format:"date-time"`
@@ -113,16 +114,16 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 			return nil, problemFromError(ctx, err)
 		}
 		capability := providerRefreshCapability(service)
+		read := service.ProviderStatus
 		if !capability.Available {
-			body := providerStatusToWire(service.Revision(), app.ProviderStatus{})
-			body.Capability = capability
-			return &providerStatusOutput{Body: body}, nil
+			// The stored status still says how old the data is when refresh cannot run.
+			read = service.StoredProviderStatus
 		}
-		status, err := service.ProviderStatus(ctx)
+		status, err := read(ctx)
 		if err != nil {
 			return nil, problemFromError(ctx, err)
 		}
-		body := providerStatusToWire(service.Revision(), status)
+		body := providerStatusToWire(status)
 		body.Capability = capability
 		return &providerStatusOutput{Body: body}, nil
 	})
@@ -211,7 +212,7 @@ func providerRefreshOutputFor(
 	if err != nil {
 		return nil, problemFromError(ctx, err)
 	}
-	status := providerStatusToWire(result.Revision, result.Status)
+	status := providerStatusToWire(result.Status)
 	status.Capability = capability
 	return &providerRefreshOutput{Body: ProviderRefreshResponse{
 		Version: ProviderSchemaVersion, Revision: strconv.FormatUint(result.Revision, 10),
@@ -223,10 +224,10 @@ func providerRefreshOutputFor(
 	}}, nil
 }
 
-func providerStatusToWire(revision uint64, status app.ProviderStatus) ProviderStatusResponse {
+func providerStatusToWire(status app.ProviderStatus) ProviderStatusResponse {
 	summary := status.Summary
 	wire := ProviderStatusResponse{
-		Version: ProviderSchemaVersion, Revision: strconv.FormatUint(revision, 10),
+		Version: ProviderSchemaVersion, Revision: strconv.FormatUint(status.Revision, 10),
 		Generation: strconv.FormatUint(status.Generation, 10), Code: status.Code, ProviderKind: status.ProviderKind,
 		OwnerRenderer: status.OwnerRenderer, OwnerInstanceID: status.OwnerInstanceID,
 		ConfirmationToken: status.ConfirmationToken,
@@ -243,6 +244,7 @@ func providerStatusToWire(revision uint64, status app.ProviderStatus) ProviderSt
 	}
 	wire.CodeDetail = app.ProviderErrorDetail(status.Code)
 	wire.Warning = status.Warning
+	wire.Refreshing = status.Refreshing
 	wire.RefreshDue = string(status.RefreshDue)
 	if wire.RefreshDue == "" {
 		wire.RefreshDue = string(app.ProviderRefreshNone)

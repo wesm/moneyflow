@@ -57,8 +57,10 @@ app (v0.11.1) did:
   record of one, it downloads complete history instead.
 
 Moneyflow checks when you open a profile and once a minute while the TUI or web app stays
-open. The status line in the TUI, and the provider status in the web sidebar, name the kind
-while it runs. Background refresh does not run in these cases:
+open. The status line in the TUI, and the
+[refresh dialog](web.md#refresh-provider-data) in the web app, name the kind while it runs. The
+web app opens that dialog for a background refresh too, and shows a banner while the data
+predates a refresh that did not finish. Background refresh does not run in these cases:
 
 - The profile's first import has not finished.
 - A failed attempt is waiting for its retry time. A refresh that stops before it finishes,

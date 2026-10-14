@@ -5,6 +5,7 @@
 
   import ChartArea from '../charts/ChartArea.svelte'
   import EditLockBanner from '../editing/EditLockBanner.svelte'
+  import StaleBanner from '../StaleBanner.svelte'
   import FinanceGrid from '../table/FinanceGrid.svelte'
   import RowActionsSheet from '../table/RowActionsSheet.svelte'
   import SelectionBar from '../table/SelectionBar.svelte'
@@ -41,9 +42,11 @@
     /** Applies a view transition from the table, then returns focus to it. */
     onapply: (request: TransitionAction) => void
     charts: ChartState
+    /** Opens the provider's reconnect flow from the stale-data banner. */
+    onreconnect?: (() => void) | undefined
   }
 
-  let { projection, actions, onapply, charts }: Props = $props()
+  let { projection, actions, onapply, charts, onreconnect }: Props = $props()
   const controller = $derived(actions.controller)
   // One cache per controller, and so per profile.
   const cache = $derived(insightsCache(controller))
@@ -160,6 +163,7 @@
         onstatus={() => actions.overlays.open('write')}
       />
     {/if}
+    <StaleBanner controller={controller.provider} {onreconnect} />
   </div>
   {#if !compact.current}
     <ChartArea

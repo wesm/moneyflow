@@ -217,6 +217,26 @@
     if (id) void navigate(id)
   }
 
+  function pollProvider(): void {
+    if (
+      controller &&
+      document.visibilityState === 'visible' &&
+      controller.projection?.profile_kind !== 'amazon'
+    ) {
+      void controller.provider.poll().catch(() => undefined)
+      void controller.providerWrite.poll().catch(() => undefined)
+    }
+  }
+
+  // The first status check starts with the first view, not after the view settles in its
+  // currency, so a due refresh opens its dialog before the user works with stale data.
+  let firstPoll = false
+  $effect(() => {
+    if (firstPoll || !controller?.projection) return
+    firstPoll = true
+    pollProvider()
+  })
+
   async function recover(id: string, confirmed: boolean): Promise<void> {
     await catalog?.recovery(id, confirmed)
   }
@@ -233,15 +253,6 @@
     }
     if (!controller) return
     const restore = (event: PopStateEvent) => void controller.restore(event)
-    const pollProvider = () => {
-      if (
-        document.visibilityState === 'visible' &&
-        controller.projection?.profile_kind !== 'amazon'
-      ) {
-        void controller.provider.poll().catch(() => undefined)
-        void controller.providerWrite.poll().catch(() => undefined)
-      }
-    }
     const recheck = () => {
       void controller.recheck()
       pollProvider()
@@ -264,10 +275,7 @@
         void controller.providerWrite.poll().catch(() => undefined)
       }
     }, 1_000)
-    void controller
-      .hydrate()
-      .then(pollProvider)
-      .catch(() => undefined)
+    void controller.hydrate().catch(() => undefined)
     return () => {
       window.clearInterval(statusInterval)
       window.clearInterval(writeStatusInterval)

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { tick } from 'svelte'
 import AppShell from './AppShell.svelte'
 import type { TransactionInformationResponse, ViewProjection } from '../lib/api/client'
+import { createProviderController } from '../lib/controller/provider'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testAggregateRow, testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
@@ -658,11 +659,24 @@ describe('AppShell', () => {
       const controller = stubController()
       controller.provider.state.phase = 'confirmation'
       controller.provider.state.status = testProviderStatus({ confirmation_token: 'opaque' })
+      controller.provider.state.dialog = { view: 'confirmation', startedAt: 0 }
       render(AppShell, { controller })
       expect(screen.getByRole('dialog', { name: 'Confirm provider refresh' })).not.toBeNull()
     } finally {
       restore()
     }
+  })
+
+  it('makes the workspace inert and keyless while the refresh dialog is open', async () => {
+    const controller = stubController()
+    controller.provider.state.phase = 'refreshing'
+    controller.provider.state.status = testProviderStatus({ provider_kind: 'monarch' })
+    controller.provider.state.dialog = { view: 'progress', startedAt: Date.now() }
+    const { container } = render(AppShell, { controller })
+    expect(screen.getByRole('dialog', { name: 'Refreshing from Monarch' })).not.toBeNull()
+    expect(container.querySelector<HTMLElement>('.app-shell')?.inert).toBe(true)
+    await fireEvent.keyDown(window, { key: 'h' })
+    expect(controller.editing.submit).not.toHaveBeenCalled()
   })
 
   it('routes direct hide, undo, redo, and review keys through the editing surface', async () => {
@@ -761,6 +775,37 @@ describe('AppShell', () => {
         target: { kind: 'transaction', identity: 'row-0' },
       }),
     )
+  })
+
+  it('gives keys to the refresh dialog while it covers duplicate review', async () => {
+    const stub = stubController()
+    const { provider, aborted, status } = blockedRefresh(stub.projection!)
+    const controller = { ...stub, provider }
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: 'D', shiftKey: true })
+    expect(screen.getByRole('dialog', { name: 'Duplicate transactions' })).not.toBeNull()
+
+    void provider.refresh()
+    const refresh = await screen.findByRole('dialog', { name: 'Refreshing from Monarch' })
+    await vi.waitFor(() => expect(refresh.contains(document.activeElement)).toBe(true))
+    for (const key of ['h', 'x', 'j', ' ', 'Enter']) {
+      await fireEvent.keyDown(document.activeElement!, { key })
+    }
+    expect(controller.duplicates.hideFocused).not.toHaveBeenCalled()
+    expect(controller.duplicates.requestDelete).not.toHaveBeenCalled()
+    expect(controller.duplicates.move).not.toHaveBeenCalled()
+    expect(controller.duplicates.toggleFocused).not.toHaveBeenCalled()
+
+    await fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    expect(aborted()).toBe(true)
+    expect(controller.duplicates.close).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Duplicate transactions' })).not.toBeNull()
+
+    status.mockResolvedValue(testProviderStatus({ provider_kind: 'monarch' }))
+    await provider.poll()
+    await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: /^Refreshing/ })).toBeNull())
+    await fireEvent.keyDown(window, { key: 'h' })
+    expect(controller.duplicates.hideFocused).toHaveBeenCalledOnce()
   })
 
   it('routes r through the provider refresh controller', async () => {
@@ -1240,9 +1285,12 @@ function stubController(projection = testProjection()): ViewController {
       },
       sync: vi.fn(),
       poll: vi.fn(),
+      reread: vi.fn(),
       refresh: vi.fn(),
       confirm: vi.fn(),
       dismissConfirmation: vi.fn(),
+      cancel: vi.fn(),
+      continueStale: vi.fn(),
     },
     providerWrite: testProviderWriteController({
       state: { phase: 'idle', announcement: '' },
@@ -1334,4 +1382,29 @@ function stubController(projection = testProjection()): ViewController {
     retry: vi.fn(),
     reset: vi.fn(),
   }
+}
+
+/** A real provider controller whose refresh runs until it is canceled. */
+function blockedRefresh(projection: ViewProjection) {
+  let signal: AbortSignal | undefined
+  const status = vi.fn(async () =>
+    testProviderStatus({ provider_kind: 'monarch', refreshing: true }),
+  )
+  const request = vi.fn(async (_path: string, _body: string, sent?: AbortSignal) => {
+    signal = sent
+    return new Promise<Response>((_resolve, reject) =>
+      sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
+    )
+  })
+  const provider = createProviderController({
+    transport: { mutations: { request }, status },
+    host: {
+      current: () => projection,
+      accept: vi.fn(),
+      reload: vi.fn(async () => undefined),
+      serially: (work) => work(),
+    },
+  })
+  provider.sync(projection)
+  return { provider, status, aborted: () => signal?.aborted === true }
 }

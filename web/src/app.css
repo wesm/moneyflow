@@ -602,9 +602,6 @@ input {
   color: var(--text-muted);
   font-size: var(--font-size-2xs);
 }
-.provider-status__failure {
-  color: var(--mf-out-text);
-}
 
 .mf-rail {
   box-sizing: border-box;
@@ -1936,4 +1933,46 @@ button.mf-bar:hover {
   font-weight: var(--font-weight-semibold);
   letter-spacing: var(--letter-spacing-label, 0.06em);
   text-transform: uppercase;
+}
+/* The provider refresh dialog. */
+.mf-refresh {
+  display: grid;
+  gap: var(--space-3);
+  min-inline-size: min(26rem, calc(100vw - 4rem));
+}
+.mf-refresh p {
+  margin: 0;
+}
+.mf-refresh__progress {
+  display: grid;
+  gap: var(--space-2);
+}
+.mf-refresh__subject,
+.mf-refresh__lead {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+.mf-refresh__bar {
+  inline-size: 100%;
+  block-size: 0.5rem;
+  accent-color: var(--accent-blue);
+}
+.mf-refresh__count,
+.mf-refresh__meta {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+/* Data that missed a refresh: the banner stays until a refresh succeeds. */
+.mf-stale-banner {
+  padding-bottom: var(--space-4);
+}
+.mf-stale-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.mf-stale-banner__wait {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }
