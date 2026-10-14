@@ -3,9 +3,8 @@
 package scripts
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
+	"crypto/rand"
 	"errors"
 	"os"
 	"os/exec"
@@ -18,6 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/fixture"
+	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
+	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
 // A fake `go` that does what an interrupted seedprofile leaves behind: it creates the database
@@ -117,37 +119,32 @@ func requireNoDevProfile(t *testing.T, home string) {
 	require.Empty(t, staging, "staging directory left behind")
 }
 
-// requireWorkingDevProfile opens the profile by name, as make dev does, and exports it.
-func requireWorkingDevProfile(t *testing.T, home string) {
+// requireWorkingDevProfile resolves the profile by name from the home, as `moneyflow web
+// --profile Moneyflow` does with MONEYFLOW_HOME set, and checks that it holds the fixture data.
+func requireWorkingDevProfile(t *testing.T, devHome string) {
 	t.Helper()
-	info, err := os.Stat(home)
+	info, err := os.Stat(devHome)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
-	export := filepath.Join(t.TempDir(), "export.jsonl")
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
-	defer cancel()
-	command := exec.CommandContext(ctx, "go", "run", "./cmd/moneyflow", "profile", "export", //nolint:gosec // Fixed command and isolated paths.
-		"--profile", "Moneyflow", "--output", export)
-	command.Dir = ".."
-	command.Env = append(os.Environ(), "MONEYFLOW_HOME="+home)
-	output, err := command.CombinedOutput()
-	require.NoError(t, err, string(output))
 
-	file, err := os.Open(export) //nolint:gosec // Export inside t.TempDir.
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, file.Close()) })
-	transactions := 0
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		var record struct {
-			Type string `json:"type"`
+	lookupEnv := func(name string) (string, bool) {
+		if name == "MONEYFLOW_HOME" {
+			return devHome, true
 		}
-		require.NoError(t, json.Unmarshal(scanner.Bytes(), &record))
-		if record.Type == "transaction" {
-			transactions++
-		}
+		return "", false
 	}
-	require.NoError(t, scanner.Err())
-	require.Equal(t, len(fixture.Demo()), transactions)
+	paths, err := home.ResolveCatalogRoot("", lookupEnv, "")
+	require.NoError(t, err)
+	catalog, err := profilecatalog.New(profilecatalog.Config{
+		Paths: paths, Random: rand.Reader, Now: time.Now, Version: "test",
+	})
+	require.NoError(t, err)
+	entry, err := catalog.Resolve(t.Context(), "Moneyflow")
+	require.NoError(t, err)
+	profile, err := sqlite.OpenTransferSource(t.Context(), entry.ProfilePaths(), sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	state, err := profile.LoadProfileTransfer(t.Context())
+	require.NoError(t, err)
+	require.Len(t, state.Snapshot.Committed.Transactions, len(fixture.Demo()))
 }
