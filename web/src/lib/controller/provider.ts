@@ -398,6 +398,8 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       selection: response.selection.value,
     } as ViewProjection
     noteNewest(response.status)
+    leaveCompletedDialog()
+    if (!viewShowsNewest()) setState({ ...state, viewLoading: true })
     const seen = statusChanges
     const complete = await show(projection, current, response.selection.kind === 'cleared')
     succeed(response.status, complete, finished, seen)

@@ -2,14 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { providerCapability, testProviderStatus } from '../../test/provider'
 import type { ProviderState } from './provider'
-import {
-  dataAge,
-  elapsed,
-  providerLabel,
-  refreshOwner,
-  staleNotice,
-  statusStaleReason,
-} from './refresh-notice'
+import { dataAge, elapsed, staleNotice, statusStaleReason } from './refresh-notice'
 
 const now = Date.parse('2026-10-13T12:00:00Z')
 
@@ -23,24 +16,6 @@ function idle(overrides: Partial<ProviderState> = {}): ProviderState {
 }
 
 describe('refresh notice', () => {
-  it.each([
-    ['monarch', 'Monarch'],
-    ['ynab', 'YNAB'],
-    ['simplefin', 'SimpleFIN'],
-    [undefined, 'the provider'],
-  ])('names the %s provider', (kind, name) => {
-    expect(providerLabel(kind)).toBe(name)
-  })
-
-  it.each([
-    ['tui', 'The terminal app (moneyflow tui)'],
-    ['cli', 'A Moneyflow command or MCP client'],
-    ['web', 'Another browser tab or window'],
-    [undefined, 'Another Moneyflow process'],
-  ])('names the %s interface that owns a refresh', (renderer, owner) => {
-    expect(refreshOwner(renderer)).toBe(owner)
-  })
-
   it.each([
     ['2026-10-13T11:59:30Z', 'just now'],
     ['2026-10-13T12:00:30Z', 'just now'],

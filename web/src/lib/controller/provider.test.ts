@@ -116,23 +116,44 @@ describe('provider controller', () => {
     })
   })
 
-  it('says so when the view changed during a refresh and cannot be reread', async () => {
-    const sent = testProjection({ canonical_query: 'v=1', capabilities: [capability(true)] })
-    const host = hostStub(sent)
-    host.reload.mockRejectedValue(new Error('offline'))
-    const transport = transportStub({
-      mutationResponse: Response.json(refreshResponse(sent, 'preserved')),
+  it('closes a completed refresh while the queued view reread loads, then reports its failure', async () => {
+    const sent = testProjection({
+      revision: '1',
+      canonical_query: 'v=1',
+      capabilities: [capability(true)],
     })
+    const host = hostStub(sent)
+    const viewChange = Promise.withResolvers<void>()
+    host.serially = (work) => viewChange.promise.then(work)
+    const reread = Promise.withResolvers<undefined>()
+    host.reload.mockReturnValueOnce(reread.promise)
+    const transport = transportStub()
     vi.mocked(transport.mutations.request).mockImplementation(async () => {
-      host.current.mockReturnValue(testProjection({ canonical_query: 'group=category&v=1' }))
-      return Response.json(refreshResponse(sent, 'preserved'))
+      host.current.mockReturnValue(
+        testProjection({ revision: '1', canonical_query: 'group=category&v=1' }),
+      )
+      return Response.json(refreshResponse({ ...sent, revision: '2' }, 'preserved'))
     })
     const controller = createProviderController({ transport, host })
     controller.sync(sent)
 
-    await expect(controller.refresh()).resolves.toBe(true)
+    const refresh = controller.refresh()
+    await settle()
+
+    expect(controller.state.dialog).toBeUndefined()
+    expect(controller.state.phase).toBe('idle')
+    expect(staleNotice(controller.state, Date.now())?.loading).toBe(true)
+    expect(host.reload).not.toHaveBeenCalled()
+
+    viewChange.resolve()
+    await vi.waitFor(() => expect(host.reload).toHaveBeenCalledOnce())
+    expect(controller.state.dialog).toBeUndefined()
+    expect(staleNotice(controller.state, Date.now())?.loading).toBe(true)
+    reread.reject(new Error('offline'))
+    await expect(refresh).resolves.toBe(true)
 
     expect(host.accept).not.toHaveBeenCalled()
+    expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
     expect(controller.state.announcement).toBe(
       'Refresh complete: 0 imported, 0 removed. The current view could not be reread.',
     )
