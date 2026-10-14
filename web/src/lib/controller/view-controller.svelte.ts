@@ -892,7 +892,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   ): Promise<boolean> {
     const work = foregroundProjection(request, onSuccess, retry, report)
     foregroundRequest = work
-    return await work
+    const outcome = await work
+    // The view is already what the user asked for. A recheck confirms it is current: success
+    // clears an earlier failed recheck, and failure shows as one, with its own Retry.
+    if (outcome === 'unchanged') await reportedRecheck(undefined, true)
+    return outcome === 'applied'
   }
 
   async function foregroundProjection(
@@ -900,9 +904,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     onSuccess: (next: ViewProjection) => void | Promise<void>,
     retry: () => Promise<void>,
     report: boolean,
-  ): Promise<boolean> {
-    const priorProblem = problem
-    const priorRetry = lastRetry
+  ): Promise<'applied' | 'unchanged' | 'not-applied'> {
     lastRetry = async () => {
       await retry()
     }
@@ -914,20 +916,14 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     problem = undefined
     try {
       const next = await request()
-      if (requestGeneration !== generation) return false
+      if (requestGeneration !== generation) return 'not-applied'
       await onSuccess(next)
-      return true
+      return 'applied'
     } catch (error) {
-      if (requestGeneration !== generation || isAbort(error)) return false
-      if (!isNoChange(error)) {
-        setProblem(error, changeFailed, report)
-        return false
-      }
-      // The view is already what the user asked for, so nothing failed, and a problem shown
-      // before, such as a failed recheck, still holds along with its Retry.
-      problem = priorProblem
-      lastRetry = priorRetry
-      return false
+      if (requestGeneration !== generation || isAbort(error)) return 'not-applied'
+      if (isNoChange(error)) return 'unchanged'
+      setProblem(error, changeFailed, report)
+      return 'not-applied'
     } finally {
       if (requestGeneration === generation) loading = false
     }

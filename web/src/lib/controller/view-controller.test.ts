@@ -2403,32 +2403,114 @@ describe('visible view failures', () => {
     expect(controller.problem).toBeUndefined()
   })
 
-  it('keeps a failed recheck and its Retry through a view change with nothing to change', async () => {
-    const view = vi
-      .fn()
-      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
-      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
-      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
-    const unchanged = new MoneyflowProblem({
+  const noChange = () =>
+    new MoneyflowProblem({
       type: 'about:blank',
       title: 'Conflict',
       status: 409,
       detail: 'The requested action would not change the view.',
       code: 'no_change',
     })
-    const transition = vi.fn().mockRejectedValueOnce(unchanged)
+  const recheckFailure =
+    'Moneyflow could not check for newer data; the view may be out of date. ' +
+    'Moneyflow could not reach the server. Check the connection and retry.'
+
+  it('rereads the view after a view change with nothing to change, and reports a failure', async () => {
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+    const transition = vi.fn().mockRejectedValueOnce(noChange())
     const controller = controllerFor(clientWith({ view, transition }), false)
     await controller.hydrate()
     await controller.recheck()
-    const failed = controller.problem
 
     await expect(controller.apply({ action: 'view.back' })).resolves.toBe(false)
 
-    expect(controller.problem).toBe(failed)
-    expect(controller.problem?.code).toBe('network_error')
-    await controller.retry()
+    // The reread after the view change failed too, so the view may still be out of date.
     expect(view).toHaveBeenCalledTimes(3)
+    expect(controller.problem?.code).toBe('network_error')
+    expect(controller.announcement).toBe(recheckFailure)
+    await controller.retry()
+    expect(view).toHaveBeenCalledTimes(4)
     expect(transition).toHaveBeenCalledOnce()
+    expect(controller.problem).toBeUndefined()
+  })
+
+  it('leaves no stale recheck warning when Retry succeeds before a no-op change answers', async () => {
+    let finishRetry!: (next: ViewProjection) => void
+    let refuse!: (error: unknown) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockImplementationOnce(() => new Promise((resolve) => (finishRetry = resolve)))
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+    const transition = vi.fn(() => new Promise<ViewProjection>((_, reject) => (refuse = reject)))
+    const controller = controllerFor(clientWith({ view, transition }), false)
+    await controller.hydrate()
+    await controller.recheck()
+    expect(controller.problem?.code).toBe('network_error')
+
+    const retrying = controller.retry()
+    await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(3))
+    const back = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+    finishRetry(projection('v=1', 0, 3, '4'))
+    await retrying
+    refuse(noChange())
+
+    await expect(back).resolves.toBe(false)
+    expect(controller.problem).toBeUndefined()
+  })
+
+  it('shows fresh data when a recheck a no-op change overtook fails afterwards', async () => {
+    let failPending!: (error: unknown) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+      .mockImplementationOnce(() => new Promise((_, reject) => (failPending = reject)))
+      .mockResolvedValueOnce(projection('v=1', 0, 3, '5'))
+    const transition = vi.fn().mockRejectedValueOnce(noChange())
+    const controller = controllerFor(clientWith({ view, transition }), false)
+    await controller.hydrate()
+    const pending = controller.recheck()
+    await vi.waitFor(() => expect(view).toHaveBeenCalledTimes(2))
+
+    await expect(controller.apply({ action: 'view.back' })).resolves.toBe(false)
+    failPending(new TypeError('Failed to fetch'))
+    await pending
+
+    expect(controller.projection?.revision).toBe('5')
+    expect(controller.problem).toBeUndefined()
+  })
+
+  it('keeps a scrolled window failure from during a no-op change, with its Retry', async () => {
+    let refuse!: (error: unknown) => void
+    const view = vi
+      .fn()
+      .mockResolvedValueOnce(projection('v=1', 0, 450, '4'))
+      .mockRejectedValueOnce(busy())
+      .mockImplementation(async (body) => projection('v=1', body.window.offset, 450, '4'))
+    const transition = vi.fn(() => new Promise<ViewProjection>((_, reject) => (refuse = reject)))
+    const controller = controllerFor(clientWith({ view, transition }), false)
+    await controller.hydrate()
+
+    const back = controller.apply({ action: 'view.back' })
+    await vi.waitFor(() => expect(transition).toHaveBeenCalledOnce())
+    await controller.showIndex(250)
+    expect(controller.problem?.code).toBe('store_busy')
+    refuse(noChange())
+
+    await expect(back).resolves.toBe(false)
+    expect(controller.problem?.code).toBe('store_busy')
+    await controller.retry()
+    expect(view).toHaveBeenLastCalledWith(
+      expect.objectContaining({ window: { offset: 200, limit: 200 } }),
+      expect.anything(),
+    )
     expect(controller.problem).toBeUndefined()
   })
 
