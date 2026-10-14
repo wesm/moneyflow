@@ -419,25 +419,6 @@ func TestSupervisedWorkHoldsItsProfileAfterTheToolCallReturns(t *testing.T) {
 	}, time.Second, time.Millisecond)
 }
 
-// busyProfiles reports every profile as held by another process.
-type busyProfiles struct{ testProfiles }
-
-func (busyProfiles) Acquire(context.Context, string) (Dependencies, func(), error) {
-	return Dependencies{}, nil, UnavailableError{Reason: "profile_busy: another process holds it"}
-}
-
-func TestAnUnavailableProfileSaysWhy(t *testing.T) {
-	client := registeredSDK(t, busyProfiles{}, RegisterOptions{Classes: allClasses})
-
-	result := callRefreshToolResult(t, client, "get_account_info", nil)
-
-	require.True(t, result.IsError)
-	failure := result.StructuredContent.(map[string]any)
-	assert.Equal(t, "profile_unavailable", failure["code"])
-	assert.Equal(t, "The profile could not be opened: profile_busy: another process holds it",
-		failure["detail"])
-}
-
 func TestRegisterGivesEachClassItsOwnTools(t *testing.T) {
 	expected := map[access.Class][]string{
 		access.Read: {
@@ -561,7 +542,7 @@ func (profiles failingProfiles) Acquire(context.Context, string) (Dependencies, 
 }
 
 func TestAcquireFailuresAnswerWithTheirCodeAndOnlyASafeReason(t *testing.T) {
-	list := "moneyflow_list_profiles"
+	hint := " Pass profile with an ID from moneyflow_list_profiles."
 	tests := map[string]struct {
 		err    error
 		code   string
@@ -569,11 +550,11 @@ func TestAcquireFailuresAnswerWithTheirCodeAndOnlyASafeReason(t *testing.T) {
 	}{
 		"wrapped required": {
 			err:  fmt.Errorf("resolve example: %w", ErrProfileRequired),
-			code: "profile_required", detail: list,
+			code: "profile_required", detail: "Several profiles exist." + hint,
 		},
 		"wrapped not found": {
 			err:  fmt.Errorf("resolve example: %w", ErrProfileNotFound),
-			code: "profile_not_found", detail: list,
+			code: "profile_not_found", detail: "No profile matches the profile argument." + hint,
 		},
 		"wrapped reason": {
 			err:  fmt.Errorf("open example: %w", UnavailableError{Reason: "profile_busy: held"}),
@@ -594,8 +575,7 @@ func TestAcquireFailuresAnswerWithTheirCodeAndOnlyASafeReason(t *testing.T) {
 			require.True(t, result.IsError)
 			failure := result.StructuredContent.(map[string]any)
 			assert.Equal(t, test.code, failure["code"])
-			assert.Contains(t, failure["detail"], test.detail)
-			assert.NotContains(t, failure["detail"], "locked")
+			assert.Equal(t, test.detail, failure["detail"])
 		})
 	}
 }
