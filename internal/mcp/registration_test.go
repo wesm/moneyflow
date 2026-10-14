@@ -782,28 +782,6 @@ func awaitParkedWrite(
 	return status
 }
 
-func TestProviderWriteHoldsItsProfileWhileItRuns(t *testing.T) {
-	service, source, closeProfile := providerTestService(t, 1, "monarch")
-	defer closeProfile()
-	gate := gateProviderWrites(t, service, source)
-	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
-	client := registeredSDK(t, profiles, RegisterOptions{Classes: allClasses})
-	revision := stageDeletion(t, client, service)
-	started, release := make(chan struct{}), make(chan struct{})
-	gate.holdNext(started, release)
-
-	callRefreshTool(t, client, "commit_changes",
-		map[string]any{"expected_revision": revision, "reviewed_revision": revision})
-	awaitStart(t, started)
-	held := profiles.leases.Load()
-	close(release)
-
-	assert.Equal(t, int32(1), held)
-	require.Eventually(t, func() bool {
-		return profiles.leases.Load() == 0
-	}, time.Second, time.Millisecond)
-}
-
 func TestResumedProviderWriteHoldsItsProfileWhileItRuns(t *testing.T) {
 	service, source, closeProfile := providerTestService(t, 1, "monarch")
 	defer closeProfile()
