@@ -17,7 +17,7 @@
     type Dimension,
     type LocalAction,
   } from '../lib/shortcuts'
-  import { writeNeedsUser } from '../lib/controller/provider-write'
+  import { writeNeedsUser, writeSaved } from '../lib/controller/provider-write'
   import type { TransitionAction, ViewController } from '../lib/controller/view-controller.svelte'
   import { providerName } from '../lib/provider-name'
   import { ChartState } from '../lib/shell/chart-state.svelte'
@@ -196,6 +196,7 @@
       {projection}
       pending={controller.editing.state.pending}
       {write}
+      lastWrite={writeSaved(controller.providerWrite.state)}
       provider={controller.provider}
       onrun={(entry) => fromSidebar(() => run(entry))}
       onreview={() => fromSidebar(() => local('edit.review'))}

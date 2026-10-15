@@ -54,7 +54,9 @@ The bottom of the sidebar holds:
 
 - The pending-edits card, such as `3 pending edits · 27 transactions`. Its **Review** button
   (`w`) appears while edits are pending, and **Write** shows an unfinished provider write's
-  progress. See [review and commit](editing.md#review-and-commit).
+  progress. **Unreleased:** With nothing pending, **Last write** (`w`) reopens the status of the
+  last finished write until the profile changes again, such as by an edit. See
+  [review and commit](editing.md#review-and-commit).
 - Provider status for Monarch, YNAB, and SimpleFIN profiles: when data was last refreshed, a
   refresh button (`r`), and **Reconnect** when the provider needs it. **Unreleased:** Below the
   button, the sidebar shows why refresh is unavailable, such as a provider write in progress or

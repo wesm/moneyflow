@@ -24,6 +24,8 @@
     projection: ViewProjection
     pending: PendingSummary
     write?: WriteProgress | undefined
+    /** The last write finished and its details can still be shown. */
+    lastWrite?: boolean
     provider: ProviderController
     onrun: (run: NavRun) => void
     onreview: () => void
@@ -40,6 +42,7 @@
     projection,
     pending,
     write,
+    lastWrite = false,
     provider,
     onrun,
     onreview,
@@ -64,10 +67,15 @@
   const current = $derived(items.explore.find((item) => item.active)?.id ?? null)
   const reviewAvailable = $derived(availableCapabilities(projection).has('changes.review'))
   const waiting = $derived(pending.active_operations > 0)
-  // Like the pending card: review needs pending edits; a running write always opens its drawer.
-  const reviewOffered = $derived(write !== undefined || (waiting && reviewAvailable))
+  // Like the pending card: review needs pending edits; a running write always opens its drawer,
+  // and with nothing pending, so does the last finished write.
+  const showsLastWrite = $derived(lastWrite && !waiting)
+  const reviewOffered = $derived(
+    write !== undefined || showsLastWrite || (waiting && reviewAvailable),
+  )
   const pendingTip = $derived.by(() => {
     if (write) return `Write ${write.completed}/${write.total} · w`
+    if (showsLastWrite) return 'Last write · w'
     if (!waiting) return 'No pending edits'
     if (!reviewAvailable) {
       return `Review pending changes · ${unavailableReason(projection, 'changes.review')}`
@@ -177,7 +185,7 @@
       class={['mf-sidebar__footer', drawer && 'mf-sidebar__footer--drawer']}
       {@attach footerShown}
     >
-      <PendingCard {pending} {reviewAvailable} {write} {onreview} {onwrite} />
+      <PendingCard {pending} {reviewAvailable} {write} {lastWrite} {onreview} {onwrite} />
       <div class="mf-sidebar__system">
         {#if hasProviderStatus(projection.profile_kind)}
           <ProviderStatus controller={provider} {onreconnect} />

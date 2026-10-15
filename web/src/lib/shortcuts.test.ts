@@ -257,19 +257,37 @@ describe('Moneyflow browser shortcuts', () => {
     shortcuts.destroy()
   })
 
+  it('leaves w to its handler while nothing is pending, as it opens the last finished write', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(
+      capabilities.map((capability) =>
+        capability.id === 'changes.review'
+          ? { ...capability, available: false, reason: 'No pending changes are available.' }
+          : capability,
+      ),
+      handlers,
+    )
+    expect(shortcuts.manager.handleKeydown(keyboard('w'))).toBe(true)
+    expect(handlers.local).toHaveBeenLastCalledWith('edit.review')
+    expect(status.notice).toBe('')
+    shortcuts.destroy()
+  })
+
   it('explains other unavailable keys and clears the notice on the next shortcut', () => {
     const handlers = { local: vi.fn(), apply: vi.fn() }
-    const reason = 'No pending changes are available.'
+    const reason = 'Export is not available here.'
     const shortcuts = createMoneyflowShortcuts(
       capabilities.map((capability) => {
-        if (capability.id === 'changes.review') return { ...capability, available: false, reason }
+        if (capability.id === 'transactions.export') {
+          return { ...capability, available: false, reason }
+        }
         if (capability.id === 'provider.refresh') return { ...capability, available: false }
         return capability
       }),
       handlers,
     )
     try {
-      expect(shortcuts.manager.handleKeydown(keyboard('w'))).toBe(true)
+      expect(shortcuts.manager.handleKeydown(keyboard('E', { shiftKey: true }))).toBe(true)
       expect(status.notice).toBe(reason)
       expect(handlers.local).not.toHaveBeenCalled()
       // Without a reason from the server, the key stays unbound.
