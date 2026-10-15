@@ -49,8 +49,9 @@ After setup, select the profile directly by its name or ID:
 profiles you can choose. Profiles that share a name are listed with their IDs; pass one of those
 IDs to `--profile`.
 
-Go's default catalog is `~/.moneyflow/v2`. `MONEYFLOW_HOME` overrides that catalog root.
-This is separate from Python state: opening Go does not convert Python profiles. During the
+Go's default catalog is `~/.moneyflow`. `MONEYFLOW_HOME` overrides that catalog root.
+Go refuses a catalog folder that holds Python app data; [moving to Go](transition.md) explains
+how to move that data aside. Opening Go does not convert Python profiles. During the
 preview, incompatible Go schemas require explicit recovery, not an automatic migration.
 Recovery backs up the old database and creates a pristine one; it does not transfer local edits.
 Keep your original data until a [cutover has been verified](../architecture/cutover.md).

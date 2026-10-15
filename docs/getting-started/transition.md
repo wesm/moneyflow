@@ -6,12 +6,13 @@ a chain of database migrations.
 
 **Go-to-Go transfer is available in this checkout. The Python source exporter is not
 implemented yet.** Reconnecting providers and reimporting Amazon files do not transfer
-Python-only edits. Keep the Python application and its data until that bridge is available.
+Python-only edits. Keep the Python application and its data, moved to `~/.moneyflow-python`
+as described below, until that bridge is available.
 Check `moneyflow profile --help` to see whether your installed build includes transfer.
 
 ## What the preview supports today
 
-Go Moneyflow uses separate profiles. It does not import, overwrite, or delete your Python
+Go Moneyflow uses separate profiles. It does not import, overwrite, move, or delete your Python
 profiles, credentials, caches, Amazon database, or local edits. The steps below let you try
 the preview; they are not the completed cutover process.
 
@@ -30,6 +31,32 @@ available until you have checked the new profiles.
 Go does not import Python export files as profiles. The current
 [transaction exports](../guide/export.md) are analysis files, not the JSONL
 cutover format or full profile backups.
+
+## Move Python data out of `~/.moneyflow`
+
+Go keeps its catalog in `~/.moneyflow` by default; `MONEYFLOW_HOME` selects another folder.
+The Python app used `~/.moneyflow` too, and the two cannot share a folder. Go refuses any
+catalog folder that holds a top-level `accounts.json`, `config.yaml`, `credentials.enc`,
+`merchants.json`, or `moneyflow.log`. It stops before creating or changing anything there,
+and its error names the folder and the command that moves it aside.
+
+Move the folder yourself; Moneyflow never moves your data:
+
+1. Stop every Moneyflow process, Python and Go.
+2. Move the Python data aside:
+
+   ```bash
+   mv ~/.moneyflow ~/.moneyflow-python
+   ```
+
+3. If you used an earlier Go build, it kept its catalog in `~/.moneyflow/v2`, which is now
+   inside the moved folder. Move that catalog to the current location:
+
+   ```bash
+   mv ~/.moneyflow-python/v2 ~/.moneyflow
+   ```
+
+Keep `~/.moneyflow-python` until the Python exporter exists.
 
 ## Transfer a Go profile with JSONL
 
@@ -83,9 +110,6 @@ be exported; Moneyflow does not truncate or split them. Import rejects unknown f
 files, duplicate records, invalid references, and inconsistent exact-money values.
 
 ## Rebuild your profiles
-
-Go stores its catalog under `~/.moneyflow/v2` by default. Do not set `MONEYFLOW_HOME` to a
-Python data directory.
 
 - Reconnect Monarch and YNAB to download their current provider data.
 - [Reimport the original Amazon CSV files](../guide/amazon-mode.md). Python-only merchant

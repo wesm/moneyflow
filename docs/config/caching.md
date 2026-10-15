@@ -5,7 +5,9 @@ Local edits are stored as a journal: an ordered list of pending changes with an 
 
 ## Where is my data?
 
-The default catalog is `~/.moneyflow/v2`. Set `MONEYFLOW_HOME` to choose another catalog.
+The default catalog is `~/.moneyflow`. Set `MONEYFLOW_HOME` to choose another catalog.
+Moneyflow refuses a catalog folder that holds Python app data; see
+[moving to Go](../getting-started/transition.md).
 Each named profile lives under `profiles/<profile-id>/` and includes `moneyflow.db`.
 Credential and session files are separate from that database.
 

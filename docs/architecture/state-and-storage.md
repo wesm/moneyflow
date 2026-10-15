@@ -98,7 +98,11 @@ by incrementing the profile revision.
 ## Profiles, files, and recovery
 
 [Profile catalog][source-6] discovers per-profile manifests under
-the v2 catalog root. `MONEYFLOW_HOME` selects that root; the default is `~/.moneyflow/v2`.
+the catalog root. `MONEYFLOW_HOME` selects that root; the default is `~/.moneyflow`.
+Before creating, locking, or writing anything, `home.ResolveRoot` refuses a root that holds a
+top-level `accounts.json`, `config.yaml`, `credentials.enc`, `merchants.json`, or
+`moneyflow.log`. The retired Python app wrote those files and Go never does. Python also kept
+`profiles/<account-id>/` folders, which would collide with Go's nested profiles.
 New profiles live under `profiles/<opaque-id>/`. A root-level legacy Go database remains in place;
 downstream code receives its root just as it does any other profile.
 

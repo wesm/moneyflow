@@ -91,7 +91,7 @@ your own profiles, such as one connected to Monarch, name it with `PROFILE`:
 make dev PROFILE="Example Profile"
 ```
 
-This opens the profile from `MONEYFLOW_HOME` when it is set, and from `~/.moneyflow/v2`
+This opens the profile from `MONEYFLOW_HOME` when it is set, and from `~/.moneyflow`
 otherwise. It does not seed `tmp/dev-home`. Before the servers start, `make dev` prints a
 warning: edits are saved to that profile, and committing provider edits writes them to the
 provider. If no profile has that name, the Go server lists the profiles that exist and exits

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolveRootUsesExplicitThenEnvironmentThenV2Default(t *testing.T) {
+func TestResolveRootUsesExplicitThenEnvironmentThenDefault(t *testing.T) {
 	t.Parallel()
 
 	base := t.TempDir()
@@ -33,7 +33,7 @@ func TestResolveRootUsesExplicitThenEnvironmentThenV2Default(t *testing.T) {
 
 	paths, err = ResolveRoot("", func(string) (string, bool) { return "", false }, filepath.Join(base, "user"))
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(canonicalBase, "user", ".moneyflow", "v2"), paths.Root)
+	assert.Equal(t, filepath.Join(canonicalBase, "user", ".moneyflow"), paths.Root)
 }
 
 func TestResolveRootCanonicalizesExistingSymlinkAncestor(t *testing.T) {
@@ -99,7 +99,7 @@ func TestResolveCatalogRootUsesEnvironmentAndDefault(t *testing.T) {
 		filepath.Join(base, "user"),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(canonicalBase, "user", ".moneyflow", "v2", "profiles"), paths.Profiles)
+	assert.Equal(t, filepath.Join(canonicalBase, "user", ".moneyflow", "profiles"), paths.Profiles)
 }
 
 func TestPrepareDatabaseRejectsPathOutsideSelectedRoot(t *testing.T) {

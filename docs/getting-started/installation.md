@@ -89,8 +89,9 @@ moneyflow web --demo
 moneyflow tui
 ```
 
-Demo profiles are temporary and need no financial account. Persistent Go profiles live under `~/.moneyflow/v2` by default;
-set `MONEYFLOW_HOME` to use a different catalog directory.
+Demo profiles are temporary and need no financial account. Persistent Go profiles live under `~/.moneyflow` by default;
+set `MONEYFLOW_HOME` to use a different catalog directory. Moneyflow refuses a folder that holds
+Python app data.
 
 See [moving to Go](transition.md) for old Python data and incompatible Go preview profiles.
 
