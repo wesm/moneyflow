@@ -178,6 +178,11 @@ for (const theme of themes) {
     const sunken = await themeShadow(page, '--shadow-sunken')
     const panel = await themeShadow(page, '--shadow-panel')
     for (const shadow of [raised, sunken, panel]) expect(shadow).not.toBe('none')
+    expect(raised, 'a raised control must differ from a sunken one').not.toBe(sunken)
+    if (theme === 'dark') {
+      const highlight = await themeColor(page, '--edge-highlight')
+      expect(highlight, 'the dark theme sets its own edge highlight').not.toBe('rgb(255, 255, 255)')
+    }
     const banner = page.getByRole('banner')
     await expect(banner.locator('.kit-filter-dropdown__btn')).toHaveCSS('box-shadow', raised)
     await expect(banner.locator('.kit-text-input')).toHaveCSS('box-shadow', sunken)
