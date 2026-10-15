@@ -1897,6 +1897,9 @@ components:
     ProviderConfirmationBody:
       additionalProperties: false
       properties:
+        complete_history:
+          description: Read complete Monarch history instead of the last 90 days
+          type: boolean
         confirmation_token:
           maxLength: 4096
           minLength: 1
@@ -1924,18 +1927,34 @@ components:
       additionalProperties: false
       properties:
         fetched:
+          description: Transactions read so far in the current read
           format: int64
+          type: integer
+        percent:
+          description: Overall progress of the refresh
+          format: int64
+          maximum: 100
+          minimum: 0
           type: integer
         total:
+          description: Transactions in the current read as far as reported; the first read's total can grow
           format: int64
           type: integer
+        verifying:
+          description: The provider is reading its data again to confirm it did not change
+          type: boolean
       required:
         - fetched
         - total
+        - verifying
+        - percent
       type: object
     ProviderRefreshBody:
       additionalProperties: false
       properties:
+        complete_history:
+          description: Read complete Monarch history instead of the last 90 days
+          type: boolean
         manual:
           type: boolean
         query:
@@ -2050,6 +2069,12 @@ components:
         last_success:
           format: date-time
           type: string
+        manual_refresh:
+          description: What a manual refresh reads unless it asks for complete history
+          enum:
+            - recent
+            - full
+          type: string
         next_eligible:
           format: date-time
           type: string
@@ -2086,6 +2111,7 @@ components:
         - revision
         - generation
         - refresh_due
+        - manual_refresh
         - refreshing
         - progress
         - summary
@@ -2198,6 +2224,9 @@ components:
         completed_at:
           format: date-time
           type: string
+        completed_revision:
+          pattern: ^[0-9]+$
+          type: string
         failed:
           format: int64
           type: integer
@@ -2216,6 +2245,9 @@ components:
         owner_renderer:
           type: string
         phase:
+          type: string
+        prepared_revision:
+          pattern: ^[0-9]+$
           type: string
         reason:
           type: string

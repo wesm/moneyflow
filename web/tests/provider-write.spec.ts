@@ -33,22 +33,16 @@ test('w then Enter prepares, writes, and finalizes Monarch edits without extra c
     await page.keyboard.press('w')
     const review = page.getByRole('dialog', { name: 'Review pending changes' })
     await expect(review).toBeVisible()
-    const drawer = await review.elementHandle()
     await page.keyboard.press('Enter')
 
-    // The same drawer turns into write status, with focus still inside it.
-    const write = page.getByRole('dialog', { name: 'Monarch write status' })
-    await expect(write).toBeVisible()
+    // A routine write closes review and reports in the status bar; no drawer opens for it.
     await expect(review).toHaveCount(0)
-    expect(await drawer?.evaluate((node) => node.isConnected)).toBe(true)
-    expect(await write.evaluate((node) => node.contains(document.activeElement))).toBe(true)
-    await expect(write.getByRole('button', { name: 'Commit reviewed changes' })).toHaveCount(0)
-    await expect(write.getByRole('status')).toContainText(/Provider write|Writing pending/)
+    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
     await expect(page.getByText(/0 pending edit/)).toBeVisible({ timeout: 10_000 })
-    await expect(write.getByRole('status')).toContainText('Provider write complete')
-    // The finished write keeps its counts: every hidden transaction was written.
-    await expect(write.getByText(/^([1-9]\d*) of \1 complete$/)).toBeVisible()
-    await expect(write.getByText('Finished', { exact: true })).toBeVisible()
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(
+      /^Saved [1-9]\d* changes? to Monarch\.$/,
+    )
+    await expect(page.getByRole('dialog')).toHaveCount(0)
     const exposed = [await page.locator('body').innerText(), page.url(), ...consoleMessages].join(
       '\n',
     )

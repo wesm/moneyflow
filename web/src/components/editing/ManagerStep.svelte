@@ -56,10 +56,13 @@
     step.target = matchChoice(choices, value)?.id ?? ''
   }
 
-  /** Enter in the destination field confirms; a held, modified, or claimed Enter does not. */
+  /**
+   * Enter in the destination field confirms, taking the highlighted destination first when the
+   * list is open. A held, modified, or claimed Enter does not confirm.
+   */
   function onkeyaction(next: EditorKeyAction, event: KeyboardEvent): void {
     if (next === 'cancel' || !plainEnter(event)) return
-    if (next === 'stage') onconfirm()
+    if (next === 'stage' || next === 'accept-and-stage') onconfirm()
   }
 
   /**
@@ -102,6 +105,7 @@
         {options}
         bind:value={() => text, pick}
         valid={ready}
+        acceptStages
         onaccept={() => undefined}
         {onkeyaction}
       />

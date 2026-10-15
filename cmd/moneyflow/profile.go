@@ -187,7 +187,7 @@ func resolvePersistentSelection(
 			Root: catalog.Paths().Root, Status: profilecatalog.StatusSetupIncomplete,
 		}, false, nil
 	}
-	entry, err := profilecatalog.ResolveEntries(entries, profile)
+	entry, err := resolveCommandProfile(entries, profile)
 	if err != nil {
 		return nil, profilecatalog.Entry{}, false, err
 	}

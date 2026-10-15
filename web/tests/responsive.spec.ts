@@ -441,7 +441,10 @@ test('Review in the phone drawer closes the drawer and moves focus into the revi
     await page.setViewportSize(phone)
     await openMoneyflow(page, server)
     await page.keyboard.press('h')
-    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    // At phone width the hide's notice has the status line in place of the pending text.
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(
+      /^Hidden \d+ transactions? · Undo u$/,
+    )
     await page.getByRole('button', { name: 'Open navigation' }).click()
     const drawer = page.getByRole('dialog', { name: 'Navigation' })
     // kit closes the drawer for a link. For a button in its footer, moneyflow closes it first.
@@ -780,8 +783,14 @@ test.describe('phone rows by touch', () => {
     await sheet.getByRole('button', { name: 'Hide' }).tap()
     await expect(sheet).toBeHidden()
     await expect(first).toContainText('Hidden')
-    await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await expect(more).toBeFocused()
+    // At phone width the notice has the status line until the next action brings back the
+    // pending text.
+    const notice = page.getByRole('status', { name: 'Notice' })
+    await expect(notice).toHaveText('Hidden 1 transaction · Undo u')
+    await page.keyboard.press('j')
+    await expect(notice).toBeEmpty()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
   })
 })
 

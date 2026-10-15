@@ -1,40 +1,43 @@
 package analytics
 
 import (
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
-// DetailRows materializes and deterministically sorts transaction rows.
+// DetailRows materializes and deterministically sorts transaction rows. It sorts row indexes
+// rather than rows, so a large result moves integers instead of whole transactions.
 func DetailRows(filtered []domain.Transaction, sortSpec domain.SortSpec) []domain.DetailRow {
+	ascending := sortSpec.Direction == domain.SortDirectionAsc
+	if sortSpec.Field == domain.SortFieldAmount {
+		ascending = !ascending
+	}
+	order := make([]int, len(filtered))
+	for index := range order {
+		order[index] = index
+	}
+	slices.SortStableFunc(order, func(left, right int) int {
+		comparison := compareDetail(&filtered[left], &filtered[right], sortSpec.Field)
+		if comparison == 0 {
+			return strings.Compare(filtered[left].ID, filtered[right].ID)
+		}
+		if ascending {
+			return comparison
+		}
+		return -comparison
+	})
 	rows := make([]domain.DetailRow, len(filtered))
-	for index, transaction := range filtered {
-		rows[index] = domain.DetailRow{
+	for position, index := range order {
+		transaction := &filtered[index]
+		rows[position] = domain.DetailRow{
 			Transaction: transaction.Clone(),
 			Flags: domain.RowFlags{
 				Hidden:  transaction.Hidden,
 				Pending: transaction.Pending,
 			},
 		}
-	}
-	less := func(left, right int) bool {
-		comparison := compareDetail(rows[left].Transaction, rows[right].Transaction, sortSpec.Field)
-		if comparison == 0 {
-			return rows[left].Transaction.ID < rows[right].Transaction.ID
-		}
-		ascending := sortSpec.Direction == domain.SortDirectionAsc
-		if sortSpec.Field == domain.SortFieldAmount {
-			ascending = !ascending
-		}
-		if ascending {
-			return comparison < 0
-		}
-		return comparison > 0
-	}
-	if !sort.SliceIsSorted(rows, less) {
-		sort.SliceStable(rows, less)
 	}
 	return rows
 }
@@ -50,7 +53,7 @@ func DecorateDetailRows(rows []domain.DetailRow, selected map[string]bool) []dom
 	return decorated
 }
 
-func compareDetail(left, right domain.Transaction, field domain.SortField) int {
+func compareDetail(left, right *domain.Transaction, field domain.SortField) int {
 	switch field {
 	case domain.SortFieldDate:
 		return left.Date.Compare(right.Date)

@@ -132,7 +132,13 @@ const (
 	CodeAmazonImportExpired ErrorCode = "amazon_import_expired"
 	// CodeImportCancelled reports a canceled local import.
 	CodeImportCancelled ErrorCode = "import_cancelled"
+	// CodeRequestCanceled reports a request its client abandoned before it finished.
+	CodeRequestCanceled ErrorCode = "request_canceled"
 )
+
+// statusClientClosedRequest is the conventional status for a request whose client went away.
+// The client no longer reads the response; the status keeps the outcome out of the 5xx class.
+const statusClientClosedRequest = 499
 
 // SafeError separates public detail from an internal diagnostic cause.
 type SafeError struct {

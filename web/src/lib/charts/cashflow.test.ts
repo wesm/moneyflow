@@ -8,7 +8,6 @@ import {
   cashflowCursor,
   cashflowGeometry,
   cursorGeometry,
-  NET_DOT_RADIUS,
   rangeAnchor,
   rowAmounts,
   scopeFromColumns,
@@ -90,7 +89,6 @@ describe('cashflowGeometry', () => {
       inHeight: 20,
       outHeight: 80,
       netY: 84,
-      partial: false,
       inScope: true,
       name: 'Sep 2026, in +120.00, out -480.00, net -360.00',
     })
@@ -138,7 +136,7 @@ describe('cashflowGeometry', () => {
     expect(geometry.columns[0]).toMatchObject({ inHeight: 1, outHeight: 0 })
   })
 
-  it('marks partial periods and bands only the columns that meet the scope', () => {
+  it('bands only the columns that meet the scope and runs Net through a partial period', () => {
     const context = [month(2026, 8), month(2026, 9), month(2026, 10, true)]
     const flow = {
       labels: ['Aug 2026', 'Sep 2026', 'Oct 2026'],
@@ -152,10 +150,9 @@ describe('cashflowGeometry', () => {
       100,
     )
     expect(custom.columns.map((column) => column.inScope)).toEqual([true, true, false])
-    expect(custom.columns.map((column) => column.partial)).toEqual([false, false, true])
 
-    // The Net line stops at the ring of the partial period's hollow dot.
-    expect(custom.netPath).toBe(`M50,50L150,50L${250 - NET_DOT_RADIUS},50`)
+    // The Net line runs to the partial period's dot as to any other.
+    expect(custom.netPath).toBe('M50,50L150,50L250,50')
 
     const everything = entry(context, flow, { kind: 'all' })
     delete everything.response.ranges.scope
@@ -217,10 +214,7 @@ describe('cashflowGeometry', () => {
     )
     expect(geometry.columns.map((column) => column.tick)).toEqual(['2024', '2025', '2026'])
     expect(geometry.columns.map((column) => column.inScope)).toEqual([false, false, true])
-    expect(geometry.columns[2]).toMatchObject({
-      partial: true,
-      name: '2026, in +120.00, out -480.00, net -360.00',
-    })
+    expect(geometry.columns[2]?.name).toBe('2026, in +120.00, out -480.00, net -360.00')
     expect(scopeFromColumns(context, 1, 1)).toEqual({ start: '2025-01-01', end: '2025-12-31' })
   })
 

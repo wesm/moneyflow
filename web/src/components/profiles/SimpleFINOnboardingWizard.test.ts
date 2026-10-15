@@ -17,7 +17,7 @@ it('keeps interrupted-claim recovery visible until explicitly dismissed', async 
     state_version: 3,
     state: 'claiming',
     provider_kind: 'simplefin',
-    progress: { fetched: 0, total: 0 },
+    progress: { fetched: 0, total: 0, verifying: false, percent: 0 },
     imported_transactions: 0,
   }
   const message = 'If the connection was not saved, revoke it in SimpleFIN and obtain a new token.'
@@ -56,7 +56,7 @@ it('confirms money settings before masked input and keeps invalid input for corr
         state_version: 1,
         state: 'credentials_required',
         provider_kind: 'simplefin',
-        progress: { fetched: 0, total: 0 },
+        progress: { fetched: 0, total: 0, verifying: false, percent: 0 },
         imported_transactions: 0,
       },
       busy: false,
@@ -101,7 +101,7 @@ it('shows why a connect request failed next to the input', () => {
         state_version: 1,
         state: 'credentials_required',
         provider_kind: 'simplefin',
-        progress: { fetched: 0, total: 0 },
+        progress: { fetched: 0, total: 0, verifying: false, percent: 0 },
         imported_transactions: 0,
       },
       busy: false,

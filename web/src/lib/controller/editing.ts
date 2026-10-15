@@ -1,4 +1,3 @@
-import { showFlash } from '@kenn-io/kit-ui'
 import { createSubscriber } from 'svelte/reactivity'
 
 import {
@@ -20,7 +19,7 @@ import {
 } from '../api/client'
 import { LABEL_TAKEN } from '../editing/manager'
 import { toastMessage, type ToastAction } from '../editing/toasts'
-import { showWarning } from '../shell/notices'
+import { showNotice } from '../shell/notices'
 
 export type MutationPhase = 'idle' | 'submitting' | 'conflict' | 'failed'
 
@@ -29,7 +28,6 @@ export interface EditingState {
   phase: MutationPhase
   pending: PendingSummary
   announcement: string
-  providerWrite?: ProviderWriteStatus
 }
 
 export interface MutationIntent {
@@ -100,6 +98,8 @@ const emptyPending: PendingSummary = {
 
 /** What an editing request that failed without a server answer reports. */
 export const REQUEST_FAILED = 'The profile request failed.'
+/** The warning the editing controller reports with the commit that caused it. */
+export const auditWarningCode = 'audit_completion_failed'
 
 /** Why an edit made while another is on its way was not sent. */
 export const EDIT_IN_FLIGHT = 'Wait for the previous edit to finish, then try again.'
@@ -304,16 +304,20 @@ export function createEditingController(options: EditingControllerOptions): Edit
         selection,
       }
       const viewWarning = await show(projection, body.query, body.selection, install)
-      const auditWarning = projection.warnings?.find(
-        (warning) => warning.code === 'audit_completion_failed',
-      )?.detail
-      // The toast's status region is inserted with its text, which screen readers may skip, so
-      // the persistent announcement repeats it.
+      const warnings = projection.warnings ?? []
+      const auditWarning = warnings.find((warning) => warning.code === auditWarningCode)?.detail
       const toasted = toast && toastMessage(response.operation, toast)
-      if (toasted) showFlash(toasted)
+      // The status bar shows one notice, so it carries the view's warnings beside the edit's.
       // The server repeats the audit warning until the next commit; it belongs to this one.
-      if (auditWarning && path === 'api/v1/commit') showWarning(auditWarning)
-      if (viewWarning) showWarning(viewWarning)
+      const notice = [
+        toasted,
+        ...warnings.filter((warning) => warning.code !== auditWarningCode).map((w) => w.detail),
+        path === 'api/v1/commit' && auditWarning,
+        viewWarning,
+      ]
+        .filter(Boolean)
+        .join(' ')
+      if (notice) showNotice(notice)
       setState({
         ...newestRevision(response),
         phase: 'idle',
@@ -324,7 +328,6 @@ export function createEditingController(options: EditingControllerOptions): Edit
         ]
           .filter(Boolean)
           .join(' '),
-        ...(response.provider_write ? { providerWrite: response.provider_write } : {}),
       })
       if (response.provider_write) options.onProviderWrite?.(response.provider_write)
       return true

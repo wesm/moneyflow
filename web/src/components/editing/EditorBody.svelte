@@ -181,6 +181,7 @@
       {options}
       bind:value={draft.text}
       valid={stageable}
+      acceptStages={!merchant}
       {onaccept}
       {onkeyaction}
     />

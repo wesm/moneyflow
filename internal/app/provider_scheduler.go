@@ -98,14 +98,33 @@ func monarchRefreshDue(status ProviderStatus, now time.Time) ProviderRefreshScop
 	if status.LastSuccess.IsZero() || !providerRetryAllowed(status, now) {
 		return ProviderRefreshNone
 	}
-	lastFull := status.LastFullRefresh
-	if lastFull.IsZero() || !lastFull.Add(monarchFullMaxAge).After(now) {
+	if monarchFullRefreshDue(status, now) {
 		return ProviderRefreshFull
 	}
 	if !status.LastSuccess.Add(monarchRecentMaxAge).After(now) {
 		return ProviderRefreshRecent
 	}
 	return ProviderRefreshNone
+}
+
+// ManualRefreshScope is what a manual refresh reads unless it asks for complete history. A
+// Monarch refresh reads the recent window. It reads complete history instead when that window
+// could miss changes the profile has not seen: before any refresh has succeeded, and when the
+// last complete-history refresh is unrecorded or 30 or more days old, as the schedule decides.
+// Retry delays and failures that need action do not apply: the user asked for this refresh.
+// YNAB and SimpleFIN read complete data on every refresh.
+func ManualRefreshScope(status ProviderStatus, now time.Time) ProviderRefreshScope {
+	if status.ProviderKind != "monarch" || status.LastSuccess.IsZero() ||
+		monarchFullRefreshDue(status, now) {
+		return ProviderRefreshFull
+	}
+	return ProviderRefreshRecent
+}
+
+// monarchFullRefreshDue reports a complete-history record that is missing or 30 or more days old.
+func monarchFullRefreshDue(status ProviderStatus, now time.Time) bool {
+	lastFull := status.LastFullRefresh
+	return lastFull.IsZero() || !lastFull.Add(monarchFullMaxAge).After(now)
 }
 
 func providerRetryAllowed(status ProviderStatus, now time.Time) bool {
@@ -149,7 +168,8 @@ func (service *Service) ProviderStatus(ctx context.Context) (ProviderStatus, err
 	parked := runtime.parkedReconnect
 	fingerprint := runtime.fingerprint
 	providerKind := runtime.provider
-	progress := runtime.progress
+	var progress ProviderStatus
+	runtime.progress.applyTo(&progress)
 	runtime.mu.Unlock()
 	if providerKind == "ynab" && fingerprint != "" {
 		changed, _ := runtime.readSource.Changed(fingerprint)
@@ -161,8 +181,7 @@ func (service *Service) ProviderStatus(ctx context.Context) (ProviderStatus, err
 			service.mu.Unlock()
 			status := providerStatusFromState(state, runtime.provider)
 			status.Code = provider.CodeReconnectRequired
-			status.Fetched = progress.Fetched
-			status.Total = progress.Total
+			copyProgress(&status, progress)
 			return status, nil
 		}
 	}
@@ -176,14 +195,14 @@ func (service *Service) ProviderStatus(ctx context.Context) (ProviderStatus, err
 		}
 	}
 	status := providerStatusFromState(state, runtime.provider)
-	status.Fetched = progress.Fetched
-	status.Total = progress.Total
+	copyProgress(&status, progress)
 	if status.Code == provider.CodeReconnectRequired && runtime.hasForceReload() {
 		status.Code = ""
 	}
 	status.LastFullRefresh = service.profile.LastFullProviderRefresh()
 	now := runtime.now()
 	status.RefreshDue = ProviderRefreshDue(status, now)
+	status.ManualRefresh = ManualRefreshScope(status, now)
 	status.Refreshing = refreshRunning(state.Lease, now)
 	status.Warning = service.providerRefreshWarning()
 	return status, nil
@@ -210,6 +229,7 @@ func (service *Service) StoredProviderStatus(ctx context.Context) (ProviderStatu
 	status := providerStatusFromState(state, state.Binding.Kind)
 	status.LastFullRefresh = service.profile.LastFullProviderRefresh()
 	status.RefreshDue = ProviderRefreshDue(status, now)
+	status.ManualRefresh = ManualRefreshScope(status, now)
 	status.Refreshing = refreshRunning(state.Lease, now)
 	return status, nil
 }

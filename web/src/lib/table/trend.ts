@@ -1,6 +1,6 @@
 import type { InsightsResponse, InsightsSeries } from '../api/client'
 import type { components } from '../api/schema'
-import { maxMagnitude, ratioBasisPoints, stopShort } from '../charts/scale'
+import { maxMagnitude, ratioBasisPoints } from '../charts/scale'
 import type { InsightsCache } from '../insights/cache.svelte'
 import { insightsQuery } from '../insights/requests'
 
@@ -24,8 +24,8 @@ export interface Sparkline {
   readonly zero: number
   /** Runs of consecutive months; an absent month ends a run, leaving a gap. */
   readonly segments: readonly (readonly SparkPoint[])[]
-  /** The last month's dot, hollow when the month is partial; none when it is absent. */
-  readonly end?: SparkPoint & { readonly hollow: boolean }
+  /** The last month's dot, even for a month in progress; none when the month is absent. */
+  readonly end?: SparkPoint
 }
 
 function rounded(value: number): number {
@@ -62,18 +62,8 @@ export function sparkline(trend: readonly string[], months: readonly TrendMonth[
     }
     run.push(point)
   }
-  const last = months.length - 1
-  const final = present(last) ? segments.at(-1)?.at(-1) : undefined
-  if (final === undefined) return { zero, segments }
-  const hollow = months[last]?.partial === true
-  const tail = segments.at(-1)
-  const before = tail?.at(-2)
-  // The line stops at a hollow dot's ring, so the ring stays empty on any row tint.
-  if (hollow && tail && before) {
-    const stop = stopShort(before, final, END_RADIUS)
-    tail[tail.length - 1] = { x: rounded(stop.x), y: rounded(stop.y) }
-  }
-  return { zero, segments, end: { ...final, hollow } }
+  const final = present(months.length - 1) ? segments.at(-1)?.at(-1) : undefined
+  return final === undefined ? { zero, segments } : { zero, segments, end: final }
 }
 
 /** What the grouped table reads from the displayed view's insights. */

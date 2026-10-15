@@ -1,4 +1,3 @@
-import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -11,6 +10,7 @@ import {
   type ViewProjection,
 } from '../api/client'
 import { testDuplicates as duplicates } from '../../test/duplicates'
+import { notices } from '../../test/notices'
 import { testProjection } from '../../test/projection'
 import { createDuplicateController, type DuplicateHost } from './duplicates'
 
@@ -419,10 +419,15 @@ describe('DuplicateController after a failed reload', () => {
     await expect(deleting).resolves.toBe(false)
 
     expect(controller.state.phase).toBe('idle')
-    expect(getFlashes().map(({ message }) => message)).toEqual([
-      'The duplicate change could not be saved. The profile changed.',
-    ])
-    dismissFlash()
+    expect(notices()).toEqual({
+      banners: [
+        {
+          message: 'The duplicate change could not be saved. The profile changed.',
+          tone: 'danger',
+        },
+      ],
+      status: '',
+    })
   })
 
   it('reports a staged hide whose reload failed as saved, not failed to save', async () => {

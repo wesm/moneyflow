@@ -10,6 +10,9 @@ import (
 const (
 	defaultSnapshotPageSize = 1000
 	maxSnapshotAttempts     = 3
+	// snapshotPasses is how many times one attempt reads every partition: the second read
+	// confirms that the data did not change during the first.
+	snapshotPasses = 2
 )
 
 var errSnapshotChanged = errors.New("monarch snapshot changed while reading")
@@ -71,6 +74,7 @@ func (client *Client) fetchTransactionPartition(
 				Total:     wantTotal,
 				Attempt:   attempt,
 				Pass:      pass,
+				Passes:    snapshotPasses,
 			})
 		}
 		if offset == wantTotal {

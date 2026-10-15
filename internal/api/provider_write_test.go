@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -87,6 +88,9 @@ func TestProviderCommitReturnsPreparedBatchAndStartsWebWorker(t *testing.T) {
 	require.NotNil(t, committed.ProviderWrite)
 	assert.Equal(t, string(store.WritePhaseWriting), committed.ProviderWrite.Phase)
 	assert.Equal(t, 1, committed.ProviderWrite.Total)
+	// A running batch names the revision it was prepared at, which its finalization follows.
+	prepared := committed.ProviderWrite.PreparedRevision
+	require.NotEmpty(t, prepared)
 	assert.Equal(t, 1, committed.Pending.ActiveOperations)
 	assert.NotContains(t, committedResponse.Body.String(), "transaction-example")
 
@@ -104,6 +108,9 @@ func TestProviderCommitReturnsPreparedBatchAndStartsWebWorker(t *testing.T) {
 		completedAt, parseErr := time.Parse(time.RFC3339Nano, status.CompletedAt)
 		require.NoError(t, parseErr, "completed_at is a timestamp")
 		assert.False(t, completedAt.IsZero())
+		// The write committed the revision after the one it was prepared at.
+		assert.Equal(t, nextRevision(t, prepared), status.CompletedRevision)
+		assert.Empty(t, status.PreparedRevision, "only an active batch has a prepared revision")
 	}
 
 	// A later edit must not inherit the previous batch's completion record.
@@ -118,6 +125,15 @@ func TestProviderCommitReturnsPreparedBatchAndStartsWebWorker(t *testing.T) {
 	next := providerWriteStatusResponse(t, fixture.server)
 	assert.Empty(t, next.CompletedAt)
 	assert.Zero(t, next.Completed)
+	// A client that last saw the batch running can still tell that it finished.
+	assert.Equal(t, nextRevision(t, prepared), next.CompletedRevision)
+}
+
+func nextRevision(t *testing.T, revision string) string {
+	t.Helper()
+	parsed, err := strconv.ParseUint(revision, 10, 64)
+	require.NoError(t, err, "revision %q is a decimal integer", revision)
+	return strconv.FormatUint(parsed+1, 10)
 }
 
 func providerWriteStatusResponse(t *testing.T, server *Server) ProviderWriteStatusResponse {

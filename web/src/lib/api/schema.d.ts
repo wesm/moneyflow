@@ -1452,6 +1452,8 @@ export interface components {
       window: components['schemas']['ReturnedWindow']
     }
     ProviderConfirmationBody: {
+      /** @description Read complete Monarch history instead of the last 90 days */
+      complete_history?: boolean
       confirmation_token: string
       manual: boolean
       query: string
@@ -1460,12 +1462,27 @@ export interface components {
       window: components['schemas']['Window']
     }
     ProviderProgress: {
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Transactions read so far in the current read
+       */
       fetched: number
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description Overall progress of the refresh
+       */
+      percent: number
+      /**
+       * Format: int64
+       * @description Transactions in the current read as far as reported; the first read's total can grow
+       */
       total: number
+      /** @description The provider is reading its data again to confirm it did not change */
+      verifying: boolean
     }
     ProviderRefreshBody: {
+      /** @description Read complete Monarch history instead of the last 90 days */
+      complete_history?: boolean
       manual: boolean
       query: string
       selection?: string
@@ -1515,6 +1532,11 @@ export interface components {
       last_attempt?: string
       /** Format: date-time */
       last_success?: string
+      /**
+       * @description What a manual refresh reads unless it asks for complete history
+       * @enum {string}
+       */
+      manual_refresh: 'recent' | 'full'
       /** Format: date-time */
       next_eligible?: string
       owner_instance_id?: string
@@ -1567,6 +1589,7 @@ export interface components {
       completed: number
       /** Format: date-time */
       completed_at?: string
+      completed_revision?: string
       /** Format: int64 */
       failed: number
       generation: string
@@ -1577,6 +1600,7 @@ export interface components {
       owner_instance_id?: string
       owner_renderer?: string
       phase?: string
+      prepared_revision?: string
       reason?: string
       /** Format: int64 */
       remaining: number

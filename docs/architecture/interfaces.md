@@ -67,11 +67,12 @@ share one merchant. The editor compares it with the matched merchant's ID to dec
 reports how many affected transactions the view hides, with `outside_view` and `outside_currencies`.
 
 **Unreleased:** A mutate, undo, or redo response carries `operation`, from which the browser words
-its toasts: the `kind` (`rename`, `recategorize`, `hide`, `show`, `delete`, `manage_category`, or
-`manage_group`), the review `label`, the `affected` transaction count, and `undoable`. A commit
-response has no `operation`. Each editor-catalog choice carries `transaction_count`, its committed
-non-deleted transactions, and `in_use`, which applies pending edits and makes a manager delete ask
-for a replacement. Review targets carry each transaction's exact `amount`.
+its status line notices: the `kind` (`rename`, `recategorize`, `hide`, `show`, `delete`,
+`manage_category`, or `manage_group`), the review `label`, the `affected` transaction count, and
+`undoable`. A commit response has no `operation`. Each editor-catalog choice carries
+`transaction_count`, its committed non-deleted transactions, and `in_use`, which applies pending
+edits and makes a manager delete ask for a replacement. Review targets carry each transaction's
+exact `amount`.
 
 **Unreleased:** An `invalid_operation` problem, the `Problem` a refused operation returns, can carry
 `reason`. The server sets it only from the store's allowlisted reasons; the schema lists them as an
@@ -86,7 +87,7 @@ warning `anchor_missing`.
 **Unreleased:** A projection reports a change the request made that the user did not ask for as
 the warning `view_notice`. Examples are an undo or redo that returns to the parent view because
 the drilled target is gone, and a provider refresh that clears the selection. The browser shows
-each warning in a banner.
+the warnings in a status line notice.
 
 **Unreleased:** Charts read from a separate operation,
 `POST /api/v1/profiles/{profile_id}/view/insights`. It takes the view's query and optional row

@@ -1,5 +1,4 @@
-import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   MoneyflowProblem,
@@ -8,12 +7,12 @@ import {
   type SelectionValue,
   type ViewProjection,
 } from '../api/client'
+import { notices } from '../../test/notices'
 import { testProjection } from '../../test/projection'
 import { createEditingController, type EditingProjectionHost } from './editing'
 
 describe('browser editing controller', () => {
   beforeEach(() => history.replaceState({ safe: true }, '', '/moneyflow/?v=1&group=merchant'))
-  afterEach(() => dismissFlash())
 
   it('submits exact revisions and installs the server projection without browser history writes', async () => {
     const localStorageWrite = vi.fn()
@@ -72,8 +71,6 @@ describe('browser editing controller', () => {
   })
 
   describe('toasts', () => {
-    afterEach(() => dismissFlash())
-
     async function respondWith(
       operation: OperationSummary,
       run: (controller: ReturnType<typeof createEditingController>) => Promise<boolean>,
@@ -102,7 +99,7 @@ describe('browser editing controller', () => {
         c.submit({ action: 'transaction.toggle-hidden', input: {}, target }),
       )
 
-      expect(getFlashes().map((flash) => flash.message)).toEqual(['Hidden 2 transactions · Undo u'])
+      expect(notices()).toEqual({ banners: [], status: 'Hidden 2 transactions · Undo u' })
       expect(controller.state.announcement).toBe('Hidden 2 transactions · Undo u')
     })
 
@@ -124,18 +121,36 @@ describe('browser editing controller', () => {
         (c) => c.undo(),
       )
 
-      expect(getFlashes().map((flash) => flash.message)).toEqual([
-        'Undid delete · 1 transaction · Redo U',
-      ])
+      expect(notices()).toEqual({ banners: [], status: 'Undid delete · 1 transaction · Redo U' })
       expect(controller.state.announcement).toBe('Undid delete · 1 transaction · Redo U')
+    })
+
+    it('keeps the warning of the view an undo returned to beside its toast', async () => {
+      const notice = 'The previous view target is unavailable; returned to its parent.'
+      const response = {
+        ...mutationResponse('8', 'mfsel1.x' as SelectionValue),
+        operation: { ...hide, kind: 'delete', label: 'Delete transaction', affected: 1 },
+      }
+      response.projection.warnings = [{ code: 'view_notice', detail: notice }]
+      const controller = createEditingController({
+        transport: mutationTransport(response),
+        host: editingHost(
+          testProjection({ revision: '7', canonical_query: response.canonical_query }),
+        ),
+      })
+
+      await controller.undo()
+
+      expect(notices()).toEqual({
+        banners: [],
+        status: `Undid delete · 1 transaction · Redo U ${notice}`,
+      })
     })
 
     it('toasts and announces a redo', async () => {
       const controller = await respondWith(hide, (c) => c.redo())
 
-      expect(getFlashes().map((flash) => flash.message)).toEqual([
-        'Redid hide · 2 transactions · Undo u',
-      ])
+      expect(notices()).toEqual({ banners: [], status: 'Redid hide · 2 transactions · Undo u' })
       expect(controller.state.announcement).toBe('Redid hide · 2 transactions · Undo u')
     })
 
@@ -149,7 +164,7 @@ describe('browser editing controller', () => {
         controller.submit({ action: 'transaction.toggle-hidden', input: {}, target }),
       ).resolves.toBe(false)
 
-      expect(getFlashes()).toEqual([])
+      expect(notices()).toEqual({ banners: [], status: '' })
       expect(controller.state.announcement).toBe('The profile could not save that action.')
     })
 
@@ -164,7 +179,7 @@ describe('browser editing controller', () => {
 
       await expect(controller.commit(7n)).resolves.toBe(true)
 
-      expect(getFlashes()).toEqual([])
+      expect(notices()).toEqual({ banners: [], status: '' })
       expect(controller.state.announcement).toContain('Changes saved in Moneyflow.')
     })
 
@@ -174,7 +189,7 @@ describe('browser editing controller', () => {
         c.submit({ action: 'transaction.edit-merchant', input: { scope: 'selection' }, target }),
       )
 
-      expect(getFlashes()).toEqual([])
+      expect(notices()).toEqual({ banners: [], status: '' })
       expect(controller.state.announcement).toBe('Change saved as pending. Selection cleared.')
     })
 
@@ -193,7 +208,7 @@ describe('browser editing controller', () => {
 
       expect(controller.state.announcement).toBe(`Hidden 2 transactions · Undo u ${warning}`)
       // The server repeats the warning until the next commit, so only a commit shows it.
-      expect(getFlashes().map(({ message }) => message)).toEqual(['Hidden 2 transactions · Undo u'])
+      expect(notices()).toEqual({ banners: [], status: 'Hidden 2 transactions · Undo u' })
     })
   })
 
@@ -448,10 +463,8 @@ describe('browser editing controller', () => {
     ).resolves.toBe(true)
     expect(controller.state.phase).toBe('idle')
     expect(controller.state.announcement).toContain('The current view could not be refreshed.')
-    expect(getFlashes().map(({ message, tone }) => ({ message, tone }))).toContainEqual({
-      message: 'The current view could not be refreshed.',
-      tone: 'warning',
-    })
+    expect(notices().banners).toEqual([])
+    expect(notices().status).toContain('The current view could not be refreshed.')
   })
 
   it('rejects a mutation when the displayed projection and editing revision differ', async () => {
@@ -594,9 +607,7 @@ describe('browser editing controller', () => {
     expect(controller.state.phase).toBe('idle')
     expect(controller.state.announcement).toContain('Changes saved in Moneyflow.')
     expect(controller.state.announcement).toContain(warning)
-    expect(getFlashes().map(({ message, tone }) => ({ message, tone }))).toEqual([
-      { message: warning, tone: 'warning' },
-    ])
+    expect(notices()).toEqual({ banners: [], status: warning })
   })
 
   it('loads bounded editor choices at the exact current revision', async () => {

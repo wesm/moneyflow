@@ -3,7 +3,7 @@ import type { InsightsEntry } from '../insights/cache.svelte'
 import { insightsQuery } from '../insights/requests'
 import { formatMinor, parseMinor } from '../money/format'
 import { dayLabel, MONTHS, type Period } from '../shell/period'
-import { maxMagnitude, ratioBasisPoints, stopShort, type Point } from './scale'
+import { maxMagnitude, ratioBasisPoints } from './scale'
 
 type ContextPeriod = InsightsResponse['ranges']['context'][number]
 type Cashflow = NonNullable<InsightsResponse['summary']>['cashflow']
@@ -25,7 +25,6 @@ export interface ColumnGeometry {
   /** The Out bar falls from zero. */
   outHeight: number
   netY: number
-  partial: boolean
   /** The period meets the view's scope, so the scope band covers it. */
   inScope: boolean
   /** The accessible name: `{label}, in {in}, out {out}, net {net}`. */
@@ -164,7 +163,6 @@ function columnAt(layout: Layout, period: ContextPeriod, index: number): ColumnG
     inHeight,
     outHeight: extent(falling, scale),
     netY: parseMinor(net) < 0n ? scale.zeroY + netExtent : scale.zeroY - netExtent,
-    partial: period.partial,
     inScope: meetsScope(period, ranges),
     name: `${label}, in ${amounts.in}, out ${amounts.out}, net ${amounts.net}`,
     label,
@@ -198,28 +196,10 @@ export function cashflowGeometry(
 /** The radius of each column's Net dot. */
 export const NET_DOT_RADIUS = 2.5
 
-/** The Net line through the columns' dots; it stops at a partial period's hollow ring. */
+/** The Net line through the columns' dots. */
 function netPath(columns: readonly ColumnGeometry[]): string {
-  const dots = columns.map((column) => ({
-    x: column.x + column.width / 2,
-    y: column.netY,
-    hollow: column.partial,
-  }))
-  const text = (point: Point) => `${point.x},${point.y}`
-  if (dots.length === 1 && dots[0]) return `M${text(dots[0])}`
-  let path = ''
-  let pen: Point | undefined
-  dots.forEach((to, index) => {
-    const from = dots[index - 1]
-    if (from === undefined) return
-    const start = from.hollow ? stopShort(to, from, NET_DOT_RADIUS) : from
-    const end = to.hollow ? stopShort(from, to, NET_DOT_RADIUS) : to
-    // Lines meet at a solid dot; a hollow dot's ring breaks the line.
-    if (pen !== start) path += `M${text(start)}`
-    path += `L${text(end)}`
-    pen = end
-  })
-  return path
+  const dots = columns.map((column) => `${column.x + column.width / 2},${column.netY}`)
+  return dots.length === 0 ? '' : `M${dots.join('L')}`
 }
 
 /** The cursor's bars inside each column, on the chart's scale for the same `height`. */

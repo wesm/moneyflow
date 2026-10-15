@@ -71,7 +71,11 @@ func buildWebDependencies(
 	}
 	preselectedID := ""
 	if options.Profile != "" {
-		entry, resolveErr := catalog.Resolve(ctx, options.Profile)
+		entries, listErr := catalog.List(ctx)
+		if listErr != nil {
+			return WebDependencies{}, listErr
+		}
+		entry, resolveErr := resolveCommandProfile(entries, options.Profile)
 		if resolveErr != nil {
 			return WebDependencies{}, resolveErr
 		}

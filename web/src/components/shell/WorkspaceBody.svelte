@@ -64,9 +64,6 @@
   /** A Clear is queued; another click must not queue a second one. */
   let clearing = false
   const compact = new MediaQuery(MEDIA.compact)
-  /** The measured heights of the charts and the write banner above the table. */
-  let above = $state(0)
-  let bannerHeight = $state(0)
   // The KPI strip shows above phone width; on phones only the chart drawer reads insights.
   const charting = $derived(!compact.current || charts.dialogOpen)
   provideRevealHold(new RevealHold())
@@ -146,25 +143,16 @@
 <svelte:window onfocus={syncInsights} />
 <svelte:document onvisibilitychange={foreground} />
 
-<!-- The workspace's one scroll surface; the table header sticks to its top. -->
-<div
-  class={['mf-workspace', selecting && 'mf-workspace--selecting']}
-  style:--mf-selection-height={`${covered}px`}
-  bind:this={scroller}
-  bind:clientHeight={viewport}
-  onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
->
-  <!-- Always present, so the table learns when the banner above it comes or goes. -->
-  <div bind:offsetHeight={bannerHeight}>
-    {#if writePhase}
-      <EditLockBanner
-        providerName={providerName(projection.profile_kind)}
-        phase={writePhase}
-        onstatus={() => actions.overlays.open('write')}
-      />
-    {/if}
-    <StaleBanner controller={controller.provider} {onreconnect} />
-  </div>
+<!-- The banners and charts stay put above the table, which scrolls under its sticky header. -->
+<div class="mf-workspace-body">
+  {#if writePhase}
+    <EditLockBanner
+      providerName={providerName(projection.profile_kind)}
+      phase={writePhase}
+      onstatus={() => actions.overlays.open('write')}
+    />
+  {/if}
+  <StaleBanner controller={controller.provider} {onreconnect} />
   {#if !compact.current}
     <ChartArea
       {projection}
@@ -175,50 +163,57 @@
       {onrow}
       {ondrill}
       onleave={actions.focusGrid}
-      measure={(height) => (above = height)}
     />
   {/if}
-  {#if empty}
-    <EmptyScope
-      scope={empty}
-      onjump={() => onapply({ action: 'time.set-period', period: empty.jump })}
-    />
-  {:else}
-    <FinanceGrid
-      {projection}
-      neighbors={controller.neighbors}
-      {insights}
-      cursorIndex={controller.cursorIndex}
-      {scroller}
-      bind:scrollTop
-      viewport={viewport - covered}
-      above={above + bannerHeight}
-      compact={compact.current}
-      oncursor={(index) => moveCursor(actions, () => controller.moveCursorTo(index))}
-      onmove={(decide) =>
-        void moveCursor(actions, async () => {
-          const index = decide()
-          if (index !== undefined) await controller.moveCursorTo(index)
-        })}
-      ontoggle={(identity, kind) =>
-        onapply({ action: 'selection.toggle', target: { identity, kind } })}
-      ontoggleall={() => onapply({ action: 'selection.toggle-all' })}
-      onactivate={(identity, kind) => onapply({ action: 'view.drill', target: { identity, kind } })}
-      oninformation={(identity) =>
-        actions.queue(() => openTransactionInformation(actions, identity))}
-      onedit={(identity, field) =>
-        openEditorWhenSettled(actions, field, { identity, kind: 'transaction' })}
-      onsort={(field) => onapply({ action: 'sort.set', sort_field: field })}
-      onactions={(row, opener) => {
-        sheetRow = row
-        actions.overlays.open('actions', opener)
-      }}
-      onshow={(index) => void controller.showIndex(index)}
-    />
-    {#if selecting}
-      <SelectionBar {projection} onaction={select} bind:height={barHeight} />
+  <div
+    class={['mf-workspace', selecting && 'mf-workspace--selecting']}
+    style:--mf-selection-height={`${covered}px`}
+    bind:this={scroller}
+    bind:clientHeight={viewport}
+    onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
+  >
+    {#if empty}
+      <EmptyScope
+        scope={empty}
+        onjump={() => onapply({ action: 'time.set-period', period: empty.jump })}
+      />
+    {:else}
+      <FinanceGrid
+        {projection}
+        neighbors={controller.neighbors}
+        {insights}
+        cursorIndex={controller.cursorIndex}
+        {scroller}
+        bind:scrollTop
+        viewport={viewport - covered}
+        compact={compact.current}
+        oncursor={(index) => moveCursor(actions, () => controller.moveCursorTo(index))}
+        onmove={(decide) =>
+          void moveCursor(actions, async () => {
+            const index = decide()
+            if (index !== undefined) await controller.moveCursorTo(index)
+          })}
+        ontoggle={(identity, kind) =>
+          onapply({ action: 'selection.toggle', target: { identity, kind } })}
+        ontoggleall={() => onapply({ action: 'selection.toggle-all' })}
+        onactivate={(identity, kind) =>
+          onapply({ action: 'view.drill', target: { identity, kind } })}
+        oninformation={(identity) =>
+          actions.queue(() => openTransactionInformation(actions, identity))}
+        onedit={(identity, field) =>
+          openEditorWhenSettled(actions, field, { identity, kind: 'transaction' })}
+        onsort={(field) => onapply({ action: 'sort.set', sort_field: field })}
+        onactions={(row, opener) => {
+          sheetRow = row
+          actions.overlays.open('actions', opener)
+        }}
+        onshow={(index) => void controller.showIndex(index)}
+      />
+      {#if selecting}
+        <SelectionBar {projection} onaction={select} bind:height={barHeight} />
+      {/if}
     {/if}
-  {/if}
+  </div>
 </div>
 {#if sheetRow}
   {@const target = { identity: sheetRow.identity, kind: 'transaction' } as const}

@@ -55,7 +55,7 @@ func ResolveTargets(
 		currencies: service.currenciesFor(&request.State.Current, document.State),
 	}
 	selection, err = service.resolveSelectionDocument(
-		request.State.Current, document, source.currencies,
+		request.State.Current, document, viewRows{}, source.currencies,
 	)
 	if err != nil {
 		return ResolvedTargets{}, mutationError(MutationInvalidTarget, err)

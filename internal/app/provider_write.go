@@ -24,24 +24,27 @@ const (
 
 // ProviderWriteStatus is the credential-blind, counts-only write projection shared by renderers.
 type ProviderWriteStatus struct {
-	BatchID          string
-	Phase            store.WriteBatchPhase
-	ResumeTarget     store.WriteResumeTarget
-	Version          uint64
-	Generation       uint64
-	AttentionClass   store.WriteAttentionClass
-	AttentionReason  store.WriteAttentionReason
-	Total            int
-	Completed        int
-	Failed           int
-	Remaining        int
-	Overrides        int
-	CompletedAt      time.Time // Set only while the last completed write is the current revision.
-	NextEligible     time.Time
-	OwnerRenderer    string
-	OwnerInstanceID  string
-	PreparedRevision uint64
-	SessionChanged   bool
+	BatchID         string
+	Phase           store.WriteBatchPhase
+	ResumeTarget    store.WriteResumeTarget
+	Version         uint64
+	Generation      uint64
+	AttentionClass  store.WriteAttentionClass
+	AttentionReason store.WriteAttentionReason
+	Total           int
+	Completed       int
+	Failed          int
+	Remaining       int
+	Overrides       int
+	CompletedAt     time.Time // Set only while the last completed write is the current revision.
+	// CompletedRevision is the revision the last completed write committed. Later revisions
+	// keep it, so a client that last saw a batch running can tell that the batch finished.
+	CompletedRevision uint64
+	NextEligible      time.Time
+	OwnerRenderer     string
+	OwnerInstanceID   string
+	PreparedRevision  uint64
+	SessionChanged    bool
 	// SessionCheckErr says why the saved provider session could not be inspected while the
 	// batch waits for a reconnect; SessionChanged is false then. It is for the operator log.
 	SessionCheckErr error
@@ -283,7 +286,10 @@ func providerWriteStatusFromState(state store.ProviderState) ProviderWriteStatus
 			state.LastWrite.CommittedRevision == state.Revision {
 			return completedProviderWriteStatus(state.LastWrite, state.Refresh.Generation)
 		}
-		return ProviderWriteStatus{Generation: state.Refresh.Generation}
+		return ProviderWriteStatus{
+			Generation:        state.Refresh.Generation,
+			CompletedRevision: state.LastWrite.CommittedRevision,
+		}
 	}
 	status := ProviderWriteStatus{
 		BatchID: state.Write.ID,
@@ -308,6 +314,7 @@ func completedProviderWriteStatus(
 	return ProviderWriteStatus{
 		Generation: generation, CompletedAt: summary.CompletedAt, Total: summary.ItemCount,
 		Completed: summary.ItemCount, Overrides: summary.OverrideCount,
+		CompletedRevision: summary.CommittedRevision,
 	}
 }
 

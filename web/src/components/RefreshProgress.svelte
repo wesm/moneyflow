@@ -1,6 +1,11 @@
 <script lang="ts">
   import type { ProviderController } from '../lib/controller/provider'
-  import { elapsed, providerLabel, refreshOwner } from '../lib/controller/refresh-notice'
+  import {
+    elapsed,
+    progressText,
+    providerLabel,
+    refreshOwner,
+  } from '../lib/controller/refresh-notice'
 
   interface Props {
     controller: ProviderController
@@ -21,9 +26,7 @@
         ? 'Complete history'
         : undefined,
   )
-  const counted = $derived(
-    determinate && progress ? `Fetched ${progress.fetched} of ${progress.total}` : undefined,
-  )
+  const counted = $derived(progressText(progress))
 </script>
 
 <div class="mf-refresh__progress">
@@ -35,8 +38,8 @@
     <progress
       class="mf-refresh__bar"
       aria-label="Refresh progress"
-      max={progress.total}
-      value={progress.fetched}
+      max="100"
+      value={progress.percent}
     ></progress>
   {:else}
     <progress class="mf-refresh__bar" aria-label="Refresh progress"></progress>

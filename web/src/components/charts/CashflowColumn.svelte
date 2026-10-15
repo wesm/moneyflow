@@ -54,7 +54,6 @@
     class={[
       'mf-cashflow__column',
       column.inScope && 'mf-cashflow__column--scope',
-      column.partial && 'mf-cashflow__column--partial',
       dragged && 'mf-cashflow__column--dragged',
     ]}
     aria-label={column.name}

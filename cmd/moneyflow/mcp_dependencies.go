@@ -101,7 +101,7 @@ func resolveMCPProfile(
 	if err != nil {
 		return nil, profilecatalog.Entry{}, err
 	}
-	entry, err := profilecatalog.ResolveEntries(entries, selector)
+	entry, err := resolveCommandProfile(entries, selector)
 	if err != nil {
 		return nil, profilecatalog.Entry{}, err
 	}

@@ -33,7 +33,7 @@ export interface RowPort {
 
 /**
  * The `scrollTop` that shows row `index` whole below the sticky one-row header, or the current
- * one when the row already shows. Row 0 scrolls to the very top, so content above the table
+ * one when the row already shows. Row 0 scrolls to the very top, so the room above the table
  * shows too.
  */
 export function revealScrollTop(index: number, port: RowPort): number {

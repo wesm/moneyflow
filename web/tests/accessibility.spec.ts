@@ -421,7 +421,7 @@ for (const [colorScheme, width] of [
       await server.refreshFault('block')
       await page.goto(server.url)
       const progress = page.getByRole('dialog', { name: 'Refreshing from Monarch' })
-      await expect(progress.locator('.mf-refresh__count')).toHaveText('Fetched 3 of 6')
+      await expect(progress.locator('.mf-refresh__count')).toHaveText('Fetched 3 transactions')
       await expectNoAxeViolations(page)
 
       await progress.getByRole('button', { name: 'Cancel refresh' }).click()

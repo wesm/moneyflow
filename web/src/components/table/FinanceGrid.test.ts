@@ -1067,20 +1067,15 @@ describe('FinanceGrid', () => {
         ...events,
       })
       const grid = screen.getByRole('grid', { name: 'Financial results' })
-      let offsetTop = 300
-      Object.defineProperty(grid, 'offsetTop', { get: () => offsetTop })
-      await view.rerender({ above: 300 })
       // Rows 90 to 109 have not loaded, so the cursor stays on row 449 meanwhile.
       await view.rerender({ scrollTop: 100 * 30 })
       vi.advanceTimersToNextFrame()
-      // The content above shrinks, and B arrives before the grid hears of it.
-      offsetTop = 0
       await fireEvent.keyDown(grid, { key: 'B', shiftKey: true })
       vi.advanceTimersToNextFrame()
       expect(events.oncursor).not.toHaveBeenCalled()
 
-      // Once the grid hears of the shrink, it renders the cursor row it kept and names it.
-      await view.rerender({ above: 0, scrollTop: scroller.scrollTop })
+      // Once the scroll B made reaches the grid, it renders the cursor row it kept and names it.
+      await view.rerender({ scrollTop: scroller.scrollTop })
       vi.advanceTimersToNextFrame()
       expect(events.oncursor).not.toHaveBeenCalled()
       const shown = screen.getByRole('grid', { name: 'Financial results' })

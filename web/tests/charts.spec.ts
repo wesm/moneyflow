@@ -97,6 +97,83 @@ test('toggling Charts while scrolled keeps the rows on screen drawn', async ({ p
   }
 })
 
+test('scrolling the table leaves the charts in place above its sticky header', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  const area = page.locator('.mf-chart-area')
+  await expect(page.getByRole('region', { name: 'Charts' })).toHaveAttribute('aria-busy', 'false')
+  const placed = (await area.boundingBox())!
+  const port = (await workspace(page).boundingBox())!
+  const header = (await page.getByRole('columnheader').first().boundingBox())!
+  expect(header.y).toBeGreaterThanOrEqual(placed.y + placed.height)
+
+  // Record the charts' top on every frame, so a jump between two checks still shows.
+  await area.evaluate((element) => {
+    const tops = new Set<number>()
+    ;(window as unknown as { chartTops: Set<number> }).chartTops = tops
+    const sample = () => {
+      tops.add(Math.round(element.getBoundingClientRect().top))
+      requestAnimationFrame(sample)
+    }
+    sample()
+  })
+  await page.mouse.move(port.x + port.width / 2, port.y + port.height - 20)
+  for (let step = 0; step < 12; step++) await page.mouse.wheel(0, 150)
+  await expect.poll(() => workspace(page).evaluate((element) => element.scrollTop)).toBe(1800)
+  await page.keyboard.press('PageDown')
+  await page.keyboard.press('j')
+  await expectCursorRowShown(page)
+  const keyed = await workspace(page).evaluate((element) => element.scrollTop)
+  for (let step = 0; step < 4; step++) await page.mouse.wheel(0, -150)
+  await expect
+    .poll(() => workspace(page).evaluate((element) => element.scrollTop))
+    .toBe(keyed - 600)
+
+  // The header sticks to the top of the table's own scroller, below the charts.
+  const headerRow = page.getByRole('grid', { name: 'Financial results' }).getByRole('row').first()
+  expect(Math.abs((await headerRow.boundingBox())!.y - port.y)).toBeLessThanOrEqual(1)
+  const tops = await page.evaluate(() => [
+    ...(window as unknown as { chartTops: Set<number> }).chartTops,
+  ])
+  expect(tops).toEqual([Math.round(placed.y)])
+  expect(await area.boundingBox()).toEqual(placed)
+})
+
+// In a short window the charts would take every pixel; the table keeps room for its rows, and
+// the cursor row stays on screen as the keys move it.
+for (const size of [
+  { width: 820, height: 500 },
+  { width: 1440, height: 500 },
+]) {
+  test(`a ${size.width}x${size.height} window keeps the table's rows reachable`, async ({
+    page,
+    server,
+  }) => {
+    await page.setViewportSize(size)
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Charts' })).toBeVisible()
+    const rowHeight = (await (await activeRow(page)).boundingBox())!.height
+    const header = (await page.getByRole('columnheader').first().boundingBox())!
+    const rows =
+      ((await workspace(page).evaluate((element) => element.clientHeight)) - header.height) /
+      rowHeight
+    expect(rows).toBeGreaterThanOrEqual(5)
+
+    for (let step = 0; step < 12; step++) {
+      await page.keyboard.press('j')
+      await expect(await activeRow(page)).toBeInViewport({ ratio: 1 })
+    }
+    await page.keyboard.press('End')
+    await expect(await activeRow(page)).toBeInViewport({ ratio: 1 })
+  })
+}
+
 /** Whether a loaded row is drawn just inside the top or bottom of the workspace's rows. */
 async function drawnAt(page: Page, edge: 'top' | 'bottom'): Promise<boolean> {
   const header = (await page.getByRole('columnheader').first().boundingBox())!
@@ -310,7 +387,6 @@ test('a Year scope charts one column per year, and a year column scopes to it', 
   const ticks = cashflow(page).locator('.mf-cashflow__tick')
   await expect(ticks).toHaveText(['2024', '2025', '2026'])
   await expect(column(page, '2026')).toHaveClass(/mf-cashflow__column--scope/)
-  await expect(column(page, '2026')).toHaveClass(/mf-cashflow__column--partial/)
   await expect(column(page, '2025')).not.toHaveClass(/mf-cashflow__column--scope/)
 
   await column(page, '2025').click()
@@ -421,11 +497,18 @@ test('cash-flow columns stay even in the phone drawer, labeled or not', async ({
     expect(Math.abs(width.button - first)).toBeLessThan(1)
     expect(Math.abs(width.bars - width.button)).toBeLessThan(0.5)
   }
-  // The partial current month is hollow, down to its Net dot.
-  await expect(column(page, 'Oct 2026')).toHaveClass(/mf-cashflow__column--partial/)
-  await expect(cashflow(page).locator('.mf-cashflow__dot').last()).toHaveClass(
-    /mf-cashflow__dot--partial/,
+  // The partial current month is drawn like a complete one, down to its Net dot.
+  const paint = (marks: Locator) =>
+    marks.evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const style = getComputedStyle(node)
+        return `${style.fill} ${style.stroke} ${style.strokeWidth}`
+      }),
+    )
+  expect(await paint(column(page, 'Oct 2026').locator('rect'))).toEqual(
+    await paint(column(page, 'Sep 2026').locator('rect')),
   )
+  expect(new Set(await paint(cashflow(page).locator('.mf-cashflow__dot'))).size).toBe(1)
 })
 
 function whereItWent(page: Page): Locator {
@@ -496,7 +579,7 @@ test('a double-click drills a composition bar whose row is below the table’s e
   server,
 }) => {
   // Short enough that the last bar's row is below the visible table rows.
-  await page.setViewportSize({ width: 1440, height: 560 })
+  await page.setViewportSize({ width: 1440, height: 500 })
   await openMoneyflow(page, server, september)
   const target = whereItWent(page).getByRole('button').last()
   const label = (await target.getAttribute('aria-label'))!.split(',')[0]!
@@ -516,15 +599,16 @@ test('a composition click moves the cursor at once and scrolls to its row after 
   page,
   server,
 }) => {
-  await page.setViewportSize({ width: 1440, height: 560 })
+  await page.setViewportSize({ width: 1440, height: 500 })
   await openMoneyflow(page, server, september)
   const target = whereItWent(page).getByRole('button').last()
   const label = (await target.getAttribute('aria-label'))!.split(',')[0]!
   await target.click()
   await expect(target).toHaveClass(/mf-bar--cursor/)
-  // The scroll waits out the double-click time, then shows the cursor row.
+  // The scroll waits out the double-click time, then shows the cursor row. This window is too
+  // short for the charts and the table, so the charts scroll away above the table.
   await expect
-    .poll(() => workspace(page).evaluate((element) => element.scrollTop))
+    .poll(() => page.locator('.mf-workspace-body').evaluate((element) => element.scrollTop))
     .toBeGreaterThan(0)
   await expect(await activeRow(page)).toContainText(label)
   await expectCursorRowShown(page)

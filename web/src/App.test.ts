@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App.svelte'
 import type { CatalogController } from './lib/controller/catalog.svelte'
 import type { ViewController } from './lib/controller/view-controller.svelte'
+import { testEditingController, testReviewController } from './test/editing'
 import { testProviderWriteController } from './test/provider-write'
 
 describe('Moneyflow application scaffold', () => {
@@ -12,12 +13,13 @@ describe('Moneyflow application scaffold', () => {
     vi.unstubAllGlobals()
   })
 
-  it('mounts the shared chrome around a profile loading state', () => {
+  it('lays out the workspace while the profile loads, with Loading… in the status bar', () => {
     render(App, { basePath: '/moneyflow/', controller: stubController() })
 
-    expect(screen.getByRole('main', { name: 'Moneyflow' })).not.toBeNull()
-    expect(screen.getByRole('heading', { name: 'Loading financial view…' })).not.toBeNull()
-    expect(screen.getByRole('status').textContent).toBe('Loading profile data…')
+    const main = screen.getByRole('main', { name: 'Moneyflow workspace' })
+    expect(main.getAttribute('aria-busy')).toBe('true')
+    expect(within(statusLine()).getByText('Loading…')).not.toBeNull()
+    expect(screen.queryByRole('heading', { name: /Loading/ })).toBeNull()
     expect(screen.getByRole('button', { name: /change theme/i })).not.toBeNull()
   })
 
@@ -47,6 +49,7 @@ describe('Moneyflow application scaffold', () => {
     expect(
       screen.getByRole('heading', { name: 'This Moneyflow link cannot be opened' }),
     ).not.toBeNull()
+    expect(screen.queryByText('Invalid view')).toBeNull()
     await fireEvent.click(screen.getByRole('button', { name: 'Reset view' }))
     expect(controller.reset).toHaveBeenCalledTimes(1)
   })
@@ -62,8 +65,9 @@ describe('Moneyflow application scaffold', () => {
     })
     render(App, { basePath: '/moneyflow/', controller })
 
-    expect(screen.getByText('Connection problem')).not.toBeNull()
+    expect(screen.getByRole('heading', { name: "Couldn't load this profile" })).not.toBeNull()
     expect(screen.getByText(/could not reach the server/)).not.toBeNull()
+    expect(screen.queryByText('Connection problem')).toBeNull()
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(controller.retry).toHaveBeenCalledTimes(1)
   })
@@ -78,9 +82,9 @@ describe('Moneyflow application scaffold', () => {
       }),
     })
 
-    expect(screen.getByRole('heading', { name: 'The financial view did not load' })).not.toBeNull()
+    expect(screen.getByRole('heading', { name: "Couldn't load this profile" })).not.toBeNull()
     expect(screen.getByText(detail)).not.toBeNull()
-    expect(screen.queryByText('Connection problem')).toBeNull()
+    expect(screen.queryByText('Profile problem')).toBeNull()
     expect(screen.queryByText(/server is reachable/)).toBeNull()
   })
 
@@ -206,8 +210,8 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
     cursorIndex: 0,
     neighbors: [],
     problem: undefined,
-    editing: {} as ViewController['editing'],
-    review: {} as ViewController['review'],
+    editing: testEditingController(),
+    review: testReviewController(),
     provider: {
       state: { phase: 'idle', announcement: '', capability: undefined },
       sync: vi.fn(),
@@ -220,8 +224,8 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
       continueStale: vi.fn(),
     } as ViewController['provider'],
     providerWrite: testProviderWriteController(),
-    duplicates: {} as ViewController['duplicates'],
-    export: {} as ViewController['export'],
+    duplicates: { state: { announcement: '' } } as ViewController['duplicates'],
+    export: { state: { announcement: '' } } as ViewController['export'],
     hydrate: vi.fn(async () => undefined),
     recheck: vi.fn(async () => undefined),
     moveCursor: vi.fn(async () => undefined),
@@ -245,4 +249,9 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
     reset: vi.fn(async () => undefined),
     ...overrides,
   }
+}
+
+/** The workspace status bar; jsdom also counts kit StatusBar's <footer> as contentinfo. */
+function statusLine(): HTMLElement {
+  return document.querySelector<HTMLElement>('.mf-status-line')!
 }

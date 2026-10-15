@@ -45,6 +45,15 @@ category, and account. Touch works this way:
 - The header keeps the select-all box and the current sort field. Tap the field to reverse the
   order.
 
+**Unreleased:** On wider screens, each browser text column, such as Merchant, Category,
+Account, or Top category, fits the longest label the view has shown. A label longer than
+20 rem does not widen its column further.
+The name column (Merchant for transactions, the group's name in grouped tables) takes the room
+the other columns leave. After a drill shows one merchant, category, or account in every row,
+the next text column takes that room. When the room runs short, the widest text column
+narrows first, so a column cuts off its labels only when it is at least as wide as the others.
+Widths stay the same while you scroll. In the Time table, the Net bar takes the room.
+
 The keys work the same at every width, and the browser table never scrolls sideways at any
 width. On phones it uses the two-line rows above. On wider screens, when the columns do not
 fit, it leaves out the least important ones until they do. The boxes, the name column, and Net

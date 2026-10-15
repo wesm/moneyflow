@@ -4,9 +4,11 @@ import {
   columnsAtWidth,
   columnsFor,
   columnsThatFit,
+  columnTracks,
   compactColumnCount,
   compactColumnIndex,
   compactLayout,
+  type Column,
 } from './columns'
 import type { ViewProjection } from '../api/client'
 import { testProjection } from '../../test/projection'
@@ -195,37 +197,61 @@ describe('columnsFor', () => {
     const amazon = labels(detail({ profile_kind: 'amazon' }))
     expect(amazon.slice(1, 6)).toEqual(['Date', 'Product', 'Category', 'Order', 'Amount'])
   })
+})
 
-  it('narrows the first drilled column by merchant, category, account precedence', () => {
-    const drilled = (frames: { dimension: string; label: string }[]) =>
+describe('columnTracks', () => {
+  const tracks = (columns: Column[]) => {
+    const sizes = columnTracks(columns)
+    return Object.fromEntries(columns.map((column, index) => [column.key, sizes[index]]))
+  }
+  const slackTaker = (columns: Column[]) =>
+    Object.entries(tracks(columns))
+      .filter(([, size]) => size === 'minmax(0, auto)')
+      .map(([key]) => key)
+  const drilled = (dimensions: string[]) =>
+    columnsFor(
       detail({
-        view: { ...detail().view, drill_depth: frames.length },
-        breadcrumbs: frames,
-      })
-    const widthOf = (projection: ViewProjection, key: string) =>
-      columnsFor(projection).find((column) => column.key === key)?.width
-    const wide = widthOf(detail(), 'merchant')
+        view: { ...detail().view, drill_depth: dimensions.length },
+        breadcrumbs: dimensions.map((dimension) => ({ dimension, label: 'Example' })),
+      }),
+    )
 
-    const category = drilled([{ dimension: 'category', label: 'Groceries' }])
-    expect(widthOf(category, 'category')).toBe('11ch')
-    expect(widthOf(category, 'merchant')).toBe(wide)
-
-    const both = drilled([
-      { dimension: 'category', label: 'Groceries' },
-      { dimension: 'merchant', label: 'A merchant name far longer than thirty characters' },
-    ])
-    expect(widthOf(both, 'merchant')).toBe('30ch')
-    expect(widthOf(both, 'category')).not.toBe('11ch')
-    expect(keys(both)).toEqual(keys(detail()))
-
-    const short = drilled([{ dimension: 'account', label: 'Card' }])
-    expect(widthOf(short, 'account')).toBe('9ch')
-    const amazon = detail({
-      profile_kind: 'amazon',
-      view: { ...detail().view, drill_depth: 1 },
-      breadcrumbs: [{ dimension: 'account', label: 'A1' }],
+  it('fits text columns to their labels and gives the room left to the name column', () => {
+    expect(tracks(columnsFor(detail()))).toMatchObject({
+      date: '6rem',
+      merchant: 'minmax(0, auto)',
+      category: 'minmax(0, max-content)',
+      account: 'minmax(0, max-content)',
+      amount: '6.5rem',
     })
-    expect(widthOf(amazon, 'account')).toBe('7ch')
+    expect(tracks(columnsFor(grouped({ grouping: 'merchant' })))).toMatchObject({
+      name: 'minmax(0, auto)',
+      context: 'minmax(0, max-content)',
+      count: '6.5rem',
+    })
+  })
+
+  it('gives the room to the next text column when a drill shows one value in every row', () => {
+    expect(slackTaker(drilled(['merchant']))).toEqual(['category'])
+    expect(slackTaker(drilled(['category', 'merchant']))).toEqual(['account'])
+    expect(slackTaker(drilled(['account']))).toEqual(['merchant'])
+    expect(tracks(drilled(['merchant'])).merchant).toBe('minmax(0, max-content)')
+  })
+
+  it('gives the room to the next text column when the window drops the first', () => {
+    const narrow = columnsThatFit(drilled(['merchant']), 38)
+    expect(narrow.map((column) => column.key)).not.toContain('account')
+    expect(slackTaker(narrow)).toEqual(['category'])
+  })
+
+  it('gives the room in Time to the Net bar, and to Period once the bar drops', () => {
+    const time = columnsFor(
+      grouped({ grouping: 'time', sort_fields: ['time_period', 'count', 'amount'] }),
+    )
+    expect(tracks(time)).toMatchObject({ period: 'minmax(0, auto)', net_bar: 'minmax(8rem, 1fr)' })
+    const narrow = time.filter((column) => column.key !== 'net_bar')
+    expect(columnTracks(narrow).join(' ')).not.toContain('fr')
+    expect(slackTaker(narrow)).toEqual(['period'])
   })
 })
 
@@ -296,18 +322,6 @@ describe('columnsThatFit', () => {
     expect(shown(42.5)).toEqual(['select', 'period', 'count', 'in', 'out', 'net'])
     expect(shown(36)).toEqual(['select', 'period', 'in', 'out', 'net'])
     expect(shown(10)).toEqual(['select', 'period', 'net'])
-  })
-
-  it('counts a drilled column at its narrowed width', () => {
-    const category = columnsFor(
-      detail({
-        view: { ...detail().view, drill_depth: 1 },
-        breadcrumbs: [{ dimension: 'category', label: 'Groceries' }],
-      }),
-    )
-    // Category narrows to 11ch, about 5.5 rem, so the minimums total 44.5 rem.
-    expect(columnsThatFit(category, 44.75)).toEqual(category)
-    expect(columnsThatFit(category, 44.5).map((column) => column.key)).not.toContain('account')
   })
 })
 

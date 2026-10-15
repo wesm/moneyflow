@@ -25,7 +25,6 @@ interface Setup {
 function setup(options: Setup = {}) {
   const editing = options.editing ?? testEditingController()
   const onclose = vi.fn()
-  const onwrite = vi.fn()
   const view = render(ReviewDrawer, {
     mode: options.mode ?? 'review',
     editing,
@@ -33,10 +32,9 @@ function setup(options: Setup = {}) {
     providerWrite: options.providerWrite ?? testProviderWriteController(),
     providerName: options.providerName ?? 'Monarch',
     onclose,
-    onwrite,
     onreconnect: options.onreconnect,
   })
-  return { editing, onclose, onwrite, view }
+  return { editing, onclose, view }
 }
 
 /** Waits until the review has loaded and Commit has focus, as after `w`. */
@@ -398,6 +396,19 @@ describe('ReviewDrawer in review mode', () => {
     expect(editing.commit).toHaveBeenCalledTimes(2)
   })
 
+  it('stays open when its write needs the user before the commit request returns', async () => {
+    const request = deferred()
+    const editing = testEditingController({ commit: vi.fn(() => request.promise) })
+    const { onclose, view } = setup({ editing })
+    await fireEvent.click(await loaded())
+    await view.rerender({ mode: 'write' })
+    request.settle(true)
+    await request.promise
+    await tick()
+    expect(onclose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Monarch write status' })).toBeTruthy()
+  })
+
   it('shows why the server refused a commit and keeps the drawer open', async () => {
     const editing = testEditingController({ commit: vi.fn(async () => false) })
     editing.state.announcement =
@@ -451,20 +462,6 @@ describe('ReviewDrawer in review mode', () => {
         view.unmount()
       }
     }
-  })
-
-  it('asks to switch to write mode when the commit starts a provider write', async () => {
-    const editing = testEditingController({
-      state: {
-        ...testEditingController().state,
-        providerWrite: testProviderWriteController().state.status!,
-      },
-    })
-    const { onclose, onwrite } = setup({ editing })
-    const commit = await loaded()
-    await fireEvent.keyDown(commit, { key: 'Enter' })
-    await waitFor(() => expect(onwrite).toHaveBeenCalledTimes(1))
-    expect(onclose).not.toHaveBeenCalled()
   })
 
   it('turns the same drawer into write status and keeps focus inside it', async () => {

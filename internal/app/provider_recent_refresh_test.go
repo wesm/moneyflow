@@ -126,7 +126,7 @@ func TestMonarchRecentRefreshCountsRemovalsOnlyInsideTheWindow(t *testing.T) {
 	}
 }
 
-func TestMonarchScheduledFullAndManualRefreshFetchCompleteHistory(t *testing.T) {
+func TestMonarchScheduledFullRefreshFetchesCompleteHistory(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -155,15 +155,98 @@ func TestMonarchScheduledFullAndManualRefreshFetchCompleteHistory(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, monthLater, result.Status.LastFullRefresh)
 
-	recentDue := monthLater.Add(7 * time.Hour)
-	configureProviderRefreshService(t, service, source, recentDue, "instance-a")
-	_, err = service.RefreshProvider(ctx, manualProviderRefresh())
-	require.NoError(t, err)
 	requests := source.fetchRequests()
-	require.Len(t, requests, 3)
+	require.Len(t, requests, 2)
 	for _, request := range requests {
 		assert.Nil(t, request.TransactionWindow)
 	}
+}
+
+// Pressing refresh reads the last 90 days. Complete history stays one explicit request away,
+// and a manual refresh still reads it when the last complete refresh is 30 or more days old.
+func TestManualMonarchRefreshReadsRecentDataUnlessCompleteHistoryIsAskedOrDue(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	service, _, _ := openProviderRefreshProfile(t)
+	start := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: monarchTestIdentity(),
+		snapshot: monarchHistorySnapshot(t, start, 2, 2), fingerprint: "session-a",
+	}
+	refreshAt := func(at time.Time, request app.ProviderRefreshRequest) app.ProviderRefreshResult {
+		t.Helper()
+		source.setSnapshot(monarchHistorySnapshot(t, at, 2, 2))
+		configureProviderRefreshService(t, service, source, at, "instance-a")
+		result, err := service.RefreshProvider(ctx, request)
+		require.NoError(t, err)
+		return result
+	}
+	complete := manualProviderRefresh()
+	complete.CompleteHistory = true
+
+	refreshAt(start, manualProviderRefresh())
+	status, err := service.ProviderStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, app.ProviderRefreshRecent, status.ManualRefresh)
+	recent := refreshAt(start.Add(time.Hour), manualProviderRefresh())
+	asked := refreshAt(start.Add(2*time.Hour), complete)
+	monthLater := start.Add(2*time.Hour + 30*24*time.Hour)
+	configureProviderRefreshService(t, service, source, monthLater, "instance-a")
+	status, err = service.ProviderStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, app.ProviderRefreshFull, status.ManualRefresh)
+	due := refreshAt(monthLater, manualProviderRefresh())
+
+	requests := source.fetchRequests()
+	require.Len(t, requests, 4)
+	assert.Nil(t, requests[0].TransactionWindow, "the first manual refresh has no complete record")
+	assert.Equal(t, &domain.DateRange{
+		Start: mustProviderDate(t, "2026-05-17"), End: mustProviderDate(t, "2026-08-15"),
+	}, requests[1].TransactionWindow, "pressing refresh reads the last 90 days")
+	assert.Equal(t, start, recent.Status.LastFullRefresh, "a recent refresh is not complete")
+	assert.Nil(t, requests[2].TransactionWindow, "complete history on request")
+	assert.Equal(t, start.Add(2*time.Hour), asked.Status.LastFullRefresh)
+	assert.Nil(t, requests[3].TransactionWindow, "complete history once 30 days old")
+	assert.Equal(t, monthLater, due.Status.LastFullRefresh)
+}
+
+// A recent refresh cannot see that Monarch deleted an older transaction, so it keeps the row;
+// the next complete-history refresh removes it, as it did before manual refresh read recent data.
+func TestManualRecentRefreshLeavesOlderDeletionsToCompleteHistory(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	service, handle, _ := openProviderRefreshProfile(t)
+	start := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: monarchTestIdentity(),
+		snapshot: monarchHistorySnapshot(t, start, 10, 3), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, start, "instance-a")
+	_, err := service.RefreshProvider(ctx, manualProviderRefresh())
+	require.NoError(t, err)
+
+	later := start.Add(time.Hour)
+	deleted := monarchHistorySnapshot(t, later, 10, 3)
+	deleted.Transactions = deleted.Transactions[:10]
+	source.setSnapshot(deleted)
+	configureProviderRefreshService(t, service, source, later, "instance-a")
+	recent, err := service.RefreshProvider(ctx, manualProviderRefresh())
+	require.NoError(t, err)
+	assert.Zero(t, recent.Status.Summary.RemovedTransactions)
+	kept, err := handle.Load(ctx)
+	require.NoError(t, err)
+	assert.Len(t, kept.Committed.Transactions, 13)
+
+	complete := manualProviderRefresh()
+	complete.CompleteHistory = true
+	full, err := service.RefreshProvider(ctx, complete)
+	require.NoError(t, err)
+	assert.Equal(t, 3, full.Status.Summary.RemovedTransactions)
+	removed, err := handle.Load(ctx)
+	require.NoError(t, err)
+	assert.Len(t, removed.Committed.Transactions, 10)
 }
 
 func monarchTestIdentity() provider.ProfileIdentity {
@@ -220,4 +303,31 @@ func committedProviderRow(
 	}
 	require.FailNow(t, "committed provider row was not found", externalID)
 	return domain.TransactionRecord{}
+}
+
+// Every refresh result says what the next manual refresh reads, so an interface can name it even
+// right after a failed refresh.
+func TestRefreshResultsSayWhatTheNextManualRefreshReads(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	service, _, _ := openProviderRefreshProfile(t)
+	start := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: monarchTestIdentity(),
+		snapshot: monarchHistorySnapshot(t, start, 2, 2), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, start, "instance-a")
+	succeeded, err := service.RefreshProvider(ctx, manualProviderRefresh())
+	require.NoError(t, err)
+	assert.Equal(t, app.ProviderRefreshRecent, succeeded.Status.ManualRefresh)
+
+	source.mu.Lock()
+	source.fetchErr = provider.NewError(provider.CodeUnavailable)
+	source.mu.Unlock()
+	configureProviderRefreshService(t, service, source, start.Add(time.Hour), "instance-a")
+	failed, err := service.RefreshProvider(ctx, manualProviderRefresh())
+	assertProviderAppCode(t, err, provider.CodeUnavailable)
+	assert.Equal(t, app.ProviderRefreshRecent, failed.Status.ManualRefresh)
+	assert.Equal(t, start, failed.Status.LastFullRefresh)
 }

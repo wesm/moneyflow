@@ -251,7 +251,13 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 		if model.profileKind == "amazon" {
 			return func() tea.Msg { return amazonImportRequestedMsg{} }
 		}
-		return model.startProviderRefresh(true, "")
+		return model.startProviderRefresh(true, "", false)
+	case app.ActionRefreshProviderHistory:
+		if capability, available := model.capability(app.ActionRefreshProviderHistory); !available {
+			model.status = capabilityMessage(capability)
+			return nil
+		}
+		return model.startProviderRefresh(true, "", true)
 	case app.ActionExport:
 		return model.openExport()
 	default:

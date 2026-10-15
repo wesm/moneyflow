@@ -20,9 +20,11 @@ const (
 )
 
 type providerTUIState struct {
-	bound              bool
-	refreshing         bool
-	scope              app.ProviderRefreshScope
+	bound      bool
+	refreshing bool
+	scope      app.ProviderRefreshScope
+	// completeHistory asks the running manual refresh for complete Monarch history.
+	completeHistory    bool
 	cancel             context.CancelFunc
 	refreshContext     context.Context
 	status             app.ProviderStatus
@@ -57,7 +59,11 @@ type providerProgressTickMsg struct {
 	timerGeneration uint64
 }
 
-func (model *Model) startProviderRefresh(manual bool, confirmationToken string) tea.Cmd {
+func (model *Model) startProviderRefresh(
+	manual bool,
+	confirmationToken string,
+	completeHistory bool,
+) tea.Cmd {
 	if model.provider.refreshing {
 		model.status = "A provider refresh is already in progress."
 		return nil
@@ -67,10 +73,15 @@ func (model *Model) startProviderRefresh(manual bool, confirmationToken string) 
 		model.status = capabilityMessage(capability)
 		return nil
 	}
-	// Manual refresh reads complete history. Confirmation folds the candidate it was asked about.
+	// A manual refresh reads what the service chooses unless it asks for complete history.
+	// Confirmation folds the candidate it was asked about.
 	if manual && confirmationToken == "" {
-		model.provider.scope = app.ProviderRefreshFull
+		model.provider.scope = app.ManualRefreshScope(model.provider.status, model.now())
+		if completeHistory {
+			model.provider.scope = app.ProviderRefreshFull
+		}
 	}
+	model.provider.completeHistory = completeHistory
 	refreshContext, cancel := context.WithCancel(model.ctx)
 	model.provider.refreshing = true
 	model.provider.cancel = cancel
@@ -93,6 +104,7 @@ func (model Model) providerRefreshCommand(manual bool, confirmationToken string)
 	request := app.ProviderRefreshRequest{
 		Manual: manual, ConfirmationToken: confirmationToken,
 		State: model.session.ViewState(), Selection: model.selection,
+		CompleteHistory: model.provider.completeHistory,
 	}
 	service := model.service
 	interactionVersion := model.provider.interactionVersion
@@ -304,7 +316,7 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 	if capability, available := model.capability(app.ActionRefreshProvider); available &&
 		scope != app.ProviderRefreshNone {
 		model.provider.scope = scope
-		return model.startProviderRefresh(false, "")
+		return model.startProviderRefresh(false, "", false)
 	} else if !available && model.status == "" {
 		model.status = capabilityMessage(capability)
 	}
@@ -320,7 +332,7 @@ func (model *Model) routeProviderConfirmation(message tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		token := model.provider.confirmationToken
 		model.overlay = overlayNone
-		return model.startProviderRefresh(true, token)
+		return model.startProviderRefresh(true, token, false)
 	}
 	return nil
 }
@@ -351,14 +363,28 @@ func (model Model) renderProviderConfirmation(screen *RenderedScreen) {
 	screen.Overlay = []string{"Confirm Provider Refresh", message, "Enter=Confirm", "Esc=Cancel"}
 }
 
+// providerProgressMessage reports one count per read: it continues across the provider's
+// partitions, and a confirming read names itself and the first read's total. The percentage
+// spans every read and appears once the provider reports a total.
 func (model Model) providerProgressMessage(status app.ProviderStatus) string {
 	subject := model.providerRefreshSubject()
-	if status.Total > 0 {
-		return fmt.Sprintf(
-			"Refreshing %s: %d of %d fetched.", subject, status.Fetched, status.Total,
+	if status.Fetched == 0 && status.Total == 0 {
+		return "Refreshing " + subject + "… Esc=Cancel"
+	}
+	noun := "transactions"
+	if status.Fetched == 1 {
+		noun = "transaction"
+	}
+	counted := fmt.Sprintf("%s %s fetched", formatCount(status.Fetched), noun)
+	if status.Verifying {
+		counted = fmt.Sprintf(
+			"verifying %s of %s transactions", formatCount(status.Fetched), formatCount(status.Total),
 		)
 	}
-	return "Refreshing " + subject + "… Esc=Cancel"
+	if status.Total > 0 {
+		counted += fmt.Sprintf(" (%d%%)", status.Percent)
+	}
+	return fmt.Sprintf("Refreshing %s: %s.", subject, counted)
 }
 
 // providerRefreshSubject names what the running refresh reads. Only Monarch has two kinds.

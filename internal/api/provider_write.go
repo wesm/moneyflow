@@ -19,23 +19,29 @@ const ProviderWriteSchemaVersion = "1"
 
 // ProviderWriteStatusResponse contains no item, operation, entity, or provider identities.
 type ProviderWriteStatusResponse struct {
-	Version         string   `json:"version"`
-	Revision        string   `json:"revision" pattern:"^[0-9]+$"`
-	Generation      string   `json:"generation" pattern:"^[0-9]+$"`
-	BatchVersion    string   `json:"batch_version,omitempty" pattern:"^[0-9]+$"`
-	Phase           string   `json:"phase,omitempty"`
-	Reason          string   `json:"reason,omitempty"`
-	AuditWarning    string   `json:"audit_warning,omitempty"`
-	Total           int      `json:"total"`
-	Completed       int      `json:"completed"`
-	Failed          int      `json:"failed"`
-	Remaining       int      `json:"remaining"`
-	Overrides       int      `json:"overrides"`
-	CompletedAt     string   `json:"completed_at,omitempty" format:"date-time"`
-	NextEligible    string   `json:"next_eligible,omitempty" format:"date-time"`
-	OwnerRenderer   string   `json:"owner_renderer,omitempty"`
-	OwnerInstanceID string   `json:"owner_instance_id,omitempty" maxLength:"128"`
-	Actions         []string `json:"actions"`
+	Version      string `json:"version"`
+	Revision     string `json:"revision" pattern:"^[0-9]+$"`
+	Generation   string `json:"generation" pattern:"^[0-9]+$"`
+	BatchVersion string `json:"batch_version,omitempty" pattern:"^[0-9]+$"`
+	Phase        string `json:"phase,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	AuditWarning string `json:"audit_warning,omitempty"`
+	Total        int    `json:"total"`
+	Completed    int    `json:"completed"`
+	Failed       int    `json:"failed"`
+	Remaining    int    `json:"remaining"`
+	Overrides    int    `json:"overrides"`
+	CompletedAt  string `json:"completed_at,omitempty" format:"date-time"`
+	// CompletedRevision is the revision the last completed write committed. Unlike completed_at,
+	// later revisions keep it, so a client that saw a batch running can tell it finished.
+	CompletedRevision string `json:"completed_revision,omitempty" pattern:"^[0-9]+$"`
+	// PreparedRevision is the revision that prepared the active batch. Finishing the batch
+	// commits the next revision, which a client compares with completed_revision.
+	PreparedRevision string   `json:"prepared_revision,omitempty" pattern:"^[0-9]+$"`
+	NextEligible     string   `json:"next_eligible,omitempty" format:"date-time"`
+	OwnerRenderer    string   `json:"owner_renderer,omitempty"`
+	OwnerInstanceID  string   `json:"owner_instance_id,omitempty" maxLength:"128"`
+	Actions          []string `json:"actions"`
 	// RunFailure says why the last background write stopped while the batch still reads as
 	// writing or reconciling. The batch resumes once its lease expires.
 	RunFailure *ProviderWriteRunFailure `json:"run_failure,omitempty"`
@@ -299,12 +305,16 @@ func providerWriteStatusToWire(
 	}
 	if status.Phase != "" {
 		wire.BatchVersion = strconv.FormatUint(status.Version, 10)
+		wire.PreparedRevision = strconv.FormatUint(status.PreparedRevision, 10)
 	}
 	if !status.NextEligible.IsZero() {
 		wire.NextEligible = status.NextEligible.UTC().Format(time.RFC3339Nano)
 	}
 	if !status.CompletedAt.IsZero() {
 		wire.CompletedAt = status.CompletedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if status.CompletedRevision != 0 {
+		wire.CompletedRevision = strconv.FormatUint(status.CompletedRevision, 10)
 	}
 	if status.RunFailure != nil {
 		wire.RunFailure = &ProviderWriteRunFailure{

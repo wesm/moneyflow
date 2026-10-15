@@ -54,7 +54,11 @@ func exportProfile(ctx context.Context, out, notices io.Writer, selector, output
 	if err != nil {
 		return err
 	}
-	entry, err := catalog.Resolve(ctx, selector)
+	entries, err := catalog.List(ctx)
+	if err != nil {
+		return err
+	}
+	entry, err := resolveCommandProfile(entries, selector)
 	if err != nil {
 		return err
 	}

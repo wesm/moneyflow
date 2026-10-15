@@ -772,7 +772,7 @@ func (writer *syntheticWriter) DeleteTransaction(
 
 func (reader *syntheticReader) FetchSnapshot(
 	ctx context.Context,
-	_ provider.FetchRequest,
+	request provider.FetchRequest,
 	progress provider.ProgressFunc,
 ) (provider.SnapshotResult, error) {
 	reader.profile.mu.Lock()
@@ -800,8 +800,24 @@ func (reader *syntheticReader) FetchSnapshot(
 	snapshot, err := syntheticSnapshot(root, hidden)
 	return provider.SnapshotResult{
 		Identity: syntheticIdentity(reader.profile, reader.identity),
-		Snapshot: snapshot,
+		Snapshot: windowedSnapshot(snapshot, request.TransactionWindow),
 	}, err
+}
+
+// windowedSnapshot keeps the transactions inside a requested window, as Monarch does.
+func windowedSnapshot(snapshot domain.ImportSnapshot, window *domain.DateRange) domain.ImportSnapshot {
+	if window == nil {
+		return snapshot
+	}
+	snapshot.TransactionWindow = window
+	rows := snapshot.Transactions[:0]
+	for _, transaction := range snapshot.Transactions {
+		if snapshot.InTransactionWindow(transaction.Date) {
+			rows = append(rows, transaction)
+		}
+	}
+	snapshot.Transactions = rows
+	return snapshot
 }
 
 func syntheticIdentity(

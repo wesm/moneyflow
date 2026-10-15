@@ -36,10 +36,10 @@ function banner(page: Page) {
 async function expectBlockedProgress(page: Page): Promise<void> {
   const dialog = refreshing(page)
   await expect(dialog).toContainText('Recent data (last 90 days)')
-  await expect(dialog.locator('.mf-refresh__count')).toHaveText('Fetched 3 of 6')
+  await expect(dialog.locator('.mf-refresh__count')).toHaveText('Fetched 3 transactions')
   await expect(dialog.getByRole('progressbar', { name: 'Refresh progress' })).toHaveAttribute(
-    'max',
-    '6',
+    'value',
+    '50',
   )
   await expect(dialog).toContainText(aged('Last updated 7 hours ago', '', false))
   await expect(page.locator('.app-shell')).toHaveAttribute('inert', '')
@@ -71,11 +71,10 @@ test('@smoke a due refresh opens the dialog with progress and closes when it suc
     await server.release()
 
     await expect(refreshing(page)).toBeHidden()
-    await expect(
-      page
-        .locator('.kit-flash-banner')
-        .filter({ hasText: /Refresh complete: 6 imported, 0 removed\./ }),
-    ).toBeVisible()
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(
+      'Refresh complete: 6 imported, 0 removed.',
+    )
+    await expect(page.locator('.kit-flash-banner')).toHaveCount(0)
     await expect(banner(page)).toHaveCount(0)
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
     expect((await server.observe()).snapshot_calls).toBe(2)
@@ -90,11 +89,10 @@ test('a failed refresh keeps the dialog open until Retry succeeds', async ({ pag
 
     await expect(failed).toBeHidden()
     await expect(refreshing(page)).toBeHidden()
-    await expect(
-      page
-        .locator('.kit-flash-banner')
-        .filter({ hasText: /Refresh complete: 7 imported, 0 removed\./ }),
-    ).toBeVisible()
+    // Retry is a manual refresh, which reads the same 90 days: the older row is outside them.
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(
+      'Refresh complete: 6 imported, 0 removed.',
+    )
     await expect(banner(page)).toHaveCount(0)
     expect((await server.observe()).snapshot_calls).toBe(3)
   })

@@ -326,7 +326,50 @@
     ondemo={() => globalThis.location.assign(`${basePath}demo/`)}
     onexit={() => catalog.announce('The Moneyflow web server remains available in this tab.')}
   />
-{:else if controller?.projection}
+{:else if controller?.problem && !controller.projection}
+  <div class="moneyflow-app">
+    <TopBar ariaLabel="Moneyflow">
+      {#snippet left()}
+        <span class="moneyflow-brand">Moneyflow</span>
+      {/snippet}
+      {#snippet right()}
+        <ThemeToggle size="sm" />
+      {/snippet}
+    </TopBar>
+
+    <main class="moneyflow-main" aria-label="Moneyflow">
+      {#if controller.problem.kind === 'invalid-view'}
+        <section class="moneyflow-message" aria-labelledby="invalid-title">
+          <h1 id="invalid-title">This Moneyflow link cannot be opened</h1>
+          <p>The saved view is malformed or is not supported by this version.</p>
+          <div class="moneyflow-actions">
+            <Button onclick={() => history.back()}>Back</Button>
+            <Button tone="info" surface="solid" onclick={() => void controller.reset()}>
+              Reset view
+            </Button>
+          </div>
+        </section>
+      {:else}
+        <section class="moneyflow-message" aria-labelledby="error-title">
+          <h1 id="error-title">Couldn't load this profile</h1>
+          <p>{controller.problem.detail}</p>
+          <Button tone="info" surface="solid" onclick={() => void controller.retry()}>Retry</Button>
+        </section>
+      {/if}
+      <p class="kit-sr-only" aria-live="polite">{controller.announcement}</p>
+    </main>
+
+    <StatusBar>
+      {#snippet left()}
+        <span role="status">{controller.loading ? 'Loading…' : ''}</span>
+      {/snippet}
+      {#snippet right()}
+        <span>profile · {basePath}</span>
+      {/snippet}
+    </StatusBar>
+  </div>
+{:else if controller}
+  <!-- The workspace lays itself out while the first view loads, so nothing swaps in after. -->
   <AppShell
     {controller}
     onreconnect={() =>
@@ -341,60 +384,4 @@
       }
     }}
   />
-{:else}
-  <div class="moneyflow-app">
-    <TopBar ariaLabel="Moneyflow">
-      {#snippet left()}
-        <span class="moneyflow-brand">Moneyflow</span>
-      {/snippet}
-      {#snippet right()}
-        <ThemeToggle size="sm" />
-      {/snippet}
-    </TopBar>
-
-    <main class="moneyflow-main" aria-label="Moneyflow">
-      {#if controller?.problem?.kind === 'invalid-view'}
-        <section class="moneyflow-message" aria-labelledby="invalid-title">
-          <p class="moneyflow-eyebrow">Invalid view</p>
-          <h1 id="invalid-title">This Moneyflow link cannot be opened</h1>
-          <p>The saved view is malformed or is not supported by this version.</p>
-          <div class="moneyflow-actions">
-            <Button onclick={() => history.back()}>Back</Button>
-            <Button tone="info" surface="solid" onclick={() => void controller.reset()}>
-              Reset view
-            </Button>
-          </div>
-        </section>
-      {:else if controller?.problem?.kind === 'request' && controller.projection === undefined}
-        <section class="moneyflow-message" aria-labelledby="error-title">
-          <p class="moneyflow-eyebrow">
-            {controller.problem.code === 'network_error' ? 'Connection problem' : 'Profile problem'}
-          </p>
-          <h1 id="error-title">The financial view did not load</h1>
-          <p>{controller.problem.detail}</p>
-          <Button tone="info" surface="solid" onclick={() => void controller.retry()}>Retry</Button>
-        </section>
-      {:else}
-        <section class="moneyflow-loading" aria-labelledby="loading-title">
-          <p class="moneyflow-eyebrow">Local profile</p>
-          <h1 id="loading-title">Loading financial view…</h1>
-          <p>Preparing the keyboard-first transaction workspace.</p>
-        </section>
-      {/if}
-      <p class="kit-sr-only" aria-live="polite">{controller?.announcement}</p>
-    </main>
-
-    <StatusBar>
-      {#snippet left()}
-        <span role="status">
-          {controller?.loading
-            ? 'Loading profile data…'
-            : (controller?.projection?.status ?? 'Ready')}
-        </span>
-      {/snippet}
-      {#snippet right()}
-        <span>profile · {basePath}</span>
-      {/snippet}
-    </StatusBar>
-  </div>
 {/if}

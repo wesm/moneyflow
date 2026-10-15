@@ -206,15 +206,28 @@ func (service *Service) projectViewWith(
 	if err != nil {
 		return WebProjection{}, err
 	}
-	resolvedSession, breadcrumbs, result, err := service.queryProjection(&state.Current, currencies)
+	queried, err := service.queryProjection(&state.Current, currencies)
 	if err != nil {
 		return WebProjection{}, err
 	}
+	return service.projectQueriedView(state, selection, window, currencies, queried)
+}
+
+// projectQueriedView projects a view from its evaluated rows, which the caller may also have
+// used, so that a request evaluates its view once. The window is already normalized.
+func (service *Service) projectQueriedView(
+	state ViewState,
+	selection SelectionValue,
+	window WindowRequest,
+	currencies []domain.CurrencyCount,
+	queried queriedView,
+) (WebProjection, error) {
+	resolvedSession, breadcrumbs, result := queried.session, queried.breadcrumbs, queried.result
 	root, err := service.rootView(state, currencies)
 	if err != nil {
 		return WebProjection{}, invalidWebRequest(err)
 	}
-	snapshot, err := service.resolveSelection(state.Current, selection, currencies)
+	snapshot, err := service.resolveProjectedSelection(state.Current, selection, queried, currencies)
 	if err != nil {
 		return WebProjection{}, err
 	}
@@ -275,26 +288,55 @@ func (service *Service) decorateEditState(projection *WebProjection) {
 	}
 }
 
+// resolveProjectedSelection resolves the selection of a projection. A selection of all rows of
+// the projected view reads the rows of queried, the view's evaluation.
+func (service *Service) resolveProjectedSelection(
+	state AnalyticalState,
+	selection SelectionValue,
+	queried queriedView,
+	currencies []domain.CurrencyCount,
+) (SelectionSnapshot, error) {
+	document, err := decodeSelection(selection)
+	if err != nil {
+		return SelectionSnapshot{}, err
+	}
+	rows := viewRows{state: state, identities: queried.identities}
+	if rows.identities == nil && document.Base == selectionBaseAll &&
+		sameAnalyticalState(*document.State, state) {
+		rows.identities = resultIdentities(state, queried.result)
+	}
+	return service.resolveSelectionDocument(state, document, rows, currencies)
+}
+
+// queriedView is one evaluation of a view: its resolved session, breadcrumbs, and rows.
+// identities holds the identities of the rows when the caller has collected them.
+type queriedView struct {
+	session     Session
+	breadcrumbs []BreadcrumbSegment
+	result      domain.QueryResult
+	identities  map[string]struct{}
+}
+
 // queryProjection derives the view's Time granularity, then resolves its breadcrumbs and the
 // rows the browser shows. Rows are complete before selection decoration, so a selected empty
 // Time row shows as selected.
 func (service *Service) queryProjection(
 	state *AnalyticalState, currencies []domain.CurrencyCount,
-) (Session, []BreadcrumbSegment, domain.QueryResult, error) {
+) (queriedView, error) {
 	periods, err := service.deriveTimeRows(state, currencies)
 	if err != nil {
-		return Session{}, nil, domain.QueryResult{}, invalidWebRequest(err)
+		return queriedView{}, invalidWebRequest(err)
 	}
 	session, breadcrumbs, err := service.ResolveViewSession(*state)
 	if err != nil {
-		return Session{}, nil, domain.QueryResult{}, err
+		return queriedView{}, err
 	}
 	result, err := service.Query(session)
 	if err != nil {
-		return Session{}, nil, domain.QueryResult{}, invalidWebRequest(err)
+		return queriedView{}, invalidWebRequest(err)
 	}
 	result.AggregateRows = mergeTimeRows(*state, result.AggregateRows, periods)
-	return session, breadcrumbs, result, nil
+	return queriedView{session: session, breadcrumbs: breadcrumbs, result: result}, nil
 }
 
 // projectRows sets the row count and the row window of a projection.
@@ -466,8 +508,16 @@ func (service *Service) applySelectionTransitionView(
 	window WindowRequest,
 	currencies []domain.CurrencyCount,
 ) (transitionResult, error) {
+	// Checking the target, choosing the smallest selection value, and projecting the result
+	// all read the same rows, so the transition evaluates the view once.
+	queried, err := service.queryProjection(&state.Current, currencies)
+	if err != nil {
+		return transitionResult{}, err
+	}
+	current := resultIdentities(state.Current, queried.result)
+	queried.identities = current
 	nextSelection, err := service.applySelectionTransition(
-		state.Current, selection, transition, currencies,
+		state.Current, selection, transition, current, currencies,
 	)
 	if err != nil {
 		return transitionResult{}, err
@@ -479,7 +529,11 @@ func (service *Service) applySelectionTransitionView(
 	if err != nil {
 		return transitionResult{}, err
 	}
-	projection, err := service.projectViewWith(state, nextSelection, window, currencies)
+	window, err = normalizeWindow(window)
+	if err != nil {
+		return transitionResult{}, err
+	}
+	projection, err := service.projectQueriedView(state, nextSelection, window, currencies, queried)
 	if err != nil {
 		return transitionResult{}, err
 	}
@@ -536,7 +590,7 @@ func (service *Service) transitionSession(
 		return Session{}, err
 	}
 	session.Drilldowns = resolvedCurrent.Drilldowns
-	snapshot, err := service.resolveSelection(state.Current, selection, currencies)
+	snapshot, err := service.resolveSelection(state.Current, selection, viewRows{}, currencies)
 	if err != nil {
 		return Session{}, err
 	}
@@ -603,22 +657,17 @@ func (service *Service) applySelectionTransition(
 	state AnalyticalState,
 	selection SelectionValue,
 	transition TransitionRequest,
+	current map[string]struct{},
 	currencies []domain.CurrencyCount,
 ) (SelectionValue, error) {
 	switch transition.Action {
 	case ActionToggleSelection:
-		if err := service.validateRowTarget(state, *transition.Target, currencies); err != nil {
+		if err := validateRowTarget(state, *transition.Target, current); err != nil {
 			return selection, err
 		}
-		return service.toggleSelection(
-			state,
-			selection,
-			transition.Target.Kind,
-			transition.Target.Identity,
-			currencies,
-		)
+		return service.toggleSelection(state, selection, *transition.Target, current, currencies)
 	case ActionToggleSelectAll:
-		return service.toggleAllSelection(state, selection, currencies)
+		return service.toggleAllSelection(state, selection, current, currencies)
 	default:
 		return selection, invalidWebRequest(errors.New("unsupported selection action"))
 	}
@@ -737,33 +786,16 @@ func (service *Service) resolveAggregateTarget(
 	return domain.AggregateRow{}, staleWebTarget(errors.New("aggregate target no longer resolves"))
 }
 
-func (service *Service) validateRowTarget(
-	state AnalyticalState, target RowTarget, currencies []domain.CurrencyCount,
-) error {
+// validateRowTarget checks that target names a row of the current result, whose identities
+// are current.
+func validateRowTarget(state AnalyticalState, target RowTarget, current map[string]struct{}) error {
 	if target.Kind != identityKindForState(state) || target.Identity == "" {
 		return invalidWebRequest(errors.New("selection target kind is invalid"))
 	}
-	if _, _, err := service.ResolveViewSession(state); err != nil {
-		return err
+	if _, ok := current[target.Identity]; !ok {
+		return staleWebTarget(errors.New("selection target no longer resolves"))
 	}
-	result, err := service.webQuery(state, currencies)
-	if err != nil {
-		return invalidWebRequest(err)
-	}
-	if target.Kind == IdentityTransaction {
-		for _, row := range result.DetailRows {
-			if row.Transaction.ID == target.Identity {
-				return nil
-			}
-		}
-	} else {
-		for _, row := range result.AggregateRows {
-			if AggregateIdentity(row) == target.Identity {
-				return nil
-			}
-		}
-	}
-	return staleWebTarget(errors.New("selection target no longer resolves"))
+	return nil
 }
 
 func applySnapshotToSession(session *Session, snapshot SelectionSnapshot) {
@@ -790,7 +822,13 @@ func (service *Service) selectionFromSession(
 	if len(target) == 0 {
 		return EmptySelection(), nil
 	}
-	return service.smallestSelection(state, old, kind, target, currencies)
+	_, current, err := service.identitiesForState(state, currencies)
+	if err != nil {
+		return old, err
+	}
+	return service.smallestSelection(
+		state, old, SelectionSnapshot{Kind: kind, IDs: target}, current, currencies,
+	)
 }
 
 func rejectedTransition(

@@ -35,11 +35,14 @@ func TestSnapshotFetchesBothPartitionsAndExcludesPendingAfterIntegrity(t *testin
 	assert.Equal(t, domain.Currency("USD"), snapshot.Transactions[0].Amount.Currency)
 	assert.Equal(t, uint8(2), snapshot.Transactions[0].Amount.Scale)
 	assert.Contains(t, progress, provider.Progress{
-		Partition: "visible", Fetched: 2, Total: 2, Attempt: 1, Pass: 1,
+		Partition: "visible", Fetched: 2, Total: 2, Attempt: 1, Pass: 1, Passes: 2,
 	})
 	assert.Contains(t, progress, provider.Progress{
-		Partition: "hidden", Fetched: 1, Total: 1, Attempt: 1, Pass: 1,
+		Partition: "hidden", Fetched: 1, Total: 1, Attempt: 1, Pass: 1, Passes: 2,
 	})
+	assert.Contains(t, progress, provider.Progress{
+		Partition: "hidden", Fetched: 1, Total: 1, Attempt: 1, Pass: 2, Passes: 2,
+	}, "the confirming read reports itself as the second of two")
 	assert.Equal(t, 2, server.CompleteScans())
 }
 

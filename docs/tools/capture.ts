@@ -197,7 +197,8 @@ try {
       });
       await category.fill("Books");
       await expect(category).toHaveAttribute("aria-expanded", "true");
-      await category.press("Enter");
+      // A click takes the suggestion without staging it, as Enter would, so the editor stays.
+      await page.getByRole("option", { name: /^Books, / }).click();
       await expect(category).toHaveAttribute("aria-expanded", "false");
       const stage = page.getByRole("button", { name: /^Stage change to / });
       await stage.waitFor();

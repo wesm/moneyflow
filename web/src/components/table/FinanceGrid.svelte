@@ -4,14 +4,17 @@
 
   import GridHeader from './GridHeader.svelte'
   import GridRow from './GridRow.svelte'
+  import SizerRow from './SizerRow.svelte'
   import type { ViewProjection } from '../../lib/api/client'
   import type { components } from '../../lib/api/schema'
   import { incomeDivider } from '../../lib/table/cells'
   import { ColumnRoom } from '../../lib/table/column-room.svelte'
+  import { ColumnSizer, drawnWidth } from '../../lib/table/column-sizer'
   import {
     columnsAtWidth,
     columnsFor,
     columnsThatFit,
+    columnTracks,
     compactColumnCount,
     compactLayout,
     WIDE_COLUMNS_WIDTH,
@@ -46,8 +49,6 @@
     scrollTop?: number
     /** The scroller's visible height. */
     viewport?: number
-    /** The measured height of the content above the grid in the scroller. */
-    above?: number
     /** A row click moves the cursor; the grid keeps focus. Settles once the cursor moved. */
     oncursor: (index: number) => Promise<void>
     /** A key or a scroll moves the cursor. `decide` returns the row when it is called, or none. */
@@ -75,7 +76,6 @@
     scroller,
     scrollTop = $bindable(0),
     viewport = 520,
-    above = 0,
     oncursor,
     onmove,
     ontoggle,
@@ -97,11 +97,22 @@
   const columns = $derived(columnsThatFit(all, compact ? undefined : room.rem))
   const layout = $derived(compact ? compactLayout(projection) : undefined)
   const cellColumns = $derived(columns.filter((column) => column.key !== 'select'))
-  const trackSizes = $derived(columns.map((column) => column.width).join(' '))
+  const trackSizes = $derived(columnTracks(columns).join(' '))
   const dimension = $derived(projection.view.sub_grouping ?? projection.view.grouping)
   const windows = $derived([projection, ...neighbors])
   const kind: RowKind = $derived(projection.detail_rows ? 'transaction' : 'aggregate')
   const dividers = $derived(projection.view.sort_field === 'amount' && kind === 'aggregate')
+  const sizer = new ColumnSizer(drawnWidth())
+  const sizerRows = $derived(
+    compact
+      ? []
+      : sizer.rows(
+          `${projection.canonical_query} ${projection.revision}`,
+          windows,
+          columns,
+          dimension,
+        ),
+  )
   const scroll = new GridScroll({
     get grid() {
       return grid
@@ -120,9 +131,6 @@
     },
     get viewport() {
       return viewport
-    },
-    get above() {
-      return above
     },
     get scrollTop() {
       return scrollTop
@@ -191,7 +199,7 @@
   </div>
 {:else}
   <div
-    class={['mf-table', compact && 'mf-table--compact', scrollTop > above && 'mf-table--scrolled']}
+    class={['mf-table', compact && 'mf-table--compact', scrollTop > 0 && 'mf-table--scrolled']}
     style:--mf-row-height={`${height}px`}
     style:--mf-columns={compact ? undefined : trackSizes}
     role="grid"
@@ -217,6 +225,9 @@
       {onsort}
       {ontoggleall}
     />
+    {#each sizerRows as row (row.identity)}
+      <SizerRow {row} {columns} {dimension} divider={dividers ? 'Spending' : null} />
+    {/each}
     <div class="mf-table__spacer" style:height={`${scroll.pads.top}px`} aria-hidden="true"></div>
     {#each scroll.slots as { index, row } (index)}
       {#if row}

@@ -1,5 +1,4 @@
-import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { ProviderStatus, ViewProjection } from '../api/client'
 import {
@@ -9,11 +8,10 @@ import {
   REFRESH_STOPPED,
 } from './provider'
 import { staleNotice } from './refresh-notice'
+import { notices } from '../../test/notices'
 import { testProjection } from '../../test/projection'
 
 describe('provider controller', () => {
-  afterEach(() => dismissFlash())
-
   it.each(['recent', 'full'] as const)(
     'starts the %s refresh the server reports as due',
     async (refresh_due) => {
@@ -66,10 +64,10 @@ describe('provider controller', () => {
     expect(controller.state.announcement).toBe(
       `Refresh complete: 0 imported, 0 removed. ${warning}`,
     )
-    expect(getFlashes().map(({ message, tone }) => ({ message, tone }))).toEqual([
-      { message: 'Refresh complete: 0 imported, 0 removed.', tone: 'success' },
-      { message: warning, tone: 'warning' },
-    ])
+    expect(notices()).toEqual({
+      banners: [],
+      status: `Refresh complete: 0 imported, 0 removed. ${warning}`,
+    })
     expect(controller.state.dialog).toBeUndefined()
   })
 
@@ -157,6 +155,36 @@ describe('provider controller', () => {
     expect(controller.state.announcement).toBe(
       'Refresh complete: 0 imported, 0 removed. The current view could not be reread.',
     )
+    expect(notices().status).toBe(
+      'Refresh complete: 0 imported, 0 removed. The current view could not be reread.',
+    )
+  })
+
+  // Installing the refreshed view shows its warnings; the completion notice replaces them, so it
+  // must carry them. Editing reports the audit warning itself.
+  it('keeps why a refresh cleared the selection in the completion notice', async () => {
+    const current = testProjection({ selection_count: 2, capabilities: [capability(true)] })
+    const reason = 'The selection changed and was cleared after refresh.'
+    const cleared = testProjection({
+      revision: '2',
+      selection: 'mfsel1.empty' as ViewProjection['selection'],
+      selection_count: 0,
+      warnings: [
+        { code: 'view_notice', detail: reason },
+        { code: 'audit_completion_failed', detail: 'The audit log could not be completed.' },
+      ],
+    })
+    const transport = transportStub({
+      mutationResponse: Response.json(refreshResponse(cleared, 'cleared')),
+    })
+    const controller = createProviderController({ transport, host: hostStub(current) })
+    controller.sync(current)
+
+    await controller.refresh()
+
+    const summary = `Refresh complete: 0 imported, 0 removed. ${reason}`
+    expect(notices()).toEqual({ banners: [], status: summary })
+    expect(controller.state.announcement).toBe(summary)
   })
 
   it('clears exact selection and parks reconnect without replay', async () => {
@@ -165,6 +193,9 @@ describe('provider controller', () => {
       revision: '2',
       selection: 'mfsel1.empty' as ViewProjection['selection'],
       selection_count: 0,
+      warnings: [
+        { code: 'view_notice', detail: 'The selection changed and was cleared after refresh.' },
+      ],
     })
     const host = hostStub(current)
     const transport = transportStub({
@@ -173,7 +204,7 @@ describe('provider controller', () => {
     const controller = createProviderController({ transport, host })
     controller.sync(current)
     await controller.refresh()
-    expect(controller.state.announcement).toContain('Selection cleared')
+    expect(controller.state.announcement).toContain('cleared after refresh')
 
     vi.mocked(transport.mutations.request).mockResolvedValueOnce(
       problemResponse('provider_reconnect_required', 'Reconnect through the command line.'),
@@ -326,7 +357,7 @@ describe('provider controller', () => {
     await controller.refresh()
 
     expect(controller.state.dialog?.view).toBe('failed')
-    expect(getFlashes()).toEqual([])
+    expect(notices()).toEqual({ banners: [], status: '' })
   })
 
   it('points an unexpected server error to the server log', async () => {
@@ -578,7 +609,7 @@ describe('provider controller', () => {
 
     expect(controller.state.dialog).toBeUndefined()
     expect(controller.state.announcement).toBe('The other refresh ended.')
-    expect(getFlashes()).toEqual([])
+    expect(notices()).toEqual({ banners: [], status: '' })
   })
 
   it('does not attribute saved data to a canceled retry', async () => {
@@ -612,7 +643,7 @@ describe('provider controller', () => {
     await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
 
     expect(controller.state.announcement).toBe(REFRESH_STOPPED)
-    expect(getFlashes()).toEqual([])
+    expect(notices()).toEqual({ banners: [], status: '' })
   })
 
   it('keeps a canceled attempt unclaimed when status polling failed', async () => {
@@ -637,7 +668,7 @@ describe('provider controller', () => {
     controller.cancel()
     await vi.waitFor(() => expect(controller.state.dialog).toBeUndefined())
 
-    expect(getFlashes()).toEqual([])
+    expect(notices()).toEqual({ banners: [], status: '' })
     expect(controller.state.staleReason).toBe(REFRESH_STOPPED)
     expect(controller.state.announcement).not.toContain('no provider data changed')
     expect(host.reload).toHaveBeenCalledOnce()
@@ -698,7 +729,7 @@ describe('provider controller', () => {
 
     expect(controller.state.phase).toBe('confirmation')
     expect(controller.state.dialog?.view).toBe('confirmation')
-    expect(getFlashes()).toEqual([])
+    expect(notices()).toEqual({ banners: [], status: '' })
 
     controller.dismissConfirmation()
     expect(controller.state.dialog).toBeUndefined()
@@ -765,17 +796,36 @@ describe('provider controller', () => {
     finish(
       Response.json({
         ...refreshResponse(current, 'preserved'),
-        status: providerStatus({ provider_kind: 'monarch' }),
+        status: providerStatus({ provider_kind: 'monarch', manual_refresh: 'recent' }),
       }),
     )
     await scheduled
     expect(controller.state.kind).toBeUndefined()
 
     const manual = controller.refresh()
-    expect(controller.state.kind).toBe('full')
+    expect(controller.state.kind).toBe('recent')
     await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledTimes(2))
-    finish(Response.json(refreshResponse(current, 'preserved')))
+    expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[1]![1])).not.toHaveProperty(
+      'complete_history',
+    )
+    finish(
+      Response.json({
+        ...refreshResponse(current, 'preserved'),
+        status: providerStatus({ provider_kind: 'monarch', manual_refresh: 'recent' }),
+      }),
+    )
     await manual
+
+    const complete = controller.refresh(true)
+    expect(controller.state.kind).toBe('full')
+    expect(controller.state.dialog?.completeHistory).toBe(true)
+    await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledTimes(3))
+    expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[2]![1])).toMatchObject({
+      manual: true,
+      complete_history: true,
+    })
+    finish(Response.json(refreshResponse(current, 'preserved')))
+    await complete
   })
 
   it('polls status every second only while a refresh runs', async () => {
@@ -816,7 +866,7 @@ describe('provider controller', () => {
           refreshing: true,
           owner_renderer: 'tui',
           refresh_due: 'full',
-          progress: { fetched: 20, total: 40 },
+          progress: { fetched: 20, total: 40, verifying: false, percent: 25 },
         }),
       })
       let now = 1_000
@@ -834,7 +884,12 @@ describe('provider controller', () => {
       expect(controller.state.phase).toBe('refreshing')
       expect(controller.state.dialog?.view).toBe('other')
       expect(controller.state.dialog?.startedAt).toBe(2_000)
-      expect(controller.state.status?.progress).toEqual({ fetched: 20, total: 40 })
+      expect(controller.state.status?.progress).toEqual({
+        fetched: 20,
+        total: 40,
+        verifying: false,
+        percent: 25,
+      })
       expect(controller.state.announcement).toBe(
         'The terminal app (moneyflow tui) is refreshing this profile.',
       )
@@ -1031,9 +1086,7 @@ describe('provider controller', () => {
 
     expect(controller.state.status?.generation).toBe('3')
     expect(staleNotice(controller.state, Date.now())?.text).toBe('Newer provider data is loading.')
-    expect(getFlashes().map(({ message }) => message)).toEqual([
-      'Refresh complete: 0 imported, 0 removed.',
-    ])
+    expect(notices()).toEqual({ banners: [], status: 'Refresh complete: 0 imported, 0 removed.' })
   })
 
   it('keeps a newer failure when a successful response finishes late', async () => {
@@ -1062,9 +1115,10 @@ describe('provider controller', () => {
     expect(controller.state.status).toMatchObject({ generation: '3', code: 'provider_unavailable' })
     expect(host.accept).not.toHaveBeenCalled()
     expect(staleNotice(controller.state, Date.now())?.rereadFailed).toBe(true)
-    expect(getFlashes().map(({ message }) => message)).toEqual([
-      'Refresh complete: 0 imported, 0 removed.',
-    ])
+    expect(notices()).toEqual({
+      banners: [],
+      status: 'Refresh complete: 0 imported, 0 removed. The current view could not be reread.',
+    })
   })
 
   it('ignores a delayed poll even when the generation and revision have not changed', async () => {
@@ -1330,7 +1384,7 @@ describe('provider controller', () => {
     await refresh
     await settle()
 
-    expect(getFlashes()).toEqual([])
+    expect(notices()).toEqual({ banners: [], status: '' })
     expect(controller.state.announcement).not.toContain('no provider data changed')
     expect(controller.state.dialog).toBeUndefined()
   })
@@ -1364,7 +1418,7 @@ describe('provider controller', () => {
 
     await vi.waitFor(() => expect(host.reload).toHaveBeenCalledOnce())
     expect(controller.state.announcement).toBe(REFRESH_STOPPED)
-    expect(getFlashes()).toEqual([])
+    expect(notices()).toEqual({ banners: [], status: '' })
   })
 
   it('keeps the failure when an older reread succeeds after a newer one failed', async () => {
@@ -1483,13 +1537,11 @@ describe('provider controller', () => {
     void controller.refresh()
     await vi.waitFor(() => expect(transport.mutations.request).toHaveBeenCalledOnce())
     reread()
-    await vi.waitFor(() => expect(getFlashes()).not.toEqual([]))
+    await vi.waitFor(() => expect(notices().status).not.toBe(''))
 
     expect(controller.state.dialog?.view).toBe('progress')
     expect(controller.state.phase).toBe('refreshing')
-    expect(getFlashes().map(({ message }) => message)).toEqual([
-      'Refresh complete: 7 imported, 0 removed.',
-    ])
+    expect(notices()).toEqual({ banners: [], status: 'Refresh complete: 7 imported, 0 removed.' })
     controller.cancel()
   })
 
@@ -1549,8 +1601,9 @@ function providerStatus(overrides: Partial<ProviderStatus> = {}): ProviderStatus
     revision: String(BigInt(overrides.generation ?? '1') - 1n),
     generation: '1',
     refresh_due: 'none',
+    manual_refresh: 'full',
     refreshing: false,
-    progress: { fetched: 0, total: 0 },
+    progress: { fetched: 0, total: 0, verifying: false, percent: 0 },
     summary: emptySummary(),
     capability: capability(true),
     ...overrides,

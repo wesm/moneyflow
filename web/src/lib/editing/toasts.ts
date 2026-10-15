@@ -8,12 +8,12 @@ const REDO_HINT = 'Redo U'
 const PAST_TENSE = { hide: 'Hidden', show: 'Shown', delete: 'Deleted' } as const
 
 /**
- * Words the toast for a hide, show, delete, undo, or redo. Staged renames, recategorizations,
+ * Words the status line notice for a hide, show, delete, undo, or redo. Staged renames, recategorizations,
  * and taxonomy edits return `undefined`: the pending card already shows them.
  *
  * Undo and redo of a hide, show, or delete read from `kind`, which keeps the direction the edit
  * had when staged. The review label also names the direction ("Hide transactions" or "Show
- * transactions"); the toast reads `kind`.
+ * transactions"); the notice reads `kind`.
  */
 export function toastMessage(
   operation: OperationSummary | undefined,

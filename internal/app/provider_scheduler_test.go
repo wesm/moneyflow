@@ -250,6 +250,54 @@ func TestMonarchRefreshDueChoosesRecentOrFullByAge(t *testing.T) {
 	}
 }
 
+// A manual Monarch refresh reads the recent window, unless that window could miss changes the
+// local data has not seen: then it reads complete history, as the schedule would.
+func TestManualRefreshScopeReadsRecentDataUnlessHistoryCouldBeMissed(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.August, 15, 21, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+	tests := []struct {
+		name        string
+		kind        string
+		lastSuccess time.Duration
+		lastFull    time.Duration
+		unknownFull bool
+		code        provider.ErrorCode
+		want        app.ProviderRefreshScope
+	}{
+		{name: "fresh", kind: "monarch", lastSuccess: time.Minute, lastFull: time.Minute,
+			want: app.ProviderRefreshRecent},
+		{name: "full just under thirty days", kind: "monarch", lastSuccess: time.Hour,
+			lastFull: 30*day - time.Millisecond, want: app.ProviderRefreshRecent},
+		{name: "full thirty days", kind: "monarch", lastSuccess: time.Hour, lastFull: 30 * day,
+			want: app.ProviderRefreshFull},
+		{name: "no full record", kind: "monarch", lastSuccess: time.Hour, unknownFull: true,
+			want: app.ProviderRefreshFull},
+		{name: "never imported", kind: "monarch", unknownFull: true,
+			want: app.ProviderRefreshFull},
+		{name: "after a failure", kind: "monarch", lastSuccess: 7 * time.Hour, lastFull: day,
+			code: provider.CodeDeletionConfirmationRequired, want: app.ProviderRefreshRecent},
+		{name: "YNAB", kind: "ynab", lastSuccess: time.Hour, lastFull: time.Hour,
+			want: app.ProviderRefreshFull},
+		{name: "SimpleFIN", kind: "simplefin", lastSuccess: time.Hour, lastFull: time.Hour,
+			want: app.ProviderRefreshFull},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			status := app.ProviderStatus{ProviderKind: test.kind, Code: test.code}
+			if test.lastSuccess != 0 {
+				status.LastSuccess = now.Add(-test.lastSuccess)
+			}
+			if !test.unknownFull {
+				status.LastFullRefresh = now.Add(-test.lastFull)
+			}
+			assert.Equal(t, test.want, app.ManualRefreshScope(status, now))
+		})
+	}
+}
+
 func TestMonarchMissingOrCorruptRefreshRecordMakesFullRefreshDue(t *testing.T) {
 	t.Parallel()
 

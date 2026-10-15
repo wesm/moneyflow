@@ -961,11 +961,31 @@ func safeProblemResponses(next http.Handler, logger *log.Logger) http.Handler {
 			}
 			problem = *newProblem(status, code, detail)
 		}
+		if problem.Status >= http.StatusInternalServerError && clientCanceled(request, cause.err) {
+			problem = *canceledProblem()
+		}
 		if problem.Status == http.StatusInternalServerError {
 			logServerFailure(logger, request, &problem, cause.err)
 		}
 		writeProblem(response, &problem)
 	})
+}
+
+// clientCanceled reports a request that failed only because its client went away: the request
+// context was canceled and the failure is that cancellation. A handler's own time limit is not a
+// cancellation, and a real failure that races a disconnect keeps its server status.
+func clientCanceled(request *http.Request, cause error) bool {
+	return errors.Is(request.Context().Err(), context.Canceled) &&
+		(errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded))
+}
+
+func canceledProblem() *Problem {
+	problem := newProblem(
+		statusClientClosedRequest, string(CodeRequestCanceled),
+		"The request was canceled before it finished.",
+	)
+	problem.Title = "Client Closed Request"
+	return problem
 }
 
 func isExportStreamRequest(request *http.Request) bool {

@@ -10,7 +10,8 @@ import {
   type ProviderStatus,
   type ViewProjection,
 } from '../api/client'
-import { failureReason, problemReason, showSuccess, showWarning } from '../shell/notices'
+import { failureReason, problemReason, showNotice } from '../shell/notices'
+import { auditWarningCode } from './editing'
 import { providerLabel, refreshOwner } from './refresh-notice'
 
 type Capability = NonNullable<ViewProjection['capabilities']>[number]
@@ -36,6 +37,8 @@ export interface RefreshDialog {
   startedAt: number
   /** Why the refresh failed, in the failed and reconnect views. */
   reason?: string | undefined
+  /** The user asked this refresh for complete history, so Retry asks again. */
+  completeHistory?: boolean | undefined
 }
 
 export interface ProviderState {
@@ -60,7 +63,11 @@ export interface ProviderController {
   readonly state: ProviderState
   sync(projection: ViewProjection): void
   poll(): Promise<void>
-  refresh(): Promise<boolean>
+  /**
+   * Starts a manual refresh. A Monarch refresh reads the last 90 days unless `completeHistory`
+   * asks for complete history; the server reads complete history anyway when it is due.
+   */
+  refresh(completeHistory?: boolean): Promise<boolean>
   confirm(): Promise<boolean>
   dismissConfirmation(): void
   /** Rereads the view after newer provider data could not be loaded. */
@@ -107,12 +114,18 @@ export const REFRESH_STOPPED = 'Refresh stopped.'
 export const REFRESH_NOT_CONFIRMED = 'Refresh was not confirmed; no provider data changed.'
 const REREAD_FAILED = 'The current view could not be reread.'
 
+/** One refresh this tab asks for: manual or automatic, and whether it asks for complete history. */
+interface RefreshRequest {
+  manual: boolean
+  completeHistory: boolean
+}
+
 export function createProviderController(options: ProviderControllerOptions): ProviderController {
   const now = options.now ?? Date.now
   let state: ProviderState = { phase: 'idle', announcement: '', capability: undefined }
   let inFlight = false
   /** A refresh asked for before the first view loaded; it starts with that view. */
-  let pending: boolean | undefined
+  let pending: RefreshRequest | undefined
   let request: AbortController | undefined
   /** The data generation before the watched refresh; a newer one means a refresh committed. */
   let watched: string | undefined
@@ -274,13 +287,19 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   }
 
   function openDialog(view: RefreshDialogView, reason?: string): RefreshDialog {
-    return { view, startedAt: state.dialog?.startedAt ?? now(), reason }
+    return {
+      view,
+      startedAt: state.dialog?.startedAt ?? now(),
+      reason,
+      completeHistory: state.dialog?.completeHistory,
+    }
   }
 
-  function refreshKind(manual: boolean): RefreshKind | undefined {
+  /** Names what the refresh reads; the server makes the same choice from the same status. */
+  function refreshKind({ manual, completeHistory }: RefreshRequest): RefreshKind | undefined {
     const status = state.status
     if (status?.provider_kind !== 'monarch') return undefined
-    if (manual) return 'full'
+    if (manual) return completeHistory ? 'full' : status.manual_refresh
     return status.refresh_due === 'none' ? undefined : status.refresh_due
   }
 
@@ -289,12 +308,12 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     setState({ ...state, capability })
     catchUpInBackground()
     if (pending === undefined || inFlight) return
-    const manual = pending
+    const asked = pending
     pending = undefined
-    void send(manual, projection)
+    void send(asked, projection)
   }
 
-  async function refresh(manual = true): Promise<boolean> {
+  async function refresh(asked: RefreshRequest): Promise<boolean> {
     const capability = state.capability
     if (!capability?.available) {
       setState({
@@ -304,31 +323,32 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       return false
     }
     if (inFlight || pending !== undefined) return false
-    if (manual) automaticAfter = 0
+    if (asked.manual) automaticAfter = 0
     startAttempt()
     setState({
       ...state,
       phase: 'refreshing',
-      kind: refreshKind(manual),
+      kind: refreshKind(asked),
       staleReason: undefined,
-      dialog: { ...openDialog('progress'), startedAt: now() },
+      dialog: { view: 'progress', startedAt: now(), completeHistory: asked.completeHistory },
       announcement: `Refreshing from ${providerLabel(state.status?.provider_kind)}…`,
     })
     const current = options.host.current()
     if (!current) {
-      pending = manual
+      pending = asked
       return false
     }
-    return send(manual, current)
+    return send(asked, current)
   }
 
-  async function send(manual: boolean, current: ViewProjection): Promise<boolean> {
+  async function send(asked: RefreshRequest, current: ViewProjection): Promise<boolean> {
     const body: ProviderRefreshBody = {
       version: '1',
-      manual,
+      manual: asked.manual,
       query: current.canonical_query,
       selection: current.selection,
       window: { offset: current.window.offset, limit: current.window.limit },
+      ...(asked.completeHistory ? { complete_history: true } : {}),
     }
     return submit('api/v1/provider/refresh', body)
   }
@@ -401,15 +421,22 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     leaveCompletedDialog()
     if (!viewShowsNewest()) setState({ ...state, viewLoading: true })
     const seen = statusChanges
-    const complete = await show(projection, current, response.selection.kind === 'cleared')
-    succeed(response.status, complete, finished, seen)
+    const viewNotes = await show(projection, current)
+    succeed(response.status, viewNotes, finished, seen)
     return true
   }
 
-  function succeed(status: ProviderStatus, viewNote: string, finished: number, seen: number): void {
-    const summary = completeMessage(status)
-    showSuccess(summary)
-    if (status.warning) showWarning(status.warning)
+  /** Reports the refresh in one notice, with what the view it installed explains. */
+  function succeed(
+    status: ProviderStatus,
+    viewNotes: string[],
+    finished: number,
+    seen: number,
+  ): void {
+    const message = [completeMessage(status), ...viewNotes, status.warning]
+      .filter(Boolean)
+      .join(' ')
+    showNotice(message)
     if (finished !== attempt) return
     if (seen !== statusChanges || state.status !== status) {
       leaveCompletedDialog()
@@ -421,7 +448,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       status,
       viewError: state.viewError,
       viewLoading: state.viewLoading,
-      announcement: [summary, viewNote, status.warning].filter(Boolean).join(' '),
+      announcement: message,
     })
   }
 
@@ -445,20 +472,25 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 
   // A view or selection change made while the refresh ran stays: wait for any still on its way,
   // so installing the refreshed view does not cancel it, then reread the view it produced at the
-  // refreshed revision rather than reinstall the view the refresh was sent with.
-  function show(
-    projection: ViewProjection,
-    sent: ViewProjection,
-    selectionCleared: boolean,
-  ): Promise<string> {
-    return options.host.serially(() => showSettled(projection, sent, selectionCleared))
+  // refreshed revision rather than reinstall the view the refresh was sent with. Returns what the
+  // completion notice must repeat: why a reread failed, and the warnings of a view installed
+  // here, such as why the refresh cleared the selection. Editing reports the audit warning.
+  function show(projection: ViewProjection, sent: ViewProjection): Promise<string[]> {
+    return options.host.serially(async () => {
+      const before = options.host.current()
+      const note = await showSettled(projection, sent)
+      const installed = options.host.current()
+      const warnings = installed === before ? [] : (installed?.warnings ?? [])
+      return [
+        ...warnings
+          .filter((warning) => warning.code !== auditWarningCode)
+          .map((warning) => warning.detail),
+        note,
+      ]
+    })
   }
 
-  async function showSettled(
-    projection: ViewProjection,
-    sent: ViewProjection,
-    selectionCleared: boolean,
-  ): Promise<string> {
+  async function showSettled(projection: ViewProjection, sent: ViewProjection): Promise<string> {
     const shown = options.host.current()
     if (
       (shown && BigInt(shown.revision) > BigInt(projection.revision)) ||
@@ -470,7 +502,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       (shown.canonical_query === sent.canonical_query && shown.selection === sent.selection)
     ) {
       options.host.accept(projection)
-      return selectionCleared ? 'Selection cleared because selected rows changed.' : ''
+      return ''
     }
     return catchUp(true)
   }
@@ -503,7 +535,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       reported = { ...reported, revision: known.revision }
     }
     if (reported && !canAdopt(reported, before)) {
-      showWarning(problemReason(problem))
+      showNotice(problemReason(problem))
       leaveCompletedDialog()
       return false
     }
@@ -604,7 +636,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       now() < automaticAfter
     )
       return
-    await refresh(false)
+    await refresh({ manual: false, completeHistory: false })
   }
 
   /** Applies one status answer: progress, another interface's refresh, or a refresh that ended. */
@@ -707,7 +739,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   async function finishCommitted(status: ProviderStatus, finished: number): Promise<void> {
     const seen = statusChanges
     const note = await (rereading ?? Promise.resolve(''))
-    succeed(status, note, finished, seen)
+    succeed(status, [note], finished, seen)
   }
 
   function cancel(): void {
@@ -772,7 +804,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     sync,
     poll,
     reread: rereadOnRequest,
-    refresh: () => refresh(true),
+    refresh: (completeHistory = false) => refresh({ manual: true, completeHistory }),
     confirm,
     dismissConfirmation,
     cancel,

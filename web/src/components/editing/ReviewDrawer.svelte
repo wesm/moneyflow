@@ -11,7 +11,7 @@
   import { reviewEnter } from '../../lib/editing/review-keys'
 
   interface Props {
-    /** Review lists the pending edits to commit; write tracks the provider write it starts. */
+    /** Review lists the pending edits to commit; write shows a provider write's status. */
     mode: 'review' | 'write'
     editing: EditingController
     review: ReviewController
@@ -19,9 +19,8 @@
     providerName: string
     /** True while the refresh dialog covers this overlay; its keys then do nothing here. */
     suspended?: boolean
+    /** Closes the drawer. An accepted commit closes it too; the status bar shows its write. */
     onclose: () => void
-    /** Switches the drawer to write mode once a commit starts a provider write. */
-    onwrite: () => void
     onreconnect?: (() => void) | undefined
   }
 
@@ -33,7 +32,6 @@
     providerName,
     suspended = false,
     onclose,
-    onwrite,
     onreconnect,
   }: Props = $props()
   const title = $derived(
@@ -61,7 +59,7 @@
     else void tick().then(focusSurface)
   })
 
-  /** Keeps focus in the drawer when Commit leaves it for write status. */
+  /** Keeps focus inside when the drawer turns to write status, as for a blocked write. */
   function focusSurface(): void {
     const panel = surface()
     if (panel && !panel.contains(document.activeElement)) panel.focus()
@@ -96,9 +94,8 @@
     }
     if (!accepted) return
     review.clear()
-    if (!mounted) return
-    if (editing.state.providerWrite) onwrite()
-    else onclose()
+    // A write that needed the user while the request ran has turned this drawer to its status.
+    if (mounted && mode === 'review') onclose()
   }
 
   function keydown(event: KeyboardEvent): void {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { providerCapability, testProviderStatus } from '../../test/provider'
 import type { ProviderState } from './provider'
-import { dataAge, elapsed, staleNotice, statusStaleReason } from './refresh-notice'
+import { dataAge, elapsed, progressText, staleNotice, statusStaleReason } from './refresh-notice'
 
 const now = Date.parse('2026-10-13T12:00:00Z')
 
@@ -206,5 +206,24 @@ describe('refresh notice', () => {
     expect(staleNotice(idle({ status }), now, 'en-US')?.text).toMatch(
       /^No refresh has completed for this profile\. Last refresh failed\./,
     )
+  })
+})
+
+describe('refresh progress text', () => {
+  const progress = (fetched: number, total: number, verifying = false) => ({
+    fetched,
+    total,
+    verifying,
+    percent: 0,
+  })
+
+  it.each([
+    [progress(0, 0), undefined],
+    [progress(1, 0), 'Fetched 1 transaction'],
+    [progress(7_000, 31_269), 'Fetched 7,000 transactions'],
+    [progress(31_808, 31_808), 'Fetched 31,808 transactions'],
+    [progress(12_000, 31_808, true), 'Verifying 12,000 of 31,808 transactions'],
+  ])('describes %o as %s', (value, text) => {
+    expect(progressText(value, 'en-US')).toBe(text)
   })
 })

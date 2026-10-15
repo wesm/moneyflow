@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -43,6 +45,85 @@ func TestProjectionPerformance100K(t *testing.T) {
 	require.NotEmpty(t, encoded)
 	require.Less(t, duration, time.Second,
 		"URL decode, query, 200-row projection, and JSON encoding took %s", duration)
+}
+
+// TestSelectionTogglePerformance100K keeps a Space toggle at the cost of about one view
+// projection. The toggle has to evaluate the view to check its target and project the new
+// selection, but evaluating it again for each step made a toggle cost three projections.
+// After Select all, the selection names all rows of the view. Resolving that name in each step
+// evaluated the view again, so such a toggle cost about two projections of the same view and
+// selection. It now reads the rows the toggle evaluated and must cost less than one and a half.
+func TestSelectionTogglePerformance100K(t *testing.T) {
+	if testing.Short() {
+		t.Skip("performance smoke is not part of short tests")
+	}
+	if os.Getenv("MONEYFLOW_SKIP_PERF") == "1" {
+		t.Skip("performance smoke explicitly skipped for instrumented race job")
+	}
+
+	service, err := app.NewService(fixture.Generate(20260813, performanceTransactionCount))
+	require.NoError(t, err)
+	state, _, err := DecodeViewQuery("mode=detail&v=1")
+	require.NoError(t, err)
+	window := app.WindowRequest{Limit: app.DefaultWindowLimit}
+	view, err := service.ProjectView(state, app.EmptySelection(), window)
+	require.NoError(t, err)
+	// Every tenth generated transaction is a transfer, which the default view hides.
+	require.Equal(t, performanceTransactionCount*9/10, view.TotalRows)
+	target := app.RowTarget{Kind: app.IdentityTransaction, Identity: view.DetailRows[0].Identity}
+	toggle := app.TransitionRequest{Action: app.ActionToggleSelection, Target: &target}
+
+	// Alternating the two operations exposes both to the same host load, so load that changes
+	// during the test cannot skew their ratio. Each keeps its fastest run.
+	fastestPair := func(first, second func() error) (time.Duration, time.Duration) {
+		timed := func(run func() error) time.Duration {
+			// Collecting first keeps one run's garbage from being collected inside the next.
+			runtime.GC()
+			start := time.Now()
+			require.NoError(t, run())
+			return time.Since(start)
+		}
+		bestFirst, bestSecond := time.Duration(math.MaxInt64), time.Duration(math.MaxInt64)
+		for range 7 {
+			bestFirst = min(bestFirst, timed(first))
+			bestSecond = min(bestSecond, timed(second))
+		}
+		return bestFirst, bestSecond
+	}
+	selection := app.EmptySelection()
+	projected, toggled := fastestPair(func() error {
+		_, err := service.ProjectView(state, app.EmptySelection(), window)
+		return err
+	}, func() error {
+		_, next, projection, err := service.TransitionView(state, selection, toggle, window)
+		if err == nil && projection.SelectionCount > 1 {
+			err = fmt.Errorf("selection count %d", projection.SelectionCount)
+		}
+		selection = next
+		return err
+	})
+	require.Less(t, toggled, 2*projected,
+		"a 100k-row toggle took %s; projecting the same view took %s", toggled, projected)
+
+	_, all, _, err := service.TransitionView(
+		state, app.EmptySelection(), app.TransitionRequest{Action: app.ActionToggleSelectAll}, window,
+	)
+	require.NoError(t, err)
+	selection = all
+	projectedAll, toggledAfterAll := fastestPair(func() error {
+		_, err := service.ProjectView(state, all, window)
+		return err
+	}, func() error {
+		_, next, projection, err := service.TransitionView(state, selection, toggle, window)
+		if err == nil && projection.SelectionCount < view.TotalRows-1 {
+			err = fmt.Errorf("selection count %d", projection.SelectionCount)
+		}
+		selection = next
+		return err
+	})
+	require.Less(t, toggledAfterAll, projectedAll*3/2,
+		"a 100k-row toggle after Select all took %s; projecting the same view and selection "+
+			"took %s", toggledAfterAll, projectedAll)
 }
 
 func BenchmarkProjection100K(b *testing.B) {

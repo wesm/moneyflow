@@ -13,6 +13,8 @@
     value: string
     /** Whether the current text can be staged; Enter with the list closed asks only then. */
     valid: boolean
+    /** Whether a plain Enter on the open list stages the choice it accepts; see `editorKey`. */
+    acceptStages?: boolean
     onaccept: (option: EditorOption) => void
     /**
      * Receives `stage`, `accept-and-stage` (after `onaccept`), and `cancel`, with the key event.
@@ -21,7 +23,15 @@
     onkeyaction: (action: EditorKeyAction, event: KeyboardEvent) => void
   }
 
-  let { label, options, value = $bindable(), valid, onaccept, onkeyaction }: Props = $props()
+  let {
+    label,
+    options,
+    value = $bindable(),
+    valid,
+    acceptStages = false,
+    onaccept,
+    onkeyaction,
+  }: Props = $props()
 
   const id = $props.id()
   const listId = `${id}-list`
@@ -50,7 +60,7 @@
   })
 
   function handleKey(event: KeyboardEvent): void {
-    const action = editorKey(event, { listOpen: expanded, valid, focus: 'combobox' })
+    const action = editorKey(event, { listOpen: expanded, valid, focus: 'combobox', acceptStages })
     if (action === 'none') return
     if (action === 'cancel') {
       onkeyaction(action, event)

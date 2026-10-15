@@ -19,6 +19,16 @@ describe('ProviderStatus', () => {
     expectVisible('Connect a provider before refreshing.')
   })
 
+  it('names the complete-history key beside a Monarch refresh', () => {
+    const controller = stubProvider(true, {
+      status: testProviderStatus({ provider_kind: 'monarch' }),
+    })
+    render(ProviderStatus, { controller })
+    expect(
+      screen.getByRole('button', { name: 'Refresh provider data' }).getAttribute('title'),
+    ).toBe('Complete history · R')
+  })
+
   it('shows why a write in progress disables refresh', () => {
     const controller = stubProvider(true, {
       capability: providerCapability(false, 'Finish the provider write before refreshing.'),
@@ -73,11 +83,13 @@ describe('ProviderStatus', () => {
     const controller = stubProvider(true, {
       phase: 'refreshing',
       kind: 'recent',
-      status: testProviderStatus({ progress: { fetched: 20, total: 40 } }),
+      status: testProviderStatus({
+        progress: { fetched: 20, total: 40, verifying: false, percent: 25 },
+      }),
     })
     render(ProviderStatus, { controller })
     expect(screen.getByRole('status').textContent).toContain(
-      'Refreshing recent data (last 90 days): 20 of 40',
+      'Refreshing recent data (last 90 days) · Fetched 20 transactions',
     )
     expect(screen.getByRole('button', { name: 'Refreshing…' })).not.toBeNull()
   })
@@ -90,10 +102,12 @@ describe('ProviderStatus', () => {
 
     const refreshing = stubProvider(true, {
       phase: 'refreshing',
-      status: testProviderStatus({ progress: { fetched: 20, total: 40 } }),
+      status: testProviderStatus({
+        progress: { fetched: 20, total: 40, verifying: false, percent: 25 },
+      }),
     })
     await rendered.rerender({ controller: refreshing })
-    expect(screen.getByRole('status').textContent).toContain('20 of 40')
+    expect(screen.getByRole('status').textContent).toContain('Fetched 20 transactions')
   })
 
   it('shows the update time, not progress, once a refresh finishes', async () => {
@@ -101,15 +115,17 @@ describe('ProviderStatus', () => {
     const rendered = render(ProviderStatus, {
       controller: stubProvider(true, {
         phase: 'refreshing',
-        status: testProviderStatus({ progress: { fetched: 20, total: 40 } }),
+        status: testProviderStatus({
+          progress: { fetched: 20, total: 40, verifying: false, percent: 25 },
+        }),
       }),
     })
-    expect(screen.getByRole('status').textContent).toContain('20 of 40')
+    expect(screen.getByRole('status').textContent).toContain('Fetched 20 transactions')
 
     // The next status poll still carries the finished refresh's counts.
     const finished = testProviderStatus({
       last_success: '2026-10-07T11:55:00Z',
-      progress: { fetched: 40, total: 40 },
+      progress: { fetched: 40, total: 40, verifying: true, percent: 100 },
     })
     await rendered.rerender({ controller: stubProvider(true, { status: finished }) })
     expect(screen.queryByText(/^Refreshing/)).toBeNull()

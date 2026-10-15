@@ -9,7 +9,7 @@ import { currentPageRows, cursorTarget, type CursorMove } from '../table/cursor-
 import { availableCapabilities, unavailableReason } from './capabilities'
 import { EDIT_IN_FLIGHT } from '../controller/editing'
 import type { EditorAnchor, OverlayState } from './overlay-state.svelte'
-import { showFailure, showWarning } from './notices'
+import { showFailure, showNotice } from './notices'
 import { activeCurrency } from './period'
 import { status } from './status.svelte'
 
@@ -190,6 +190,7 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
       if (controller.projection?.profile_kind === 'amazon') context.importAmazon()
       else void controller.provider.refresh()
     },
+    'provider.refresh-history': () => void controller.provider.refresh(true),
     'transactions.export': () => void beginExport(context),
     'time.choose': () => {
       const projection = controller.projection
@@ -274,7 +275,7 @@ async function reportEdit(context: LocalActionContext, edit: Promise<boolean>): 
   // Only an edit with no view loaded is refused without an announcement; no key reaches it.
   if (announcement === '') return
   // A refreshed or cleared selection is applied; the user only has to repeat the action.
-  if (phase === 'idle') showWarning(announcement)
+  if (phase === 'idle') showNotice(announcement)
   else showFailure(announcement)
 }
 
@@ -301,5 +302,5 @@ async function beginExport(context: LocalActionContext): Promise<void> {
   // The dialog shows export messages, but it opens only once a preview has data.
   const { phase, announcement } = context.controller.export.state
   if (phase === 'failed') showFailure(announcement)
-  else if (announcement !== '') showWarning(announcement)
+  else if (announcement !== '') showNotice(announcement)
 }

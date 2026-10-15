@@ -4,7 +4,7 @@
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw'
 
   import type { ProviderController } from '../lib/controller/provider'
-  import { refreshOwner } from '../lib/controller/refresh-notice'
+  import { progressText, refreshOwner } from '../lib/controller/refresh-notice'
   import { status } from '../lib/shell/status.svelte'
 
   interface Props {
@@ -17,7 +17,7 @@
   let { controller, onreconnect, rail = false }: Props = $props()
   const refreshing = $derived(controller.state.phase === 'refreshing')
   const available = $derived(controller.state.capability?.available === true)
-  const progress = $derived(controller.state.status?.progress)
+  const progress = $derived(progressText(controller.state.status?.progress))
   const reconnect = $derived(controller.state.phase === 'reconnect' && onreconnect !== undefined)
   const showProgress = $derived(refreshing && progress !== undefined)
   const subject = $derived(
@@ -44,8 +44,14 @@
     const at = Date.parse(lastSuccess)
     return formatRefreshAge(at, Math.max(now, at))
   })
+  /** Monarch refreshes the last 90 days by default; R asks for complete history. */
+  const historyHint = $derived(
+    controller.state.status?.provider_kind === 'monarch' && !refreshing
+      ? 'Complete history · R'
+      : undefined,
+  )
   const refreshTip = $derived(
-    [refreshing ? 'Refreshing…' : 'Refresh provider data · r', updated, notice]
+    [refreshing ? 'Refreshing…' : 'Refresh provider data · r', historyHint, updated, notice]
       .filter(Boolean)
       .join(' · '),
   )
@@ -91,7 +97,7 @@
   <div class="provider-status">
     {#if showProgress && progress}
       <span class="provider-status__meta" role="status" aria-live="polite">
-        Refreshing {subject}: {progress.fetched} of {progress.total}
+        Refreshing {subject} · {progress}
       </span>
     {:else if refreshing && controller.state.kind}
       <span class="provider-status__meta">Refreshing {subject}…</span>
@@ -110,7 +116,7 @@
       <Button
         size="sm"
         disabled={!available || refreshing}
-        title={controller.state.capability?.reason}
+        title={controller.state.capability?.reason ?? historyHint}
         ariaLabel={refreshing ? undefined : 'Refresh provider data'}
         onclick={() => void controller.refresh()}
         ><RefreshCwIcon size={12} aria-hidden="true" />{refreshing

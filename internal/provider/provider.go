@@ -14,13 +14,17 @@ type ProfileIdentity struct {
 	RemoteID string
 }
 
-// Progress describes counts-only progress for one bounded snapshot attempt.
+// Progress describes counts-only progress for one bounded snapshot attempt. Fetched and Total
+// count one partition of one pass. A provider that reads its data more than once to confirm a
+// snapshot numbers each read in Pass and reports how many reads one attempt makes in Passes;
+// zero means one.
 type Progress struct {
 	Partition string
 	Fetched   int
 	Total     int
 	Attempt   int
 	Pass      int
+	Passes    int
 }
 
 // ProgressFunc observes counts-only snapshot progress.
