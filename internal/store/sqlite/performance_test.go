@@ -24,10 +24,7 @@ const editingPerformanceRows = 100_000
 // open that takes about 0.37 s on a developer laptop.
 const coldProfileLimit = 2 * time.Second
 
-// windowsFoldLimit leaves room for GitHub's Windows runners, where the fold has a long tail: 27 of
-// 29 runs took 6.7-12.9 s, and two took 19.4 s and 119.1 s while the other steps in those jobs ran
-// at their usual speed. It is about 1.5 times the slowest run. Other systems keep the 15 s limit.
-const windowsFoldLimit = 3 * time.Minute
+const editingLimit = 15 * time.Second
 
 func TestColdProfilePerformance100K(t *testing.T) {
 	skipEditingPerformance(t)
@@ -73,9 +70,22 @@ func TestBulkEditingPerformance100K(t *testing.T) {
 	revision = requireEditingDuration(t, "hide cancellation", func() (uint64, error) {
 		return profile.CancelHide(ctx, revision, targets)
 	})
-	revision, err = profile.Append(
-		ctx, revision, performanceHideOperation("bulk_fold", revision, targets),
-	)
+	revision, duration := foldHideToggle(ctx, t, profile, "bulk_fold", revision, targets)
+	// GitHub's Windows runners occasionally stall a single fold: 27 of 29 runs took 6.7-12.9 s,
+	// and two took 19.4 s and 119.1 s while the other steps in those jobs ran at their usual
+	// speed. Windows folds once more under the same limit, so only a repeated stall fails.
+	if duration >= editingLimit && runtime.GOOS == "windows" {
+		_, duration = foldHideToggle(ctx, t, profile, "bulk_fold_retry", revision, targets)
+	}
+	require.Less(t, duration, editingLimit, "fold exceeded regression budget")
+}
+
+func foldHideToggle(
+	ctx context.Context, t *testing.T, profile *profile, id string, revision uint64,
+	targets []domain.EntityID,
+) (uint64, time.Duration) {
+	t.Helper()
+	revision, err := profile.Append(ctx, revision, performanceHideOperation(id, revision, targets))
 	require.NoError(t, err)
 	loaded, err := profile.Load(ctx)
 	require.NoError(t, err)
@@ -83,9 +93,12 @@ func TestBulkEditingPerformance100K(t *testing.T) {
 	require.NoError(t, err)
 	plan, err := app.BuildFoldPlan(effective, revision)
 	require.NoError(t, err)
-	_ = requireEditingDuration(t, "fold", func() (uint64, error) {
-		return profile.Fold(ctx, revision, plan)
-	})
+	started := time.Now()
+	revision, err = profile.Fold(ctx, revision, plan)
+	require.NoError(t, err)
+	duration := time.Since(started)
+	t.Logf("fold: %s", duration)
+	return revision, duration
 }
 
 func TestAmazonImport100KPerformance(t *testing.T) {
@@ -346,11 +359,7 @@ func requireEditingDuration(
 	require.NoError(t, err)
 	duration := time.Since(started)
 	t.Logf("%s: %s", name, duration)
-	limit := 15 * time.Second
-	if name == "fold" && runtime.GOOS == "windows" {
-		limit = windowsFoldLimit
-	}
-	require.Less(t, duration, limit, "%s exceeded regression budget", name)
+	require.Less(t, duration, editingLimit, "%s exceeded regression budget", name)
 	return revision
 }
 
