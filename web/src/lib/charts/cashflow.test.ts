@@ -280,6 +280,37 @@ describe('cashflowGeometry', () => {
     expect(years.columns.map((column) => column.label)).toEqual(['2021 (Mar 5 – Dec 31)', '2022'])
   })
 
+  it('names a clipped period that holds today from its first day to date', () => {
+    // Oct 5, 2026 – Jan 10, 2027 with today Oct 7: October is clipped and in progress.
+    const context = [
+      { ...month(2026, 10), start: '2026-10-05', partial: true },
+      month(2026, 11),
+      month(2026, 12),
+      { ...month(2027, 1), end: '2027-01-10', partial: true },
+    ]
+    const zeros = ['0', '0', '0', '0']
+    const geometry = cashflowGeometry(
+      entry(
+        context,
+        {
+          labels: ['Oct 2026', 'Nov 2026', 'Dec 2026', 'Jan 2027'],
+          in: zeros,
+          out: zeros,
+          net: zeros,
+        },
+        { kind: 'custom', scope: { start: '2026-10-05', end: '2027-01-10' } },
+      ),
+      400,
+      100,
+    )
+    expect(geometry.columns.map((column) => column.label)).toEqual([
+      'Oct 2026 (Oct 5 – to date)',
+      'Nov 2026',
+      'Dec 2026',
+      'Jan 2027 (Jan 1–10)',
+    ])
+  })
+
   it('refuses a summary whose cash flow does not line up with the chart context', () => {
     const chart = megastore()
     chart.response.summary!.cashflow.net = ['-30000']
