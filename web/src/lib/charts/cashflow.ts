@@ -25,11 +25,13 @@ export interface ColumnGeometry {
   /** The Out bar falls from zero. */
   outHeight: number
   netY: number
+  /** The period is still in progress, such as the current month; it draws lighter. */
+  partial: boolean
   /** The period meets the view's scope, so the scope band covers it. */
   inScope: boolean
   /** The accessible name: `{label}, in {in}, out {out}, net {net}`. */
   name: string
-  /** The period's name, such as `Sep 2026` or `Sep 15, 2026`. */
+  /** The period's name, such as `Sep 2026` or `Sep 15, 2026`; `Oct 2026 (to date)` if partial. */
   label: string
   /** The axis label: the day number, the month's short name, or the year. */
   tick: string
@@ -148,7 +150,8 @@ function columnAt(layout: Layout, period: ContextPeriod, index: number): ColumnG
   const falling = valueAt(cashflow.out, index)
   const net = valueAt(cashflow.net, index)
   const server = valueAt(cashflow.labels, index)
-  const label = periodName(period, server)
+  const named = periodName(period, server)
+  const label = period.partial ? `${named} (to date)` : named
   const netExtent = extent(net, scale)
   const inHeight = extent(rising, scale)
   const amounts = {
@@ -163,6 +166,7 @@ function columnAt(layout: Layout, period: ContextPeriod, index: number): ColumnG
     inHeight,
     outHeight: extent(falling, scale),
     netY: parseMinor(net) < 0n ? scale.zeroY + netExtent : scale.zeroY - netExtent,
+    partial: period.partial,
     inScope: meetsScope(period, ranges),
     name: `${label}, in ${amounts.in}, out ${amounts.out}, net ${amounts.net}`,
     label,

@@ -47,7 +47,7 @@ describe('TrendCell', () => {
     expect(lines[0]!.getAttribute('points')!.split(' ')).toHaveLength(3)
   })
 
-  it('leaves absent months out and ends a partial last month with a solid dot', () => {
+  it('leaves absent months out and ends a partial last month with a lighter dot', () => {
     const { container } = render(TrendCell, {
       series: ready(
         ['0', '-300', '-50'],
@@ -60,7 +60,10 @@ describe('TrendCell', () => {
     })
     expect(container.querySelector('polyline')!.getAttribute('points')!.split(' ')).toHaveLength(2)
     const end = container.querySelector('.mf-trend__end')!
-    expect(end.getAttribute('class')).toBe('mf-trend__end')
+    expect(end.classList.contains('mf-trend__end--partial')).toBe(true)
+    // The picture stays hidden; the cell says in text that its last month runs to date.
+    expect(container.querySelector('svg title')?.textContent).toBe('Oct 2026 (to date)')
+    expect(container.querySelector('.kit-sr-only')?.textContent).toBe('Oct 2026 (to date)')
   })
 
   it('shows a skeleton while the series loads and nothing after a failure', () => {

@@ -88,4 +88,6 @@
   --mf-cursor: color-mix(in srgb, var(--accent-blue) 16%, transparent);
   --mf-selected: color-mix(in srgb, var(--accent-blue) 30%, transparent);
   --mf-focus: var(--accent-blue);
+  /* A chart period still in progress, such as the current month, draws at this strength. */
+  --mf-partial-opacity: 0.5;
 }

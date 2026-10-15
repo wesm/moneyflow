@@ -3,6 +3,7 @@ import type { components } from '../api/schema'
 import { maxMagnitude, ratioBasisPoints } from '../charts/scale'
 import type { InsightsCache } from '../insights/cache.svelte'
 import { insightsQuery } from '../insights/requests'
+import { MONTHS } from '../shell/period'
 
 type TrendMonth = components['schemas']['InsightsPeriodRange']
 
@@ -26,6 +27,15 @@ export interface Sparkline {
   readonly segments: readonly (readonly SparkPoint[])[]
   /** The last month's dot, even for a month in progress; none when the month is absent. */
   readonly end?: SparkPoint
+  /** The last month's name while it is in progress, such as `Oct 2026 (to date)`. */
+  readonly toDate?: string
+}
+
+function toDate(month: TrendMonth | undefined): string | undefined {
+  if (!month?.partial) return undefined
+  const { year, month: number } = month.period
+  const name = number === undefined ? String(year) : `${MONTHS[number - 1] ?? ''} ${year}`
+  return `${name} (to date)`
 }
 
 function rounded(value: number): number {
@@ -63,7 +73,11 @@ export function sparkline(trend: readonly string[], months: readonly TrendMonth[
     run.push(point)
   }
   const final = present(months.length - 1) ? segments.at(-1)?.at(-1) : undefined
-  return final === undefined ? { zero, segments } : { zero, segments, end: final }
+  if (final === undefined) return { zero, segments }
+  const partial = toDate(months.at(-1))
+  return partial === undefined
+    ? { zero, segments, end: final }
+    : { zero, segments, end: final, toDate: partial }
 }
 
 /** What the grouped table reads from the displayed view's insights. */

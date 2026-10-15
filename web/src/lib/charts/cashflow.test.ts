@@ -153,6 +153,11 @@ describe('cashflowGeometry', () => {
 
     // The Net line runs to the partial period's dot as to any other.
     expect(custom.netPath).toBe('M50,50L150,50L250,50')
+    // Only the partial period says it runs to date; its axis label stays short.
+    expect(custom.columns.map((column) => column.partial)).toEqual([false, false, true])
+    expect(custom.columns[1]).toMatchObject({ label: 'Sep 2026', tick: 'Sep' })
+    expect(custom.columns[2]).toMatchObject({ label: 'Oct 2026 (to date)', tick: 'Oct' })
+    expect(custom.columns[2]!.name).toMatch(/^Oct 2026 \(to date\), in /)
 
     const everything = entry(context, flow, { kind: 'all' })
     delete everything.response.ranges.scope
@@ -214,7 +219,8 @@ describe('cashflowGeometry', () => {
     )
     expect(geometry.columns.map((column) => column.tick)).toEqual(['2024', '2025', '2026'])
     expect(geometry.columns.map((column) => column.inScope)).toEqual([false, false, true])
-    expect(geometry.columns[2]?.name).toBe('2026, in +120.00, out -480.00, net -360.00')
+    // The year in progress says so in its name, not in its axis label.
+    expect(geometry.columns[2]?.name).toBe('2026 (to date), in +120.00, out -480.00, net -360.00')
     expect(scopeFromColumns(context, 1, 1)).toEqual({ start: '2025-01-01', end: '2025-12-31' })
   })
 

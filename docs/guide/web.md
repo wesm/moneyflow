@@ -146,6 +146,8 @@ The **cash-flow chart** draws one column per period of the
 a line with dots traces Net. A band marks the periods in the current scope.
 
 - Point at a column to see its In, Out, and Net.
+- **Unreleased:** A period in progress draws its bars and Net dot lighter, and its name reads
+  as running to date, such as `Oct 2026 (to date)`, in the tooltip and for screen readers.
 - In a grouped view, the cursor row's part of each column is solid, and the tooltip adds that
   row's In and Out. In the Time grouping, the cursor period's column is solid.
 - Click a column to choose its period.
@@ -212,8 +214,9 @@ In the Time grouping, the columns are the table's rows; see
 [Navigate and search](navigation.md#choose-a-year-month-or-day) for their unit.
 
 The **trend** ends at the current month while the scope is in progress, and at your newest
-transaction's month for all time. A month in progress ends the line with the same solid dot
-as a full month. Months before your first transaction in the currency are left out.
+transaction's month for all time. **Unreleased:** A month in progress ends the line with a
+lighter dot, and the cell names it, such as `Oct 2026 (to date)`, in a tooltip and for screen
+readers. Months before your first transaction in the currency are left out.
 
 The **comparison** is the range just before the scope:
 

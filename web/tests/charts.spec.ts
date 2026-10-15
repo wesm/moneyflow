@@ -386,7 +386,8 @@ test('a Year scope charts one column per year, and a year column scopes to it', 
   await expect(periodControl(page)).toHaveAccessibleName('2026')
   const ticks = cashflow(page).locator('.mf-cashflow__tick')
   await expect(ticks).toHaveText(['2024', '2025', '2026'])
-  await expect(column(page, '2026')).toHaveClass(/mf-cashflow__column--scope/)
+  // The year in progress names itself as running to date; its axis label stays short.
+  await expect(column(page, '2026 \\(to date\\)')).toHaveClass(/mf-cashflow__column--scope/)
   await expect(column(page, '2025')).not.toHaveClass(/mf-cashflow__column--scope/)
 
   await column(page, '2025').click()
@@ -441,7 +442,7 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   // The chart comes before the right panel and the table; its stop starts on the last month.
   await backThroughComposition(page)
   await page.keyboard.press('Shift+Tab')
-  await expect(column(page, 'Oct 2026')).toBeFocused()
+  await expect(column(page, 'Oct 2026 \\(to date\\)')).toBeFocused()
   await page.keyboard.press('ArrowLeft')
   await expect(column(page, 'Sep 2026')).toBeFocused()
   await expect(page.getByRole('tooltip')).toContainText('Sep 2026')
@@ -497,18 +498,27 @@ test('cash-flow columns stay even in the phone drawer, labeled or not', async ({
     expect(Math.abs(width.button - first)).toBeLessThan(1)
     expect(Math.abs(width.bars - width.button)).toBeLessThan(0.5)
   }
-  // The partial current month is drawn like a complete one, down to its Net dot.
+  // The partial current month keeps the colors of a complete one at a lighter strength.
   const paint = (marks: Locator) =>
     marks.evaluateAll((nodes) =>
       nodes.map((node) => {
         const style = getComputedStyle(node)
-        return `${style.fill} ${style.stroke} ${style.strokeWidth}`
+        return { fill: style.fill, opacity: Number(style.fillOpacity) }
       }),
     )
-  expect(await paint(column(page, 'Oct 2026').locator('rect'))).toEqual(
-    await paint(column(page, 'Sep 2026').locator('rect')),
-  )
-  expect(new Set(await paint(cashflow(page).locator('.mf-cashflow__dot'))).size).toBe(1)
+  // The cursor row's share stays at full strength, so it reads over the lighter bars.
+  const october = column(page, 'Oct 2026 \\(to date\\)')
+  const bars = 'rect:not(.mf-cashflow__cursor)'
+  const partial = await paint(october.locator(bars))
+  const full = await paint(column(page, 'Sep 2026').locator(bars))
+  expect(partial.map((mark) => mark.fill)).toEqual(full.map((mark) => mark.fill))
+  expect(full.map((mark) => mark.opacity)).toEqual([1, 1])
+  expect(partial.map((mark) => mark.opacity)).toEqual([0.5, 0.5])
+  const cursor = await paint(october.locator('.mf-cashflow__cursor'))
+  expect(cursor.map((mark) => mark.opacity)).toEqual([1, 1])
+  const dots = await paint(cashflow(page).locator('.mf-cashflow__dot'))
+  expect(dots.slice(0, -1).every((dot) => dot.opacity === 1)).toBe(true)
+  expect(dots.at(-1)!.opacity).toBeLessThan(1)
 })
 
 function whereItWent(page: Page): Locator {

@@ -76,9 +76,13 @@ describe('sparkline', () => {
   const trend = [...Array<string>(11).fill('-100'), '-20']
   const full = sparkline(trend, months())
 
-  it('ends a partial last month with the same solid dot and line as a full one', () => {
-    expect(sparkline(trend, months(0, true))).toEqual(full)
+  it('ends a partial last month at the same point, named as running to date', () => {
+    const partial = sparkline(trend, months(0, true))
+    expect(partial.segments).toEqual(full.segments)
+    expect(partial.end).toEqual(full.end)
     expect(full.end).toEqual(full.segments[0]!.at(-1))
+    expect(partial.toDate).toBe('Oct 2026 (to date)')
+    expect(full.toDate).toBeUndefined()
   })
 
   it('draws nothing when every month is absent', () => {

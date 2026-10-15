@@ -19,8 +19,10 @@
   )
 </script>
 
-<!-- A picture of the row's last twelve months; the row's own cells carry its numbers. -->
+<!-- A picture of the row's last twelve months; the row's own cells carry its numbers. Text names
+     a last month still in progress. -->
 {#if line}
+  {#if line.toDate}<span class="kit-sr-only">{line.toDate}</span>{/if}
   <svg
     class="mf-trend"
     width={SPARK_WIDTH}
@@ -29,6 +31,7 @@
     aria-hidden="true"
     focusable="false"
   >
+    {#if line.toDate}<title>{line.toDate}</title>{/if}
     <line class="mf-trend__zero" x1="0" x2={SPARK_WIDTH} y1={line.zero} y2={line.zero} />
     {#each line.segments as points, index (index)}
       <polyline
@@ -37,7 +40,12 @@
       />
     {/each}
     {#if line.end}
-      <circle class="mf-trend__end" cx={line.end.x} cy={line.end.y} r={END_RADIUS} />
+      <circle
+        class={['mf-trend__end', line.toDate && 'mf-trend__end--partial']}
+        cx={line.end.x}
+        cy={line.end.y}
+        r={END_RADIUS}
+      />
     {/if}
   </svg>
 {:else if series.state === 'loading'}
