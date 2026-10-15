@@ -80,7 +80,7 @@ func buildWebDependencies(
 			return WebDependencies{}, resolveErr
 		}
 		if entry.ID == "" {
-			entry, resolveErr = catalog.Activate(ctx, entry.Key)
+			entry, resolveErr = activateCommandProfile(ctx, catalog, entry.Key)
 			if resolveErr != nil {
 				return WebDependencies{}, resolveErr
 			}

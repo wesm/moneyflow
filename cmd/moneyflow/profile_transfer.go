@@ -72,7 +72,7 @@ func renameProfile(ctx context.Context, out io.Writer, selector, name string) er
 		return err
 	}
 	if entry.ID == "" {
-		if entry, err = catalog.Activate(ctx, entry.Key); err != nil {
+		if entry, err = activateCommandProfile(ctx, catalog, entry.Key); err != nil {
 			return err
 		}
 	}

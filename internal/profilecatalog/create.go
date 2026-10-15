@@ -159,6 +159,16 @@ func (catalog *Catalog) FinalizeLegacyManifest(
 		return Entry{}, catalogLockError(err)
 	}
 	defer func() { _ = profileLock.Release() }()
+	// A root recovery reserves the profile ID in its marker, then finalizes with that ID before it
+	// removes the marker. A manifest with any other ID would no longer match the marker, and the
+	// recovery could never resume.
+	recovery, recovering, err := scanActiveRecovery(catalog.paths.Root, LegacyKey)
+	if err != nil {
+		return Entry{}, err
+	}
+	if recovering && request.ProfileID != recovery.ProfileID {
+		return Entry{}, newError(CodeRecoveryIncomplete, errors.New("profile recovery is in progress"))
+	}
 
 	manifestPath := filepath.Join(catalog.paths.Root, ManifestFilename)
 	if _, statErr := os.Lstat(manifestPath); statErr == nil {

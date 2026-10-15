@@ -106,7 +106,7 @@ func resolveMCPProfile(
 		return nil, profilecatalog.Entry{}, err
 	}
 	if entry.ID == "" {
-		entry, err = catalog.Activate(ctx, entry.Key)
+		entry, err = activateCommandProfile(ctx, catalog, entry.Key)
 		if err != nil {
 			return nil, profilecatalog.Entry{}, err
 		}
