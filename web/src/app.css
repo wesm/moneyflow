@@ -973,6 +973,10 @@ input {
 .mf-trend__end {
   fill: var(--text-secondary);
 }
+/* A month still in progress keeps its color at a lighter strength. */
+.mf-trend__end--partial {
+  fill-opacity: var(--mf-partial-opacity);
+}
 .mf-table__cell > .mf-skeleton {
   width: 100%;
   max-width: 3.5rem;
@@ -1421,6 +1425,12 @@ input {
 }
 .mf-cashflow__out.mf-cashflow__cursor {
   fill: var(--mf-out);
+}
+/* A period still in progress keeps its colors at a lighter strength; the cursor's share stays
+   full strength, so it reads over the lighter bar. */
+.mf-cashflow__column--partial rect:not(.mf-cashflow__cursor),
+.mf-cashflow__dot--partial {
+  fill-opacity: var(--mf-partial-opacity);
 }
 .mf-cashflow__lines {
   position: absolute;

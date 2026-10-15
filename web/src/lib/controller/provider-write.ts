@@ -78,6 +78,14 @@ export function writeNeedsUser(state: ProviderWriteState): boolean {
   )
 }
 
+/**
+ * Whether the last write finished and the server still reports its result. The result lasts
+ * until the next revision, such as a new edit, clears its completion time.
+ */
+export function writeSaved(state: ProviderWriteState): boolean {
+  return !state.status?.phase && Boolean(state.status?.completed_at)
+}
+
 export function createProviderWriteController(
   options: ProviderWriteControllerOptions,
 ): ProviderWriteController {

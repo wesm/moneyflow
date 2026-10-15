@@ -235,6 +235,27 @@ describe('Sidebar at rail widths', () => {
     expect((await screen.findByRole('tooltip')).textContent?.trim()).toBe('Write 2/5 · w')
   })
 
+  it('offers the last finished write on the pending icon while nothing is pending', async () => {
+    const onreview = vi.fn()
+    const capabilities = testCapabilities(navCapabilityIDs, ['changes.review'])
+    const empty = { active_operations: 0, inactive_operations: 0, affected_transactions: 0 }
+    render(
+      Sidebar,
+      props({
+        onreview,
+        pending: empty,
+        lastWrite: true,
+        projection: projection({ capabilities }),
+      }),
+    )
+    const review = screen.getByRole('button', { name: 'Review pending changes' })
+    expect(review.getAttribute('aria-disabled')).not.toBe('true')
+    await fireEvent.focusIn(review)
+    expect((await screen.findByRole('tooltip')).textContent?.trim()).toBe('Last write · w')
+    await fireEvent.click(review)
+    expect(onreview).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps provider refresh and the theme toggle, and omits refresh on local profiles', () => {
     render(Sidebar, props())
     expect(screen.getByRole('button', { name: 'Refresh provider data' })).not.toBeNull()

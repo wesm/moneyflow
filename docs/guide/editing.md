@@ -274,10 +274,12 @@ its lease expires. The terminal running `moneyflow web` logs the cause. An error
 when write status cannot be read, so the progress shown may be out of date.
 
 **Unreleased:** When a write finishes, a status line notice reports it, such as
-`Saved 4 changes to Monarch.`, and adds when the view could not be refreshed. Write status, if
-open, keeps the counts, such as `4 of 4 complete`, and shows when the write finished. A write
-that ends before it finishes, such as after **Stop and reconcile**, shows an error banner, such
-as `Provider write stopped. Remaining edits discarded.`, instead of reporting success.
+`Saved 4 changes to Monarch.`, and adds when the view could not be refreshed. Write status keeps
+the counts, such as `4 of 4 complete`, and shows when the write finished. While no edits are
+pending, `w` or the sidebar's **Last write** button reopens it until the profile changes again,
+such as by an edit. A write that ends before it finishes, such as after **Stop and reconcile**,
+shows an error banner, such as `Provider write stopped. Remaining edits discarded.`, instead of
+reporting success.
 
 **Unreleased:** In the TUI, write status shows the first change's From/To values and
 transaction count, alongside overall progress. It also reports when the batch contains

@@ -2,7 +2,7 @@ import type { InsightsResponse, InsightsSeries, ViewProjection } from '../api/cl
 import type { InsightsEntry } from '../insights/cache.svelte'
 import { insightsQuery } from '../insights/requests'
 import { formatMinor, parseMinor } from '../money/format'
-import { dayLabel, MONTHS, type Period } from '../shell/period'
+import { dayLabel, MONTHS, partialName, type Period } from '../shell/period'
 import { maxMagnitude, ratioBasisPoints } from './scale'
 
 type ContextPeriod = InsightsResponse['ranges']['context'][number]
@@ -25,11 +25,16 @@ export interface ColumnGeometry {
   /** The Out bar falls from zero. */
   outHeight: number
   netY: number
+  /** The period is still in progress, such as the current month; it draws lighter. */
+  partial: boolean
   /** The period meets the view's scope, so the scope band covers it. */
   inScope: boolean
   /** The accessible name: `{label}, in {in}, out {out}, net {net}`. */
   name: string
-  /** The period's name, such as `Sep 2026` or `Sep 15, 2026`. */
+  /**
+   * The period's name, such as `Sep 2026` or `Sep 15, 2026`. A partial period adds what it
+   * covers: `Oct 2026 (to date)`, or `Jan 2026 (Jan 15–31)` for a custom range's clipped edge.
+   */
   label: string
   /** The axis label: the day number, the month's short name, or the year. */
   tick: string
@@ -140,15 +145,18 @@ interface Layout {
   digits: number
   scale: Scale
   slot: number
+  /** The server's date, which tells a period in progress from a clipped edge. */
+  today: string
 }
 
 function columnAt(layout: Layout, period: ContextPeriod, index: number): ColumnGeometry {
-  const { cashflow, ranges, digits, scale, slot } = layout
+  const { cashflow, ranges, digits, scale, slot, today } = layout
   const rising = valueAt(cashflow.in, index)
   const falling = valueAt(cashflow.out, index)
   const net = valueAt(cashflow.net, index)
   const server = valueAt(cashflow.labels, index)
-  const label = periodName(period, server)
+  const named = periodName(period, server)
+  const label = period.partial ? partialName(named, period, today) : named
   const netExtent = extent(net, scale)
   const inHeight = extent(rising, scale)
   const amounts = {
@@ -163,6 +171,7 @@ function columnAt(layout: Layout, period: ContextPeriod, index: number): ColumnG
     inHeight,
     outHeight: extent(falling, scale),
     netY: parseMinor(net) < 0n ? scale.zeroY + netExtent : scale.zeroY - netExtent,
+    partial: period.partial,
     inScope: meetsScope(period, ranges),
     name: `${label}, in ${amounts.in}, out ${amounts.out}, net ${amounts.net}`,
     label,
@@ -182,13 +191,14 @@ export function cashflowGeometry(
   width: number,
   height: number,
 ): CashflowGeometry {
-  const { ranges, scale: digits, summary } = entry.response
+  const { ranges, scale: digits, summary, today } = entry.response
   if (summary === undefined) return { columns: [], zeroY: 0, netPath: '' }
   const cashflow = summary.cashflow
   checkAligned(cashflow, ranges.context.length)
   const count = ranges.context.length
   const scale = scaleOf(cashflow, height)
-  const layout = { cashflow, ranges, digits, scale, slot: count === 0 ? 0 : width / count }
+  const slot = count === 0 ? 0 : width / count
+  const layout = { cashflow, ranges, digits, scale, slot, today }
   const columns = ranges.context.map((period, index) => columnAt(layout, period, index))
   return { columns, zeroY: scale.zeroY, netPath: netPath(columns) }
 }

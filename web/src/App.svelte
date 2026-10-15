@@ -237,6 +237,35 @@
     pollProvider()
   })
 
+  /** The profile's display name for the load-failure page, once the catalog gives it. */
+  let profileName = $state<string | undefined>()
+  let profileNameRequested = false
+  const loadFailed = $derived(
+    controller?.problem !== undefined &&
+      controller.problem.kind !== 'invalid-view' &&
+      !controller.projection,
+  )
+  $effect(() => {
+    if (!loadFailed || !profileID || profileNameRequested) return
+    profileNameRequested = true
+    void nameProfile(profileID)
+  })
+
+  /**
+   * Looks up the profile's display name in the catalog. The page has only the profile's ID, and
+   * the view that failed carries no name. Without an answer, the page keeps "this profile": the
+   * reason the load failed is already on the page, and the name only labels it.
+   */
+  async function nameProfile(id: string): Promise<void> {
+    try {
+      const { profiles } = await createCatalogClient(basePath).list()
+      const profile = profiles?.find((entry) => entry.id === id || entry.key === id)
+      profileName = profile?.display_name || undefined
+    } catch {
+      profileName = undefined
+    }
+  }
+
   async function recover(id: string, confirmed: boolean): Promise<void> {
     await catalog?.recovery(id, confirmed)
   }
@@ -351,7 +380,7 @@
         </section>
       {:else}
         <section class="moneyflow-message" aria-labelledby="error-title">
-          <h1 id="error-title">Couldn't load this profile</h1>
+          <h1 id="error-title">Couldn't load {profileName ?? 'this profile'}</h1>
           <p>{controller.problem.detail}</p>
           <Button tone="info" surface="solid" onclick={() => void controller.retry()}>Retry</Button>
         </section>

@@ -80,6 +80,31 @@ describe('PendingCard', () => {
     expect(screen.queryByRole('button', { name: 'Review pending changes' })).toBeNull()
   })
 
+  it('offers the last finished write while nothing is pending', async () => {
+    const empty = { active_operations: 0, inactive_operations: 0, affected_transactions: 0 }
+    const onwrite = vi.fn()
+    const rendered = render(PendingCard, {
+      pending: empty,
+      reviewAvailable: false,
+      lastWrite: true,
+      onreview: vi.fn(),
+      onwrite,
+    })
+    await fireEvent.click(screen.getByRole('button', { name: 'Last write' }))
+    expect(onwrite).toHaveBeenCalledTimes(1)
+
+    // New pending edits take the card's action; the last write gives way to Review.
+    await rendered.rerender({
+      pending,
+      reviewAvailable: true,
+      lastWrite: true,
+      onreview: vi.fn(),
+      onwrite,
+    })
+    expect(screen.queryByRole('button', { name: 'Last write' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Review pending changes' })).not.toBeNull()
+  })
+
   it('hides the write button when no write runs', () => {
     render(PendingCard, { pending, reviewAvailable: true, onreview: vi.fn(), onwrite: vi.fn() })
     expect(screen.queryByRole('button', { name: /^Write/ })).toBeNull()

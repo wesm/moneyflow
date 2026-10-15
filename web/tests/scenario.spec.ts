@@ -187,6 +187,18 @@ test('@smoke filtered merchant editing preserves committed data until the provid
       'Saved 2 changes to Monarch.',
     )
     await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    // With nothing left to review, w and the sidebar reopen the finished write's status.
+    const write = page.getByRole('dialog', { name: 'Monarch write status' })
+    await page.keyboard.press('w')
+    await expect(write).toBeVisible()
+    await expect(write.getByRole('status')).toHaveText('Provider write complete.')
+    await expect(write.getByText('2 of 2 complete')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(write).toBeHidden()
+    // At this width the sidebar is a rail; its pending icon opens the last write.
+    await page.getByRole('button', { name: 'Review pending changes' }).click()
+    await expect(write).toBeVisible()
   })
 })
 

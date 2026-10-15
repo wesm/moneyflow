@@ -229,6 +229,22 @@ describe('CashflowChart', () => {
     expect(tip.textContent).toContain('Online Megastore')
   })
 
+  it('marks a partial period lighter and names it as running to date', async () => {
+    const entry = chart()
+    const last = entry.response.ranges.context[2]!
+    entry.response.ranges.context[2] = { ...last, partial: true }
+    entry.response.today = '2026-09-20'
+    render(CashflowChart, { entry, onperiod: vi.fn(), cursor })
+    const group = screen.getByRole('group', { name: 'Cash flow' })
+    const partial = within(group).getByRole('button', { name: /^Sep 2026 \(to date\), / })
+    expect(partial.classList.contains('mf-cashflow__column--partial')).toBe(true)
+    const full = within(group).getByRole('button', { name: /^Aug 2026, / })
+    expect(full.classList.contains('mf-cashflow__column--partial')).toBe(false)
+
+    await fireEvent.focusIn(partial)
+    expect((await screen.findByRole('tooltip')).textContent).toContain('Sep 2026 (to date)')
+  })
+
   it('draws no cursor without one', () => {
     setup()
     expect(document.querySelector('[data-cursor]')).toBeNull()

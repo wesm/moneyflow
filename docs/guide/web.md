@@ -54,7 +54,9 @@ The bottom of the sidebar holds:
 
 - The pending-edits card, such as `3 pending edits · 27 transactions`. Its **Review** button
   (`w`) appears while edits are pending, and **Write** shows an unfinished provider write's
-  progress. See [review and commit](editing.md#review-and-commit).
+  progress. **Unreleased:** With nothing pending, **Last write** (`w`) reopens the status of the
+  last finished write until the profile changes again, such as by an edit. See
+  [review and commit](editing.md#review-and-commit).
 - Provider status for Monarch, YNAB, and SimpleFIN profiles: when data was last refreshed, a
   refresh button (`r`), and **Reconnect** when the provider needs it. **Unreleased:** Below the
   button, the sidebar shows why refresh is unavailable, such as a provider write in progress or
@@ -107,9 +109,11 @@ messages.
 
 **Unreleased:** While a profile opens, the workspace appears at once with its regions empty and
 `Loading…` in the status line, so nothing moves when the data arrives. If the profile does not
-open, the page reads `Couldn't load this profile`, gives the reason, and offers **Retry**. A
-missing profile, a profile busy with recovery or another Moneyflow command, and a profile saved in
-a format this version cannot open each have their own reason. The reason suggests checking the
+open, the page reads `Couldn't load` with the profile's name, such as `Couldn't load Household`,
+gives the reason, and offers **Retry**. When Moneyflow cannot look up the name, the page reads
+`Couldn't load this profile`. A missing profile, a profile busy with recovery or another
+Moneyflow command, and a profile saved in a format this version cannot open each have their own
+reason. The reason suggests checking the
 connection only when the browser could not reach the server.
 
 ## Charts
@@ -142,6 +146,11 @@ The **cash-flow chart** draws one column per period of the
 a line with dots traces Net. A band marks the periods in the current scope.
 
 - Point at a column to see its In, Out, and Net.
+- **Unreleased:** A partial period draws its bars and Net dot lighter, and its name says what
+  it covers, in the tooltip and for screen readers. The period in progress reads
+  `Oct 2026 (to date)`. A custom range's clipped first or last period names its days, such as
+  `Jan 2026 (Jan 15–31)` or `May 2026 (May 1–10)`, and runs to date when it holds today, such as
+  `Oct 2026 (Oct 10 – to date)`.
 - In a grouped view, the cursor row's part of each column is solid, and the tooltip adds that
   row's In and Out. In the Time grouping, the cursor period's column is solid.
 - Click a column to choose its period.
@@ -208,8 +217,9 @@ In the Time grouping, the columns are the table's rows; see
 [Navigate and search](navigation.md#choose-a-year-month-or-day) for their unit.
 
 The **trend** ends at the current month while the scope is in progress, and at your newest
-transaction's month for all time. A month in progress ends the line with the same solid dot
-as a full month. Months before your first transaction in the currency are left out.
+transaction's month for all time. **Unreleased:** A month in progress ends the line with a
+lighter dot, and the cell names it, such as `Oct 2026 (to date)`, in a tooltip and for screen
+readers. Months before your first transaction in the currency are left out.
 
 The **comparison** is the range just before the scope:
 

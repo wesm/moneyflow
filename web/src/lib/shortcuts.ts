@@ -135,7 +135,14 @@ const bindings = [
     localID: 'edit.redo',
     queued: true,
   },
-  { id: 'changes.review', display: 'w', combos: ['w'], local: true, localID: 'edit.review' },
+  {
+    id: 'changes.review',
+    display: 'w',
+    combos: ['w'],
+    local: true,
+    localID: 'edit.review',
+    ownCheck: true,
+  },
   {
     id: 'provider.refresh',
     display: 'r',
@@ -183,7 +190,8 @@ interface ShortcutHandlers {
  * What a binding's key does under the capability. An unavailable key shows the server's reason,
  * or does nothing when the server gives none. A queued editing key always goes to its handler,
  * which checks the capability when the key's turn comes: an edit still on its way, such as the
- * undo before a redo, can change it by then.
+ * undo before a redo, can change it by then. So does `w`, which opens the last finished write
+ * when nothing is pending.
  */
 function bindingAction(
   binding: (typeof bindings)[number],
@@ -192,7 +200,7 @@ function bindingAction(
   index: number,
 ): (() => void) | undefined {
   if (!capability) return undefined
-  if (!capability.available && !('queued' in binding)) {
+  if (!capability.available && !('queued' in binding) && !('ownCheck' in binding)) {
     const reason = capability.reason
     return reason ? () => status.notify(reason) : undefined
   }

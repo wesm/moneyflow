@@ -287,6 +287,18 @@ describe('row actions', () => {
 describe('w', () => {
   afterEach(() => document.body.replaceChildren())
 
+  /** A view whose `changes.review` capability is available or not, as pending edits decide. */
+  function withReview(context: LocalActionContext, available: boolean): void {
+    const projection = context.controller.projection!
+    const capabilities = testCapabilities(
+      ['changes.review'],
+      available ? [] : ['changes.review'],
+    ).map((capability) =>
+      capability.available ? capability : { ...capability, reason: 'No pending changes.' },
+    )
+    Object.assign(context.controller, { projection: { ...projection, capabilities } })
+  }
+
   it('opens write status while a provider write has a phase, and review otherwise', () => {
     for (const [phase, expected] of [
       ['writing', 'write'],
@@ -294,10 +306,40 @@ describe('w', () => {
       [undefined, 'review'],
     ] as const) {
       const { context, overlays } = setup(0)
+      withReview(context, true)
       const status = phase === undefined ? undefined : { phase }
       Object.assign(context.controller, { providerWrite: { state: { status } } })
       localActions(context)['edit.review']()
       expect(overlays.current, String(phase)).toBe(expected)
+    }
+  })
+
+  it('opens the last finished write when nothing is pending, and review once edits are', () => {
+    const finished = { completed: 6, total: 6, completed_at: '2026-10-01T12:00:00Z' }
+    for (const [reviewable, expected] of [
+      [false, 'write'],
+      [true, 'review'],
+    ] as const) {
+      const { context, overlays } = setup(0)
+      withReview(context, reviewable)
+      Object.assign(context.controller, { providerWrite: { state: { status: finished } } })
+      localActions(context)['edit.review']()
+      expect(overlays.current, String(reviewable)).toBe(expected)
+    }
+  })
+
+  it('says why when there is nothing to review and no finished write', () => {
+    for (const written of [undefined, { completed: 0, total: 0 }]) {
+      const { context, overlays } = setup(0)
+      withReview(context, false)
+      Object.assign(context.controller, { providerWrite: { state: { status: written } } })
+      try {
+        localActions(context)['edit.review']()
+        expect(overlays.current).toBeUndefined()
+        expect(notices().status).toBe('No pending changes.')
+      } finally {
+        status.clear()
+      }
     }
   })
 })

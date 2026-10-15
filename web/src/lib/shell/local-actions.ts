@@ -8,6 +8,7 @@ import { rowActionButtons, type RowActionButton } from '../table/actions'
 import { currentPageRows, cursorTarget, type CursorMove } from '../table/cursor-keys'
 import { availableCapabilities, unavailableReason } from './capabilities'
 import { EDIT_IN_FLIGHT } from '../controller/editing'
+import { writeSaved } from '../controller/provider-write'
 import type { EditorAnchor, OverlayState } from './overlay-state.svelte'
 import { showFailure, showNotice } from './notices'
 import { activeCurrency } from './period'
@@ -100,6 +101,20 @@ function ifOffered(context: LocalActionContext, capability: string, work: () => 
   return undefined
 }
 
+/**
+ * Opens a running write's status, or else the review of pending edits. With nothing to review,
+ * it opens the last finished write's status while the server still reports it, or says why.
+ */
+function openReview(context: LocalActionContext): void {
+  const { controller, overlays } = context
+  const write = controller.providerWrite.state
+  const projection = controller.projection
+  const reviewable =
+    projection !== undefined && availableCapabilities(projection).has('changes.review')
+  if (write.status?.phase || (!reviewable && writeSaved(write))) overlays.open('write')
+  else ifOffered(context, 'changes.review', () => overlays.open('review'))
+}
+
 /** Opens the information drawer for a transaction once the server returns its details. */
 export async function openTransactionInformation(
   context: LocalActionContext,
@@ -183,8 +198,7 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
     ),
     'manage.categories': () => overlays.open('categories'),
     'manage.groups': () => overlays.open('groups'),
-    'edit.review': () =>
-      overlays.open(controller.providerWrite.state.status?.phase ? 'write' : 'review'),
+    'edit.review': () => openReview(context),
     'view.duplicates': () => overlays.open('duplicates'),
     'provider.refresh': () => {
       if (controller.projection?.profile_kind === 'amazon') context.importAmazon()

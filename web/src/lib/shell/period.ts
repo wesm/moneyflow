@@ -75,6 +75,32 @@ function monthDay(date: string): string {
   return `${MONTHS[month - 1]} ${day}`
 }
 
+/**
+ * Names a partial chart period with what it covers. A whole calendar period that holds `today`
+ * reads `Oct 2026 (to date)`. A period a custom range clips names the days it covers, such as
+ * `Jan 2026 (Jan 15–31)` or `2021 (Mar 5 – Dec 31)`, through today when it holds today:
+ * `Oct 2026 (Oct 10 – to date)`. A period never spans two years.
+ */
+export function partialName(
+  name: string,
+  period: { start: string; end: string; period: { granularity: string } },
+  today: string,
+): string {
+  const kind = period.period.granularity
+  // The API types granularity as a string; any other value counts as a whole period.
+  const known = kind === 'day' || kind === 'month' || kind === 'year'
+  const calendar = known ? periodContaining(period.start, kind) : period
+  const clipped = period.start !== calendar.start || period.end !== calendar.end
+  const current = period.start <= today && today <= period.end
+  if (!clipped) return current ? `${name} (to date)` : name
+  if (current) return `${name} (${monthDay(period.start)} – to date)`
+  const span =
+    period.start.slice(0, 7) === period.end.slice(0, 7)
+      ? `${monthDay(period.start)}–${parts(period.end)[2]}`
+      : `${monthDay(period.start)} – ${monthDay(period.end)}`
+  return `${name} (${span})`
+}
+
 /** "Sep 15, 2026" */
 export function dayLabel(date: string): string {
   return `${monthDay(date)}, ${parts(date)[0]}`
