@@ -104,6 +104,18 @@
     onrun(item.run)
   }
 
+  /**
+   * Focuses the narrow bar's menu button before kit opens the drawer. WebKit does not focus a
+   * clicked button, and the drawer's dialog returns focus on close only to the element that held
+   * it when the dialog opened. Without this, closing the drawer for a footer button left focus on
+   * that button, which then left the page with the drawer's content.
+   */
+  function menuClicked(event: MouseEvent): void {
+    const target = event.target instanceof Element ? event.target : null
+    const menu = target?.closest('header button[aria-haspopup="dialog"]')
+    if (menu instanceof HTMLElement) menu.focus({ preventScroll: true })
+  }
+
   let reported: HTMLElement | undefined
 
   function footerShown(footer: HTMLElement): () => void {
@@ -178,7 +190,7 @@
 
 <!-- The entries are links: Enter clicks them, and this handler sees that click. -->
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="mf-sidebar" onclick={entryClicked}>
+<div class="mf-sidebar" onclick={entryClicked} onclickcapture={menuClicked}>
   <AppSidebar
     {groups}
     location={{ section: current, view: null }}
