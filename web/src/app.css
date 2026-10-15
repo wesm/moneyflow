@@ -888,8 +888,10 @@ input {
   background: var(--bg-surface);
   box-shadow: var(--shadow-panel);
 }
-/* A control repeated on every row stays flat, so rows do not stack into a column of tiles. */
-.mf-table__row {
+/* Controls repeated on every row and every rail entry stay flat, so they do not stack into a
+   column of tiles. */
+.mf-table__row,
+.mf-rail {
   --shadow-raised: none;
 }
 /* The grid takes focus on load; its ring waits for a key, so a mouse user never sees it. */

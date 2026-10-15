@@ -157,9 +157,7 @@
   }
   .mf-review-op__targets {
     padding: 0 var(--space-4) var(--space-5) var(--space-6);
-  }
-  /* The drawer already frames the operation; a second frame touches the cell text. */
-  .mf-review-op__targets {
+    /* The drawer already frames the operation; a second frame touches the cell text. */
     --shadow-panel: none;
   }
   /* kit Table rules tie at two classes; the targets class out-ranks them. */

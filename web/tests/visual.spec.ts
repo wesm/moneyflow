@@ -191,10 +191,13 @@ for (const theme of themes) {
   }) => {
     await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
     const grid = page.getByRole('grid', { name: 'Financial results' })
-    // The detail view's pencils on a wide screen, the rows' own buttons on a phone.
-    for (const [width, rowAction] of [
-      [1440, 'Edit merchant'],
-      [390, /^Actions for /],
+    const rail = page.getByRole('complementary', { name: 'Moneyflow sidebar' })
+    // Buttons repeated down a column: the detail view's pencils on a wide screen, the icon rail's
+    // entries between, and the rows' own buttons on a phone.
+    for (const [width, repeated] of [
+      [1440, grid.getByRole('button', { name: 'Edit merchant' })],
+      [1024, rail.getByRole('button', { name: 'Categories', exact: true })],
+      [390, grid.getByRole('button', { name: /^Actions for / })],
     ] as const) {
       await page.setViewportSize({ width, height: 900 })
       await openMoneyflow(page, server)
@@ -202,9 +205,8 @@ for (const theme of themes) {
       const raised = await themeShadow(page, '--shadow-raised')
       expect(raised, `${width} px`).not.toBe('none')
       const topBarButton = page.getByRole('button', { name: 'Previous period' })
-      const rowButton = grid.getByRole('button', { name: rowAction }).first()
       await expect(topBarButton, `${width} px`).toHaveCSS('box-shadow', raised)
-      await expect(rowButton, `${width} px`).toHaveCSS('box-shadow', 'none')
+      await expect(repeated.first(), `${width} px`).toHaveCSS('box-shadow', 'none')
     }
   })
 
