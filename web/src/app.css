@@ -888,6 +888,10 @@ input {
   background: var(--bg-surface);
   box-shadow: var(--shadow-panel);
 }
+/* A control repeated on every row stays flat, so rows do not stack into a column of tiles. */
+.mf-table__row {
+  --shadow-raised: none;
+}
 /* The grid takes focus on load; its ring waits for a key, so a mouse user never sees it. */
 [data-keyboard] .mf-table:focus-visible {
   /* Neutral and outside the rows, so the blue left rule still marks only the cursor row. */

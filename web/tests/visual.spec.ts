@@ -1,6 +1,7 @@
 import type { Locator, Page } from '@playwright/test'
 
 import { cell, expect, openMoneyflow, test } from './fixtures'
+import { startE2EServer } from '../scripts/e2e-server'
 
 test.skip(({ browserName }) => browserName !== 'chromium', 'Layout contracts are Chromium-only.')
 
@@ -182,6 +183,45 @@ for (const theme of themes) {
     await expect(banner.locator('.kit-text-input')).toHaveCSS('box-shadow', sunken)
     const grid = page.getByRole('grid', { name: 'Financial results' })
     await expect(grid).toHaveCSS('box-shadow', panel)
+  })
+
+  test(`${theme} row actions stay flat while top-bar icon buttons are raised`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    // The detail view's pencils on a wide screen, the rows' own buttons on a phone.
+    for (const [width, rowAction] of [
+      [1440, 'Edit merchant'],
+      [390, /^Actions for /],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 })
+      await openMoneyflow(page, server)
+      await page.keyboard.press('d')
+      const raised = await themeShadow(page, '--shadow-raised')
+      expect(raised, `${width} px`).not.toBe('none')
+      const topBarButton = page.getByRole('button', { name: 'Previous period' })
+      const rowButton = grid.getByRole('button', { name: rowAction }).first()
+      await expect(topBarButton, `${width} px`).toHaveCSS('box-shadow', raised)
+      await expect(rowButton, `${width} px`).toHaveCSS('box-shadow', 'none')
+    }
+  })
+
+  test(`${theme} review drawer table is not framed a second time`, async ({ page }) => {
+    const server = await startE2EServer()
+    try {
+      await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
+      await openMoneyflow(page, server)
+      await page.keyboard.press('h')
+      await expect(page.getByText(/1 pending edit/).first()).toBeAttached()
+      await page.keyboard.press('w')
+      const review = page.getByRole('dialog', { name: 'Review pending changes' })
+      const wrapper = review.getByRole('table', { name: 'Affected transactions' }).locator('..')
+      await expect(wrapper).toHaveCSS('box-shadow', 'none')
+    } finally {
+      await server.stop()
+    }
   })
 }
 
