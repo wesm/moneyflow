@@ -196,12 +196,10 @@ for (const theme of themes) {
   }) => {
     await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
     const grid = page.getByRole('grid', { name: 'Financial results' })
-    const rail = page.getByRole('complementary', { name: 'Moneyflow sidebar' })
-    // Buttons repeated down a column: the detail view's pencils on a wide screen, the icon rail's
-    // entries between, and the rows' own buttons on a phone.
+    // Controls repeated down a column: the detail view's pencils on a wide screen and the rows' own
+    // buttons on a phone.
     for (const [width, repeated] of [
       [1440, grid.getByRole('button', { name: 'Edit merchant' })],
-      [1024, rail.getByRole('button', { name: 'Categories', exact: true })],
       [390, grid.getByRole('button', { name: /^Actions for / })],
     ] as const) {
       await page.setViewportSize({ width, height: 900 })

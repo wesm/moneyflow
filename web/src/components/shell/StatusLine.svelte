@@ -43,8 +43,7 @@
   >
 {/snippet}
 
-<!-- Inside kit CollapsibleSidebar's <section>, the StatusBar <footer> is no contentinfo. -->
-<div class="mf-status-line" role="contentinfo">
+<div class="mf-status-line">
   <StatusBar>
     {#snippet left()}
       <span class="mf-status-line__hints">

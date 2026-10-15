@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ariaKeyshortcuts, navItems, type NavItem } from './nav-items'
+import { navItems, type NavItem } from './nav-items'
 import type { ViewProjection } from '../api/client'
 import { navCapabilityIDs, testCapabilities } from '../../test/capabilities'
 import { testProjection } from '../../test/projection'
@@ -28,25 +28,19 @@ function aggregate(overrides: Partial<ViewProjection> = {}): ViewProjection {
 }
 
 function summary(items: NavItem[]) {
-  return items.map(({ id, label, key, active, available }) => ({
-    id,
-    label,
-    key,
-    active,
-    available,
-  }))
+  return items.map(({ id, label, active, available }) => ({ id, label, active, available }))
 }
 
 describe('navItems', () => {
-  it('lists the Explore groupings and All transactions with their keys', () => {
+  it('lists the Explore groupings and All transactions', () => {
     const { explore } = navItems(aggregate())
     expect(summary(explore)).toEqual([
-      { id: 'merchant', label: 'Merchants', key: '1', active: true, available: true },
-      { id: 'category', label: 'Categories', key: '2', active: false, available: true },
-      { id: 'group', label: 'Groups', key: '3', active: false, available: true },
-      { id: 'account', label: 'Accounts', key: '4', active: false, available: true },
-      { id: 'time', label: 'Time', key: '5', active: false, available: true },
-      { id: 'detail', label: 'All transactions', key: 'd', active: false, available: true },
+      { id: 'merchant', label: 'Merchants', active: true, available: true },
+      { id: 'category', label: 'Categories', active: false, available: true },
+      { id: 'group', label: 'Groups', active: false, available: true },
+      { id: 'account', label: 'Accounts', active: false, available: true },
+      { id: 'time', label: 'Time', active: false, available: true },
+      { id: 'detail', label: 'All transactions', active: false, available: true },
     ])
   })
 
@@ -70,16 +64,15 @@ describe('navItems', () => {
 
   it('lists Maintain entries and adds Amazon import only on Amazon profiles', () => {
     expect(summary(navItems(aggregate()).maintain)).toEqual([
-      { id: 'duplicates', label: 'Duplicates', key: 'D', active: false, available: true },
-      { id: 'export', label: 'Export', key: 'E', active: false, available: true },
-      { id: 'categories', label: 'Edit categories', key: 'C', active: false, available: true },
-      { id: 'groups', label: 'Edit groups', key: 'G', active: false, available: true },
+      { id: 'duplicates', label: 'Duplicates', active: false, available: true },
+      { id: 'export', label: 'Export', active: false, available: true },
+      { id: 'categories', label: 'Edit categories', active: false, available: true },
+      { id: 'groups', label: 'Edit groups', active: false, available: true },
     ])
     const amazon = navItems(aggregate({ profile_kind: 'amazon' })).maintain.at(-1)
     expect(amazon).toEqual({
       id: 'amazon',
       label: 'Import Amazon orders',
-      key: 'r',
       active: false,
       available: true,
       reason: undefined,
@@ -152,14 +145,5 @@ describe('navItems', () => {
       categories: undefined,
       groups: undefined,
     })
-  })
-})
-
-describe('ariaKeyshortcuts', () => {
-  it('names Shift for uppercase keys and leaves other keys as shown', () => {
-    expect(ariaKeyshortcuts('D')).toBe('Shift+D')
-    expect(ariaKeyshortcuts('G')).toBe('Shift+G')
-    expect(ariaKeyshortcuts('d')).toBe('d')
-    expect(ariaKeyshortcuts('1')).toBe('1')
   })
 })

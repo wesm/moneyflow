@@ -9,9 +9,13 @@ import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testAggregateRow, testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
 import { testProviderWriteController } from '../test/provider-write'
-import { SIDEBAR_FULL_QUERY } from '../lib/shell/layout'
 import { testInsights } from '../test/insights'
+import { stubMedia } from '../test/media'
 import { testProviderStatus } from '../test/provider'
+
+/** Phone widths match kit's compact and narrow queries, but not the rail's range query. */
+const phoneMedia = (query: string) =>
+  query === '(max-width: 640px)' || query === '(max-width: 900px)'
 
 const escapeCapability = {
   id: 'view.back',
@@ -343,7 +347,7 @@ describe('AppShell', () => {
   })
 
   it('keeps the table full width and opens the charts in a labelled compact drawer', async () => {
-    onTestFinished(stubMedia((query) => query.includes('640px')))
+    onTestFinished(stubMedia(phoneMedia))
     const controller = stubController(charted())
     render(AppShell, { controller })
     expect(screen.getByRole('grid', { name: 'Financial results' })).not.toBeNull()
@@ -387,41 +391,31 @@ describe('AppShell', () => {
     }
   })
 
-  it('frames the workspace with the full sidebar at 1280 px and wider', async () => {
-    const restore = stubMedia((query) => query === SIDEBAR_FULL_QUERY)
-    try {
-      const controller = stubController()
-      render(AppShell, { controller })
-      const sidebar = screen.getByRole('complementary', { name: 'Moneyflow sidebar' })
-      const nav = within(sidebar).getByRole('navigation', { name: 'Workspace' })
-      expect(within(screen.getByRole('banner')).queryByText('Moneyflow')).toBeNull()
-      expect(screen.getByRole('separator', { name: 'Resize sidebar' })).not.toBeNull()
-      expect(screen.getAllByText(/1 pending/)).toHaveLength(1)
-      expect(within(sidebar).getByText(/1 pending/)).not.toBeNull()
+  it('frames the workspace with the full sidebar at 1440 px and wider', async () => {
+    const controller = stubController()
+    render(AppShell, { controller })
+    const nav = screen.getByRole('navigation', { name: 'Workspace' })
+    expect(within(screen.getByRole('banner')).queryByText('Moneyflow')).toBeNull()
+    expect(screen.getAllByText(/1 pending/)).toHaveLength(1)
+    expect(within(nav).getByText(/1 pending/)).not.toBeNull()
 
-      await fireEvent.click(within(nav).getByRole('button', { name: 'Categories' }))
-      await vi.waitFor(() =>
-        expect(controller.apply).toHaveBeenCalledWith({
-          action: 'view.set-grouping',
-          dimension: 'category',
-        }),
-      )
-      await vi.waitFor(() =>
-        expect(document.activeElement).toBe(
-          screen.getByRole('grid', { name: 'Financial results' }),
-        ),
-      )
-    } finally {
-      restore()
-    }
+    await fireEvent.click(within(nav).getByRole('link', { name: 'Categories' }))
+    await vi.waitFor(() =>
+      expect(controller.apply).toHaveBeenCalledWith({
+        action: 'view.set-grouping',
+        dimension: 'category',
+      }),
+    )
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' })),
+    )
   })
 
   it('opens overlays from Maintain entries and returns focus to the entry on close', async () => {
-    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
     const frames = captureFrames()
     render(AppShell, { controller: stubController() })
     const nav = screen.getByRole('navigation', { name: 'Workspace' })
-    const duplicates = within(nav).getByRole('button', { name: 'Duplicates' })
+    const duplicates = within(nav).getByRole('link', { name: 'Duplicates' })
     duplicates.focus()
     await fireEvent.click(duplicates)
     const dialog = screen.getByRole('dialog', { name: 'Duplicate transactions' })
@@ -431,7 +425,7 @@ describe('AppShell', () => {
     expect(screen.queryByRole('dialog', { name: 'Duplicate transactions' })).toBeNull()
     expect(document.activeElement).toBe(duplicates)
 
-    await fireEvent.click(within(nav).getByRole('button', { name: 'Edit groups' }))
+    await fireEvent.click(within(nav).getByRole('link', { name: 'Edit groups' }))
     expect(screen.getByRole('dialog', { name: 'Manage category groups' })).not.toBeNull()
   })
 
@@ -458,11 +452,10 @@ describe('AppShell', () => {
   })
 
   it('returns focus to the grid when the opener is gone', async () => {
-    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
     const frames = captureFrames()
     render(AppShell, { controller: stubController() })
     const grid = screen.getByRole('grid', { name: 'Financial results' })
-    const duplicates = screen.getByRole('button', { name: 'Duplicates' })
+    const duplicates = screen.getByRole('link', { name: 'Duplicates' })
     duplicates.focus()
     await fireEvent.click(duplicates)
     screen.getByRole('dialog', { name: 'Duplicate transactions' }).focus()
@@ -472,67 +465,18 @@ describe('AppShell', () => {
     expect(document.activeElement).toBe(grid)
   })
 
-  it('shows the icon rail between 640 and 1279 px and moves pending text to the status line', () => {
+  it('shows the icon rail between 901 and 1439 px and moves pending text to the status line', () => {
+    onTestFinished(stubMedia((query) => query.includes('< 1440px')))
     render(AppShell, { controller: stubController() })
-    expect(screen.queryByRole('separator', { name: 'Resize sidebar' })).toBeNull()
-    const rail = screen.getByRole('complementary', { name: 'Moneyflow sidebar' })
-    const nav = within(rail).getByRole('navigation', { name: 'Workspace' })
-    expect(within(nav).getByRole('button', { name: 'Merchants' })).not.toBeNull()
+    const nav = screen.getByRole('navigation', { name: 'Workspace' })
+    expect(within(nav).getByRole('link', { name: 'Merchants' })).not.toBeNull()
     const pending = screen.getAllByText(/1 pending/)
     expect(pending).toHaveLength(1)
     expect(pending[0]?.closest('footer')).not.toBeNull()
   })
 
-  it('opens the sidebar in a drawer below 640 px and returns focus to the menu', async () => {
-    onTestFinished(stubMedia((query) => query.includes('640px')))
-    const frames = captureFrames()
-    const controller = stubController()
-    render(AppShell, { controller })
-    expect(screen.queryByRole('navigation', { name: 'Workspace' })).toBeNull()
-    expect(screen.getAllByText(/1 pending/)).toHaveLength(1)
-
-    const menu = screen.getByRole('button', { name: 'Open navigation' })
-    menu.focus()
-    await fireEvent.click(menu)
-    const drawer = screen.getByRole('dialog', { name: 'Navigation' })
-    expect(within(drawer).getByRole('navigation', { name: 'Workspace' })).not.toBeNull()
-    expect(drawer.contains(document.activeElement)).toBe(true)
-    expect(screen.getAllByText(/1 pending/)).toHaveLength(1)
-    await fireEvent.keyDown(window, { key: 'j' })
-    expect(controller.moveCursor).not.toHaveBeenCalled()
-
-    await fireEvent.keyDown(window, { key: 'Escape' })
-    await frames.flush()
-    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
-    expect(document.activeElement).toBe(menu)
-    expect(controller.apply).not.toHaveBeenCalledWith({ action: 'view.back' })
-  })
-
-  it('closes the drawer when an entry is chosen and runs the entry', async () => {
-    onTestFinished(stubMedia((query) => query.includes('640px')))
-    const controller = stubController()
-    render(AppShell, { controller })
-    await fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
-    const drawer = screen.getByRole('dialog', { name: 'Navigation' })
-    await fireEvent.click(within(drawer).getByRole('button', { name: 'Categories' }))
-    await vi.waitFor(() =>
-      expect(controller.apply).toHaveBeenCalledWith({
-        action: 'view.set-grouping',
-        dimension: 'category',
-      }),
-    )
-    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
-
-    await fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
-    await fireEvent.click(screen.getByRole('button', { name: 'Duplicates' }))
-    await vi.waitFor(() =>
-      expect(screen.getByRole('dialog', { name: 'Duplicate transactions' })).not.toBeNull(),
-    )
-    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull()
-  })
-
   it('moves the view controls into a View sheet below 640 px', async () => {
-    onTestFinished(stubMedia((query) => query.includes('640px')))
+    onTestFinished(stubMedia(phoneMedia))
     const frames = captureFrames()
     const usd = { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' }
     const eur = { currency: 'EUR', scale: 2, count: 1, first: '2025-05-01', latest: '2025-05-01' }
@@ -543,12 +487,12 @@ describe('AppShell', () => {
       }),
     )
     render(AppShell, { controller })
-    const banner = screen.getByRole('banner')
-    expect(within(banner).queryByRole('radiogroup', { name: 'Period' })).toBeNull()
-    expect(within(banner).queryByRole('button', { name: 'Filters' })).toBeNull()
-    expect(within(banner).getByRole('button', { name: 'Previous period' })).not.toBeNull()
+    const bar = screen.getByRole('region', { name: 'View controls' })
+    expect(within(bar).queryByRole('radiogroup', { name: 'Period' })).toBeNull()
+    expect(within(bar).queryByRole('button', { name: 'Filters' })).toBeNull()
+    expect(within(bar).getByRole('button', { name: 'Previous period' })).not.toBeNull()
 
-    const view = within(banner).getByRole('button', { name: 'View' })
+    const view = within(bar).getByRole('button', { name: 'View' })
     view.focus()
     await fireEvent.click(view)
     const sheet = screen.getByRole('dialog', { name: 'View' })
@@ -570,7 +514,7 @@ describe('AppShell', () => {
   })
 
   it('keeps the currency row in the View sheet when the view currency has no rows left', async () => {
-    onTestFinished(stubMedia((query) => query.includes('640px')))
+    onTestFinished(stubMedia(phoneMedia))
     const usd = { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' }
     const controller = stubController(
       testProjection({
@@ -579,13 +523,17 @@ describe('AppShell', () => {
       }),
     )
     render(AppShell, { controller })
-    await fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'View' }))
+    await fireEvent.click(
+      within(screen.getByRole('region', { name: 'View controls' })).getByRole('button', {
+        name: 'View',
+      }),
+    )
     const sheet = screen.getByRole('dialog', { name: 'View' })
     expect(within(sheet).getByRole('combobox', { name: 'Currency: EUR' })).not.toBeNull()
   })
 
   it('opens the Filters menu inside the View sheet on f below 640 px', async () => {
-    onTestFinished(stubMedia((query) => query.includes('640px')))
+    onTestFinished(stubMedia(phoneMedia))
     render(AppShell, { controller: stubController() })
     await fireEvent.keyDown(window, { key: 'f' })
     const sheet = screen.getByRole('dialog', { name: 'View' })
@@ -596,7 +544,7 @@ describe('AppShell', () => {
   })
 
   it('keeps an applied search in view below 640 px', () => {
-    onTestFinished(stubMedia((query) => query.includes('640px')))
+    onTestFinished(stubMedia(phoneMedia))
     const projection = testProjection()
     render(AppShell, {
       controller: stubController(
@@ -609,7 +557,7 @@ describe('AppShell', () => {
   })
 
   it('reveals search from its icon and returns focus to the icon below 640 px', async () => {
-    onTestFinished(stubMedia((query) => query.includes('640px')))
+    onTestFinished(stubMedia(phoneMedia))
     render(AppShell, { controller: stubController() })
     expect(screen.queryByRole('searchbox', { name: 'Search transactions' })).toBeNull()
 
@@ -654,7 +602,7 @@ describe('AppShell', () => {
   })
 
   it('shows the provider confirmation at every width', () => {
-    const restore = stubMedia((query) => query.includes('640px'))
+    const restore = stubMedia(phoneMedia)
     try {
       const controller = stubController()
       controller.provider.state.phase = 'confirmation'
@@ -738,7 +686,7 @@ describe('AppShell', () => {
   })
 
   it('shows the last tapped phone row’s transaction when an earlier one’s arrive later', async () => {
-    onTestFinished(stubMedia((query) => query.includes('640px')))
+    onTestFinished(stubMedia(phoneMedia))
     const { controller, waiting } = lateInformation()
     render(AppShell, { controller })
     const merchant = (index: number) =>
@@ -1203,24 +1151,6 @@ function transactionInformation(
     total_matches: 0,
     transaction,
   }
-}
-
-function stubMedia(matches: (query: string) => boolean): () => void {
-  const original = window.matchMedia
-  Object.defineProperty(window, 'matchMedia', {
-    configurable: true,
-    value: (query: string) => ({
-      matches: matches(query),
-      media: query,
-      onchange: null,
-      addEventListener: () => undefined,
-      removeEventListener: () => undefined,
-      addListener: () => undefined,
-      removeListener: () => undefined,
-      dispatchEvent: () => false,
-    }),
-  })
-  return () => Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
 }
 
 function stubController(projection = testProjection()): ViewController {

@@ -162,7 +162,9 @@ test('Trend and vs prior fill grouped rows, and columns drop instead of scrollin
     grid
       .locator('.mf-table__header [data-column]')
       .evaluateAll((cells) => cells.map((node) => (node as HTMLElement).dataset['column']))
-  for (const width of [1440, 1280, 1024, 960, 900]) {
+  // Workspaces 1264, 1104, 976, 912, and 852 px wide: the full sidebar takes 15rem at 1440 px
+  // and wider, and the rail 3.5rem from 901 to 1439 px.
+  for (const width of [1504, 1160, 1032, 968, 908]) {
     await page.setViewportSize({ width, height: 900 })
     for (const charts of [true, false]) {
       await toggle.setChecked(charts)
@@ -184,12 +186,12 @@ test('Trend and vs prior fill grouped rows, and columns drop instead of scrollin
       expect(cells, context).toEqual(keys)
     }
     const keys = await shownKeys()
-    if (width >= 1280) expect(keys).toContain('context')
-    if (width === 1024) {
+    if (width >= 1160) expect(keys).toContain('context')
+    if (width === 1032) {
       expect(keys).not.toContain('context')
       expect(keys.slice(-2)).toEqual(['trend', 'vs_prior'])
     }
-    if (width === 900) expect(keys).not.toContain('trend')
+    if (width === 908) expect(keys).not.toContain('trend')
   }
   // Trend comes back from the cached series, without asking the server again.
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -247,7 +249,7 @@ test('narrow resize preserves analytical URL and moves charts into a drawer', as
   await expect(page.getByRole('region', { name: 'Charts' })).toBeVisible()
 })
 
-test('the sidebar groups by its entries and the rail names them in tooltips', async ({
+test('the sidebar groups by its entries and the rail names them in flyouts', async ({
   page,
   server,
 }) => {
@@ -255,58 +257,59 @@ test('the sidebar groups by its entries and the rail names them in tooltips', as
   await openMoneyflow(page, server)
   const grid = page.getByRole('grid', { name: 'Financial results' })
   const nav = page.getByRole('navigation', { name: 'Workspace' })
-  const categories = nav.getByRole('button', { name: 'Categories', exact: true })
+  const categories = nav.getByRole('link', { name: 'Categories', exact: true })
   await categories.click()
   await expect(grid.locator('[role="columnheader"][data-column="name"]')).toHaveText('Category')
   await expect(categories).toHaveAttribute('aria-current', 'page')
   await expect(grid).toBeFocused()
+  expect(new URL(page.url()).hash).toBe('')
 
-  await nav.getByRole('button', { name: 'Groups', exact: true }).focus()
+  await nav.getByRole('link', { name: 'Groups', exact: true }).focus()
   await page.keyboard.press('Enter')
   await expect(grid.locator('[role="columnheader"][data-column="name"]')).toHaveText('Group')
+  // Enter followed the link without also drilling the cursor row. Such a drill would land just
+  // before Groups in the history, so Back shows it.
+  await page.goBack()
+  await expect(page).not.toHaveURL(/[?&]drill=/)
+  await expect(grid.locator('[role="columnheader"][data-column="name"]')).toHaveText('Category')
 
   await page.setViewportSize({ width: 1024, height: 768 })
-  await expect(page.getByRole('separator', { name: 'Resize sidebar' })).toHaveCount(0)
-  await nav.getByRole('button', { name: 'Merchants' }).hover()
-  await expect(page.getByRole('tooltip')).toHaveText('Merchants · 1')
+  await nav.getByRole('link', { name: 'Merchants' }).hover()
+  // A flyout without views repeats the link's name, so kit hides it from assistive tech.
+  const flyout = nav.locator('.kit-app-sidebar__flyout')
+  await expect(flyout).toBeVisible()
+  await expect(flyout).toHaveText('Merchants')
+  await expect(nav.getByRole('group', { name: 'Merchants' })).toHaveCount(0)
 })
 
-test('the sidebar collapses to the rail, stays collapsed after a reload, and expands', async ({
+test('the rail expands to the full sidebar, stays expanded after a reload, and collapses', async ({
   page,
   server,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await openMoneyflow(page, server)
+  const nav = page.getByRole('navigation', { name: 'Workspace' })
   const collapse = page.getByRole('button', { name: 'Collapse sidebar' })
   const expand = page.getByRole('button', { name: 'Expand sidebar' })
-  const resize = page.getByRole('separator', { name: 'Resize sidebar' })
-  const rail = page.locator('.mf-rail')
-  await expect(collapse).toHaveAttribute('aria-expanded', 'true')
-  await expect(expand).toHaveCount(0)
+  const card = nav.getByRole('status', { name: 'Pending profile changes' })
+  await expect(expand).toBeVisible()
+  await expect(card).toHaveCount(0)
 
-  await collapse.click()
-  await expect(expand).toBeFocused()
-  await expect(expand).toHaveAttribute('aria-expanded', 'false')
-  await expect(collapse).toHaveCount(0)
-  await expect(resize).toHaveCount(0)
-  await expect(rail).toBeVisible()
+  await expand.click()
+  await expect(card).toBeVisible()
 
   await page.reload()
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
-  await expect(expand).toBeVisible()
-  await expect(collapse).toHaveCount(0)
+  await expect(collapse).toBeVisible()
 
-  // Narrower windows show the rail whatever the choice, so it offers nothing to expand.
-  await page.setViewportSize({ width: 1024, height: 768 })
-  await expect(expand).toHaveCount(0)
+  // The full sidebar always shows at 1440 px and wider, so it offers nothing to collapse.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(collapse).toHaveCount(0)
   await page.setViewportSize({ width: 1280, height: 800 })
 
-  await expand.focus()
+  await collapse.focus()
   await page.keyboard.press('Enter')
-  await expect(collapse).toBeFocused()
-  await expect(expand).toHaveCount(0)
-  await expect(rail).toHaveCount(0)
-  await expect(resize).toBeVisible()
+  await expect(card).toHaveCount(0)
 })
 
 const phone = { width: 390, height: 844 }
@@ -339,15 +342,16 @@ async function expectCompactRows(page: Page): Promise<void> {
 }
 
 /**
- * The page cannot scroll sideways and every visible command bar control ends inside the
- * viewport. The shell hides overflow, so a scroll width alone would not show a clipped control.
+ * The page cannot scroll sideways and every visible control in the sidebar's top bar and the
+ * command bar ends inside the viewport. The shell hides overflow, so a scroll width alone would
+ * not show a clipped control.
  */
 async function expectNoHorizontalScroll(page: Page): Promise<void> {
   const overflow = await page.evaluate(() => {
     const root = document.documentElement
     const selector = 'button, input, [role="radio"], [role="combobox"], label.kit-toggle'
     const controls = Array.from(
-      document.querySelectorAll<HTMLElement>(`[role="banner"] :is(${selector})`),
+      document.querySelectorAll<HTMLElement>(`:is(header, .mf-command-bar) :is(${selector})`),
     )
     const outside = controls
       .filter((element) => element.getClientRects().length > 0)
@@ -362,7 +366,8 @@ async function expectNoHorizontalScroll(page: Page): Promise<void> {
 async function expectTouchTargets(container: Locator): Promise<void> {
   const small = await container.evaluate((root) => {
     const selector =
-      'button, [role="radio"], [role="combobox"], [role="option"], label.kit-toggle, .kit-text-input'
+      'a[href], button, [role="radio"], [role="combobox"], [role="option"], label.kit-toggle, ' +
+      '.kit-text-input'
     return Array.from(root.querySelectorAll<HTMLElement>(selector))
       .filter((element) => element.getClientRects().length > 0)
       .map((element) => ({
@@ -378,57 +383,127 @@ async function expectTouchTargets(container: Locator): Promise<void> {
 const focusInside = (dialog: Locator) =>
   dialog.evaluate((node) => node.contains(document.activeElement))
 
-test('the phone drawer holds the sidebar, traps focus, and closes on Esc', async ({
-  page,
-  server,
-}) => {
+test('@smoke the phone drawer holds the sidebar and closes on Esc', async ({ page, server }) => {
   await page.setViewportSize(phone)
   await openMoneyflow(page, server)
   await expectNoHorizontalScroll(page)
+  await expectTouchTargets(page.getByRole('banner'))
   const url = page.url()
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const cursor = await grid.getAttribute('aria-activedescendant')
   const menu = page.getByRole('button', { name: 'Open navigation' })
   await menu.click()
   const drawer = page.getByRole('dialog', { name: 'Navigation' })
   await expect(drawer.getByRole('navigation', { name: 'Workspace' })).toBeVisible()
   await expect(page.getByText(/0 pending edit/)).toHaveCount(1)
-  await expectTouchTargets(drawer)
-  for (let press = 0; press < 20; press += 1) {
-    await page.keyboard.press('Tab')
-    expect(await focusInside(drawer)).toBe(true)
-  }
-  await page.keyboard.press('Shift+Tab')
-  expect(await focusInside(drawer)).toBe(true)
+  await expect.poll(() => focusInside(drawer)).toBe(true)
   await expectNoHorizontalScroll(page)
 
+  // Keys pressed in the drawer stay there: j does not move the grid cursor behind it.
+  await page.keyboard.press('j')
   await page.keyboard.press('Escape')
   await expect(drawer).toBeHidden()
   await expect(menu).toBeFocused()
   await expect(page).toHaveURL(url)
+  expect(await grid.getAttribute('aria-activedescendant')).toBe(cursor)
 
   await menu.click()
-  await expect(drawer.getByRole('button').first()).toHaveAccessibleName('Close navigation')
-  await drawer.getByRole('button', { name: 'Close navigation' }).click()
-  await expect(drawer).toBeHidden()
-  await expect(menu).toBeFocused()
-
-  await menu.click()
-  await page.mouse.click(phone.width - 10, phone.height / 2)
-  await expect(drawer).toBeHidden()
-
-  await menu.click()
-  await drawer.getByRole('button', { name: 'Categories', exact: true }).click()
+  await drawer.getByRole('link', { name: 'Categories', exact: true }).click()
   await expect(drawer).toBeHidden()
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveText('Categories')
-  await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+  await expect(grid).toBeFocused()
+
+  await menu.click()
+  await drawer.getByRole('link', { name: 'Edit categories', exact: true }).click()
+  await expect(drawer).toBeHidden()
+  await expect(
+    page.getByRole('dialog', { name: 'Manage categories' }).getByLabel('Filter categories'),
+  ).toBeFocused()
+})
+
+test.describe('the phone drawer by touch', () => {
+  test.use({ hasTouch: true, viewport: phone })
+
+  test('the drawer entries and footer controls are touch-sized', async ({ page, server }) => {
+    await openMoneyflow(page, server)
+    await page.getByRole('button', { name: 'Open navigation' }).tap()
+    const drawer = page.getByRole('dialog', { name: 'Navigation' })
+    await expect(drawer.getByRole('link', { name: 'Categories', exact: true })).toBeVisible()
+    await expectTouchTargets(drawer)
+  })
+})
+
+test('Review in the phone drawer closes the drawer and moves focus into the review', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    await page.setViewportSize(phone)
+    await openMoneyflow(page, server)
+    await page.keyboard.press('h')
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+    await page.getByRole('button', { name: 'Open navigation' }).click()
+    const drawer = page.getByRole('dialog', { name: 'Navigation' })
+    // kit closes the drawer for a link. For a button in its footer, moneyflow closes it first.
+    await drawer.getByRole('button', { name: 'Review pending changes' }).click()
+    await expect(drawer).toBeHidden()
+    const review = page.getByRole('dialog', { name: 'Review pending changes' })
+    await expect(review).toBeVisible()
+    await expect.poll(() => focusInside(review)).toBe(true)
+
+    // Closing the review returns focus to the menu button: the Review button left with the drawer.
+    await page.keyboard.press('Escape')
+    await expect(review).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused()
+  } finally {
+    await server.stop()
+  }
+})
+
+test('a write confirmation that arrives with the phone drawer open takes over from it', async ({
+  page,
+  server,
+}) => {
+  let confirming = false
+  await page.route('**/provider/write-status', async (route) => {
+    if (!confirming) return route.continue()
+    await route.fulfill({
+      json: {
+        version: '1',
+        revision: '1',
+        generation: '1',
+        batch_version: '1',
+        phase: 'reconcile_confirmation_required',
+        total: 4,
+        completed: 1,
+        failed: 1,
+        remaining: 2,
+        overrides: 0,
+        actions: ['confirm'],
+      },
+    })
+  })
+  await page.setViewportSize(phone)
+  await openMoneyflow(page, server)
+  await page.getByRole('button', { name: 'Open navigation' }).click()
+  const drawer = page.getByRole('dialog', { name: 'Navigation' })
+  await expect(drawer.getByRole('navigation', { name: 'Workspace' })).toBeVisible()
+
+  // The next status poll, within a second, asks to confirm the reconciliation.
+  confirming = true
+  const write = page.getByRole('dialog', { name: 'Monarch write status' })
+  await expect(write).toBeVisible()
+  await expect(drawer).toBeHidden()
+  await expect.poll(() => focusInside(write)).toBe(true)
 })
 
 test('the View sheet changes the period and filters at phone width', async ({ page, server }) => {
   await page.setViewportSize(phone)
   await openMoneyflow(page, server)
-  const banner = page.getByRole('banner')
-  await expect(banner.getByRole('radiogroup', { name: 'Period', exact: true })).toHaveCount(0)
-  await expectTouchTargets(banner)
-  const view = banner.getByRole('button', { name: 'View', exact: true })
+  const bar = page.getByRole('region', { name: 'View controls' })
+  await expect(bar.getByRole('radiogroup', { name: 'Period', exact: true })).toHaveCount(0)
+  await expectTouchTargets(bar)
+  const view = bar.getByRole('button', { name: 'View', exact: true })
   await expect(view).toHaveAttribute('aria-haspopup', 'dialog')
   await view.click()
   const sheet = page.getByRole('dialog', { name: 'View' })
@@ -443,7 +518,7 @@ test('the View sheet changes the period and filters at phone width', async ({ pa
   expect(Math.round(filtersBox.width)).toBe(Math.round(currencyBox.width))
   await sheet.getByRole('radio', { name: 'Month' }).click()
   await expect(
-    banner.locator('button[aria-haspopup="dialog"][aria-keyshortcuts="t"]'),
+    bar.locator('button[aria-haspopup="dialog"][aria-keyshortcuts="t"]'),
   ).toHaveAccessibleName('Oct 2026')
   await expect(sheet.getByRole('radio', { name: 'Month' })).toBeChecked()
 
@@ -474,7 +549,7 @@ test('the phone search icon reveals the field, which stays while a search applie
   await expect(searchbox).toBeFocused()
   const box = (await searchbox.boundingBox())!
   expect(box.width).toBeGreaterThan(phone.width / 2)
-  await expectTouchTargets(page.getByRole('banner'))
+  await expectTouchTargets(page.getByRole('region', { name: 'View controls' }))
   await searchbox.fill('noodle')
   await expect(page).toHaveURL(/[?&]q=noodle(?:&|$)/)
   await page.keyboard.press('Enter')
@@ -566,33 +641,33 @@ test('narrowing past the phone width keeps typing in the search field', async ({
   await expect(page).toHaveURL(/[?&]q=pizza(?:&|$)/)
 })
 
-test('just above the phone breakpoint the rail frame keeps the controls inline', async ({
+test('from 641 to 900 px the top bar opens the sidebar and the controls stay inline', async ({
   page,
   server,
 }) => {
   await page.setViewportSize({ width: 700, height: 800 })
   await openMoneyflow(page, server)
-  await expect(page.getByRole('button', { name: 'Open navigation' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'View', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible()
-  await expect(page.getByRole('radiogroup', { name: 'Period', exact: true })).toBeVisible()
-  await expect(page.getByRole('searchbox', { name: 'Search transactions' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toHaveCount(0)
+  const bar = page.getByRole('region', { name: 'View controls' })
+  await expect(bar.getByRole('button', { name: 'View', exact: true })).toHaveCount(0)
+  await expect(bar.getByRole('radiogroup', { name: 'Period', exact: true })).toBeVisible()
+  await expect(bar.getByRole('searchbox', { name: 'Search transactions' })).toBeVisible()
   await expectNoHorizontalScroll(page)
 })
 
 test('a cross-year period label shrinks to fit the phone command bar', async ({ page, server }) => {
   await page.setViewportSize(phone)
   await openMoneyflow(page, server, 'cur=USD%3A2&from=2025-11-15&to=2026-02-14&v=1')
-  const label = page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')
+  const label = page
+    .getByRole('region', { name: 'View controls' })
+    .locator('button[aria-keyshortcuts="t"]')
   await expect(label).toHaveAccessibleName('Nov 15, 2025 – Feb 14, 2026')
   await expect(label).toHaveAttribute('title', /^Nov 15, 2025 – Feb 14, 2026/)
   await expectNoHorizontalScroll(page)
 })
 
-test('growing past the phone width closes the drawer and focuses the grid', async ({
-  page,
-  server,
-}) => {
+test('growing past 900 px closes the drawer and focuses the grid', async ({ page, server }) => {
   await page.setViewportSize(phone)
   await openMoneyflow(page, server)
   await page.getByRole('button', { name: 'Open navigation' }).click()

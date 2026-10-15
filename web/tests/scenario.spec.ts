@@ -229,6 +229,8 @@ test('@smoke c waits for a delayed row selection, then edits it in a focused edi
 test('@smoke applied but unanswered category edit survives a process restart', async ({
   page,
 }, info) => {
+  // The full sidebar's pending card holds the Write button.
+  await page.setViewportSize({ width: 1440, height: 900 })
   await withScenarioServer(info.outputPath('scenario'), async (server) => {
     await september(page, server)
     await page.keyboard.press('c')

@@ -134,18 +134,16 @@ input {
 }
 
 .app-shell {
+  /* The current entry's icon reads like its label. */
+  --kit-sidebar-current-icon: var(--text-primary);
   height: 100%;
   display: flex;
-  flex-direction: column;
 }
-.app-shell__frame,
 .app-shell__column {
   min-width: 0;
   min-height: 0;
   flex: 1;
   display: flex;
-}
-.app-shell__column {
   flex-direction: column;
 }
 .app-shell__main {
@@ -439,116 +437,32 @@ input {
   border-top: 1px solid var(--border-muted);
 }
 
+/* Only a click handler around kit's sidebar; the sidebar lays itself out in the shell. */
 .mf-sidebar {
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  box-shadow: var(--shadow-raised);
+  display: contents;
 }
 .mf-sidebar__brand {
-  position: relative;
-  box-sizing: border-box;
-  height: var(--header-height);
-  flex: none;
   display: flex;
   flex-direction: column;
-  justify-content: center;
   gap: var(--space-1);
-  padding: 0 var(--space-6);
-  border-bottom: 1px solid var(--border-default);
-}
-.mf-collapse-control {
-  display: flex;
-}
-.mf-sidebar__brand > .mf-collapse-control {
-  position: absolute;
-  top: 50%;
-  right: var(--space-3);
-  translate: 0 -50%;
 }
 .mf-sidebar__provider {
   color: var(--text-muted);
   font-size: var(--font-size-xs);
 }
-.mf-sidebar__label {
-  margin: 0;
-  padding: var(--space-6) var(--space-4) var(--space-3);
-  color: var(--text-muted);
-  font-size: var(--font-size-2xs);
-  letter-spacing: var(--letter-spacing-label);
-  text-transform: uppercase;
-}
-.mf-sidebar__nav {
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-2) var(--space-4) var(--space-5);
-}
-.mf-sidebar__list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.mf-nav-item {
-  box-sizing: border-box;
-  width: 100%;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: 0 var(--space-3) 0 var(--space-4);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  text-align: left;
-  cursor: pointer;
-}
-.mf-nav-item:hover:not([aria-disabled='true']) {
-  background: var(--bg-surface-hover);
-  color: var(--text-primary);
-}
-.mf-nav-item:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: -2px;
-}
-.mf-nav-item[aria-current='page'] {
-  background: var(--bg-surface-hover);
-  box-shadow: inset 2px 0 var(--mf-focus);
-  color: var(--text-primary);
-  font-weight: var(--font-weight-medium, 500);
-}
-.mf-nav-item[aria-disabled='true'] {
-  opacity: var(--opacity-disabled);
-  cursor: default;
-}
-.mf-nav-item > svg {
-  flex: none;
-  color: var(--text-muted);
-}
-.mf-nav-item[aria-current='page'] > svg {
-  color: var(--text-primary);
-}
-.mf-nav-item__label {
+.mf-sidebar__footer {
   min-width: 0;
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mf-nav-item__key {
-  flex: none;
-  display: inline-flex;
-}
-.mf-sidebar__footer {
-  flex: none;
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  padding: var(--space-5) var(--space-4);
-  border-top: 1px solid var(--border-muted);
+}
+/* Touch targets in the drawer: these out-rank kit's scoped component rules, which tie at two
+   classes. */
+.mf-sidebar .mf-sidebar__footer--drawer .kit-icon-button,
+.mf-sidebar .mf-sidebar__footer--drawer .kit-button {
+  min-width: 44px;
+  min-height: 44px;
 }
 .mf-pending-card__text {
   margin: 0;
@@ -610,17 +524,6 @@ input {
   font-size: var(--font-size-2xs);
 }
 
-.mf-rail {
-  box-sizing: border-box;
-  width: 48px;
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: var(--space-4) 0;
-  border-right: 1px solid var(--border-default);
-  background: var(--bg-surface);
-}
 .mf-rail__list {
   margin: 0;
   padding: 0;
@@ -629,20 +532,6 @@ input {
   align-items: center;
   gap: var(--space-2);
   list-style: none;
-}
-.mf-rail__rule {
-  width: 20px;
-  margin: var(--space-4) auto;
-  border: 0;
-  border-top: 1px solid var(--border-default);
-}
-.mf-rail__footer {
-  margin-top: auto;
-}
-.mf-rail .kit-icon-button.mf-rail__item--active {
-  background: var(--bg-surface-hover);
-  box-shadow: inset 2px 0 var(--mf-focus);
-  color: var(--text-primary);
 }
 .mf-rail__pending {
   position: relative;
@@ -715,39 +604,15 @@ input {
   color: var(--text-secondary);
   text-overflow: ellipsis;
 }
-/* kit-ui has no left drawer or bottom sheet (upstream candidates): NavDrawer and BottomSheet
-   compose its focus trap and overlay helpers with these styles. */
-.mf-nav-drawer,
+/* kit-ui has no bottom sheet (upstream candidate): BottomSheet composes its focus trap and
+   overlay helpers with these styles. */
 .mf-sheet {
   position: fixed;
-  inset: 0; /* kit-ui-check-ignore: kit-ui has no left drawer or bottom sheet component */
+  inset: 0; /* kit-ui-check-ignore: kit-ui has no bottom sheet component */
   z-index: var(--z-overlay);
   display: flex;
-  background: var(--overlay-bg);
-}
-.mf-sheet {
   align-items: flex-end;
-}
-.mf-nav-drawer__panel {
-  box-sizing: border-box;
-  position: relative;
-  width: min(18rem, calc(100vw - 3rem));
-  height: 100%;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  border-right: 1px solid var(--border-default);
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-lg);
-  outline: none;
-  animation: mf-slide-from-left var(--transition-medium) var(--transition-ease, ease-out);
-}
-/* Touch targets: these out-rank kit's scoped component rules, which tie at two classes. */
-.mf-nav-drawer .mf-nav-item {
-  height: 44px;
-}
-.mf-nav-drawer .mf-nav-drawer__panel .kit-icon-button,
-.mf-nav-drawer .mf-nav-drawer__panel .kit-button {
-  min-width: 44px;
-  min-height: 44px;
+  background: var(--overlay-bg);
 }
 .mf-sheet .mf-sheet__body .kit-segmented__btn,
 .mf-sheet .mf-sheet__body .kit-select-dropdown__trigger,
@@ -766,13 +631,6 @@ input {
 /* In a sheet the editor's list takes room in the flow, so it never covers Stage and Cancel. */
 .mf-sheet .mf-combobox-list {
   position: static;
-}
-/* First in the Tab order, so it comes before the sidebar in the DOM and paints above it. */
-.mf-nav-drawer__close {
-  position: absolute;
-  top: var(--space-1);
-  right: var(--space-2);
-  z-index: 1;
 }
 .mf-sheet__panel {
   box-sizing: border-box;
@@ -848,11 +706,6 @@ input {
 .mf-view-sheet .mf-break-down {
   overflow-x: auto;
 }
-@keyframes mf-slide-from-left {
-  from {
-    transform: translateX(-100%);
-  }
-}
 @keyframes mf-fade-in {
   from {
     opacity: 0;
@@ -888,10 +741,8 @@ input {
   background: var(--bg-surface);
   box-shadow: var(--shadow-panel);
 }
-/* Controls repeated on every row and every rail entry stay flat, so they do not stack into a
-   column of tiles. */
-.mf-table__row,
-.mf-rail {
+/* Controls repeated on every row stay flat, so they do not stack into a column of tiles. */
+.mf-table__row {
   --shadow-raised: none;
 }
 /* The grid takes focus on load; its ring waits for a key, so a mouse user never sees it. */
@@ -1831,6 +1682,10 @@ button.mf-bar:hover {
   .help-groups {
     grid-template-columns: 1fr;
   }
+  /* The sidebar's top bar sits above the workspace. */
+  .app-shell {
+    flex-direction: column;
+  }
 }
 @media (max-width: 640px) {
   /* Phone frame: two command bar rows, with 44 px touch targets. */
@@ -1854,7 +1709,8 @@ button.mf-bar:hover {
   .mf-breadcrumbs__link {
     min-height: 44px;
   }
-  .mf-command-bar .kit-icon-button {
+  .mf-command-bar .kit-icon-button,
+  .kit-app-sidebar__bar .kit-icon-button {
     min-width: 44px;
     min-height: 44px;
   }
@@ -1924,7 +1780,6 @@ button.mf-bar:hover {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .mf-nav-drawer__panel,
   .mf-sheet__panel {
     animation: none;
   }

@@ -1,14 +1,12 @@
 <script lang="ts">
-  import { CollapsibleSidebar, FlashBanner, MEDIA } from '@kenn-io/kit-ui'
+  import { FlashBanner, MEDIA } from '@kenn-io/kit-ui'
   import { MediaQuery } from 'svelte/reactivity'
   import { onMount, tick, untrack } from 'svelte'
   import RefreshDialog from './RefreshDialog.svelte'
-  import NavDrawer from './shell/NavDrawer.svelte'
   import ShellAnnouncements from './shell/ShellAnnouncements.svelte'
   import ShellCommandBar from './shell/ShellCommandBar.svelte'
   import ShellOverlays from './shell/ShellOverlays.svelte'
   import Sidebar from './shell/Sidebar.svelte'
-  import SidebarRail from './shell/SidebarRail.svelte'
   import StatusLine from './shell/StatusLine.svelte'
   import WorkspaceBody from './shell/WorkspaceBody.svelte'
   import {
@@ -32,7 +30,6 @@
   import type { NavRun } from '../lib/shell/nav-items'
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
-  import { provideSidebarState } from '../lib/shell/sidebar-state.svelte'
   import { connectionState, status, writeProgress } from '../lib/shell/status.svelte'
   import { TransitionQueue } from '../lib/shell/transition-queue'
   interface Props {
@@ -45,13 +42,24 @@
   /** Where the workspace starts below the command bar; toasts sit there. */
   let workspaceTop = $state(0)
   let commandBar = $state<ShellCommandBar>()
+  /** The sidebar's full footer while it shows; inside a `<dialog>`, the narrow drawer is open. */
+  let sidebarFooter = $state<HTMLElement | undefined>()
+  const drawer = $derived(sidebarFooter?.closest('dialog') ?? undefined)
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
   const transitions = new TransitionQueue(() => controller)
   const projection = $derived(controller.projection)
   const compact = new MediaQuery(MEDIA.compact)
-  const layout = provideSidebarState()
   const pushScope = (name: string) => shortcuts?.manager.pushScope(name)
-  const overlays = new OverlayState({ pushScope, focusGrid, grid: () => grid })
+  const overlays = new OverlayState({
+    pushScope,
+    focusGrid,
+    grid: () => grid,
+    // Any other overlay, even one that opens by itself, such as a write confirmation, closes the
+    // drawer first. It then renders outside the modal drawer and takes focus.
+    opening: (next) => {
+      if (next !== 'navigation') drawer?.close()
+    },
+  })
   const charts = new ChartState({ compact: () => compact.current, pushScope })
   const write = $derived(writeProgress(controller.providerWrite.state.status))
   const actions: LocalActionContext = {
@@ -79,8 +87,13 @@
     else
       queueApply(entry.action, entry.action === 'view.set-grouping' ? entry.dimension : undefined)
   }
-  /** Runs a drawer entry once the drawer has closed, so an overlay it opens owns focus. */
-  function fromDrawer(work: () => void): void {
+  /**
+   * Runs a sidebar action. From the drawer it waits until the drawer has closed, so an overlay it
+   * opens owns focus.
+   */
+  function fromSidebar(work: () => void): void {
+    if (!drawer) return work()
+    drawer.close()
     overlays.close('keep')
     void tick().then(work)
   }
@@ -106,7 +119,17 @@
   $effect(() => {
     if (compact.current) return
     if (charts.dialogOpen) charts.setDialog(false)
-    if (overlays.current === 'navigation' || overlays.current === 'view') overlays.close()
+    if (overlays.current === 'view') overlays.close()
+  })
+  // The open drawer is the navigation overlay: it holds the shortcut scope, so keys pressed in it
+  // do not reach the grid behind it.
+  $effect(() => {
+    if (!drawer) return
+    overlays.open('navigation')
+    return () => {
+      if (untrack(() => overlays.current) === 'navigation') overlays.close('keep')
+      if (document.activeElement === document.body) focusGrid()
+    }
   })
   $effect(() => {
     if (!projection) return
@@ -123,8 +146,8 @@
   const refreshing = $derived(controller.provider.state.dialog !== undefined)
   $effect(() => {
     if (!refreshing) return
-    // A refresh pressed in the phone drawer opens the dialog; the drawer gives way to it.
-    if (untrack(() => overlays.current) === 'navigation') overlays.close('keep')
+    // A refresh pressed in the drawer opens the dialog; the drawer gives way to it.
+    untrack(() => drawer)?.close()
     return () => void tick().then(() => focusGrid())
   })
   $effect(() => {
@@ -147,76 +170,49 @@
 </script>
 
 {#if projection}
-  {#snippet navigation(then: (work: () => void) => void)}
+  <div class="app-shell" inert={refreshing}>
     <Sidebar
       {projection}
       pending={controller.editing.state.pending}
       {write}
       provider={controller.provider}
-      onrun={(entry) => then(() => run(entry))}
-      onreview={() => then(() => local('edit.review'))}
-      onwrite={() => then(() => overlays.open('write'))}
+      onrun={(entry) => fromSidebar(() => run(entry))}
+      onreview={() => fromSidebar(() => local('edit.review'))}
+      onwrite={() => fromSidebar(() => overlays.open('write'))}
       {onreconnect}
+      onfooter={(footer) => (sidebarFooter = footer)}
     />
-  {/snippet}
-  <div class="app-shell" inert={refreshing}>
-    <CollapsibleSidebar
-      hideSidebar={!layout.full}
-      sidebarWidth={176}
-      minSidebarWidth={176}
-      maxSidebarWidth={280}
-      mainOverflow="hidden"
-    >
-      {#snippet sidebar()}
-        {@render navigation((work) => work())}
-      {/snippet}
-      <div class="app-shell__frame">
-        {#if !layout.full && !compact.current}
-          <SidebarRail
-            {projection}
-            pending={controller.editing.state.pending}
-            provider={controller.provider}
-            {write}
-            onrun={run}
-            onreview={() => local('edit.review')}
-            {onreconnect}
-          />
-        {/if}
-        <div class="app-shell__column">
-          <ShellCommandBar
-            bind:this={commandBar}
-            {controller}
-            {projection}
-            {overlays}
-            {charts}
-            compact={compact.current}
-            queue={transitions}
-            onfocusgrid={focusGrid}
-          />
-          <main
-            class="app-shell__main"
-            aria-label="Moneyflow workspace"
-            use:trackTop={(top) => (workspaceTop = top)}
-          >
-            <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
-            <div class="app-shell__table" bind:this={grid}>
-              <WorkspaceBody {projection} {actions} onapply={queueSend} {charts} {onreconnect} />
-            </div>
-          </main>
-          <ShellAnnouncements {controller} />
-          <StatusLine
-            hints={keyHints(projection, overlays.current !== undefined || charts.dialogOpen)}
-            connection={connectionState(controller.problem, controller.loading)}
-            revision={controller.editing.state.revision.toString(10)}
-            pending={layout.full || overlays.current === 'navigation'
-              ? undefined
-              : pendingText(controller.editing.state.pending)}
-            compact={compact.current}
-            onretry={() => void controller.retry()}
-          />
+    <div class="app-shell__column">
+      <ShellCommandBar
+        bind:this={commandBar}
+        {controller}
+        {projection}
+        {overlays}
+        {charts}
+        compact={compact.current}
+        queue={transitions}
+        onfocusgrid={focusGrid}
+      />
+      <main
+        class="app-shell__main"
+        aria-label="Moneyflow workspace"
+        use:trackTop={(top) => (workspaceTop = top)}
+      >
+        <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
+        <div class="app-shell__table" bind:this={grid}>
+          <WorkspaceBody {projection} {actions} onapply={queueSend} {charts} {onreconnect} />
         </div>
-      </div>
-    </CollapsibleSidebar>
+      </main>
+      <ShellAnnouncements {controller} />
+      <StatusLine
+        hints={keyHints(projection, overlays.current !== undefined || charts.dialogOpen)}
+        connection={connectionState(controller.problem, controller.loading)}
+        revision={controller.editing.state.revision.toString(10)}
+        pending={sidebarFooter ? undefined : pendingText(controller.editing.state.pending)}
+        compact={compact.current}
+        onretry={() => void controller.retry()}
+      />
+    </div>
   </div>
   <ShellOverlays
     {controller}
@@ -225,14 +221,8 @@
     onconfirmdelete={() => confirmDirectDelete(actions)}
     {onreconnect}
   />
-  <NavDrawer
-    open={compact.current && overlays.current === 'navigation'}
-    onclose={() => overlays.close()}
-  >
-    {@render navigation(fromDrawer)}
-  </NavDrawer>
   <!-- After the drawer closes, so the drawer's focus return cannot pull focus out of it. -->
-  {#if overlays.current !== 'navigation'}
+  {#if !drawer}
     <RefreshDialog controller={controller.provider} {onreconnect} />
   {/if}
   <FlashBanner top="calc({workspaceTop}px + var(--space-4))" />

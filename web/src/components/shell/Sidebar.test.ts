@@ -1,9 +1,11 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Sidebar from './Sidebar.svelte'
 import type { ViewProjection } from '../../lib/api/client'
+import { status } from '../../lib/shell/status.svelte'
 import { navCapabilityIDs, testCapabilities } from '../../test/capabilities'
+import { stubMedia } from '../../test/media'
 import { testProjection } from '../../test/projection'
 import { stubProvider } from '../../test/provider'
 
@@ -37,8 +39,18 @@ function props(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function entries(group: string): Array<string | undefined> {
+  const nav = screen.getByRole('navigation', { name: 'Workspace' })
+  return within(within(nav).getByRole('list', { name: group }))
+    .getAllByRole('link')
+    .map((link) => link.textContent?.trim())
+}
+
 describe('Sidebar', () => {
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    status.clear()
+  })
 
   it('names the profile provider under the brand', () => {
     render(Sidebar, props())
@@ -46,47 +58,33 @@ describe('Sidebar', () => {
     expect(screen.getByText('Monarch')).not.toBeNull()
   })
 
-  it('lists Explore and Maintain entries with their keys', () => {
+  it('lists the Explore and Maintain entries as links', () => {
     render(Sidebar, props())
-    const nav = screen.getByRole('navigation', { name: 'Workspace' })
-    const entries = (list: HTMLElement, expected: Array<[string, string, string]>) => {
-      const buttons = within(list).getAllByRole('button')
-      expect(buttons).toHaveLength(expected.length)
-      for (const [index, [name, key, shortcut]] of expected.entries()) {
-        expect(buttons[index]).toBe(within(list).getByRole('button', { name }))
-        expect(buttons[index]?.querySelector('kbd')?.getAttribute('aria-label')).toBe(key)
-        expect(buttons[index]?.getAttribute('aria-keyshortcuts')).toBe(shortcut)
-      }
-    }
-    entries(within(nav).getByRole('list', { name: 'Explore' }), [
-      ['Merchants', '1', '1'],
-      ['Categories', '2', '2'],
-      ['Groups', '3', '3'],
-      ['Accounts', '4', '4'],
-      ['Time', '5', '5'],
-      ['All transactions', 'd', 'd'],
+    expect(entries('Explore')).toEqual([
+      'Merchants',
+      'Categories',
+      'Groups',
+      'Accounts',
+      'Time',
+      'All transactions',
     ])
-    entries(within(nav).getByRole('list', { name: 'Maintain' }), [
-      ['Duplicates', 'D', 'Shift+D'],
-      ['Export', 'E', 'Shift+E'],
-      ['Edit categories', 'C', 'Shift+C'],
-      ['Edit groups', 'G', 'Shift+G'],
-    ])
+    expect(entries('Maintain')).toEqual(['Duplicates', 'Export', 'Edit categories', 'Edit groups'])
   })
 
   it('marks only the active grouping as the current page', () => {
     render(Sidebar, props())
     const nav = screen.getByRole('navigation', { name: 'Workspace' })
     const current = within(nav)
-      .getAllByRole('button')
-      .filter((button) => button.getAttribute('aria-current') === 'page')
-    expect(current).toEqual([within(nav).getByRole('button', { name: 'Categories' })])
+      .getAllByRole('link')
+      .filter((link) => link.getAttribute('aria-current') === 'page')
+    expect(current).toEqual([within(nav).getByRole('link', { name: 'Categories' })])
   })
 
-  it('runs the entry action on click', async () => {
+  it('runs the entry action on click instead of following the link', async () => {
     const onrun = vi.fn()
     render(Sidebar, props({ onrun }))
-    await fireEvent.click(screen.getByRole('button', { name: 'Groups' }))
+    const followed = await fireEvent.click(screen.getByRole('link', { name: 'Groups' }))
+    expect(followed).toBe(false)
     expect(onrun).toHaveBeenCalledWith({
       kind: 'apply',
       action: 'view.set-grouping',
@@ -100,30 +98,26 @@ describe('Sidebar', () => {
       focused = document.activeElement
     })
     render(Sidebar, props({ onrun }))
-    const item = screen.getByRole('button', { name: 'Edit categories' })
+    const item = screen.getByRole('link', { name: 'Edit categories' })
     await fireEvent.click(item)
     expect(onrun).toHaveBeenCalledTimes(1)
     expect(focused).toBe(item)
   })
 
-  it('keeps unavailable entries focusable, explains them, and ignores their clicks', async () => {
+  it('explains an unavailable entry in the status line instead of running it', async () => {
     const onrun = vi.fn()
     render(Sidebar, props({ onrun }))
-    const exportButton = screen.getByRole('button', { name: 'Export' })
-    expect(exportButton.getAttribute('aria-disabled')).toBe('true')
-    expect(exportButton.hasAttribute('disabled')).toBe(false)
-    expect(exportButton.getAttribute('title')).toBe('Not available in this view')
-    exportButton.focus()
-    expect(document.activeElement).toBe(exportButton)
-    await fireEvent.click(exportButton)
+    const followed = await fireEvent.click(screen.getByRole('link', { name: 'Export' }))
+    expect(followed).toBe(false)
     expect(onrun).not.toHaveBeenCalled()
+    expect(status.notice).toBe('Not available in this view')
   })
 
   it('pins the pending card, provider refresh, and theme toggle to the bottom', async () => {
     const onreview = vi.fn()
     render(Sidebar, props({ onreview }))
-    const status = screen.getByRole('status', { name: 'Pending profile changes' })
-    expect(status.textContent).toContain('3 pending edits · 27 transactions')
+    const pending = screen.getByRole('status', { name: 'Pending profile changes' })
+    expect(pending.textContent).toContain('3 pending edits · 27 transactions')
     await fireEvent.click(screen.getByRole('button', { name: 'Review pending changes' }))
     expect(onreview).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: 'Refresh provider data' })).not.toBeNull()
@@ -152,7 +146,101 @@ describe('Sidebar', () => {
     render(Sidebar, props({ onrun, projection: projection({ profile_kind: 'amazon' }) }))
     expect(screen.getByText('Amazon')).not.toBeNull()
     expect(screen.queryByRole('button', { name: 'Refresh provider data' })).toBeNull()
-    await fireEvent.click(screen.getByRole('button', { name: 'Import Amazon orders' }))
+    await fireEvent.click(screen.getByRole('link', { name: 'Import Amazon orders' }))
     expect(onrun).toHaveBeenCalledWith({ kind: 'local', action: 'provider.refresh' })
+  })
+
+  it('reports the full footer while it shows', () => {
+    const onfooter = vi.fn()
+    const rendered = render(Sidebar, props({ onfooter }))
+    const footer = onfooter.mock.lastCall?.[0] as HTMLElement | undefined
+    expect(footer?.textContent).toContain('3 pending edits')
+    rendered.unmount()
+    expect(onfooter).toHaveBeenLastCalledWith(undefined)
+  })
+})
+
+describe('Sidebar at rail widths', () => {
+  let restore: () => void
+
+  beforeEach(() => {
+    restore = stubMedia((query) => query.includes('< 1440px'))
+  })
+
+  afterEach(() => {
+    cleanup()
+    restore()
+  })
+
+  it('shows the entries as icons and leaves the pending text to the status line', () => {
+    const onfooter = vi.fn()
+    render(Sidebar, props({ onfooter }))
+    const nav = screen.getByRole('navigation', { name: 'Workspace' })
+    expect(within(nav).getByRole('link', { name: 'Merchants' })).not.toBeNull()
+    expect(screen.queryByText('Moneyflow')).toBeNull()
+    expect(screen.queryByRole('status', { name: 'Pending profile changes' })).toBeNull()
+    expect(onfooter).not.toHaveBeenCalled()
+  })
+
+  it('opens review from a pending icon that counts pending edits', async () => {
+    const onreview = vi.fn()
+    render(Sidebar, props({ onreview }))
+    const review = screen.getByRole('button', { name: 'Review pending changes' })
+    expect(review.closest('li')?.textContent).toContain('3')
+    await fireEvent.click(review)
+    expect(onreview).toHaveBeenCalledTimes(1)
+    await fireEvent.focusIn(review)
+    expect((await screen.findByRole('tooltip')).textContent?.trim()).toBe(
+      'Review pending changes · w',
+    )
+  })
+
+  it('offers no review without pending edits, like the pending card', async () => {
+    const onreview = vi.fn()
+    render(
+      Sidebar,
+      props({
+        onreview,
+        pending: { active_operations: 0, inactive_operations: 1, affected_transactions: 0 },
+      }),
+    )
+    const review = screen.getByRole('button', { name: 'Review pending changes' })
+    expect(review.getAttribute('aria-disabled')).toBe('true')
+    await fireEvent.click(review)
+    expect(onreview).not.toHaveBeenCalled()
+    expect(review.closest('li')?.querySelector('.mf-rail__count')).toBeNull()
+    await fireEvent.focusIn(review)
+    expect((await screen.findByRole('tooltip')).textContent?.trim()).toBe('No pending edits')
+  })
+
+  it('offers no review and no count when pending edits cannot be reviewed here', async () => {
+    const onreview = vi.fn()
+    const capabilities = testCapabilities(navCapabilityIDs, ['changes.review'])
+    render(Sidebar, props({ onreview, projection: projection({ capabilities }) }))
+    const review = screen.getByRole('button', { name: 'Review pending changes' })
+    expect(review.getAttribute('aria-disabled')).toBe('true')
+    await fireEvent.click(review)
+    expect(onreview).not.toHaveBeenCalled()
+    expect(review.closest('li')?.querySelector('.mf-rail__count')).toBeNull()
+    await fireEvent.focusIn(review)
+    expect((await screen.findByRole('tooltip')).textContent?.trim()).toBe(
+      'Review pending changes · Not available in this view',
+    )
+  })
+
+  it('shows write progress on the pending icon while a write runs', async () => {
+    render(Sidebar, props({ write: { completed: 2, total: 5 } }))
+    const review = screen.getByRole('button', { name: 'Review pending changes' })
+    await fireEvent.focusIn(review)
+    expect((await screen.findByRole('tooltip')).textContent?.trim()).toBe('Write 2/5 · w')
+  })
+
+  it('keeps provider refresh and the theme toggle, and omits refresh on local profiles', () => {
+    render(Sidebar, props())
+    expect(screen.getByRole('button', { name: 'Refresh provider data' })).not.toBeNull()
+    expect(screen.getByRole('button', { name: /Change theme/ })).not.toBeNull()
+    cleanup()
+    render(Sidebar, props({ projection: projection({ profile_kind: 'local' }) }))
+    expect(screen.queryByRole('button', { name: 'Refresh provider data' })).toBeNull()
   })
 })

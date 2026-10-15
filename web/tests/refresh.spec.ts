@@ -103,6 +103,8 @@ test('a failed refresh keeps the dialog open until Retry succeeds', async ({ pag
 test('Continue after a failure shows the stale banner until refresh is allowed', async ({
   page,
 }, info) => {
+  // The full sidebar shows the provider status with its text.
+  await page.setViewportSize({ width: 1440, height: 900 })
   await withScenarioServer(info.outputPath('scenario'), async (server) => {
     const failed = await failRefresh(page, server)
     const reason = (await failed.getByRole('alert').textContent()) ?? ''

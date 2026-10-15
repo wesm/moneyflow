@@ -39,6 +39,8 @@ export interface OverlayHost {
   focusGrid(): void
   /** The grid's container. Focus inside it returns to the grid, not to an opener. */
   grid(): HTMLElement | undefined
+  /** Runs first whenever `next` opens, before the overlay records its opener. */
+  opening?(next: Overlay): void
 }
 
 /**
@@ -78,6 +80,7 @@ export class OverlayState {
    */
   open(next: Overlay, opener?: HTMLElement): void {
     untrack(() => {
+      this.#host.opening?.(next)
       this.#cancelRestore()
       if (this.current === undefined) {
         this.#opener = opener ?? this.#openerOutsideGrid()

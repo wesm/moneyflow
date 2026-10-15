@@ -98,10 +98,10 @@ adds "by" and its dimension.
   drill-down has not used. Choosing a dimension breaks the rows down like `g`;
   **Transactions** removes the breakdown.
 
-On screens narrower than 640 px, the menu button opens the sidebar as a drawer. The
-period arrows stay in the command bar; **View** opens a sheet with the Day, Month, Year,
-and All choices, currency, filters, and Break down by. The search icon shows or hides the
-search field, which stays open while a search applies.
+At 900 px and narrower, the menu button in the top bar opens the sidebar as a drawer. On
+screens 640 px wide or narrower, the period arrows stay in the command bar; **View** opens a
+sheet with the Day, Month, Year, and All choices, currency, filters, and Break down by. The
+search icon shows or hides the search field, which stays open while a search applies.
 
 ## Choose a year, month, or day
 

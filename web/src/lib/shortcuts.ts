@@ -230,10 +230,9 @@ export function handleMoneyflowKeydown(manager: ShortcutManager, event: Keyboard
   ) {
     return false
   }
-  // A focused button activates with Enter or Space; those keys must not also drill or select.
-  if (target instanceof HTMLButtonElement && (event.key === 'Enter' || event.key === ' ')) {
-    return false
-  }
+  // A focused button or link takes Enter and Space itself; they must not also drill or select.
+  const control = target instanceof HTMLButtonElement || target instanceof HTMLAnchorElement
+  if (control && (event.key === 'Enter' || event.key === ' ')) return false
   // A control that handled the key claims it: the Period segments move with the arrows, and a
   // popover closes on Escape. The same key must not also shift the period or go back.
   if (event.defaultPrevented) return false
