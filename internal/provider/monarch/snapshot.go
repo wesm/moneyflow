@@ -97,7 +97,7 @@ func (client *Client) fetchSnapshotAttempt(
 	if _, err = client.normalizeRemoteSnapshot(first); err != nil {
 		return domain.ImportSnapshot{}, err
 	}
-	second, err := client.fetchRemoteSnapshot(ctx, attempt, 2, progress)
+	second, err := client.fetchRemoteSnapshot(ctx, attempt, snapshotPasses, progress)
 	if err != nil {
 		return domain.ImportSnapshot{}, err
 	}

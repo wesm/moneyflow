@@ -339,25 +339,48 @@ func (service *Service) ResolveSelection(
 		return SelectionSnapshot{}, err
 	}
 	currencies := service.currenciesFor(&state, document.State)
-	return service.resolveSelectionDocument(state, document, currencies)
+	return service.resolveSelectionDocument(state, document, viewRows{}, currencies)
 }
 
-// resolveSelection resolves value with the currencies its request computed.
+// viewRows holds the row identities of one evaluated view state. A selection base that names
+// all rows of the same state reuses them instead of evaluating that state again.
+type viewRows struct {
+	state      AnalyticalState
+	identities map[string]struct{}
+}
+
+// defines reports whether rows were evaluated from state.
+func (rows viewRows) defines(state AnalyticalState) bool {
+	return rows.identities != nil && sameAnalyticalState(rows.state, state)
+}
+
+// sameAnalyticalState reports whether two states define the same view. Every field of a state
+// is part of its JSON, so equal JSON means the same query and the same rows.
+func sameAnalyticalState(left, right AnalyticalState) bool {
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
+}
+
+// resolveSelection resolves value with the currencies its request computed. rows may hold the
+// rows of a view its request already evaluated.
 func (service *Service) resolveSelection(
 	state AnalyticalState,
 	value SelectionValue,
+	rows viewRows,
 	currencies []domain.CurrencyCount,
 ) (SelectionSnapshot, error) {
 	document, err := decodeSelection(value)
 	if err != nil {
 		return SelectionSnapshot{}, err
 	}
-	return service.resolveSelectionDocument(state, document, currencies)
+	return service.resolveSelectionDocument(state, document, rows, currencies)
 }
 
 func (service *Service) resolveSelectionDocument(
 	state AnalyticalState,
 	document selectionDocument,
+	rows viewRows,
 	currencies []domain.CurrencyCount,
 ) (SelectionSnapshot, error) {
 	if err := validateSelectionState(state); err != nil {
@@ -367,10 +390,11 @@ func (service *Service) resolveSelectionDocument(
 	if document.Kind != currentKind && !document.isUniversalEmpty() {
 		return SelectionSnapshot{}, invalidSelection(errors.New("selection kind does not match result"))
 	}
-	ids, err := service.resolveSelectionBase(document, currencies)
+	base, err := service.resolveSelectionBase(document, rows, currencies)
 	if err != nil {
 		return SelectionSnapshot{}, err
 	}
+	ids := cloneSet(base)
 	for _, identity := range document.Exclude {
 		delete(ids, identity)
 	}
@@ -388,16 +412,23 @@ func (service *Service) ToggleSelection(
 	identity string,
 ) (SelectionValue, error) {
 	currencies := service.selectionCurrencies(state, value)
-	return service.toggleSelection(state, value, kind, identity, currencies)
+	_, current, err := service.identitiesForState(state, currencies)
+	if err != nil {
+		return value, err
+	}
+	target := RowTarget{Kind: kind, Identity: identity}
+	return service.toggleSelection(state, value, target, current, currencies)
 }
 
+// toggleSelection toggles target in value. current holds the identities of the result's rows.
 func (service *Service) toggleSelection(
 	state AnalyticalState,
 	value SelectionValue,
-	kind IdentityKind,
-	identity string,
+	toggled RowTarget,
+	current map[string]struct{},
 	currencies []domain.CurrencyCount,
 ) (SelectionValue, error) {
+	kind, identity := toggled.Kind, toggled.Identity
 	if !kind.valid() || kind != identityKindForState(state) {
 		return value, invalidSelection(errors.New("selection target kind does not match result"))
 	}
@@ -407,13 +438,17 @@ func (service *Service) toggleSelection(
 	if len(identity) > MaxSelectionIdentityBytes {
 		return value, tooLargeSelection(errors.New("selection target identity exceeds limit"))
 	}
-	snapshot, err := service.resolveSelection(state, value, currencies)
+	snapshot, err := service.resolveSelection(
+		state, value, viewRows{state: state, identities: current}, currencies,
+	)
 	if err != nil {
 		return value, err
 	}
-	target := cloneSet(snapshot.IDs)
+	target := snapshot.IDs
 	toggleSetValue(target, identity)
-	return service.smallestSelection(state, value, kind, target, currencies)
+	return service.smallestSelection(
+		state, value, SelectionSnapshot{Kind: kind, IDs: target}, current, currencies,
+	)
 }
 
 // ToggleAllSelection selects or clears the complete current result.
@@ -421,71 +456,85 @@ func (service *Service) ToggleAllSelection(
 	state AnalyticalState,
 	value SelectionValue,
 ) (SelectionValue, error) {
-	return service.toggleAllSelection(state, value, service.selectionCurrencies(state, value))
+	currencies := service.selectionCurrencies(state, value)
+	_, current, err := service.identitiesForState(state, currencies)
+	if err != nil {
+		return value, err
+	}
+	return service.toggleAllSelection(state, value, current, currencies)
 }
 
+// toggleAllSelection selects or clears every identity of current, the result's rows.
 func (service *Service) toggleAllSelection(
 	state AnalyticalState,
 	value SelectionValue,
+	current map[string]struct{},
 	currencies []domain.CurrencyCount,
 ) (SelectionValue, error) {
-	snapshot, err := service.resolveSelection(state, value, currencies)
+	snapshot, err := service.resolveSelection(
+		state, value, viewRows{state: state, identities: current}, currencies,
+	)
 	if err != nil {
 		return value, err
 	}
-	currentKind, currentIDs, err := service.identitiesForState(state, currencies)
-	if err != nil {
-		return value, err
-	}
+	currentKind := identityKindForState(state)
 	if currentKind != snapshot.Kind {
 		return value, invalidSelection(errors.New("selection kind does not match current result"))
 	}
 	target := cloneSet(snapshot.IDs)
-	visible := sortedIdentitySet(currentIDs)
+	visible := sortedIdentitySet(current)
 	toggleAll(target, visible)
 	if equalIdentitySets(target, snapshot.IDs) {
 		return value, nil
 	}
-	return service.smallestSelection(state, value, currentKind, target, currencies)
+	return service.smallestSelection(
+		state, value, SelectionSnapshot{Kind: currentKind, IDs: target}, current, currencies,
+	)
 }
 
+// smallestSelection encodes selected, the selection wanted in state, as the shortest exact
+// value. current holds the identities of the result's rows, a base the value may name.
 func (service *Service) smallestSelection(
 	state AnalyticalState,
 	oldValue SelectionValue,
-	kind IdentityKind,
-	target map[string]struct{},
+	selected SelectionSnapshot,
+	current map[string]struct{},
 	currencies []domain.CurrencyCount,
 ) (SelectionValue, error) {
+	kind, target := selected.Kind, selected.IDs
 	oldDocument, err := decodeSelection(oldValue)
 	if err != nil {
 		return oldValue, err
 	}
-	candidates := []selectionDocument{{
-		Version:  1,
-		Kind:     kind,
-		Base:     selectionBaseExplicit,
-		Revision: cloneUint64(oldDocument.Revision),
-		IDs:      sortedIdentitySet(target),
-	}}
-
-	_, currentBase, err := service.identitiesForState(state, currencies)
-	if err != nil {
-		return oldValue, err
+	candidates := make([]selectionDocument, 0, 3)
+	// An explicit value over the identity limit cannot encode, so skip sorting its identities.
+	if len(target) <= MaxSelectionIdentities {
+		candidates = append(candidates, selectionDocument{
+			Version:  1,
+			Kind:     kind,
+			Base:     selectionBaseExplicit,
+			Revision: cloneUint64(oldDocument.Revision),
+			IDs:      sortedIdentitySet(target),
+		})
 	}
+
 	currentState := state.Clone()
 	currentCandidate := selectionDocumentForBase(
 		kind,
 		selectionBaseAll,
 		nil,
 		&currentState,
-		currentBase,
+		current,
 		target,
 	)
 	currentCandidate.Revision = cloneUint64(oldDocument.Revision)
 	candidates = append(candidates, currentCandidate)
 
-	if oldDocument.Kind == kind && !oldDocument.isUniversalEmpty() {
-		oldBase, resolveErr := service.resolveSelectionBase(oldDocument, currencies)
+	rows := viewRows{state: state, identities: current}
+	// An old value based on this same view would repeat the current candidate.
+	sameBase := oldDocument.Base == selectionBaseAll && rows.defines(*oldDocument.State)
+	if oldDocument.Kind == kind && !oldDocument.isUniversalEmpty() && !sameBase {
+		oldBase, resolveErr := service.resolveSelectionBase(oldDocument, rows, currencies)
 		if resolveErr != nil {
 			return oldValue, resolveErr
 		}
@@ -568,12 +617,18 @@ func selectionDocumentForBase(
 	return document
 }
 
+// resolveSelectionBase returns the identities that the base of document names. The result may
+// be the identities of rows, so callers must not modify it.
 func (service *Service) resolveSelectionBase(
 	document selectionDocument,
+	rows viewRows,
 	currencies []domain.CurrencyCount,
 ) (map[string]struct{}, error) {
 	if document.Base == selectionBaseExplicit {
 		return identitySliceSet(document.IDs), nil
+	}
+	if rows.defines(*document.State) {
+		return rows.identities, nil
 	}
 	kind, identities, err := service.identitiesForState(*document.State, currencies)
 	if err != nil {
@@ -596,18 +651,22 @@ func (service *Service) identitiesForState(
 	if err != nil {
 		return "", nil, invalidSelection(fmt.Errorf("resolve selection result: %w", err))
 	}
-	kind := identityKindForState(state)
+	return identityKindForState(state), resultIdentities(state, result), nil
+}
+
+// resultIdentities returns the stable identities of the rows of result, the result of state.
+func resultIdentities(state AnalyticalState, result domain.QueryResult) map[string]struct{} {
 	identities := make(map[string]struct{}, result.FilteredCount)
-	if kind == IdentityTransaction {
+	if identityKindForState(state) == IdentityTransaction {
 		for _, row := range result.DetailRows {
 			identities[row.Transaction.ID] = struct{}{}
 		}
-		return kind, identities, nil
+		return identities
 	}
 	for _, row := range result.AggregateRows {
 		identities[AggregateIdentity(row)] = struct{}{}
 	}
-	return kind, identities, nil
+	return identities
 }
 
 func (document selectionDocument) isUniversalEmpty() bool {

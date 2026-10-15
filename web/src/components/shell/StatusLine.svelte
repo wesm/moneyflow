@@ -10,7 +10,10 @@
   interface Props {
     hints: KeyHint[]
     connection: Connection
-    revision: string
+    /** The profile revision, once a view has loaded. */
+    revision?: string | undefined
+    /** What the application is doing, such as loading or writing; it takes the hints' place. */
+    activity?: string | undefined
     /** Pending text, given when the sidebar card is not showing it. */
     pending?: string | undefined
     /**
@@ -21,10 +24,10 @@
     onretry: () => void
   }
 
-  let { hints, connection, revision, pending, compact = false, onretry }: Props = $props()
+  let { hints, connection, revision, activity, pending, compact = false, onretry }: Props = $props()
   let slow = $state(false)
   const shown = $derived(connection === 'updating' && !slow ? 'connected' : connection)
-  /** A notice takes the hint area until it clears. */
+  /** A notice takes the hint area, over any activity, until it clears. */
   const noticed = $derived(status.notice !== '')
 
   $effect(() => {
@@ -47,14 +50,22 @@
   <StatusBar>
     {#snippet left()}
       <span class="mf-status-line__hints">
-        <span class="mf-status-line__notice" role="status" aria-label="Notice">{status.notice}</span
+        <span
+          class="mf-status-line__notice"
+          role="status"
+          aria-label="Notice"
+          title={status.notice || undefined}>{status.notice}</span
         >
-        {#if compact && !noticed}
-          {#if pending}{@render pendingStatus()}{/if}
-        {:else if !noticed}
-          {#each hints as hint (hint.key)}
-            <span class="mf-status-line__hint"><KbdBadge keys={[hint.key]} />{hint.label}</span>
-          {/each}
+        {#if !noticed}
+          {#if activity}
+            <span class="mf-status-line__activity">{activity}</span>
+          {:else if compact}
+            {#if pending}{@render pendingStatus()}{/if}
+          {:else}
+            {#each hints as hint (hint.key)}
+              <span class="mf-status-line__hint"><KbdBadge keys={[hint.key]} />{hint.label}</span>
+            {/each}
+          {/if}
         {/if}
       </span>
     {/snippet}
@@ -74,7 +85,7 @@
             <StatusDot status="idle" label="" />Connected
           {/if}
         </span>
-        {#if !compact}<span>profile revision {revision}</span>{/if}
+        {#if !compact && revision}<span>profile revision {revision}</span>{/if}
       </span>
     {/snippet}
   </StatusBar>

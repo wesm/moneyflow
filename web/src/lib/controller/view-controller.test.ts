@@ -1,4 +1,3 @@
-import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -12,6 +11,7 @@ import { createViewController, type ViewController } from './view-controller.sve
 import type { SelectionValue } from '../api/client'
 import type { MoneyflowHistoryState } from './history'
 import { testDuplicates } from '../../test/duplicates'
+import { notices } from '../../test/notices'
 import { testAggregateRow } from '../../test/projection'
 
 describe('browser view controller', () => {
@@ -2223,13 +2223,10 @@ describe('browser view controller', () => {
 })
 
 describe('visible view failures', () => {
-  beforeEach(() => {
-    history.replaceState(null, '', '/moneyflow/?v=1')
-    dismissFlash()
-  })
-  afterEach(() => dismissFlash())
+  beforeEach(() => history.replaceState(null, '', '/moneyflow/?v=1'))
 
-  const flashes = () => getFlashes().map(({ message, tone }) => ({ message, tone }))
+  /** Failure banners; successes and warnings go to the status bar notice instead. */
+  const flashes = () => notices().banners
   const busy = () =>
     new MoneyflowProblem({
       type: 'about:blank',
@@ -2300,7 +2297,7 @@ describe('visible view failures', () => {
 
     expect(controller.projection).toBe(prior)
     expect(controller.problem).toBeUndefined()
-    expect(flashes()).toEqual([])
+    expect(notices()).toEqual({ banners: [], status: '' })
   })
 
   it('shows the opening view when a search preview asks for it again', async () => {
@@ -2326,7 +2323,7 @@ describe('visible view failures', () => {
 
     expect(controller.projection?.canonical_query).toBe('v=1')
     expect(controller.problem).toBeUndefined()
-    expect(flashes()).toEqual([])
+    expect(notices()).toEqual({ banners: [], status: '' })
   })
 
   it('points an unexpected server error to the server log', async () => {
@@ -2375,7 +2372,7 @@ describe('visible view failures', () => {
     await controller.hydrate()
 
     expect(controller.problem?.detail).toBe('The profile is busy. Try again.')
-    expect(flashes()).toEqual([])
+    expect(notices()).toEqual({ banners: [], status: '' })
   })
 
   it('reports a failed recheck, and a retry that succeeds clears it', async () => {
@@ -2553,7 +2550,7 @@ describe('visible view failures', () => {
     expect(controller.projection?.canonical_query).toBe('v=1')
     expect(controller.projection?.revision).toBe('5')
     expect(location.search).toBe('?v=1')
-    expect(flashes().map(({ message }) => message)).toEqual([notice])
+    expect(notices()).toEqual({ banners: [], status: notice })
   })
 
   it('ignores a recheck that fails after a newer transition failed', async () => {
@@ -2620,7 +2617,7 @@ describe('visible view failures', () => {
     await expect(rechecking).resolves.toBeUndefined()
 
     expect(controller.problem).toBeUndefined()
-    expect(flashes()).toEqual([])
+    expect(notices()).toEqual({ banners: [], status: '' })
   })
 
   it('reports a failed recheck for newer insights as a view failure', async () => {
@@ -2746,7 +2743,7 @@ describe('visible view failures', () => {
       await Promise.all(settled)
 
       expect(controller.problem).toBeUndefined()
-      expect(flashes()).toEqual([])
+      expect(notices()).toEqual({ banners: [], status: '' })
     })
 
     it.each([
@@ -3597,7 +3594,7 @@ describe('visible view failures', () => {
         'The pending change could not be saved. The profile is busy. Try again.',
       )
       expect(controller.problem).toBeUndefined()
-      expect(flashes()).toEqual([])
+      expect(notices()).toEqual({ banners: [], status: '' })
     })
   })
 
@@ -3609,7 +3606,7 @@ describe('visible view failures', () => {
 
     await controller.previewSearch('coffee')
 
-    expect(flashes()).toEqual([])
+    expect(notices()).toEqual({ banners: [], status: '' })
   })
 
   it('shows the warnings of a view the user now sees, except the audit warning', async () => {
@@ -3627,9 +3624,10 @@ describe('visible view failures', () => {
 
     await controller.apply({ action: 'view.set-subgrouping', dimension: 'account' })
 
-    expect(flashes()).toEqual([
-      { message: 'The selection changed and was cleared after refresh.', tone: 'warning' },
-    ])
+    expect(notices()).toEqual({
+      banners: [],
+      status: 'The selection changed and was cleared after refresh.',
+    })
   })
 
   it('shows why transaction information did not load', async () => {

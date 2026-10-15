@@ -29,7 +29,7 @@ only as its implementation lands.
 | Profile kind | Data input | Commit behavior |
 | --- | --- | --- |
 | Local/demo | Synthetic fixture or existing local SQLite state | Atomic local fold |
-| Monarch | Connect, full or explicitly scoped initial import, full refresh; **Unreleased:** scheduled 90-day refresh | Durable remote updates and deletion |
+| Monarch | Connect, full or explicitly scoped initial import, full refresh; **Unreleased:** scheduled and manual 90-day refresh, full refresh on request or every 30 days | Durable remote updates and deletion |
 | Amazon | Explicit CSV/file-directory import | Local commit; no outbound Amazon mutations |
 | YNAB | Connect, full import, coherent full refresh | Durable payee/category updates and deletion after explicit unlock |
 | Bank CSV | Explicit Chase file/directory import | Local fold with persistent reimport overrides |

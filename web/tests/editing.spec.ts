@@ -600,8 +600,6 @@ test('a bulk edit still clears the selection after a sort during its request', a
     const field = editor.getByRole('combobox', { name: 'Category' })
     await field.fill('Uncategorized')
     await field.press('Enter')
-    await expect(editor.getByRole('button', { name: /^Stage change to / })).toBeEnabled()
-    await field.press('Enter')
     await sent
     await page.keyboard.press('Escape')
     await expect(editor).toBeHidden()
@@ -738,6 +736,26 @@ test('Enter accepts then stages, and Esc closes the list then cancels', async ({
     await page.keyboard.press('Enter')
     await expect(editor).toBeHidden()
     await expect(grid).toBeFocused()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})
+
+test('one Enter stages the highlighted category from the open list', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('c')
+    const editor = page.getByRole('dialog', { name: 'Change category' })
+    const field = editor.getByRole('combobox', { name: 'Category' })
+    await field.pressSequentially('Grocer')
+    const first = editor.getByRole('listbox', { name: 'Category' }).getByRole('option').first()
+    await expect(first).toHaveAccessibleName(/^Groceries, /)
+    await expect(first).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('Enter')
+    await expect(editor).toBeHidden()
+    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
   } finally {
     await server.stop()

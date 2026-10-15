@@ -124,6 +124,63 @@ func TestNonProblemServerFailureIsLogged(t *testing.T) {
 	assert.Equal(t, "GET /api/v1/example: 500 internal_error\n", output.String())
 }
 
+// Every endpoint's server failure passes through one response filter, so a request its client
+// abandoned is reported as canceled there, whichever mapper produced the failure.
+func TestAbandonedRequestIsNotLoggedAsAServerFailure(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		canceled   bool
+		cause      error
+		wantStatus int
+		wantLog    string
+	}{
+		{
+			name: "client canceled", canceled: true,
+			cause: fmt.Errorf("refresh: %w", context.Canceled), wantStatus: statusClientClosedRequest,
+		},
+		{
+			name: "internal cancellation while the client waits", canceled: false,
+			cause: context.Canceled, wantStatus: http.StatusInternalServerError,
+			wantLog: "POST /api/v1/example: 500 internal_error: context canceled\n",
+		},
+		{
+			name: "real failure racing a disconnect", canceled: true,
+			cause: errors.New("disk failure"), wantStatus: http.StatusInternalServerError,
+			wantLog: "POST /api/v1/example: 500 internal_error: disk failure\n",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			output := &bytes.Buffer{}
+			handler := safeProblemResponses(http.HandlerFunc(
+				func(response http.ResponseWriter, request *http.Request) {
+					noteProblemCause(request.Context(), test.cause)
+					writeProblem(response, newProblem(
+						http.StatusInternalServerError, "internal_error", "The request could not be completed.",
+					))
+				},
+			), log.New(output, "", 0))
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if test.canceled {
+				cancel()
+			}
+			request := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/example", http.NoBody)
+			response := httptest.NewRecorder()
+
+			handler.ServeHTTP(response, request)
+
+			require.Equal(t, test.wantStatus, response.Code, response.Body.String())
+			assert.Equal(t, test.wantLog, output.String())
+			if test.wantStatus == statusClientClosedRequest {
+				assert.Contains(t, response.Body.String(), string(CodeRequestCanceled))
+			}
+		})
+	}
+}
+
 func TestUnreadableProviderSessionIsLoggedOncePerCause(t *testing.T) {
 	t.Parallel()
 	service, err := app.NewService(nil)

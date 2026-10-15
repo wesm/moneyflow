@@ -82,7 +82,7 @@ docs-serve: ## Serve the documentation website locally
 test: web-embed ## Run the Go tests
 	MONEYFLOW_SKIP_PERF=1 go test $(GOFLAGS_TEST) ./...
 	go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$$' -count=1
-	go test ./internal/api -run '^Test(Projection|DuplicateProjection)Performance100K$$' -count=1
+	go test ./internal/api -run '^Test(Projection|DuplicateProjection|SelectionToggle)Performance100K$$' -count=1
 
 # The pre-commit hook runs this. It omits -shuffle so Go can reuse cached test results.
 test-go-quick: web-embed ## Run the short Go tests, as the pre-commit hook does
@@ -204,7 +204,7 @@ web-embed-check: web-embed
 verify-web: ## Run every browser, API, and embedded-asset check
 	$(MAKE) web-install
 	$(MAKE) web-check web-test web-audit web-embed-check test-editing-go web-e2e
-	go test ./internal/api -run 'Test(Projection|DuplicateProjection)Performance100K' -count=1
+	go test ./internal/api -run 'Test(Projection|DuplicateProjection|SelectionToggle)Performance100K' -count=1
 
 # Run the steps in order even when MAKEFLAGS includes -j, as verify-web does.
 dev: ## Run Go under air behind Vite with live reload; PROFILE=<name> opens a real profile

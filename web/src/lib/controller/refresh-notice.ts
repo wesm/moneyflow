@@ -18,6 +18,28 @@ export function refreshOwner(renderer: string | undefined): string {
   return 'Another Moneyflow process'
 }
 
+type RefreshProgressCounts = ProviderStatus['progress']
+
+/**
+ * What a running refresh has read, such as `Fetched 7,000 transactions`, or undefined before the
+ * provider reports anything. The count continues across the provider's partitions. Monarch's
+ * first read names no total because its hidden transactions' total arrives only with their first
+ * page; its confirming read counts against the first read's total, such as
+ * `Verifying 12,000 of 31,808 transactions`.
+ */
+export function progressText(
+  progress: RefreshProgressCounts | undefined,
+  locale?: string,
+): string | undefined {
+  if (!progress || (progress.fetched === 0 && progress.total === 0)) return undefined
+  const count = (value: number) => value.toLocaleString(locale)
+  if (progress.verifying) {
+    return `Verifying ${count(progress.fetched)} of ${count(progress.total)} transactions`
+  }
+  const noun = progress.fetched === 1 ? 'transaction' : 'transactions'
+  return `Fetched ${count(progress.fetched)} ${noun}`
+}
+
 export interface DataAge {
   /** Such as `10 days ago`. */
   relative: string

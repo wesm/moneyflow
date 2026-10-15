@@ -109,25 +109,20 @@ input {
   color: var(--text-secondary);
 }
 
-.moneyflow-loading,
 .moneyflow-message {
   max-width: 32rem;
 }
 
-.moneyflow-loading h1,
-.moneyflow-loading p,
 .moneyflow-message h1,
 .moneyflow-message p {
   margin: 0;
 }
 
-.moneyflow-loading h1,
 .moneyflow-message h1 {
   margin-block: var(--space-2);
   font-size: var(--font-size-xl);
 }
 
-.moneyflow-loading p:last-child,
 .moneyflow-message p,
 .moneyflow-eyebrow {
   color: var(--text-muted);
@@ -587,12 +582,16 @@ input {
   flex-wrap: wrap;
   overflow: hidden;
 }
-.mf-status-line__notice {
+.mf-status-line__notice,
+.mf-status-line__activity {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.mf-status-line__activity {
+  color: var(--text-secondary);
 }
 /* An empty live region stays in the accessibility tree but out of the hints' flex gaps. */
 .mf-status-line__notice:empty {
@@ -712,16 +711,30 @@ input {
   }
 }
 
-/* Table */
+/*
+ * Table: the banners and charts hold still above the scroller that holds only the table. A window
+ * too short for both keeps the table's minimum height, and this body scrolls the charts away. Its
+ * padding holds the room the table's scroller keeps outside itself for the focus ring.
+ */
+.mf-workspace-body {
+  box-sizing: border-box;
+  height: calc(100% + 2 * var(--space-2));
+  margin: calc(-1 * var(--space-2));
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
 .mf-workspace {
   /* The grid's offsetParent, so the grid knows where its rows sit in this scroller. */
   position: relative;
+  flex: 1 1 0;
+  min-height: min(100%, 16rem);
   box-sizing: border-box;
   /*
    * Room inside the scroller for the grid's focus ring, without moving the grid. The top room is
    * the grid's margin, not padding: a sticky header stops below a scroller's padding.
    */
-  height: calc(100% + 2 * var(--space-2));
   margin: calc(-1 * var(--space-2));
   padding: 0 var(--space-2) var(--space-2);
   overflow: auto;
@@ -763,6 +776,25 @@ input {
 }
 .mf-table__spacer {
   grid-column: 1 / -1;
+}
+/*
+ * The rows that hold the view's longest labels, so the text columns fit them; see ColumnSizer.
+ * They take no height and never show. A label wider than 20rem does not widen its column further.
+ */
+.mf-table__sizer {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+.mf-table__sizer > .mf-table__cell {
+  max-width: 20rem;
+}
+/* The rows on screen never size a column, so the widths hold still while the table scrolls. */
+.mf-table:not(.mf-table--compact) .mf-table__row > .mf-table__cell {
+  contain: inline-size;
 }
 .mf-table__header {
   position: sticky;
@@ -940,10 +972,6 @@ input {
 }
 .mf-trend__end {
   fill: var(--text-secondary);
-}
-.mf-trend__end--hollow {
-  fill: none;
-  stroke: var(--text-secondary);
 }
 .mf-table__cell > .mf-skeleton {
   width: 100%;
@@ -1228,7 +1256,7 @@ input {
   color: var(--text-primary);
   font-size: var(--font-size-sm);
 }
-/* Charts: the KPI strip and the chart row, above the table in its scroller. */
+/* Charts: the KPI strip and the chart row, above the table's scroller. */
 .mf-chart-area {
   /* Positioned, so a tooltip can raise the area above the table's sticky header. */
   position: relative;
@@ -1382,27 +1410,17 @@ input {
   outline: var(--focus-ring);
   outline-offset: -2px;
 }
-.mf-cashflow__column rect {
-  stroke-width: 0;
-}
 .mf-cashflow__in {
   fill: var(--mf-in-muted);
-  stroke: var(--mf-in);
 }
 .mf-cashflow__out {
   fill: var(--mf-out-muted);
-  stroke: var(--mf-out);
 }
 .mf-cashflow__in.mf-cashflow__cursor {
   fill: var(--mf-in);
 }
 .mf-cashflow__out.mf-cashflow__cursor {
   fill: var(--mf-out);
-}
-/* A partial period is hollow; the cursor's share inside it stays solid. */
-.mf-cashflow__column--partial rect:not(.mf-cashflow__cursor) {
-  fill: none;
-  stroke-width: 1px;
 }
 .mf-cashflow__lines {
   position: absolute;
@@ -1421,10 +1439,6 @@ input {
 }
 .mf-cashflow__dot {
   fill: var(--text-secondary);
-}
-.mf-cashflow__dot--partial {
-  fill: none;
-  stroke: var(--text-secondary);
 }
 .mf-cashflow-tip {
   display: grid;

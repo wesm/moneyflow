@@ -45,10 +45,9 @@ describe('TrendCell', () => {
     const lines = container.querySelectorAll('polyline')
     expect(lines).toHaveLength(1)
     expect(lines[0]!.getAttribute('points')!.split(' ')).toHaveLength(3)
-    expect(container.querySelector('.mf-trend__end--hollow')).toBeNull()
   })
 
-  it('leaves absent months out and draws a partial last month hollow', () => {
+  it('leaves absent months out and ends a partial last month with a solid dot', () => {
     const { container } = render(TrendCell, {
       series: ready(
         ['0', '-300', '-50'],
@@ -60,7 +59,8 @@ describe('TrendCell', () => {
       ),
     })
     expect(container.querySelector('polyline')!.getAttribute('points')!.split(' ')).toHaveLength(2)
-    expect(container.querySelector('.mf-trend__end--hollow')).not.toBeNull()
+    const end = container.querySelector('.mf-trend__end')!
+    expect(end.getAttribute('class')).toBe('mf-trend__end')
   })
 
   it('shows a skeleton while the series loads and nothing after a failure', () => {

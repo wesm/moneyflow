@@ -122,6 +122,8 @@ func TestProviderCapabilitiesPrepareWriteBatchAndDisableFurtherEditing(t *testin
 	require.NoError(t, err)
 	capabilities := capabilitiesByAction(service.Capabilities())
 	assert.True(t, capabilities[app.ActionRefreshProvider].Available)
+	assert.True(t, capabilities[app.ActionRefreshProviderHistory].Available,
+		"Monarch offers complete history beside the recent refresh")
 	assert.True(t, capabilities[app.ActionEditMerchant].Available)
 	assert.False(t, capabilities[app.ActionManageCategories].Available)
 	assert.False(t, capabilities[app.ActionManageGroups].Available)
@@ -153,6 +155,8 @@ func TestProviderCapabilitiesPrepareWriteBatchAndDisableFurtherEditing(t *testin
 	assert.False(t, capabilities[app.ActionToggleHidden].Available)
 	assert.False(t, capabilities[app.ActionRefreshProvider].Available)
 	assert.Contains(t, capabilities[app.ActionRefreshProvider].Reason, "provider write")
+	assert.False(t, capabilities[app.ActionRefreshProviderHistory].Available)
+	assert.Contains(t, capabilities[app.ActionRefreshProviderHistory].Reason, "provider write")
 }
 
 func TestYNABCapabilitiesExplainUnsupportedHiddenChanges(t *testing.T) {
@@ -264,6 +268,9 @@ func TestYNABCapabilitiesRequireUnlockedReaderAndNeverOfferProviderCommit(t *tes
 	require.NoError(t, err)
 	unlocked := capabilitiesByAction(service.Capabilities())
 	assert.True(t, unlocked[app.ActionRefreshProvider].Available)
+	assert.False(t, unlocked[app.ActionRefreshProviderHistory].Available)
+	assert.Equal(t, "Press r: every YNAB refresh reads complete data.",
+		unlocked[app.ActionRefreshProviderHistory].Reason)
 	assert.False(t, unlocked[app.ActionManageCategories].Available)
 	assert.False(t, unlocked[app.ActionToggleHidden].Available)
 

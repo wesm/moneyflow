@@ -234,7 +234,9 @@ test('hover keeps the cursor and selection tints; hidden rows keep ☐ and flags
   page,
   server,
 }) => {
-  await openMoneyflow(page, server)
+  // The demo hides a few late-month Noodle House visits early in 2026; the table below the
+  // charts draws only the rows near its top.
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-01-01&to=2026-03-31&v=1')
   const grid = page.getByRole('grid', { name: 'Financial results' })
   const row = (index: number) => grid.locator(`[role="row"][aria-rowindex="${index}"]`)
   const tint = (locator: Locator) =>

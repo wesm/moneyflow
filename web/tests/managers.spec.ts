@@ -3,12 +3,14 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { openMoneyflow } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
-/** Types `text` into a step's picker, takes the first suggestion, and confirms the step. */
+/** Types `text` into a step's picker; one Enter takes the first suggestion and confirms. */
 async function pickAndConfirm(page: Page, picker: Locator, text: string): Promise<void> {
   await expect(picker).toBeFocused()
   await page.keyboard.type(text)
-  await page.keyboard.press('Enter')
-  await expect(picker).toHaveValue(text)
+  const list = page.locator(`[id="${await picker.getAttribute('aria-controls')}"]`)
+  const first = list.getByRole('option').first()
+  await expect(first).toHaveAccessibleName(new RegExp(`^${text}, `))
+  await expect(first).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('Enter')
   await expect(picker).toBeHidden()
 }
@@ -163,9 +165,6 @@ test('a category that only pending edits use still needs a replacement', async (
     const editor = page.getByRole('dialog', { name: 'Change category' })
     const field = editor.getByRole('combobox', { name: 'Category' })
     await field.fill('Pet Care')
-    await page.keyboard.press('Enter')
-    await expect(field).toHaveValue('Pet Care')
-    await expect(editor.getByRole('button', { name: /^Stage change to / })).toBeEnabled()
     await page.keyboard.press('Enter')
     await expect(editor).toBeHidden()
     await expect(page.getByText(/2 pending edit/)).toBeVisible()

@@ -9,35 +9,53 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
+// Every field sorts in both directions, and rows that tie on the field fall back to ascending
+// ID in either direction. Amount runs the other way: "descending" lists the largest expense
+// first. The input order disagrees with ID order inside each tie, so a stable sort that skips
+// the ID tie-break fails.
 func TestDetailRowsSortsWithoutMutatingInput(t *testing.T) {
 	t.Parallel()
 
-	alpha := testTransaction(t, "txn-b", "2024-01-02", "-10.00", "Example Alpha", "Dining", "Living")
-	beta := testTransaction(t, "txn-a", "2024-01-01", "-20.00", "Example Beta", "Books", "Discretionary")
-	tie := testTransaction(t, "txn-c", "2024-01-02", "-10.00", "Example Alpha", "Dining", "Living")
-	tie.Account = domain.EntityRef{ID: "account-checking", Name: "Primary Checking"}
-	input := []domain.Transaction{alpha, beta, tie}
+	first := detailSortRow(t, "txn-1", "2024-01-02", "-10.00", "Beta", "Dining", "Card")
+	second := detailSortRow(t, "txn-2", "2024-01-01", "-10.00", "Alpha", "Travel", "Checking")
+	third := detailSortRow(t, "txn-3", "2024-01-02", "-25.00", "Gamma", "Books", "Card")
+	fourth := detailSortRow(t, "txn-4", "2024-01-03", "5.00", "Beta", "Books", "Savings")
+	input := []domain.Transaction{third, fourth, second, first}
 
 	tests := map[string]struct {
-		sort domain.SortSpec
-		want []string
+		field     domain.SortField
+		direction domain.SortDirection
+		want      []string
 	}{
-		"date descending":     {domain.SortSpec{Field: domain.SortFieldDate, Direction: domain.SortDirectionDesc}, []string{"txn-b", "txn-c", "txn-a"}},
-		"merchant ascending":  {domain.SortSpec{Field: domain.SortFieldMerchant, Direction: domain.SortDirectionAsc}, []string{"txn-b", "txn-c", "txn-a"}},
-		"category descending": {domain.SortSpec{Field: domain.SortFieldCategory, Direction: domain.SortDirectionDesc}, []string{"txn-b", "txn-c", "txn-a"}},
-		"account descending":  {domain.SortSpec{Field: domain.SortFieldAccount, Direction: domain.SortDirectionDesc}, []string{"txn-c", "txn-a", "txn-b"}},
-		"amount descending":   {domain.SortSpec{Field: domain.SortFieldAmount, Direction: domain.SortDirectionDesc}, []string{"txn-a", "txn-b", "txn-c"}},
-		"amount ascending":    {domain.SortSpec{Field: domain.SortFieldAmount, Direction: domain.SortDirectionAsc}, []string{"txn-b", "txn-c", "txn-a"}},
+		"date ascending":      {domain.SortFieldDate, domain.SortDirectionAsc, []string{"txn-2", "txn-1", "txn-3", "txn-4"}},
+		"date descending":     {domain.SortFieldDate, domain.SortDirectionDesc, []string{"txn-4", "txn-1", "txn-3", "txn-2"}},
+		"merchant ascending":  {domain.SortFieldMerchant, domain.SortDirectionAsc, []string{"txn-2", "txn-1", "txn-4", "txn-3"}},
+		"merchant descending": {domain.SortFieldMerchant, domain.SortDirectionDesc, []string{"txn-3", "txn-1", "txn-4", "txn-2"}},
+		"category ascending":  {domain.SortFieldCategory, domain.SortDirectionAsc, []string{"txn-3", "txn-4", "txn-1", "txn-2"}},
+		"category descending": {domain.SortFieldCategory, domain.SortDirectionDesc, []string{"txn-2", "txn-1", "txn-3", "txn-4"}},
+		"account ascending":   {domain.SortFieldAccount, domain.SortDirectionAsc, []string{"txn-1", "txn-3", "txn-2", "txn-4"}},
+		"account descending":  {domain.SortFieldAccount, domain.SortDirectionDesc, []string{"txn-4", "txn-2", "txn-1", "txn-3"}},
+		"amount descending":   {domain.SortFieldAmount, domain.SortDirectionDesc, []string{"txn-3", "txn-1", "txn-2", "txn-4"}},
+		"amount ascending":    {domain.SortFieldAmount, domain.SortDirectionAsc, []string{"txn-4", "txn-1", "txn-2", "txn-3"}},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			rows := DetailRows(input, test.sort)
+			rows := DetailRows(input, domain.SortSpec{Field: test.field, Direction: test.direction})
 			assert.Equal(t, test.want, detailIDs(rows))
-			assert.Equal(t, []string{"txn-b", "txn-a", "txn-c"}, ids(input))
+			assert.Equal(t, []string{"txn-3", "txn-4", "txn-2", "txn-1"}, ids(input))
 		})
 	}
+}
+
+func detailSortRow(
+	t *testing.T, id, date, amount, merchant, category, account string,
+) domain.Transaction {
+	t.Helper()
+	transaction := testTransaction(t, id, date, amount, merchant, category, "Living")
+	transaction.Account = domain.EntityRef{ID: "account-" + account, Name: account}
+	return transaction
 }
 
 func TestDecorateDetailRowsCopiesFlagsAndMetadata(t *testing.T) {

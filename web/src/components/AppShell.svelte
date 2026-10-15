@@ -3,6 +3,8 @@
   import { MediaQuery } from 'svelte/reactivity'
   import { onMount, tick, untrack } from 'svelte'
   import RefreshDialog from './RefreshDialog.svelte'
+  import CommandBar from './shell/CommandBar.svelte'
+  import LoadingSidebar from './shell/LoadingSidebar.svelte'
   import ShellAnnouncements from './shell/ShellAnnouncements.svelte'
   import ShellCommandBar from './shell/ShellCommandBar.svelte'
   import ShellOverlays from './shell/ShellOverlays.svelte'
@@ -15,7 +17,9 @@
     type Dimension,
     type LocalAction,
   } from '../lib/shortcuts'
+  import { writeNeedsUser } from '../lib/controller/provider-write'
   import type { TransitionAction, ViewController } from '../lib/controller/view-controller.svelte'
+  import { providerName } from '../lib/provider-name'
   import { ChartState } from '../lib/shell/chart-state.svelte'
   import { trackTop } from '../lib/shell/flash-top'
   import { keyHints } from '../lib/shell/key-hints'
@@ -39,7 +43,7 @@
   }
   let { controller, onreconnect, onamazonimport }: Props = $props()
   let grid = $state<HTMLElement | undefined>()
-  /** Where the workspace starts below the command bar; toasts sit there. */
+  /** Where the workspace starts below the command bar; failure banners sit there. */
   let workspaceTop = $state(0)
   let commandBar = $state<ShellCommandBar>()
   /** The sidebar's full footer while it shows; inside a `<dialog>`, the narrow drawer is open. */
@@ -62,6 +66,13 @@
   })
   const charts = new ChartState({ compact: () => compact.current, pushScope })
   const write = $derived(writeProgress(controller.providerWrite.state.status))
+  /** A running write's progress, which the status bar shows in place of the key hints. */
+  const writing = $derived(
+    controller.providerWrite.state.phase === 'active' && write && projection
+      ? `Writing to ${providerName(projection.profile_kind)}: ${write.completed} of ${write.total}…`
+      : undefined,
+  )
+  const activity = $derived(projection ? writing : 'Loading…')
   const actions: LocalActionContext = {
     get controller() {
       return controller
@@ -150,17 +161,27 @@
     untrack(() => drawer)?.close()
     return () => void tick().then(() => focusGrid())
   })
+  /** A routine write shows in the status bar; one that needs the user opens its drawer. */
+  const writeBlocked = $derived(writeNeedsUser(controller.providerWrite.state))
   $effect(() => {
-    if (controller.providerWrite.state.phase === 'confirmation') overlays.open('write')
+    if (writeBlocked) overlays.open('write')
+  })
+  /** A write that starts replaces an older notice, so its progress shows. */
+  const writeStarted = $derived(writing !== undefined)
+  $effect(() => {
+    if (writeStarted) status.clear()
+  })
+  /** The grid takes focus once, when the first view arrives. */
+  const loaded = $derived(projection !== undefined)
+  $effect(() => {
+    if (loaded) untrack(() => focusGrid())
   })
   onMount(() => {
-    if (!projection) return
     const keydown = (event: KeyboardEvent) =>
       shortcuts && !controller.provider.state.dialog
         ? handleMoneyflowKeydown(shortcuts.manager, event)
         : false
     window.addEventListener('keydown', keydown)
-    focusGrid()
     return () => {
       window.removeEventListener('keydown', keydown)
       overlays.destroy()
@@ -169,8 +190,8 @@
   })
 </script>
 
-{#if projection}
-  <div class="app-shell" inert={refreshing}>
+<div class="app-shell" inert={refreshing}>
+  {#if projection}
     <Sidebar
       {projection}
       pending={controller.editing.state.pending}
@@ -182,7 +203,11 @@
       {onreconnect}
       onfooter={(footer) => (sidebarFooter = footer)}
     />
-    <div class="app-shell__column">
+  {:else}
+    <LoadingSidebar />
+  {/if}
+  <div class="app-shell__column">
+    {#if projection}
       <ShellCommandBar
         bind:this={commandBar}
         {controller}
@@ -193,27 +218,39 @@
         queue={transitions}
         onfocusgrid={focusGrid}
       />
-      <main
-        class="app-shell__main"
-        aria-label="Moneyflow workspace"
-        use:trackTop={(top) => (workspaceTop = top)}
-      >
-        <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
-        <div class="app-shell__table" bind:this={grid}>
+    {:else}
+      <CommandBar>{#snippet leading()}{/snippet}</CommandBar>
+    {/if}
+    <main
+      class="app-shell__main"
+      aria-label="Moneyflow workspace"
+      aria-busy={projection ? undefined : 'true'}
+      use:trackTop={(top) => (workspaceTop = top)}
+    >
+      <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
+      <div class="app-shell__table" bind:this={grid}>
+        {#if projection}
           <WorkspaceBody {projection} {actions} onapply={queueSend} {charts} {onreconnect} />
-        </div>
-      </main>
-      <ShellAnnouncements {controller} />
-      <StatusLine
-        hints={keyHints(projection, overlays.current !== undefined || charts.dialogOpen)}
-        connection={connectionState(controller.problem, controller.loading)}
-        revision={controller.editing.state.revision.toString(10)}
-        pending={sidebarFooter ? undefined : pendingText(controller.editing.state.pending)}
-        compact={compact.current}
-        onretry={() => void controller.retry()}
-      />
-    </div>
+        {/if}
+      </div>
+    </main>
+    <ShellAnnouncements {controller} />
+    <StatusLine
+      hints={projection
+        ? keyHints(projection, overlays.current !== undefined || charts.dialogOpen)
+        : []}
+      connection={connectionState(controller.problem, controller.loading)}
+      revision={projection ? controller.editing.state.revision.toString(10) : undefined}
+      {activity}
+      pending={!projection || sidebarFooter
+        ? undefined
+        : pendingText(controller.editing.state.pending)}
+      compact={compact.current}
+      onretry={() => void controller.retry()}
+    />
   </div>
+</div>
+{#if projection}
   <ShellOverlays
     {controller}
     {projection}
@@ -225,5 +262,5 @@
   {#if !drawer}
     <RefreshDialog controller={controller.provider} {onreconnect} />
   {/if}
-  <FlashBanner top="calc({workspaceTop}px + var(--space-4))" />
 {/if}
+<FlashBanner top="calc({workspaceTop}px + var(--space-4))" />

@@ -65,13 +65,13 @@ func registerReadTools(server *Server) {
 			}
 			return CommitStatusDocument{Header: NewHeader(StatusOK, account.Revision), Write: writeStatusDocument(account.Write)}, nil
 		})
-	registerTool(server, "refresh_data", "Start one explicit provider refresh when available.", false,
-		func(ctx context.Context, dependencies Dependencies, _ EmptyInput) (any, error) {
-			return refreshDataDocument(ctx, dependencies)
+	registerTool(server, "refresh_data", "Start one explicit provider refresh when available. Monarch reads the last 90 days unless complete_history is set or complete history is due.", false,
+		func(ctx context.Context, dependencies Dependencies, input RefreshDataInput) (any, error) {
+			return refreshDataDocument(ctx, dependencies, input.CompleteHistory)
 		})
 	registerTool(server, "get_refresh_status", "Return process-local provider refresh status.", true,
-		func(_ context.Context, dependencies Dependencies, input RefreshStatusInput) (any, error) {
-			return refreshStatusDocument(dependencies, input)
+		func(ctx context.Context, dependencies Dependencies, input RefreshStatusInput) (any, error) {
+			return refreshStatusDocument(ctx, dependencies, input)
 		})
 	registerTool(server, "confirm_refresh_deletions", "Confirm one process-local provider deletion candidate.", false,
 		func(ctx context.Context, dependencies Dependencies, input ConfirmRefreshInput) (any, error) {
@@ -79,7 +79,11 @@ func registerReadTools(server *Server) {
 		})
 }
 
-func refreshDataDocument(ctx context.Context, dependencies Dependencies) (any, error) {
+func refreshDataDocument(
+	ctx context.Context,
+	dependencies Dependencies,
+	completeHistory bool,
+) (any, error) {
 	connection, err := dependencies.Service.ProviderConnection(ctx)
 	if err != nil {
 		return nil, err
@@ -115,7 +119,7 @@ func refreshDataDocument(ctx context.Context, dependencies Dependencies) (any, e
 			defer release()
 			return service.RefreshProvider(workerContext, app.ProviderRefreshRequest{
 				Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
-				Window: app.WindowRequest{Limit: 1},
+				Window: app.WindowRequest{Limit: 1}, CompleteHistory: completeHistory,
 			})
 		},
 	)
@@ -125,13 +129,29 @@ func refreshDataDocument(ctx context.Context, dependencies Dependencies) (any, e
 	return refreshAttemptDocument(attempt, dependencies.Service.Revision(), false), nil
 }
 
-func refreshStatusDocument(dependencies Dependencies, input RefreshStatusInput) (any, error) {
+func refreshStatusDocument(
+	ctx context.Context,
+	dependencies Dependencies,
+	input RefreshStatusInput,
+) (any, error) {
 	attempt, err := dependencies.Supervisor.RefreshStatus(input.AttemptID)
 	if err != nil {
 		if errors.Is(err, ErrAttemptNotFound) {
 			return attemptNotFoundDocument(dependencies.Service.Revision()), nil
 		}
 		return nil, err
+	}
+	if attempt.State == AttemptRunning {
+		// The attempt records the provider's status only when it ends, so a running attempt reads
+		// its progress from the service that runs it.
+		live, err := dependencies.Service.ProviderStatus(ctx)
+		if err != nil {
+			return nil, err
+		}
+		attempt.Refresh.Fetched = live.Fetched
+		attempt.Refresh.Total = live.Total
+		attempt.Refresh.Verifying = live.Verifying
+		attempt.Refresh.Percent = live.Percent
 	}
 	return refreshAttemptDocument(attempt, dependencies.Service.Revision(), true), nil
 }

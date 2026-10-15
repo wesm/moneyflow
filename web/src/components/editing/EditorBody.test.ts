@@ -380,7 +380,7 @@ describe('EditorBody', () => {
     expect(onstage).not.toHaveBeenCalled()
   })
 
-  it('moves transactions to an existing category, with no scope choice', async () => {
+  it('moves transactions to an existing category with one Enter, with no scope choice', async () => {
     const { editing, input, onstage } = setup({ kind: 'category' })
     expect(screen.getByRole('heading', { name: 'Change category' })).toBeTruthy()
     expect(screen.queryByRole('radiogroup')).toBeNull()
@@ -389,7 +389,6 @@ describe('EditorBody', () => {
     expect(screen.getByRole('option', { name: /Example Category, Example Group/ })).toBeTruthy()
     await fireEvent.keyDown(input, { key: 'Enter' })
     expect(input.value).toBe('Example Category')
-    await fireEvent.keyDown(input, { key: 'Enter' })
     await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
     expect(editing.submit).toHaveBeenCalledWith(
       expect.objectContaining({

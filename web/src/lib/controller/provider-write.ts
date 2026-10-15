@@ -12,7 +12,7 @@ import {
   type ViewProjection,
 } from '../api/client'
 import { providerName } from '../provider-name'
-import { problemReason, showFailure, showWarning } from '../shell/notices'
+import { problemReason, showFailure, showNotice } from '../shell/notices'
 
 export type ProviderWritePhase =
   | 'idle'
@@ -62,6 +62,20 @@ interface ProviderWriteControllerOptions {
   host: ProviderWriteHost
   visible?: () => boolean
   now?: () => number
+}
+
+/**
+ * Whether the write needs the user: it is paused or blocked, or a request failed while it runs.
+ * Status polling that fails with no write running does not count.
+ */
+export function writeNeedsUser(state: ProviderWriteState): boolean {
+  if (state.phase === 'failed') return Boolean(state.status?.phase)
+  return (
+    state.phase === 'attention' ||
+    state.phase === 'confirmation' ||
+    state.phase === 'reconnect' ||
+    state.phase === 'paused'
+  )
 }
 
 export function createProviderWriteController(
@@ -140,7 +154,7 @@ export function createProviderWriteController(
       statusFailing = false
       install(status)
       if (!status.phase) {
-        if (previous?.phase) await complete()
+        if (previous?.phase) await complete(false, previous)
         return
       }
       if (status.phase === 'writing' || status.phase === 'reconciling') {
@@ -233,6 +247,7 @@ export function createProviderWriteController(
   ): Promise<boolean> {
     inFlight = true
     const show = options.host.claim()
+    const watched = state.status
     try {
       const response = await requestProfileJSON<ProviderWriteResponse>(
         options.transport.mutations,
@@ -251,7 +266,7 @@ export function createProviderWriteController(
         // The view moved on while the server worked; read it again instead of replacing it.
         if (!shown && response.status.phase) await refreshView()
       }
-      if (!response.status.phase) await complete(path.includes('/reconcile'))
+      if (!response.status.phase) await complete(path.includes('/reconcile'), watched)
       return true
     } catch (error) {
       if (error instanceof MoneyflowProblem) {
@@ -285,18 +300,34 @@ export function createProviderWriteController(
     }
   }
 
-  async function complete(reconciled = false): Promise<void> {
+  /** Reports a batch that is no longer active; `watched` is its last status seen running. */
+  async function complete(reconciled = false, watched?: ProviderWriteStatus): Promise<void> {
     const refreshed = await refreshView()
-    const finished = finishedMessage(state.status, reconciled)
+    const finished = writeFinished(state.status, watched)
+    const message = finishedMessage(finished, reconciled)
     setState({
       ...(state.status ? { status: state.status } : {}),
       phase: 'complete',
-      announcement: [finished, refreshed ? '' : viewNotRefreshed, state.status?.audit_warning]
+      announcement: [message, refreshed ? '' : viewNotRefreshed, state.status?.audit_warning]
         .filter(Boolean)
         .join(' '),
     })
-    // The write finished; only the view on screen is old.
-    if (!refreshed) showWarning(`${finished} ${viewNotRefreshed}`)
+    const status = state.status
+    // A write that ended before it finished left edits unsaved, which the user must not miss.
+    if (!status || !finished) {
+      showFailure(message)
+      return
+    }
+    // A later revision clears the completion's counts with its time; the batch's total remains.
+    const saved = status.completed_at ? status.completed : (watched?.total ?? 0)
+    const provider = providerName(options.host.current()?.profile_kind)
+    const notice = [
+      `Saved ${changeCount(saved)} to ${provider}.`,
+      status.audit_warning,
+      // The write finished; only the view on screen is old.
+      refreshed ? '' : viewNotRefreshed,
+    ]
+    showNotice(notice.filter(Boolean).join(' '))
   }
 
   /** Rereads the view at the newest revision; false when that request fails. */
@@ -333,8 +364,28 @@ function runFailureMessage(status: ProviderWriteStatus): string | undefined {
   return `Provider write stopped: ${problemReason(failure)} Moneyflow resumes it within 2 minutes.`
 }
 
-function finishedMessage(status: ProviderWriteStatus | undefined, reconciled: boolean): string {
-  if (status?.completed_at) return 'Provider write complete.'
+/** "1 change" or "N changes". */
+function changeCount(count: number): string {
+  return `${count} ${count === 1 ? 'change' : 'changes'}`
+}
+
+/**
+ * Whether the batch finished. Its completion time shows until any later revision, such as an
+ * edit from another tab, clears it. The completed revision stays: finishing a batch commits the
+ * revision right after the one that prepared it, which `watched` carries. Its `revision` can
+ * already be that next one, as the server reads it after the batch.
+ */
+function writeFinished(
+  status: ProviderWriteStatus | undefined,
+  watched: ProviderWriteStatus | undefined,
+): boolean {
+  if (status?.completed_at) return true
+  if (!status?.completed_revision || !watched?.prepared_revision) return false
+  return BigInt(status.completed_revision) === BigInt(watched.prepared_revision) + 1n
+}
+
+function finishedMessage(finished: boolean, reconciled: boolean): string {
+  if (finished) return 'Provider write complete.'
   return reconciled ? 'Provider write stopped. Remaining edits discarded.' : 'Provider write ended.'
 }
 

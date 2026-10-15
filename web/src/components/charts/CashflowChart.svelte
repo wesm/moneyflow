@@ -160,7 +160,7 @@
         <path class="mf-cashflow__net" d={geometry.netPath} />
         {#each columns as column, index (index)}
           <circle
-            class={['mf-cashflow__dot', column.partial && 'mf-cashflow__dot--partial']}
+            class="mf-cashflow__dot"
             cx={column.x + column.width / 2}
             cy={column.netY}
             r={NET_DOT_RADIUS}

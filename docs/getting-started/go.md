@@ -45,6 +45,10 @@ After setup, select the profile directly by its name or ID:
 ./bin/moneyflow web --profile "Example Profile" --open=false
 ```
 
+**Unreleased:** When no profile has that name, or several do, the command stops and lists the
+profiles you can choose. Profiles that share a name are listed with their IDs; pass one of those
+IDs to `--profile`.
+
 Go's default catalog is `~/.moneyflow/v2`. `MONEYFLOW_HOME` overrides that catalog root.
 This is separate from Python state: opening Go does not convert Python profiles. During the
 preview, incompatible Go schemas require explicit recovery, not an automatic migration.

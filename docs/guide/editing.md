@@ -115,10 +115,14 @@ transactions**.
 | --- | --- |
 | Type | Filter the suggestions and open the list |
 | Down / Up | Open the list, or move through it |
-| Enter | With the list open, use the highlighted suggestion; with it closed, stage the ready change |
+| Enter | With the list open, use the highlighted suggestion; with it closed, stage the ready change. A category suggestion stages at once |
 | `Ctrl+Enter` / `Cmd+Enter` | Use the highlighted suggestion, if the list is open, and stage the change |
 | Tab | Move focus to the next control |
 | Esc | Close the list; with the list closed, cancel the editor |
+
+A merchant takes a second Enter to stage, so you can choose the scope first. A category has no
+scope, so one Enter on the highlighted category stages the change; on `Create "…"` it opens the
+group step instead.
 
 `Tab` never changes scope in the browser; choose the scope with the scope control. In the TUI,
 Tab still switches to **whole merchant**.
@@ -137,8 +141,9 @@ cursor stays on the edited row's position, so `j` moves on to the next row.
 
 ### Hide, delete, undo, and redo
 
-`h` stages a hide or unhide at once. A message at the top of the window confirms it for a few
-seconds, such as `Hidden 3 transactions · Undo u` or `Shown 1 transaction · Undo u`.
+`h` stages a hide or unhide at once. **Unreleased:** A notice in the status line confirms it
+until your next action, such as `Hidden 3 transactions · Undo u` or
+`Shown 1 transaction · Undo u`.
 
 `x` asks for confirmation next to the cursor row, or above the selection bar: `Delete 2
 transactions?`. Enter deletes and Esc cancels. On a phone, the confirmation is a bottom sheet.
@@ -175,7 +180,7 @@ into the list, and Up from its first row to return to the filter. Then use these
 | `g` | Move the highlighted category to another group (categories only) |
 | `m` | Merge the highlighted entry into a destination |
 | `d` | Delete the highlighted entry, moving any contents to a replacement |
-| Enter | Confirm the open step |
+| Enter | Confirm the open step; in a destination field with its list open, take the highlighted entry and confirm |
 | Esc | Leave the open step; then clear the filter; then close the drawer |
 
 The drawer's buttons do the same. Each action opens a short step above the list. Merge stays
@@ -229,8 +234,9 @@ a transaction's merchant, category, or visibility, the row shows that field's ol
 A longer operation says how many transactions are not shown, and **Show 400 more** loads up to
 400 more. Select an operation's heading to collapse or expand it. Enter commits unless focus is
 on a button or another control with its own Enter.
-Esc or **Cancel** closes the drawer without committing. For Monarch and YNAB, the same drawer
-becomes write status after the commit starts the provider write.
+Esc or **Cancel** closes the drawer without committing. A commit closes it too. For Monarch and
+YNAB, the status line then shows the provider write's progress, such as
+`Writing to Monarch: 3 of 6…`, and `Saved 6 changes to Monarch.` when the write finishes.
 
 **Unreleased:** The browser and TUI review name each hide operation by its direction:
 **Hide transactions** or **Show transactions**.
@@ -257,19 +263,21 @@ visible so you can return to its recovery actions.
 locked until the write finishes` while a write runs. Its **Status** button, or `w`, opens write
 status. Write status shows progress and offers the actions the batch allows: **Pause**,
 **Resume** or **Check and resume**, **Stop and reconcile**, **Confirm reconciliation**, or
-**Reconnect Monarch** / **Reconnect YNAB**.
+**Reconnect Monarch** / **Reconnect YNAB**. Write status opens by itself when the write needs
+you: when it pauses, needs attention or a reconnect, asks you to confirm a reconciliation, or a
+write request fails.
 
 **Unreleased:** If the background write stops without parking its batch, for example because
 the profile store failed, write status still reads as writing. An error banner then shows
 `Provider write stopped:` with the reason, and Moneyflow resumes the write within 2 minutes, when
-its lease expires. The terminal running `moneyflow web` logs the cause. A banner also says when
-write status cannot be read, so the progress shown may be out of date, and when a finished write
-could not refresh the view.
+its lease expires. The terminal running `moneyflow web` logs the cause. An error banner also says
+when write status cannot be read, so the progress shown may be out of date.
 
-**Unreleased:** When a write finishes, browser write status keeps its counts, such as
-`4 of 4 complete`, and shows when it finished. The result stays after polling or reopening the
-profile, until the profile changes again. After **Stop and reconcile**, write status reads
-`Provider write stopped. Remaining edits discarded.` instead of reporting success.
+**Unreleased:** When a write finishes, a status line notice reports it, such as
+`Saved 4 changes to Monarch.`, and adds when the view could not be refreshed. Write status, if
+open, keeps the counts, such as `4 of 4 complete`, and shows when the write finished. A write
+that ends before it finishes, such as after **Stop and reconcile**, shows an error banner, such
+as `Provider write stopped. Remaining edits discarded.`, instead of reporting success.
 
 **Unreleased:** In the TUI, write status shows the first change's From/To values and
 transaction count, alongside overall progress. It also reports when the batch contains

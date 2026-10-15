@@ -28,22 +28,10 @@
     onrow?: ((identity: string) => void) | undefined
     /** Drills into the aggregate row a composition bar stands for. */
     ondrill?: ((identity: string) => void) | undefined
-    /** Receives this block's height whenever it resizes, so the table can keep its rows aligned. */
-    measure?: ((height: number) => void) | undefined
   }
 
-  let {
-    projection,
-    cache,
-    chartsOn,
-    cursorIndex,
-    onperiod,
-    onleave,
-    onrow,
-    ondrill,
-    measure,
-  }: Props = $props()
-  let area = $state<HTMLElement>()
+  let { projection, cache, chartsOn, cursorIndex, onperiod, onleave, onrow, ondrill }: Props =
+    $props()
   const failed = $derived(cache.status === 'failed')
   const entry = $derived(failed ? undefined : cache.entry)
   const comparisonLabel = $derived(entry?.response.ranges.comparison_label)
@@ -59,22 +47,10 @@
   )
   // Without a currency (every currency at once) there is nothing to chart.
   const shown = $derived(projection.view.currency !== undefined)
-
-  $effect(() => {
-    const element = area
-    const report = measure
-    if (!element || !report) return
-    const observer = new ResizeObserver(() => report(element.offsetHeight))
-    observer.observe(element)
-    return () => {
-      observer.disconnect()
-      report(0)
-    }
-  })
 </script>
 
 {#if shown}
-  <div class="mf-chart-area" bind:this={area}>
+  <div class="mf-chart-area">
     <ChartStates
       failed={failed || cache.seriesFailed}
       stale={cache.stale}

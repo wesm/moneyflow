@@ -44,9 +44,31 @@ database is not application-encrypted. See [storage](../config/caching.md).
 
 ## Refresh data
 
-Press `r`, or **Refresh** in the web app, for a full refresh: Moneyflow downloads complete
-history. Successful edits update the local cache directly; saving edits does not start a
-refresh.
+Press `r`, or **Refresh** in the web app, to refresh. In the latest release this is a full
+refresh: Moneyflow downloads complete history. Successful edits update the local cache
+directly; saving edits does not start a refresh.
+
+**Unreleased:** `r` and **Refresh** run a recent refresh, which downloads only the
+transactions dated in the last 90 days. They run a full refresh instead when the profile has
+no earlier refresh, or when the last full refresh was 30 or more days ago or Moneyflow has no
+record of one, the same rule the background schedule uses. For a full refresh at any time:
+
+- In the TUI or the web app, press `R` (Shift+R). The web app's help (`?`) lists it, and the
+  sidebar's refresh button names it.
+- In the web app, **Retry** after a failed full refresh runs a full refresh again.
+- Through MCP, call `refresh_data` with `complete_history: true`.
+
+The status line and the refresh dialog name which kind runs. A recent refresh cannot see that
+Monarch deleted an older transaction, or changed one dated before the window. The next full
+refresh, which runs at least every 30 days, removes or updates those transactions.
+
+**Unreleased:** A refresh reads visible transactions, then hidden ones, and then reads both
+again to confirm that nothing changed while it read. Progress counts one read at a time across
+visible and hidden transactions, so the hidden ones continue the count. In the TUI status line
+it reads `Refreshing complete provider history: 31,808 transactions fetched (50%).`, then
+`verifying 12,000 of 31,808 transactions (69%)` during the second read. The percentage covers
+both reads and never moves backward. The web app's [refresh dialog](web.md#refresh-provider-data)
+shows the same counts.
 
 **Unreleased:** The TUI and the web app also refresh Monarch in the background, as the Python
 app (v0.11.1) did:
@@ -69,7 +91,9 @@ predates a refresh that did not finish. Background refresh does not run in these
   minutes.
 - The failure needs action, such as reconnecting or reviewing removals. Press `r` after acting.
 
-MCP never refreshes on a schedule; its `refresh_data` tool runs a full refresh.
+MCP never refreshes on a schedule. Its `refresh_data` tool runs a full refresh in the latest
+release; **Unreleased:** it reads the same data as `r`, or complete history with
+`complete_history: true`.
 
 A recent refresh replaces only the transactions dated inside its 90-day window:
 

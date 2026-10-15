@@ -1,9 +1,10 @@
 import { showFlash } from '@kenn-io/kit-ui'
 
 import { MoneyflowProblem, type Problem } from '../api/client'
+import { status } from './status.svelte'
 
-/** A banner stays long enough to read a full sentence; the user can dismiss it sooner. */
-const NOTICE_MS = 12_000
+/** A failure banner stays long enough to read a full sentence; the user can dismiss it sooner. */
+const FAILURE_MS = 12_000
 /** The server logs the cause of an unexpected error; the browser only says where to look. */
 const SERVER_LOG_HINT = 'The terminal running moneyflow web shows the cause.'
 
@@ -15,20 +16,15 @@ export const INVALID_RESPONSE = 'The server sent a response Moneyflow could not 
 
 /** Shows why an action or a background operation failed, in a danger-toned banner. */
 export function showFailure(message: string): void {
-  showFlash(message, { tone: 'danger', durationMs: NOTICE_MS })
-}
-
-/** Shows that a long operation finished, in a success-toned banner. */
-export function showSuccess(message: string): void {
-  showFlash(message, { tone: 'success', durationMs: NOTICE_MS })
+  showFlash(message, { tone: 'danger', durationMs: FAILURE_MS })
 }
 
 /**
- * Shows a change the user did not ask for or an action that had nothing to do, such as a
- * cleared selection, in a warning banner.
+ * Shows in the status bar that an operation finished, a change the user did not ask for, such as
+ * a cleared selection, or an action that had nothing to do. It replaces any earlier notice.
  */
-export function showWarning(message: string): void {
-  showFlash(message, { tone: 'warning', durationMs: NOTICE_MS })
+export function showNotice(message: string): void {
+  status.notify(message)
 }
 
 /** The server's reason for `problem`; an unexpected server error points to the server log. */

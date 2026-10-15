@@ -116,6 +116,11 @@ type ReviewChangesInput struct {
 	TargetLimit      *int   `json:"target_limit,omitempty"`
 }
 
+type RefreshDataInput struct {
+	ProfileArgument
+	CompleteHistory bool `json:"complete_history,omitempty" jsonschema:"read complete Monarch history instead of the last 90 days; other providers always read complete data"`
+}
+
 type RefreshStatusInput struct {
 	ProfileArgument
 	AttemptID string `json:"attempt_id,omitempty"`
@@ -233,6 +238,8 @@ type ProviderStatusDocument struct {
 	NextEligible string `json:"next_eligible,omitempty"`
 	Fetched      int    `json:"fetched"`
 	Total        int    `json:"total"`
+	Verifying    bool   `json:"verifying,omitempty"`
+	Percent      int    `json:"percent"`
 	Warning      string `json:"warning,omitempty"`
 }
 
@@ -411,7 +418,8 @@ func providerStatusDocument(status app.ProviderStatus) ProviderStatusDocument {
 	return ProviderStatusDocument{
 		Code: string(status.Code), Generation: strconv.FormatUint(status.Generation, 10),
 		LastSuccess: formatOptionalTime(status.LastSuccess), NextEligible: formatOptionalTime(status.NextEligible),
-		Fetched: status.Fetched, Total: status.Total, Warning: status.Warning,
+		Fetched: status.Fetched, Total: status.Total, Verifying: status.Verifying,
+		Percent: status.Percent, Warning: status.Warning,
 	}
 }
 

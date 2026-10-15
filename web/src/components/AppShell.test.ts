@@ -1,10 +1,14 @@
-import { dismissFlash } from '@kenn-io/kit-ui'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { tick } from 'svelte'
 import AppShell from './AppShell.svelte'
-import type { TransactionInformationResponse, ViewProjection } from '../lib/api/client'
+import type {
+  ProviderWriteStatus,
+  TransactionInformationResponse,
+  ViewProjection,
+} from '../lib/api/client'
 import { createProviderController } from '../lib/controller/provider'
+import type { ProviderWritePhase } from '../lib/controller/provider-write'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testAggregateRow, testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
@@ -12,6 +16,7 @@ import { testProviderWriteController } from '../test/provider-write'
 import { testInsights } from '../test/insights'
 import { stubMedia } from '../test/media'
 import { testProviderStatus } from '../test/provider'
+import { status } from '../lib/shell/status.svelte'
 
 /** Phone widths match kit's compact and narrow queries, but not the rail's range query. */
 const phoneMedia = (query: string) =>
@@ -26,10 +31,7 @@ const escapeCapability = {
 }
 
 describe('AppShell', () => {
-  afterEach(() => {
-    cleanup()
-    dismissFlash()
-  })
+  afterEach(cleanup)
   it('keeps the finance grid primary and routes the TUI cursor shortcut', async () => {
     const controller = stubController(twoRows(testProjection()))
     render(AppShell, { controller })
@@ -451,6 +453,87 @@ describe('AppShell', () => {
     expect(screen.getByRole('dialog', { name })).not.toBeNull()
   })
 
+  it.each<[ProviderWritePhase, Partial<ProviderWriteStatus>]>([
+    ['attention', { phase: 'attention_required', actions: ['reconcile'] }],
+    ['reconnect', { phase: 'reconnect_required', actions: ['reconnect'] }],
+    ['paused', { phase: 'paused', actions: ['resume'] }],
+    ['failed', { phase: 'writing', actions: [] }],
+  ])(
+    'opens the write drawer when a write turns %s, until the phase changes again',
+    async (phase, status) => {
+      const frames = captureFrames()
+      const running = testProviderWriteController().state.status!
+      const blocked = testProviderWriteController({
+        state: { phase, announcement: 'The write needs you.', status: { ...running, ...status } },
+      })
+      const controller = { ...stubController(), providerWrite: testProviderWriteController() }
+      const rendered = render(AppShell, { controller })
+      const name = 'Monarch write status'
+      expect(screen.queryByRole('dialog', { name })).toBeNull()
+
+      await rendered.rerender({ controller: { ...controller, providerWrite: blocked } })
+      expect(screen.getByRole('dialog', { name })).not.toBeNull()
+
+      await fireEvent.keyDown(window, { key: 'Escape' })
+      await frames.flush()
+      expect(screen.queryByRole('dialog', { name })).toBeNull()
+    },
+  )
+
+  it('leaves the write drawer closed when status polling fails with no write running', async () => {
+    const providerWrite = testProviderWriteController({
+      state: { phase: 'failed', announcement: 'Provider write status is unavailable.' },
+    })
+    render(AppShell, { controller: { ...stubController(), providerWrite } })
+    expect(screen.queryByRole('dialog', { name: 'Monarch write status' })).toBeNull()
+  })
+
+  it('shows a running write in the status bar without opening its drawer', async () => {
+    const controller = {
+      ...stubController(testProjection({ profile_kind: 'monarch' })),
+      providerWrite: testProviderWriteController(),
+    }
+    render(AppShell, { controller })
+    const footer = statusLine()
+    expect(within(footer).getByText('Writing to Monarch: 2 of 5…')).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Monarch write status' })).toBeNull()
+  })
+
+  it('clears an older notice when a write starts, so its progress shows', async () => {
+    const idle = stubController(testProjection({ profile_kind: 'ynab' }))
+    const rendered = render(AppShell, { controller: idle })
+    status.notify('Refresh complete: 6 imported, 0 removed.')
+    await tick()
+    const footer = statusLine()
+    expect(footer.textContent).toContain('Refresh complete: 6 imported, 0 removed.')
+
+    await rendered.rerender({
+      controller: { ...idle, providerWrite: testProviderWriteController() },
+    })
+    expect(footer.textContent).not.toContain('Refresh complete')
+    expect(within(footer).getByText('Writing to YNAB: 2 of 5…')).not.toBeNull()
+  })
+
+  it('lays out the workspace before the first view arrives, then fills it in', async () => {
+    const loaded = stubController()
+    const loading = { ...loaded, projection: undefined, loading: true }
+    const rendered = render(AppShell, { controller: loading })
+    const main = screen.getByRole('main', { name: 'Moneyflow workspace' })
+    expect(main.getAttribute('aria-busy')).toBe('true')
+    expect(screen.getByRole('banner')).not.toBeNull()
+    expect(within(statusLine()).getByText('Loading…')).not.toBeNull()
+    expect(screen.queryByRole('grid')).toBeNull()
+
+    await rendered.rerender({ controller: loaded })
+    expect(screen.getByRole('main', { name: 'Moneyflow workspace' })).toBe(main)
+    expect(main.getAttribute('aria-busy')).toBeNull()
+    expect(screen.queryByText('Loading…')).toBeNull()
+    const grid = screen.getByRole('grid', { name: 'Financial results' })
+    await vi.waitFor(() => expect(document.activeElement).toBe(grid))
+    await fireEvent.keyDown(window, { key: 'j' })
+    expect(loaded.moveCursor).toHaveBeenCalledWith(1)
+  })
+
   it('returns focus to the grid when the opener is gone', async () => {
     const frames = captureFrames()
     render(AppShell, { controller: stubController() })
@@ -762,7 +845,16 @@ describe('AppShell', () => {
 
     await fireEvent.keyDown(window, { key: 'r' })
 
-    expect(controller.provider.refresh).toHaveBeenCalledTimes(1)
+    expect(controller.provider.refresh).toHaveBeenCalledExactlyOnceWith()
+  })
+
+  it('routes R to a complete-history refresh', async () => {
+    const controller = stubController()
+    render(AppShell, { controller })
+
+    await fireEvent.keyDown(window, { key: 'R', shiftKey: true })
+
+    expect(controller.provider.refresh).toHaveBeenCalledExactlyOnceWith(true)
   })
 
   it('opens committed export with E and leaves view state unchanged when closed', async () => {
@@ -794,10 +886,9 @@ describe('AppShell', () => {
 
     expect(screen.queryByRole('dialog', { name: 'Export transactions' })).toBeNull()
     await vi.waitFor(() =>
-      expect(document.querySelector('.kit-flash-banner')?.textContent).toContain(
-        'No data to export.',
-      ),
+      expect(screen.getByRole('status', { name: 'Notice' }).textContent).toBe('No data to export.'),
     )
+    expect(document.querySelector('.kit-flash-banner')).toBeNull()
   })
 
   it('opens an editor from the table and restores stable grid focus on cancel', async () => {
@@ -1182,6 +1273,7 @@ function stubController(projection = testProjection()): ViewController {
           ['changes.redo', 'U'],
           ['changes.review', 'w'],
           ['provider.refresh', 'r'],
+          ['provider.refresh-history', 'R'],
           ['transactions.export', 'E'],
         ].map(([id, key_display]) => ({
           id: id!,
@@ -1337,4 +1429,9 @@ function blockedRefresh(projection: ViewProjection) {
   })
   provider.sync(projection)
   return { provider, status, aborted: () => signal?.aborted === true }
+}
+
+/** The workspace status bar; jsdom also counts kit StatusBar's <footer> as contentinfo. */
+function statusLine(): HTMLElement {
+  return document.querySelector<HTMLElement>('.mf-status-line')!
 }

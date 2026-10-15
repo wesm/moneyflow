@@ -33,8 +33,12 @@ and requires reconnect; a consumed confirmation cannot be reused.
 reports it as `refresh_due`. The server recomputes it for a scheduled request, so the TUI and
 the web app do not copy the rule. For Monarch, a recent refresh is due 6 hours after the last
 success and a full refresh 30 days after the last full one, or when that time is unknown. A
-profile with no successful import is never due. A manual refresh is full unless it is a
-month-to-date first import. The last full refresh time is advisory state in the profile's
+profile with no successful import is never due. `ManualRefreshScope` chooses what a manual
+refresh reads, and provider status reports it as `manual_refresh`: Monarch reads the recent
+window unless the profile has no successful import or a full refresh is due by the rule above.
+A request that sets `CompleteHistory` (the API's and the MCP tool's `complete_history`, the `R`
+key) reads complete history, and a month-to-date first import names its own window. YNAB and
+SimpleFIN always read complete data. The last full refresh time is advisory state in the profile's
 `provider-refresh.json`, outside the schema and the JSONL transfer; only a folded complete
 Monarch candidate writes it. [Monarch refresh](../guide/monarch.md#refresh-data) owns the
 user-facing schedule.

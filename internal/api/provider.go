@@ -25,6 +25,9 @@ type ProviderRefreshBody struct {
 	Query     string `json:"query" maxLength:"65536"`
 	Selection string `json:"selection,omitempty" maxLength:"1468006"`
 	Window    Window `json:"window"`
+	// CompleteHistory asks a manual Monarch refresh for complete history instead of the recent
+	// window. Other providers always read complete data.
+	CompleteHistory bool `json:"complete_history,omitempty" doc:"Read complete Monarch history instead of the last 90 days"`
 }
 
 // ProviderConfirmationBody explicitly accepts one process-local suspicious deletion candidate.
@@ -48,10 +51,14 @@ type ProviderRefreshSummary struct {
 	DiscardedRedoOperations int `json:"discarded_redo_operations"`
 }
 
-// ProviderProgress is a counts-only projection of a running provider read.
+// ProviderProgress is a counts-only projection of a running provider read. Fetched continues
+// across the provider's partitions within one read; a verifying read counts again from zero
+// against the first read's total. Percent spans every read and never decreases within an attempt.
 type ProviderProgress struct {
-	Fetched int `json:"fetched"`
-	Total   int `json:"total"`
+	Fetched   int  `json:"fetched" doc:"Transactions read so far in the current read"`
+	Total     int  `json:"total" doc:"Transactions in the current read as far as reported; the first read's total can grow"`
+	Verifying bool `json:"verifying" doc:"The provider is reading its data again to confirm it did not change"`
+	Percent   int  `json:"percent" minimum:"0" maximum:"100" doc:"Overall progress of the refresh"`
 }
 
 // ProviderStatusResponse contains no provider identities or financial labels.
@@ -64,6 +71,7 @@ type ProviderStatusResponse struct {
 	Code              provider.ErrorCode     `json:"code,omitempty"`
 	CodeDetail        string                 `json:"code_detail,omitempty" doc:"Explains code"`
 	RefreshDue        string                 `json:"refresh_due" enum:"none,recent,full"`
+	ManualRefresh     string                 `json:"manual_refresh" enum:"recent,full" doc:"What a manual refresh reads unless it asks for complete history"`
 	Refreshing        bool                   `json:"refreshing" doc:"A refresh is running now"`
 	Warning           string                 `json:"warning,omitempty" doc:"A problem that did not stop the refresh"`
 	LastSuccess       string                 `json:"last_success,omitempty" format:"date-time"`
@@ -172,6 +180,7 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 				return nil, problemFromError(ctx, err)
 			}
 			request.Manual = input.Body.Manual
+			request.CompleteHistory = input.Body.CompleteHistory
 			result, err := service.RefreshProvider(ctx, request)
 			if err != nil {
 				return nil, problemFromProviderError(
@@ -231,7 +240,10 @@ func providerStatusToWire(status app.ProviderStatus) ProviderStatusResponse {
 		Generation: strconv.FormatUint(status.Generation, 10), Code: status.Code, ProviderKind: status.ProviderKind,
 		OwnerRenderer: status.OwnerRenderer, OwnerInstanceID: status.OwnerInstanceID,
 		ConfirmationToken: status.ConfirmationToken,
-		Progress:          ProviderProgress{Fetched: status.Fetched, Total: status.Total},
+		Progress: ProviderProgress{
+			Fetched: status.Fetched, Total: status.Total,
+			Verifying: status.Verifying, Percent: status.Percent,
+		},
 		Summary: ProviderRefreshSummary{
 			ImportedAccounts: summary.ImportedAccounts, ImportedMerchants: summary.ImportedMerchants,
 			ImportedGroups: summary.ImportedGroups, ImportedCategories: summary.ImportedCategories,
@@ -248,6 +260,10 @@ func providerStatusToWire(status app.ProviderStatus) ProviderStatusResponse {
 	wire.RefreshDue = string(status.RefreshDue)
 	if wire.RefreshDue == "" {
 		wire.RefreshDue = string(app.ProviderRefreshNone)
+	}
+	wire.ManualRefresh = string(status.ManualRefresh)
+	if wire.ManualRefresh == "" {
+		wire.ManualRefresh = string(app.ProviderRefreshFull)
 	}
 	if !status.LastAttempt.IsZero() {
 		wire.LastAttempt = status.LastAttempt.UTC().Format(time.RFC3339Nano)

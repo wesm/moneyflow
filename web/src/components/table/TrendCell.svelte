@@ -37,12 +37,7 @@
       />
     {/each}
     {#if line.end}
-      <circle
-        class={['mf-trend__end', line.end.hollow && 'mf-trend__end--hollow']}
-        cx={line.end.x}
-        cy={line.end.y}
-        r={END_RADIUS}
-      />
+      <circle class="mf-trend__end" cx={line.end.x} cy={line.end.y} r={END_RADIUS} />
     {/if}
   </svg>
 {:else if series.state === 'loading'}

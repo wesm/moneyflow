@@ -383,7 +383,11 @@ exports, not restorable profile backups containing credentials or journal histor
 
 `refresh_data` is available in read-only and write-enabled modes for a bound Monarch,
 unlocked YNAB, or connected SimpleFIN profile. It
-starts one explicit refresh and returns a process-local attempt ID. Poll `get_refresh_status` for
+starts one explicit refresh and returns a process-local attempt ID. **Unreleased:** For Monarch,
+it reads the last 90 days unless complete history is due, as `r` does; pass
+`complete_history: true` to read complete history. See [Monarch refresh](monarch.md#refresh-data).
+`get_refresh_status` reports `fetched`, `total`, `verifying`, and `percent` while the refresh
+runs. Poll `get_refresh_status` for
 completion. If the deletion guard requires confirmation, retrieve the process-local token from the
 matching status result and call `confirm_refresh_deletions`.
 

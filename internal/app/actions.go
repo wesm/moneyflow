@@ -100,8 +100,11 @@ const (
 	ActionUndo ActionID = "changes.undo"
 	// ActionRedo reapplies the latest undone edit when available.
 	ActionRedo ActionID = "changes.redo"
-	// ActionRefreshProvider reconciles one complete provider snapshot.
+	// ActionRefreshProvider reconciles one provider snapshot. A Monarch refresh reads the recent
+	// window unless complete history is due; see ManualRefreshScope.
 	ActionRefreshProvider ActionID = "provider.refresh"
+	// ActionRefreshProviderHistory reconciles a Monarch profile's complete history.
+	ActionRefreshProviderHistory ActionID = "provider.refresh-history"
 	// ActionQuit exits the terminal process normally.
 	ActionQuit ActionID = "lifecycle.quit"
 	// ActionForceQuit exits the terminal process immediately.
@@ -168,6 +171,7 @@ var readOnlyActions = []ActionDefinition{
 	{ActionUndo, []string{"u"}, "u", "Undo most recent pending edit", "System", ScopeAnalytical, false, true},
 	{ActionRedo, []string{"U"}, "U", "Redo most recent undone edit", "System", ScopeAnalytical, false, true},
 	{ActionRefreshProvider, []string{"r"}, "r", "Refresh provider data", "System", ScopeAnalytical, false, true},
+	{ActionRefreshProviderHistory, []string{"R"}, "R", "Refresh complete provider history (Monarch)", "System", ScopeAnalytical, false, true},
 	{ActionQuit, []string{"q"}, "q", "Quit application", "System", ScopeLifecycle, true, false},
 	{ActionForceQuit, []string{"ctrl+c"}, "ctrl+c", "Force quit application", "System", ScopeLifecycle, true, false},
 	{ActionOpenHelp, []string{"?"}, "?", "Show this help screen", "System", ScopeOverlay, true, true},

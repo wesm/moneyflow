@@ -6,7 +6,6 @@ import { InsightsCache } from '../insights/cache.svelte'
 import { testInsights, testSeries } from '../../test/insights'
 import { testProjection } from '../../test/projection'
 import {
-  END_RADIUS,
   rowSeries,
   sparkline,
   SPARK_HEIGHT,
@@ -77,24 +76,9 @@ describe('sparkline', () => {
   const trend = [...Array<string>(11).fill('-100'), '-20']
   const full = sparkline(trend, months())
 
-  it('marks the last month hollow only when it is partial', () => {
-    expect(full.end).toMatchObject({ hollow: false })
-    const partial = sparkline(trend, months(0, true))
-    expect(partial.end).toMatchObject({ hollow: true, x: full.end!.x, y: full.end!.y })
-  })
-
-  it('stops the line at the hollow dot’s ring, so the ring stays empty', () => {
-    const solid = sparkline(trend, months())
-    const hollow = sparkline(trend, months(0, true))
-    const [before, end] = solid.segments[0]!.slice(-2)
-    const stop = hollow.segments[0]!.at(-1)!
-    // The line still heads for the dot, but ends END_RADIUS short of its center.
-    expect(Math.hypot(end!.x - stop.x, end!.y - stop.y)).toBeCloseTo(END_RADIUS, 1)
-    expect(Math.hypot(stop.x - before!.x, stop.y - before!.y)).toBeCloseTo(
-      Math.hypot(end!.x - before!.x, end!.y - before!.y) - END_RADIUS,
-      1,
-    )
-    expect(hollow.segments[0]!.slice(0, -1)).toEqual(solid.segments[0]!.slice(0, -1))
+  it('ends a partial last month with the same solid dot and line as a full one', () => {
+    expect(sparkline(trend, months(0, true))).toEqual(full)
+    expect(full.end).toEqual(full.segments[0]!.at(-1))
   })
 
   it('draws nothing when every month is absent', () => {

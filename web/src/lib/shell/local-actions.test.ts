@@ -1,4 +1,3 @@
-import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
 import { tick } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -18,6 +17,7 @@ import { status } from './status.svelte'
 import { setPageRows } from '../table/cursor-keys'
 import type { ViewController } from '../controller/view-controller.svelte'
 import { testCapabilities } from '../../test/capabilities'
+import { notices } from '../../test/notices'
 import { testAggregateRow, testProjection } from '../../test/projection'
 
 /** Queues a view transition that stays in flight until the returned function is called. */
@@ -517,12 +517,9 @@ describe('editing keys decide availability when their turn comes', () => {
 })
 
 describe('failures with no dialog to show them', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-    dismissFlash()
-  })
+  afterEach(() => document.body.replaceChildren())
   const row = { identity: 'row-7', kind: 'transaction' } as const
-  const flashes = () => getFlashes().map(({ message, tone }) => ({ message, tone }))
+  const flashes = () => notices().banners
 
   /** A controller whose edits resolve `false`, leaving `phase` and `announcement`. */
   function refusing(phase: string, announcement: string) {
@@ -562,9 +559,10 @@ describe('failures with no dialog to show them', () => {
   it('warns that a refreshed selection needs the action again', async () => {
     const context = refusing('idle', 'Selection refreshed. Invoke the action again.')
     await hideRow(context, row)
-    expect(flashes()).toEqual([
-      { message: 'Selection refreshed. Invoke the action again.', tone: 'warning' },
-    ])
+    expect(notices()).toEqual({
+      banners: [],
+      status: 'Selection refreshed. Invoke the action again.',
+    })
   })
 
   function exporting(phase: string, announcement: string) {
@@ -585,9 +583,7 @@ describe('failures with no dialog to show them', () => {
   it('says there is no data to export', async () => {
     const { context } = exporting('idle', 'No data to export.')
     localActions(context)['transactions.export']()
-    await vi.waitFor(() =>
-      expect(flashes()).toEqual([{ message: 'No data to export.', tone: 'warning' }]),
-    )
+    await vi.waitFor(() => expect(notices()).toEqual({ banners: [], status: 'No data to export.' }))
   })
 })
 

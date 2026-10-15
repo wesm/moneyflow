@@ -39,17 +39,40 @@ describe('RefreshDialog', () => {
     expect(bar.hasAttribute('value')).toBe(false)
   })
 
-  it('shows determinate progress once the provider reports a total', () => {
+  it('counts on across partitions and fills the bar by the overall percentage', () => {
     vi.useFakeTimers({ now })
     const controller = open({}, {})
-    controller.state.status!.progress = { fetched: 20, total: 40 }
+    controller.state.status!.progress = {
+      fetched: 31_808,
+      total: 31_808,
+      verifying: false,
+      percent: 50,
+    }
     render(RefreshDialog, { controller })
     expect(document.querySelector('.mf-refresh__count')?.textContent?.trim()).toBe(
-      'Fetched 20 of 40',
+      'Fetched 31,808 transactions',
     )
     const bar = screen.getByRole('progressbar', { name: 'Refresh progress' })
-    expect(bar.getAttribute('value')).toBe('20')
-    expect(bar.getAttribute('max')).toBe('40')
+    expect(bar.getAttribute('value')).toBe('50')
+    expect(bar.getAttribute('max')).toBe('100')
+  })
+
+  it('names the confirming read and counts it against the first read', () => {
+    vi.useFakeTimers({ now })
+    const controller = open({}, {})
+    controller.state.status!.progress = {
+      fetched: 12_000,
+      total: 31_808,
+      verifying: true,
+      percent: 68,
+    }
+    render(RefreshDialog, { controller })
+    expect(document.querySelector('.mf-refresh__count')?.textContent?.trim()).toBe(
+      'Verifying 12,000 of 31,808 transactions',
+    )
+    expect(
+      screen.getByRole('progressbar', { name: 'Refresh progress' }).getAttribute('value'),
+    ).toBe('68')
   })
 
   it('cancels with the button and with Escape', async () => {
@@ -101,9 +124,19 @@ describe('RefreshDialog', () => {
     expect(screen.getByRole('dialog', { name: 'Refresh from Monarch failed' })).not.toBeNull()
     expect(screen.getByRole('alert').textContent).toBe('The provider is temporarily unavailable.')
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-    expect(controller.refresh).toHaveBeenCalledOnce()
+    expect(controller.refresh).toHaveBeenCalledExactlyOnceWith(false)
     await fireEvent.click(screen.getByRole('button', { name: /^Continue with data from Oct [23]/ }))
     expect(controller.continueStale).toHaveBeenCalledOnce()
+  })
+
+  it('retries a failed complete-history refresh as complete history', async () => {
+    const controller = open(
+      { view: 'failed', reason: 'The provider is temporarily unavailable.', completeHistory: true },
+      { phase: 'failed' },
+    )
+    render(RefreshDialog, { controller })
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(controller.refresh).toHaveBeenCalledExactlyOnceWith(true)
   })
 
   it('moves focus to Retry when a running refresh fails', async () => {
@@ -151,20 +184,20 @@ describe('RefreshDialog', () => {
     vi.useFakeTimers({ now })
     const progressed = (fetched: number) => {
       const controller = open({})
-      controller.state.status!.progress = { fetched, total: 40 }
+      controller.state.status!.progress = { fetched, total: 40, verifying: false, percent: fetched }
       return controller
     }
     const view = render(RefreshDialog, { controller: progressed(1) })
     const live = screen.getByTestId('refresh-live')
     const count = () => document.querySelector('.mf-refresh__count')?.textContent?.trim()
-    expect(live.textContent).toBe('Fetched 1 of 40')
+    expect(live.textContent).toBe('Fetched 1 transaction')
 
     await view.rerender({ controller: progressed(30) })
-    expect(count()).toBe('Fetched 30 of 40')
+    expect(count()).toBe('Fetched 30 transactions')
     await vi.advanceTimersByTimeAsync(5_000)
-    expect(live.textContent).toBe('Fetched 1 of 40')
+    expect(live.textContent).toBe('Fetched 1 transaction')
     await vi.advanceTimersByTimeAsync(5_000)
-    expect(live.textContent).toBe('Fetched 30 of 40')
+    expect(live.textContent).toBe('Fetched 30 transactions')
   })
 
   it('renders nothing while no refresh dialog is open', () => {

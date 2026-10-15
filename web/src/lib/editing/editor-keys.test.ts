@@ -35,6 +35,15 @@ describe('editorKey with the list open', () => {
     expect(editorKey(key('Enter', meta), open)).toBe('accept-and-stage')
   })
 
+  it('accepts and stages on a plain Enter where nothing is left to choose after accepting', () => {
+    const final = { ...open, acceptStages: true }
+    expect(editorKey(key('Enter'), final)).toBe('accept-and-stage')
+    expect(editorKey(key('Enter', ctrl), final)).toBe('accept-and-stage')
+    expect(editorKey(key('Enter', { repeat: true }), final)).toBe('none')
+    expect(editorKey(key('Enter', { shiftKey: true }), final)).toBe('none')
+    expect(editorKey(key('Enter'), { ...closed, acceptStages: true })).toBe('stage')
+  })
+
   it('closes the list on Escape instead of cancelling, keeping the text', () => {
     expect(editorKey(key('Escape'), open)).toBe('close-list')
   })
@@ -157,7 +166,7 @@ describe('editorKey with modifiers it does not own', () => {
     }
   })
 
-  it('ignores a held Enter, so an accept and a stage take two presses', () => {
+  it('ignores a held Enter, so where accepting does not stage, staging takes a second press', () => {
     for (const state of [open, closed, { ...closed, focus: 'scope' as const }]) {
       expect(editorKey(key('Enter', { repeat: true }), state)).toBe('none')
       expect(editorKey(key('Enter', { ...ctrl, repeat: true }), state)).toBe('none')

@@ -61,7 +61,7 @@ type providerRuntimeState struct {
 	fingerprint         provider.SessionFingerprint
 	parkedReconnect     bool
 	forceReload         bool
-	progress            provider.Progress
+	progress            refreshProgress
 	confirmations       map[string]providerConfirmation
 	writeConfirmations  map[string]providerWriteConfirmation
 	writeControlMu      sync.Mutex
@@ -93,6 +93,9 @@ type ProviderRefreshRequest struct {
 	Selection         SelectionValue
 	Window            WindowRequest
 	TransactionWindow *domain.DateRange
+	// CompleteHistory asks a manual Monarch refresh to read complete history instead of the
+	// recent window. See ManualRefreshScope.
+	CompleteHistory bool
 }
 
 // ProviderRefreshResult is one refreshed projection plus counts-only provider status.
@@ -108,17 +111,26 @@ type ProviderRefreshResult struct {
 
 // ProviderStatus is the renderer-neutral, counts-only refresh projection.
 type ProviderStatus struct {
-	Revision          uint64
-	ProviderKind      string
-	LastAttempt       time.Time
-	Code              provider.ErrorCode
-	Generation        uint64
-	LastSuccess       time.Time
-	NextEligible      time.Time
-	OwnerRenderer     string
-	OwnerInstanceID   string
-	Fetched           int
-	Total             int
+	Revision        uint64
+	ProviderKind    string
+	LastAttempt     time.Time
+	Code            provider.ErrorCode
+	Generation      uint64
+	LastSuccess     time.Time
+	NextEligible    time.Time
+	OwnerRenderer   string
+	OwnerInstanceID string
+	// Fetched counts the transactions the running refresh has read in its current pass, across
+	// all of the provider's partitions.
+	Fetched int
+	// Total is the number of transactions the current pass reads, as far as the provider has
+	// reported it. A later partition can still raise it during the first pass.
+	Total int
+	// Verifying reports a later pass, which reads the data again to confirm it did not change.
+	Verifying bool
+	// Percent is the running refresh's overall progress across all passes, from 0 to 100. It
+	// never decreases within one attempt.
+	Percent           int
 	ConfirmationToken string
 	// ConfirmationExpiresAt is when ConfirmationToken stops being accepted, or zero without one.
 	ConfirmationExpiresAt time.Time
@@ -127,6 +139,8 @@ type ProviderStatus struct {
 	LastFullRefresh time.Time
 	// RefreshDue is the refresh a scheduler should start now.
 	RefreshDue ProviderRefreshScope
+	// ManualRefresh is what a manual refresh reads now unless it asks for complete history.
+	ManualRefresh ProviderRefreshScope
 	// Refreshing reports that a refresh holds the profile's refresh lease now, in this process
 	// or another. OwnerRenderer names the interface that runs it.
 	Refreshing bool
@@ -284,6 +298,7 @@ func (service *Service) RefreshProvider(
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	status := providerStatusFromState(providerState, runtime.provider)
 	status.LastFullRefresh = service.profile.LastFullProviderRefresh()
+	status.ManualRefresh = ManualRefreshScope(status, now)
 	fetch, due := providerFetchRequest(runtime, request, status, now)
 	if !due {
 		return service.providerProjectionResult(
@@ -309,7 +324,7 @@ func (service *Service) RefreshProvider(
 	}
 	defer service.releaseLeaseOnPanic(ctx, runtime.instanceID, store.ProviderOperationRefresh)
 	// Status shows this refresh's progress, not the counts the previous refresh ended with.
-	runtime.setProgress(provider.Progress{})
+	runtime.resetProgress()
 	if runtime.provider == "simplefin" {
 		// Read again under ownership: an earlier process may have admitted an attempt
 		// after our pre-lease status read, without changing the data generation.
@@ -520,9 +535,10 @@ func normalizeProviderRefreshRequest(request ProviderRefreshRequest) ProviderRef
 	return request
 }
 
-// providerFetchRequest decides whether a refresh runs and which data it reads. Manual
-// refresh reads complete history unless the request names a window. A scheduled refresh runs
-// only when one is due.
+// providerFetchRequest decides whether a refresh runs and which data it reads. A manual
+// refresh always runs: it reads the window the request names, complete history when the request
+// asks for it, and otherwise what ManualRefreshScope chooses. A scheduled refresh runs only when
+// one is due.
 func providerFetchRequest(
 	runtime *providerRuntimeState,
 	request ProviderRefreshRequest,
@@ -532,6 +548,10 @@ func providerFetchRequest(
 	fetch := provider.FetchRequest{Now: now}
 	if request.Manual {
 		fetch.TransactionWindow = request.TransactionWindow
+		if fetch.TransactionWindow == nil && !request.CompleteHistory &&
+			ManualRefreshScope(status, now) == ProviderRefreshRecent {
+			fetch.TransactionWindow = recentWindowOrHistory(runtime)
+		}
 		return fetch, true
 	}
 	scope := ProviderRefreshDue(status, now)
@@ -542,13 +562,19 @@ func providerFetchRequest(
 		return fetch, forced
 	}
 	if scope == ProviderRefreshRecent {
-		window, err := monarchRecentWindow(runtime.now())
-		// Only a clock at the edge of the supported calendar fails; read complete history then.
-		if err == nil {
-			fetch.TransactionWindow = window
-		}
+		fetch.TransactionWindow = recentWindowOrHistory(runtime)
 	}
 	return fetch, true
+}
+
+// recentWindowOrHistory is the recent Monarch window on the runtime's local date. Only a clock at
+// the edge of the supported calendar has none; the refresh then reads complete history.
+func recentWindowOrHistory(runtime *providerRuntimeState) *domain.DateRange {
+	window, err := monarchRecentWindow(runtime.now())
+	if err != nil {
+		return nil
+	}
+	return window
 }
 
 func (service *Service) fetchProviderCandidate(
@@ -722,7 +748,7 @@ func (service *Service) providerProgressCallback(
 	runtime *providerRuntimeState,
 ) provider.ProgressFunc {
 	return func(update provider.Progress) {
-		runtime.setProgress(update)
+		runtime.observeProgress(update)
 		if runtime.progressObserver != nil {
 			runtime.progressObserver(update)
 		}
@@ -805,6 +831,8 @@ func (service *Service) failProviderRefresh(
 	}
 	state.Lease = nil // The lease was released after reading this attempt's status.
 	status := providerStatusFromState(state, runtime.provider)
+	status.LastFullRefresh = service.profile.LastFullProviderRefresh()
+	status.ManualRefresh = ManualRefreshScope(status, endedAt)
 	return ProviderRefreshResult{Status: status}, newAppError(
 		AppErrorCode(code), state.Revision, failure,
 	)
@@ -898,6 +926,7 @@ func (service *Service) foldProviderCandidate(
 	status.LastFullRefresh = service.recordFullProviderRefresh(
 		runtime, candidate, status.LastSuccess,
 	)
+	status.ManualRefresh = ManualRefreshScope(status, runtime.now())
 	status.Warning = service.providerRefreshWarning()
 	return service.providerProjectionResult(
 		request,
@@ -1301,10 +1330,16 @@ func cloneProviderStrings(values map[string]string) map[string]string {
 	return clone
 }
 
-func (runtime *providerRuntimeState) setProgress(progress provider.Progress) {
+func (runtime *providerRuntimeState) observeProgress(update provider.Progress) {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
-	runtime.progress = progress
+	runtime.progress.observe(update)
+}
+
+func (runtime *providerRuntimeState) resetProgress() {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	runtime.progress = refreshProgress{}
 }
 
 func (runtime *providerRuntimeState) setFingerprint(
@@ -1400,12 +1435,13 @@ func (service *Service) providerProjectionResult(
 		}
 	}
 	if disposition != SelectionCleared && len(selectionBefore.IDs) > 0 {
+		var current map[string]struct{}
+		_, current, err = service.identitiesForState(request.State.Current, currencies)
+		if err != nil {
+			return ProviderRefreshResult{}, newAppError(AppInvalidOperation, service.Revision(), err)
+		}
 		selection, err = service.smallestSelection(
-			request.State.Current,
-			selection,
-			selectionBefore.Kind,
-			selectionBefore.IDs,
-			currencies,
+			request.State.Current, selection, selectionBefore, current, currencies,
 		)
 		if err != nil {
 			return ProviderRefreshResult{}, newAppError(AppInvalidOperation, service.Revision(), err)

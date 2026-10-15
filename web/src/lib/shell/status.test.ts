@@ -41,40 +41,14 @@ describe('writeProgress', () => {
 })
 
 describe('status notice', () => {
-  afterEach(() => {
-    status.clear()
-    vi.useRealTimers()
-  })
+  afterEach(() => vi.useRealTimers())
 
-  it('shows a notice for 4 seconds', () => {
+  it('keeps a notice until a newer one replaces it', () => {
     vi.useFakeTimers()
+    status.notify('Refresh complete: 6 imported, 0 removed.')
+    vi.advanceTimersByTime(60_000)
+    expect(status.notice).toBe('Refresh complete: 6 imported, 0 removed.')
     status.notify('Open the group to delete its transactions.')
     expect(status.notice).toBe('Open the group to delete its transactions.')
-    vi.advanceTimersByTime(3999)
-    expect(status.notice).toBe('Open the group to delete its transactions.')
-    vi.advanceTimersByTime(1)
-    expect(status.notice).toBe('')
-  })
-
-  it('restarts the 4 seconds when a new notice replaces the last', () => {
-    vi.useFakeTimers()
-    status.notify('First notice')
-    vi.advanceTimersByTime(3000)
-    status.notify('Second notice')
-    vi.advanceTimersByTime(3000)
-    expect(status.notice).toBe('Second notice')
-    vi.advanceTimersByTime(1000)
-    expect(status.notice).toBe('')
-  })
-
-  it('clears at once, and a cleared notice does not end a later one early', () => {
-    vi.useFakeTimers()
-    status.notify('First notice')
-    status.clear()
-    expect(status.notice).toBe('')
-    vi.advanceTimersByTime(2000)
-    status.notify('Second notice')
-    vi.advanceTimersByTime(3000)
-    expect(status.notice).toBe('Second notice')
   })
 })

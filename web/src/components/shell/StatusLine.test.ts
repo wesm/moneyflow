@@ -85,6 +85,18 @@ describe('StatusLine', () => {
     )
   })
 
+  it('shows an activity in place of the key hints until a notice covers it', async () => {
+    render(StatusLine, props({ activity: 'Writing to Monarch: 3 of 6…' }))
+    expect(screen.getByText('Writing to Monarch: 3 of 6…')).not.toBeNull()
+    expect(screen.queryByText('Open')).toBeNull()
+    status.notify('Editing is locked while the write runs.')
+    await tick()
+    expect(screen.queryByText('Writing to Monarch: 3 of 6…')).toBeNull()
+    status.clear()
+    await tick()
+    expect(screen.getByText('Writing to Monarch: 3 of 6…')).not.toBeNull()
+  })
+
   it('shows a notice in a polite live region in place of the key hints', async () => {
     render(StatusLine, props())
     const region = screen.getByRole('status', { name: 'Notice' })

@@ -51,15 +51,13 @@ test('r refreshes through the protected base-path API without leaking provider s
     await openMoneyflow(page, server)
     // Idle status keeps the last refresh's progress counts; the sidebar shows the update time.
     await expect(page.getByText('Updated just now')).toBeVisible()
-    await expect(page.getByText('Refreshing provider data: 20 of 40')).toHaveCount(0)
+    await expect(page.getByText(/Fetched [\d,]+ transactions?|Verifying [\d,]+ of/)).toHaveCount(0)
 
     await page.keyboard.press('r')
 
-    await expect(
-      page
-        .locator('.kit-flash-banner')
-        .filter({ hasText: 'Refresh complete: 40 imported, 0 removed.' }),
-    ).toBeVisible()
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(
+      'Refresh complete: 40 imported, 0 removed.',
+    )
     await expect(page.getByRole('dialog', { name: 'Refreshing from Monarch' })).toHaveCount(0)
     expect(fixture.refreshBodies).toHaveLength(1)
     expect(fixture.refreshBodies[0]).toMatchObject({ manual: true, query: 'cur=USD%3A2&v=1' })
@@ -188,8 +186,9 @@ async function installProviderRoutes(page: Page, requireConfirmation: boolean) {
     provider_kind: 'monarch',
     last_success: new Date().toISOString(),
     refresh_due: 'none',
+    manual_refresh: 'recent',
     refreshing: false,
-    progress: { fetched: 20, total: 40 },
+    progress: { fetched: 20, total: 40, verifying: false, percent: 50 },
     summary: summary(0),
     capability: refreshCapability(),
   })

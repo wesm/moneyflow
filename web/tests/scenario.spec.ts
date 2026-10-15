@@ -119,9 +119,9 @@ test('@smoke mixed hiding, undo, rejection and cancellation remain usable at nar
     await server.fault('reject')
     await page.keyboard.press('w')
     await page.getByRole('button', { name: 'Commit reviewed changes' }).click()
+    // The rejected write opens its status in place of review; nothing is stacked beneath it.
     const write = page.getByRole('dialog', { name: 'Monarch write status' })
     await expect(write.getByRole('button', { name: 'Stop and reconcile' })).toBeVisible()
-    // The review drawer became write status; nothing is left stacked beneath it.
     await expect(page.getByRole('dialog')).toHaveCount(1)
     expect(await write.evaluate((node) => node.contains(document.activeElement))).toBe(true)
     expect((await server.observe()).snapshot_calls).toBe(1)
@@ -173,6 +173,9 @@ test('@smoke filtered merchant editing preserves committed data until the provid
       )
       .toBe(1)
     expect((await server.observe()).rows).toEqual(before.rows)
+    // The running write shows its progress in the status bar, not in a drawer.
+    await expect(page.locator('.mf-status-line')).toContainText(/Writing to Monarch: \d of 2…/)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
     await server.release()
     await expect.poll(async () => (await server.observe()).pending).toBe(0)
     const after = await server.observe()
@@ -180,9 +183,10 @@ test('@smoke filtered merchant editing preserves committed data until the provid
     expect(after.rows.older).toEqual(before.rows.older)
     expect(after.snapshot_calls).toBe(1)
     expect(after.audit).toContain('current-a')
-    const write = page.getByRole('dialog', { name: 'Monarch write status' })
-    await expect(write.getByRole('status')).toHaveText('Provider write complete.')
-    await expect(write.getByText('2 of 2 complete', { exact: true })).toBeVisible()
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(
+      'Saved 2 changes to Monarch.',
+    )
+    await expect(page.getByRole('dialog')).toHaveCount(0)
   })
 })
 
@@ -214,9 +218,6 @@ test('@smoke c waits for a delayed row selection, then edits it in a focused edi
       await field.fill('Heal')
       await expect(edit.getByRole('option').first()).toHaveAccessibleName(/^Health, /)
       await page.keyboard.press('Enter')
-      await expect(field).toHaveValue('Health')
-      await expect(field).toBeFocused()
-      await page.keyboard.press('Enter')
       await expect(edit).not.toBeVisible()
       expect((await server.observe()).targets).toEqual(['current-a', 'current-b'])
     } finally {
@@ -239,8 +240,6 @@ test('@smoke applied but unanswered category edit survives a process restart', a
     await field.fill('Heal')
     await expect(edit.getByRole('option').first()).toHaveAccessibleName(/^Health, /)
     await page.keyboard.press('Enter')
-    await expect(field).toHaveValue('Health')
-    await page.keyboard.press('Enter')
     await expect(edit).not.toBeVisible()
     expect((await server.observe()).targets).toEqual(['current-a', 'current-b'])
     await server.fault('block-after')
@@ -261,7 +260,7 @@ test('@smoke applied but unanswered category edit survives a process restart', a
     await page.goto(server.url)
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeVisible()
     await expect(page.getByRole('button', { name: /^Write / })).toBeVisible()
-    await page.keyboard.press('w')
+    // A write that needs the user opens its status on load.
     const write = page.getByRole('dialog', { name: 'Monarch write status' })
     await expect(write).toBeVisible()
     await write.getByRole('button', { name: 'Check and resume', exact: true }).click()

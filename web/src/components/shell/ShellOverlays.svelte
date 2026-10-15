@@ -32,7 +32,6 @@
   const target = $derived(overlays.editTarget)
   const draft = $derived(overlays.editorDraft)
   const onclose = () => overlays.close()
-  const onwrite = () => overlays.open('write')
   /** The refresh dialog is modal over every overlay, so overlay key handlers wait for it. */
   const suspended = $derived(controller.provider.state.dialog !== undefined)
   // On phones the editor and the delete confirmation are bottom sheets. Staging an edit returns
@@ -92,7 +91,6 @@
     providerName={providerName(projection.profile_kind)}
     {suspended}
     {onclose}
-    {onwrite}
     {onreconnect}
   />
 {:else if overlay === 'duplicates'}

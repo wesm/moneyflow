@@ -21,8 +21,6 @@ export interface GridScrollSource {
   readonly rowHeight: number
   /** The scroller's visible height. */
   readonly viewport: number
-  /** The measured height of the content above the grid in the scroller, such as the charts. */
-  readonly above: number
   /** The scroller's `scrollTop`. The model sets it, and the scroller, to reveal the cursor row. */
   scrollTop: number
   /**
@@ -58,7 +56,7 @@ export class GridScroll {
   readonly #cursor = $derived.by(() => this.#source.cursorIndex)
   readonly #query = $derived.by(() => this.#projection.canonical_query)
   #lastQuery: string | undefined
-  /** The grid's top in the scroller, measured after layout whenever the content above resizes. */
+  /** The grid's top in the scroller, below the room kept for its focus ring. */
   #gridTop = $state(0)
   // The scroller's top below the grid's top: the rows' offset under the sticky header.
   readonly #listTop = $derived.by(() => this.#source.scrollTop - this.#gridTop)
@@ -136,10 +134,8 @@ export class GridScroll {
     return undefined
   }
 
-  // Effects run after the DOM updates, so the offset read here is current. `above` changes when
-  // the content above the grid resizes: the Charts switch, or skeletons giving way to charts.
+  // Effects run after the DOM updates, so the offset read here is current.
   #measureGridTop(): void {
-    void this.#source.above
     this.#gridTop = this.#source.grid?.offsetTop ?? 0
   }
 
@@ -260,7 +256,8 @@ export class GridScroll {
 
   #reveal(index: number): void {
     const source = this.#source
-    // Read now: a key can arrive before the observer reports content above that just resized.
+    // In a short window the charts scroll away above the table; bring the table back into view.
+    source.scroller?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     const gridTop = source.grid?.offsetTop ?? 0
     const port = { scrollTop: source.scrollTop, viewport: source.viewport, gridTop }
     let next = revealScrollTop(index, { ...port, rowHeight: source.rowHeight })

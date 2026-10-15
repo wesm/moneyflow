@@ -11,7 +11,7 @@ import {
 } from '../api/client'
 import { SvelteMap } from 'svelte/reactivity'
 import { applicationURL, normalizeBrowserBasePath } from './base-path'
-import { createEditingController, type EditingController } from './editing'
+import { auditWarningCode, createEditingController, type EditingController } from './editing'
 import { createDuplicateController, type DuplicateController } from './duplicates'
 import { createExportController, type ExportController } from './export'
 import { OwnedHistoryLedger, type MoneyflowHistoryState } from './history'
@@ -24,7 +24,7 @@ import {
   NETWORK_FAILURE,
   problemReason,
   showFailure,
-  showWarning,
+  showNotice,
 } from '../shell/notices'
 import { preserveCursor, startsAtFirstRow, WindowCache } from './windows'
 
@@ -33,8 +33,6 @@ const windowSize = 200
 const defaultHistoryDebounceMillis = 300
 const changeFailed = 'Moneyflow could not apply that change; the view is unchanged.'
 const recheckFailed = 'Moneyflow could not check for newer data; the view may be out of date.'
-/** The editing controller reports this warning with the commit that caused it. */
-const auditWarningCode = 'audit_completion_failed'
 
 export interface TransitionAction {
   action: TransitionBody['action']
@@ -1227,9 +1225,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
 /** Shows the warnings of a view the user now sees, except the one editing reports itself. */
 function showWarnings(next: ViewProjection): void {
-  for (const warning of next.warnings ?? []) {
-    if (warning.code !== auditWarningCode) showWarning(warning.detail)
-  }
+  const shown = (next.warnings ?? []).filter((warning) => warning.code !== auditWarningCode)
+  if (shown.length) showNotice(shown.map((warning) => warning.detail).join(' '))
 }
 
 /** The codes the server answers a search expression it cannot parse with. */

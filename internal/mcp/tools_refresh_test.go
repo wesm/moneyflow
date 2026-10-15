@@ -60,6 +60,34 @@ func TestRefreshToolReturnsPromptlyAndRecoversLostResponse(t *testing.T) {
 	assert.Empty(t, terminal["confirmation_token"])
 }
 
+// A running refresh reports how far its provider read has come, including a verification pass.
+func TestRefreshStatusReportsProgressWhileTheRefreshRuns(t *testing.T) {
+	service, source, closeProfile := refreshTestService(t, 4)
+	t.Cleanup(closeProfile)
+	client, supervisor := connectSupervisedServer(t, service, time.Now)
+	fetching := make(chan struct{})
+	release := make(chan struct{})
+	source.blockAfterProgress(fetching, release,
+		provider.Progress{Partition: "visible", Fetched: 4, Total: 4, Attempt: 1, Pass: 1, Passes: 2},
+		provider.Progress{Partition: "visible", Fetched: 2, Total: 4, Attempt: 1, Pass: 2, Passes: 2},
+	)
+
+	attemptID := callRefreshTool(t, client, "refresh_data", nil)["attempt_id"]
+	<-fetching
+	running := callRefreshTool(t, client, "get_refresh_status",
+		map[string]any{"attempt_id": attemptID})
+	close(release)
+	finished := awaitRefreshAttempt(t, client, supervisor, attemptID)
+
+	assert.Equal(t, "running", running["state"])
+	progress := running["provider"].(map[string]any)
+	assert.InDelta(t, 2, progress["fetched"], 0)
+	assert.InDelta(t, 4, progress["total"], 0)
+	assert.InDelta(t, 75, progress["percent"], 0)
+	assert.Equal(t, true, progress["verifying"])
+	assert.Equal(t, "completed", finished["state"], "%v", finished)
+}
+
 func TestRefreshConfirmationTokenAppearsOnlyInMatchingStatus(t *testing.T) {
 	service, source, closeProfile := refreshTestService(t, 6)
 	defer closeProfile()
@@ -414,8 +442,11 @@ type refreshTestSource struct {
 	snapshot      domain.ImportSnapshot
 	started       chan<- struct{}
 	release       <-chan struct{}
-	fetches       int
-	panicNext     bool
+	// blockedProgress is what a blocked fetch reports before it signals started.
+	blockedProgress []provider.Progress
+	fetches         int
+	requests        []provider.FetchRequest
+	panicNext       bool
 }
 
 func (source *refreshTestSource) Reader(context.Context, bool) (provider.Reader, provider.SessionFingerprint, error) {
@@ -458,6 +489,19 @@ func (source *refreshTestSource) blockNext(started chan<- struct{}, release <-ch
 	source.release = release
 }
 
+// blockAfterProgress blocks the next fetch like blockNext, after it reports updates.
+func (source *refreshTestSource) blockAfterProgress(
+	started chan<- struct{},
+	release <-chan struct{},
+	updates ...provider.Progress,
+) {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	source.started = started
+	source.release = release
+	source.blockedProgress = updates
+}
+
 func (source *refreshTestSource) setTransactionCount(count int) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
@@ -481,14 +525,17 @@ type refreshTestReader refreshTestSource
 
 func (reader *refreshTestReader) FetchSnapshot(
 	ctx context.Context,
-	_ provider.FetchRequest,
+	request provider.FetchRequest,
 	progress provider.ProgressFunc,
 ) (provider.SnapshotResult, error) {
 	source := (*refreshTestSource)(reader)
 	source.mu.Lock()
-	snapshot := source.snapshot.Clone()
+	source.requests = append(source.requests, request)
+	snapshot := windowedRefreshSnapshot(source.snapshot.Clone(), request.TransactionWindow)
 	started, release := source.started, source.release
 	source.started, source.release = nil, nil
+	blockedProgress := source.blockedProgress
+	source.blockedProgress = nil
 	panicking := source.panicNext
 	source.panicNext = false
 	source.fetches++
@@ -497,6 +544,11 @@ func (reader *refreshTestReader) FetchSnapshot(
 		panic("synthetic provider failure")
 	}
 	if started != nil {
+		for _, update := range blockedProgress {
+			if progress != nil {
+				progress(update)
+			}
+		}
 		close(started)
 		select {
 		case <-ctx.Done():
@@ -532,4 +584,62 @@ func refreshTestSnapshot(t *testing.T, observedAt time.Time, count int) domain.I
 		})
 	}
 	return snapshot
+}
+
+// windowedRefreshSnapshot keeps the transactions inside a requested window, as Monarch does.
+func windowedRefreshSnapshot(
+	snapshot domain.ImportSnapshot,
+	window *domain.DateRange,
+) domain.ImportSnapshot {
+	if window == nil {
+		return snapshot
+	}
+	snapshot.TransactionWindow = window
+	rows := snapshot.Transactions[:0]
+	for _, transaction := range snapshot.Transactions {
+		if snapshot.InTransactionWindow(transaction.Date) {
+			rows = append(rows, transaction)
+		}
+	}
+	snapshot.Transactions = rows
+	return snapshot
+}
+
+// An agent can do what the TUI and the browser do: refresh Monarch's recent window, or ask for
+// complete history.
+func TestRefreshToolReadsRecentMonarchDataUnlessAskedForCompleteHistory(t *testing.T) {
+	paths, err := home.ResolveRoot(t.TempDir()+"/profile", nil, "")
+	require.NoError(t, err)
+	profile, err := sqlite.Open(t.Context(), paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	service, err := app.NewProfileService(t.Context(), profile)
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 29, 14, 0, 0, 0, time.UTC)
+	source := &refreshTestSource{kind: "monarch", snapshot: refreshTestSnapshot(t, now, 2)}
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		ReadSource: source, WriteSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "mcp", InstanceID: "mcp-test", Now: func() time.Time { return now },
+		Random: cryptorand.Reader,
+	}))
+	_, err = service.RefreshProvider(t.Context(), app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	client, supervisor := connectSupervisedServer(t, service, time.Now)
+
+	recent := awaitRefreshTool(t, client, supervisor)
+	attemptID := callRefreshTool(t, client, "refresh_data", map[string]any{
+		"complete_history": true,
+	})["attempt_id"]
+	complete := awaitRefreshAttempt(t, client, supervisor, attemptID)
+
+	assert.Equal(t, "completed", recent["state"], "%v", recent)
+	assert.Equal(t, "completed", complete["state"], "%v", complete)
+	source.mu.Lock()
+	requests := append([]provider.FetchRequest(nil), source.requests...)
+	source.mu.Unlock()
+	require.Len(t, requests, 3, "the first import, then the two tool refreshes")
+	assert.NotNil(t, requests[1].TransactionWindow, "refresh_data reads the recent window")
+	assert.Nil(t, requests[2].TransactionWindow, "complete_history reads complete history")
 }

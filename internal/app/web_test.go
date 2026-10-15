@@ -1161,3 +1161,179 @@ func TestProjectViewTransactionViewIgnoresTheAnchor(t *testing.T) {
 	assert.Nil(t, projection.AnchorIndex)
 	assert.True(t, projection.AnchorMissing)
 }
+
+func TestTransitionViewTogglesOnlyRowsOfTheResult(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 3)
+	state := DefaultViewState()
+	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	require.Len(t, projection.AggregateRows, 3)
+	toggle := func(
+		selection SelectionValue, target RowTarget,
+	) (SelectionValue, WebProjection, error) {
+		_, next, toggled, err := service.TransitionView(
+			state, selection,
+			TransitionRequest{Action: ActionToggleSelection, Target: &target},
+			WindowRequest{},
+		)
+		return next, toggled, err
+	}
+
+	missing := RowTarget{Kind: IdentityAggregate, Identity: "missing"}
+	rejected, _, err := toggle(EmptySelection(), missing)
+	assertWebCode(t, err, WebStaleViewTarget)
+	assert.Equal(t, EmptySelection(), rejected)
+	transactionKind := RowTarget{Kind: IdentityTransaction, Identity: "txn-000"}
+	_, _, err = toggle(EmptySelection(), transactionKind)
+	assertWebCode(t, err, WebInvalidRequest)
+
+	first := RowTarget{Kind: IdentityAggregate, Identity: projection.AggregateRows[0].Identity}
+	selected, toggled, err := toggle(EmptySelection(), first)
+	require.NoError(t, err)
+	assert.Equal(t, 1, toggled.SelectionCount)
+	assert.True(t, toggled.AggregateRows[0].Row.Flags.Selected)
+	_, toggled, err = toggle(selected, first)
+	require.NoError(t, err)
+	assert.Zero(t, toggled.SelectionCount)
+
+	_, all, _, err := service.TransitionView(
+		state, EmptySelection(), TransitionRequest{Action: ActionToggleSelectAll}, WindowRequest{},
+	)
+	require.NoError(t, err)
+	_, toggled, err = toggle(all, first)
+	require.NoError(t, err)
+	assert.Equal(t, 2, toggled.SelectionCount)
+	assert.False(t, toggled.AggregateRows[0].Row.Flags.Selected)
+	assert.True(t, toggled.AggregateRows[1].Row.Flags.Selected)
+}
+
+func TestTransitionViewToggleAfterSelectAllExcludesOnlyThatRow(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 120)
+	state := selectionDetailViewState()
+	all := selectAllRows(t, service, state)
+	projection, err := service.ProjectView(state, all, WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, 120, projection.SelectionCount)
+	assert.True(t, projection.AllRowsSelected)
+
+	_, excluded, projection, err := service.TransitionView(
+		state, all, toggleRowRequest(IdentityTransaction, "txn-002"), WindowRequest{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 119, projection.SelectionCount)
+	for _, row := range projection.DetailRows {
+		assert.Equal(t, row.Identity != "txn-002", row.Row.Flags.Selected, row.Identity)
+	}
+	snapshot, err := service.ResolveSelection(state.Current, excluded)
+	require.NoError(t, err)
+	assert.Equal(t, selectionRange(0, 120, "txn-002"), snapshot.IDs)
+
+	restored := transitionSelection(
+		t, service, state, excluded, toggleRowRequest(IdentityTransaction, "txn-002"),
+	)
+	assert.Equal(t, all, restored)
+}
+
+func TestTransitionViewSelectAllThenDeselectAllClearsTheSelection(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 120)
+	state := selectionDetailViewState()
+	all := selectAllRows(t, service, state)
+
+	_, cleared, projection, err := service.TransitionView(
+		state, all, selectAllRequest(), WindowRequest{},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, EmptySelection(), cleared)
+	assert.Zero(t, projection.SelectionCount)
+	assert.False(t, projection.AllRowsSelected)
+}
+
+func TestTransitionViewToggleInAnotherViewKeepsTheSelectAllRows(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 120)
+	state := selectionDetailViewState()
+	all := selectAllRows(t, service, state)
+	narrow := state.Clone()
+	narrow.Current.Search = "^Merchant 00[01]$"
+	narrow.Current.SearchAnchor = &NavigationScope{Mode: domain.ResultModeDetail}
+	resorted := state.Clone()
+	resorted.Current.Sort = domain.SortSpec{
+		Field: domain.SortFieldMerchant, Direction: domain.SortDirectionDesc,
+	}
+
+	for name, view := range map[string]ViewState{"narrow": narrow, "resorted": resorted} {
+		projection, err := service.ProjectView(view, all, WindowRequest{})
+		require.NoError(t, err, name)
+		assert.Equal(t, 120, projection.SelectionCount, name)
+
+		_, excluded, projection, err := service.TransitionView(
+			view, all, toggleRowRequest(IdentityTransaction, "txn-001"), WindowRequest{},
+		)
+		require.NoError(t, err, name)
+		assert.Equal(t, 119, projection.SelectionCount, name)
+		snapshot, err := service.ResolveSelection(state.Current, excluded)
+		require.NoError(t, err, name)
+		assert.Equal(t, selectionRange(0, 120, "txn-001"), snapshot.IDs, name)
+
+		restored := transitionSelection(
+			t, service, view, excluded, toggleRowRequest(IdentityTransaction, "txn-001"),
+		)
+		snapshot, err = service.ResolveSelection(state.Current, restored)
+		require.NoError(t, err, name)
+		assert.Equal(t, selectionRange(0, 120, ""), snapshot.IDs, name)
+	}
+}
+
+// selectAllRows selects every row of state and checks that the value names the view's rows
+// rather than listing them.
+func selectAllRows(t *testing.T, service *Service, state ViewState) SelectionValue {
+	t.Helper()
+	all := transitionSelection(t, service, state, EmptySelection(), selectAllRequest())
+	document, err := decodeSelection(all)
+	require.NoError(t, err)
+	require.Equal(t, selectionBaseAll, document.Base)
+	return all
+}
+
+// selectionRange returns the selectionService identities from first to end, except one.
+func selectionRange(first, end int, except string) map[string]struct{} {
+	identities := make(map[string]struct{}, end-first)
+	for index := first; index < end; index++ {
+		identity := fmt.Sprintf("txn-%03d", index)
+		if identity != except {
+			identities[identity] = struct{}{}
+		}
+	}
+	return identities
+}
+
+func transitionSelection(
+	t *testing.T,
+	service *Service,
+	state ViewState,
+	selection SelectionValue,
+	transition TransitionRequest,
+) SelectionValue {
+	t.Helper()
+	_, next, _, err := service.TransitionView(state, selection, transition, WindowRequest{})
+	require.NoError(t, err)
+	return next
+}
+
+func selectAllRequest() TransitionRequest {
+	return TransitionRequest{Action: ActionToggleSelectAll}
+}
+
+func toggleRowRequest(kind IdentityKind, identity string) TransitionRequest {
+	return TransitionRequest{
+		Action: ActionToggleSelection, Target: &RowTarget{Kind: kind, Identity: identity},
+	}
+}

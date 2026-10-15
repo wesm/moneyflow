@@ -4,7 +4,11 @@
 
   import RefreshProgress from './RefreshProgress.svelte'
   import type { ProviderController, RefreshDialogView } from '../lib/controller/provider'
-  import { dataAge, providerLabel } from '../lib/controller/refresh-notice'
+  import {
+    dataAge,
+    progressText as describeProgress,
+    providerLabel,
+  } from '../lib/controller/refresh-notice'
 
   interface Props {
     controller: ProviderController
@@ -39,9 +43,7 @@
   }
 
   function progressText(): string {
-    const progress = controller.state.status?.progress
-    if (!progress || progress.total === 0) return ''
-    return `Fetched ${progress.fetched} of ${progress.total}`
+    return describeProgress(controller.state.status?.progress) ?? ''
   }
 
   $effect(() => {
@@ -155,7 +157,7 @@
             class="mf-refresh__focus"
             tone="info"
             surface="solid"
-            onclick={() => void controller.refresh()}>Retry</Button
+            onclick={() => void controller.refresh(dialog?.completeHistory === true)}>Retry</Button
           >
         {/if}
       {:else if view === 'confirmation'}

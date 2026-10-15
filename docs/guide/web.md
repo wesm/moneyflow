@@ -79,32 +79,46 @@ profile has more than one currency, the [Filters](filters.md) menu, the
 
 The status line at the bottom shows:
 
-- Up to six keys for the current view, such as `↵ Open` and `/ Search`. A short notice, such as
-  why a key did nothing, takes their place for four seconds or until your next action.
+- Up to six keys for the current view, such as `↵ Open` and `/ Search`.
 - The connection: **Connected**, **Updating…** for requests slower than 300 ms, **Offline**
   with **Retry**, or **Unreleased:** **Not updated** with **Retry** after the server refused the
   last view request or the browser could not read its answer.
 - The profile revision, except at phone width.
 - The pending-edits text, when the sidebar card is not shown.
 
+**Unreleased:** These messages take the keys' place in the status line:
+
+- `Loading…` while the profile's first view loads.
+- A running provider write's progress, such as `Writing to Monarch: 3 of 6…`.
+- A notice. It reports a finished operation, such as `Refresh complete: 40 imported, 0 removed.`
+  or `Saved 6 changes to Monarch.`, a change you did not ask for, such as a cleared selection or
+  a view that returned to its parent, an export with no data, or why a key did nothing.
+
+A notice stays until a newer notice replaces it or your next action clears it: a key, a cursor
+move, or a view change. A provider write that starts also clears it, so the write's progress
+shows. Screen readers hear each notice.
+
 **Unreleased:** When an action or a background check fails, an error banner below the command
 bar says what failed and gives the server's reason. Examples are a view change the server
 refuses, a recheck when the window regains focus, an undo or a hide from a key, transaction
-information, and the export preview. A warning banner reports a change you did not ask for, such
-as a cleared selection or a view that returned to its parent, and an export with no data.
-Banners stay for 12 seconds; the close button removes one sooner. Screen readers hear the same
+information, the export preview, and a provider write that ends before it finishes. Error
+banners stay for 12 seconds; the close button removes one sooner. Screen readers hear the same
 messages.
 
-**Unreleased:** If a profile does not open, the page says why instead of showing the
-workspace. A missing profile, a profile busy with recovery or another Moneyflow command, and a
-profile saved in a format this version cannot open each have their own message. The page
-suggests checking the connection only when the browser could not reach the server.
+**Unreleased:** While a profile opens, the workspace appears at once with its regions empty and
+`Loading…` in the status line, so nothing moves when the data arrives. If the profile does not
+open, the page reads `Couldn't load this profile`, gives the reason, and offers **Retry**. A
+missing profile, a profile busy with recovery or another Moneyflow command, and a profile saved in
+a format this version cannot open each have their own reason. The reason suggests checking the
+connection only when the browser could not reach the server.
 
 ## Charts
 
 **Unreleased:** Above the table, the KPI strip sums the current period, and the chart row
-shows how the money moved. All charts read committed values; pending edits change them only
-after you commit. MCP clients can read the same data with
+shows how the money moved. They stay in place while the table scrolls below them under its
+column header. A window too short for both keeps room for several table rows, and the charts
+scroll up out of the way when the cursor moves. All charts read committed values; pending
+edits change them only after you commit. MCP clients can read the same data with
 [`get_insights`](mcp.md#chart-insights). Chart keys are in the
 [keyboard reference](keyboard-shortcuts.md#charts).
 
@@ -133,8 +147,6 @@ a line with dots traces Net. A band marks the periods in the current scope.
 - Click a column to choose its period.
 - Drag across columns to choose a custom range from the first to the last.
 - Shift-click a column, or press Shift+Enter on it, to stretch the current period to it.
-- A period still in progress, such as the current month or year, is drawn hollow. So is a
-  period that a custom range covers only in part.
 
 The panel beside the cash-flow chart depends on the view:
 
@@ -196,8 +208,8 @@ In the Time grouping, the columns are the table's rows; see
 [Navigate and search](navigation.md#choose-a-year-month-or-day) for their unit.
 
 The **trend** ends at the current month while the scope is in progress, and at your newest
-transaction's month for all time. A month in progress ends the line with a hollow dot. Months
-before your first transaction in the currency are left out.
+transaction's month for all time. A month in progress ends the line with the same solid dot
+as a full month. Months before your first transaction in the currency are left out.
 
 The **comparison** is the range just before the scope:
 
@@ -294,7 +306,10 @@ data private. Do not expose it to the public internet merely because the documen
 ## Refresh provider data
 
 **Unreleased:** Every refresh of a Monarch, YNAB, or SimpleFIN profile opens the refresh dialog,
-whether you pressed `r` or **Refresh**, or the refresh is due in the background. When you open a
+whether you pressed `r`, `R`, or **Refresh**, or the refresh is due in the background. For
+Monarch, `r` and **Refresh** read the last 90 days unless complete history is due, and `R`
+(Shift+R) reads complete history; see [Monarch refresh](monarch.md#refresh-data). Pointing at
+the sidebar's refresh button shows `Complete history · R`. When you open a
 profile and a refresh is due, the dialog opens at once, before you work with older data. While it
 is open, the workspace and any dialog or drawer behind it do not respond, and Esc goes to the
 refresh dialog.
@@ -303,8 +318,13 @@ The dialog shows:
 
 - The provider, such as **Refreshing from Monarch**. For Monarch it also names the kind:
   **Recent data (last 90 days)** or **Complete history**.
-- Progress, such as `Fetched 120 of 480`. Until the provider reports a total, the bar moves
-  without a count.
+- Progress, such as `Fetched 7,000 transactions`. The count continues across the provider's
+  partitions: Monarch reads visible transactions and then hidden ones, and the hidden ones add
+  to the same count. Monarch then reads everything again to confirm nothing changed, shown as
+  `Verifying 12,000 of 31,808 transactions`. The bar covers both reads, so the first read fills
+  half of it. Monarch reports the hidden transactions' total only with their first page, so the
+  bar can pause there until the count catches up; it never moves backward. Until the provider
+  reports a total, the bar moves without filling.
 - The elapsed time, and when data was last updated, such as
   `Last updated 10 days ago (Oct 3, 2026, 9:15 AM)`.
 
@@ -312,15 +332,16 @@ Screen readers hear the progress at most every 10 seconds.
 
 What happens next:
 
-- **Success:** the dialog closes and a notice reports the result, such as
+- **Success:** the dialog closes and a status line notice reports the result, such as
   `Refresh complete: 40 imported, 0 removed.` A warning, such as an unrecorded full refresh,
-  appears in its own notice and beside **Refresh** in the sidebar, or in the **Refresh** icon's
-  tooltip in the icon rail.
+  follows the result in the same notice and appears beside **Refresh** in the sidebar, or in the
+  **Refresh** icon's tooltip in the icon rail.
 - **Cancel (Esc):** Moneyflow stops the refresh. The dialog shows **Stopping…** until the server
   confirms that it stopped, then closes. The view loads the latest saved data and reports
   `Refresh stopped.` Data saved before the cancel arrived remains saved.
   Automatic refresh then waits 5 minutes; **Refresh** or `r` still runs at once.
-- **Failure:** the dialog stays open with the reason. **Retry** tries again at once. **Continue
+- **Failure:** the dialog stays open with the reason. **Retry** tries again at once, with
+  complete history if you asked for it. **Continue
   with data from** a date closes the dialog and keeps the older data.
 - **Removals to review:** the dialog shows how many posted transactions the refresh would remove.
   **Confirm refresh** (Enter) applies the refresh; **Cancel** (Esc) keeps the current data.
@@ -338,7 +359,9 @@ the stale data banner offers **Retry**.
 
 The web app stops a refresh that runs longer than 30 minutes; no data changes, and
 `moneyflow tui` can run it without that limit. When the server cannot say why a request failed,
-the dialog says so and the terminal running `moneyflow web` logs the cause.
+the dialog says so and the terminal running `moneyflow web` logs the cause. A request the browser
+abandons, because you canceled it, reloaded the page, or closed the tab, is not a server failure:
+the server answers it with status 499 and code `request_canceled` and does not log it.
 
 ### Stale data banner
 

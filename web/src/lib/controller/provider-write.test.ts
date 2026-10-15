@@ -1,7 +1,7 @@
-import { dismissFlash, getFlashes } from '@kenn-io/kit-ui'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { ProviderWriteResponse, ProviderWriteStatus, ViewProjection } from '../api/client'
+import { notices } from '../../test/notices'
 import { testProjection } from '../../test/projection'
 import { createProviderWriteController } from './provider-write'
 
@@ -245,8 +245,7 @@ describe('provider write controller', () => {
 })
 
 describe('provider write failures the user must see', () => {
-  afterEach(() => dismissFlash())
-  const flashes = () => getFlashes().map(({ message, tone }) => ({ message, tone }))
+  const flashes = () => notices().banners
 
   it('shows why a background write stopped while the batch still reads as writing', async () => {
     const stopped = writeStatus({
@@ -270,14 +269,15 @@ describe('provider write failures the user must see', () => {
     expect(flashes()).toEqual([{ message, tone: 'danger' }])
   })
 
-  it('reports a completed write whose view reload failed as complete', async () => {
+  it('reports a completed write whose view reload failed as saved', async () => {
     const host = hostStub()
     host.reload.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const completed = writeStatus({ completed_at: '2026-10-15T12:00:00Z', total: 1, completed: 1 })
     const controller = createProviderWriteController({
-      transport: transportStub({ status: writeStatus({ completed_at: '2026-10-15T12:00:00Z' }) }),
+      transport: transportStub({ status: completed }),
       host,
     })
-    controller.install(writeStatus({ phase: 'writing', batch_version: '4' }))
+    controller.install(writeStatus({ phase: 'writing', batch_version: '4', total: 1 }))
 
     await controller.poll()
 
@@ -285,13 +285,154 @@ describe('provider write failures the user must see', () => {
     expect(controller.state.announcement).toBe(
       'Provider write complete. The view could not be refreshed; reload the page to see it.',
     )
-    expect(flashes()).toEqual([
-      {
-        message:
-          'Provider write complete. The view could not be refreshed; reload the page to see it.',
-        tone: 'warning',
-      },
-    ])
+    expect(notices()).toEqual({
+      banners: [],
+      status:
+        'Saved 1 change to Monarch. The view could not be refreshed; reload the page to see it.',
+    })
+  })
+
+  it('shows a finished write in the status bar, with any audit warning', async () => {
+    const warning = 'The audit log could not record completion.'
+    const completed = writeStatus({
+      completed_at: '2026-10-15T12:00:00Z',
+      total: 6,
+      completed: 6,
+      audit_warning: warning,
+    })
+    const controller = createProviderWriteController({
+      transport: transportStub({ status: completed }),
+      host: hostStub(testProjection({ profile_kind: 'ynab' })),
+    })
+    controller.install(writeStatus({ phase: 'writing', batch_version: '4', total: 6 }))
+
+    await controller.poll()
+
+    expect(notices()).toEqual({ banners: [], status: `Saved 6 changes to YNAB. ${warning}` })
+  })
+
+  it('shows a write that ended without finishing in a failure banner', async () => {
+    const controller = createProviderWriteController({
+      transport: transportStub(),
+      host: hostStub(),
+    })
+    controller.install(writeStatus({ phase: 'writing', batch_version: '4', total: 2 }))
+
+    await controller.poll()
+
+    expect(notices()).toEqual({
+      banners: [{ message: 'Provider write ended.', tone: 'danger' }],
+      status: '',
+    })
+  })
+
+  it('shows a finished write as saved after a later revision cleared its completion time', async () => {
+    // Revision 7 prepared the write, which committed 8; another client's edit then made 9.
+    const controller = createProviderWriteController({
+      transport: transportStub({ status: writeStatus({ revision: '9', completed_revision: '8' }) }),
+      host: hostStub(),
+    })
+    controller.install(
+      writeStatus({
+        phase: 'writing',
+        batch_version: '4',
+        revision: '7',
+        prepared_revision: '7',
+        total: 2,
+      }),
+    )
+
+    await controller.poll()
+
+    expect(controller.state.phase).toBe('complete')
+    expect(controller.state.announcement).toBe('Provider write complete.')
+    expect(notices()).toEqual({ banners: [], status: 'Saved 2 changes to Monarch.' })
+  })
+
+  // The server reads the batch and the revision separately, so a poll can see the batch still
+  // running at the revision its finalization just committed. Another tab's edit then clears the
+  // completion time before the next poll.
+  it('shows a write as saved when its last running status already carried its commit', async () => {
+    const controller = createProviderWriteController({
+      transport: transportStub({ status: writeStatus({ revision: '9', completed_revision: '8' }) }),
+      host: hostStub(),
+    })
+    controller.install(
+      writeStatus({
+        phase: 'writing',
+        batch_version: '4',
+        revision: '8',
+        prepared_revision: '7',
+        total: 2,
+      }),
+    )
+
+    await controller.poll()
+
+    expect(controller.state.announcement).toBe('Provider write complete.')
+    expect(notices()).toEqual({ banners: [], status: 'Saved 2 changes to Monarch.' })
+  })
+
+  // The write finishes and another tab's edit clears its completion time before the next poll, so
+  // Pause answers with the finished batch.
+  it('shows a write as saved when a control request finds it already finished', async () => {
+    const finished = writeStatus({ revision: '9', completed_revision: '8' })
+    const controller = createProviderWriteController({
+      transport: transportStub({ mutationResponse: Response.json({ status: finished }) }),
+      host: hostStub(),
+    })
+    controller.install(
+      writeStatus({
+        phase: 'writing',
+        batch_version: '4',
+        revision: '7',
+        prepared_revision: '7',
+        total: 2,
+      }),
+    )
+
+    await expect(controller.pause()).resolves.toBe(true)
+
+    expect(controller.state.announcement).toBe('Provider write complete.')
+    expect(notices()).toEqual({ banners: [], status: 'Saved 2 changes to Monarch.' })
+  })
+
+  it('shows an ended write as a failure when the last completed write was an earlier one', async () => {
+    const controller = createProviderWriteController({
+      transport: transportStub({ status: writeStatus({ revision: '9', completed_revision: '5' }) }),
+      host: hostStub(),
+    })
+    controller.install(
+      writeStatus({
+        phase: 'writing',
+        batch_version: '4',
+        revision: '7',
+        prepared_revision: '7',
+        total: 2,
+      }),
+    )
+
+    await controller.poll()
+
+    expect(notices()).toEqual({
+      banners: [{ message: 'Provider write ended.', tone: 'danger' }],
+      status: '',
+    })
+  })
+
+  it('shows a write reconciled before it finished in a failure banner', async () => {
+    const controller = createProviderWriteController({
+      transport: transportStub(),
+      host: hostStub(),
+    })
+    controller.install(writeStatus({ phase: 'attention_required', total: 2, batch_version: '4' }))
+
+    await controller.reconcile()
+
+    expect(notices()).toEqual({
+      banners: [{ message: 'Provider write stopped. Remaining edits discarded.', tone: 'danger' }],
+      status: '',
+    })
   })
 
   it('rereads a view that moved on while the server reconciled, without reporting failure', async () => {

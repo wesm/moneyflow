@@ -29,19 +29,3 @@ export function maxMagnitude(values: readonly string[]): string {
   }
   return largest.toString()
 }
-
-export interface Point {
-  readonly x: number
-  readonly y: number
-}
-
-/**
- * Where a line from `from` to `to` meets a ring of radius `distance` drawn at `to`, so the line
- * leaves a hollow dot empty. A line shorter than the radius collapses to `from`.
- */
-export function stopShort(from: Point, to: Point, distance: number): Point {
-  const length = Math.hypot(to.x - from.x, to.y - from.y)
-  if (length <= distance) return from
-  const kept = (length - distance) / length
-  return { x: from.x + (to.x - from.x) * kept, y: from.y + (to.y - from.y) * kept }
-}

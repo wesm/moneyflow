@@ -1,5 +1,5 @@
 import type { ViewProjection } from '../api/client'
-import { drillFrames, type DrillFrame } from '../shell/drills'
+import { drillFrames } from '../shell/drills'
 
 /** Column keys. Every gridcell carries its key as `data-column`. `actions` is the trailing › or
  * ⋯ button of a compact row. */
@@ -34,6 +34,13 @@ export interface Column {
   align: 'start' | 'end'
   /** A CSS grid track size. */
   width: string
+  /**
+   * The column shows labels, and its track fits the longest one the view has shown; see
+   * `columnTracks`.
+   */
+  text?: true
+  /** Among text columns, the lowest takes the room the other columns leave. */
+  slack?: 1 | 2 | 3
   /** The column shows only at or above this viewport width. */
   minWidth?: 760
   /** The track's minimum in rem, which `columnsThatFit` adds up. */
@@ -51,7 +58,18 @@ const SELECT: Column = {
   width: '2rem',
   min: 2,
 }
-const NARROWED_DIMENSIONS = ['merchant', 'category', 'account'] as const
+/**
+ * A text column's track: no wider than its longest label, as the grid's sizer row holds it, and
+ * never wider than the room. Where the room is short, the grid gives each text column an equal
+ * share and a column whose labels fit in less keeps only what it needs, so the widest columns
+ * narrow first.
+ */
+const TEXT_TRACK = 'minmax(0, max-content)'
+/**
+ * The track of the text column that takes the room the other columns leave. An `auto` maximum
+ * sizes like `max-content`, then the grid stretches it into the leftover room.
+ */
+const SLACK_TRACK = 'minmax(0, auto)'
 
 function metric(
   key: ColumnKey,
@@ -95,7 +113,9 @@ function groupedColumns(dimension: string): Column[] {
     label: capitalized(dimension),
     sortField: dimension as SortField,
     align: 'start',
-    width: 'minmax(10rem, 2fr)',
+    width: TEXT_TRACK,
+    text: true,
+    slack: 1,
     min: 10,
   }
   const contextLabel = { merchant: 'Top category', category: 'Group' }[dimension]
@@ -105,7 +125,9 @@ function groupedColumns(dimension: string): Column[] {
           key: 'context',
           label: contextLabel,
           align: 'start',
-          width: 'minmax(7rem, 1fr)',
+          width: TEXT_TRACK,
+          text: true,
+          slack: 2,
           minWidth: 760,
           min: 7,
           dropOrder: 1,
@@ -132,18 +154,21 @@ function timeColumns(): Column[] {
       label: 'Period',
       sortField: 'time_period',
       align: 'start',
-      width: 'minmax(8rem, 1fr)',
+      width: TEXT_TRACK,
+      text: true,
+      slack: 1,
       min: 8,
     },
     metric('count', 'Count', 'count', 3),
     metric('in', 'In', undefined, 4),
     metric('out', 'Out', undefined, 4),
     metric('net', 'Net', 'amount'),
+    // The bar takes the room the columns leave, ahead of the short period labels.
     {
       key: 'net_bar',
       label: 'Net bar',
       align: 'start',
-      width: 'minmax(8rem, 1.5fr)',
+      width: 'minmax(8rem, 1fr)',
       min: 8,
       dropOrder: 1,
     },
@@ -151,32 +176,24 @@ function timeColumns(): Column[] {
   ]
 }
 
-/** The first drilled dimension, by the TUI's merchant, category, account precedence. */
-function narrowedFrame(projection: ViewProjection): DrillFrame | undefined {
-  const frames = drillFrames(projection)
-  for (const dimension of NARROWED_DIMENSIONS) {
-    const frame = frames.find((candidate) => candidate.dimension === dimension)
-    if (frame) return frame
-  }
-  return undefined
-}
-
-/** Room in rem for one `ch` of the table's font, rounded up so a fit never scrolls. */
-const CH_REM = 0.5
-
 /**
- * Fits the drilled label, as the TUI does, without cutting off the column's own header. The
- * minimum overestimates the `ch` track in rem.
+ * The transaction columns. Merchant takes the room the other columns leave. A drill shows one
+ * merchant, category, or account in every row, so that column keeps only what its label needs
+ * and the next text column takes the room.
  */
-function narrowed(column: Column, frame: DrillFrame): Column {
-  const characters = Math.min(30, Math.max([...frame.label].length, column.label.length) + 2)
-  return { ...column, width: `${characters}ch`, min: characters * CH_REM }
-}
-
 function transactionColumns(projection: ViewProjection): Column[] {
   const amazon = projection.profile_kind === 'amazon'
-  const drilled = narrowedFrame(projection)
-  const columns: Column[] = [
+  const drilled = new Set(drillFrames(projection).map((frame) => frame.dimension))
+  const text = (key: 'merchant' | 'category' | 'account', slack: 1 | 2 | 3) =>
+    ({
+      key,
+      sortField: key,
+      align: 'start',
+      width: TEXT_TRACK,
+      text: true,
+      ...(drilled.has(key) ? {} : { slack }),
+    }) as const
+  return [
     SELECT,
     {
       key: 'date',
@@ -187,38 +204,24 @@ function transactionColumns(projection: ViewProjection): Column[] {
       min: 6,
       dropOrder: 3,
     },
-    {
-      key: 'merchant',
-      label: amazon ? 'Product' : 'Merchant',
-      sortField: 'merchant',
-      align: 'start',
-      width: 'minmax(10rem, 2fr)',
-      min: 10,
-    },
-    {
-      key: 'category',
-      label: 'Category',
-      sortField: 'category',
-      align: 'start',
-      width: 'minmax(8rem, 1.5fr)',
-      min: 8,
-      dropOrder: 4,
-    },
-    {
-      key: 'account',
-      label: amazon ? 'Order' : 'Account',
-      sortField: 'account',
-      align: 'start',
-      width: 'minmax(8rem, 1fr)',
-      min: 8,
-      dropOrder: 1,
-    },
+    { ...text('merchant', 1), label: amazon ? 'Product' : 'Merchant', min: 10 },
+    { ...text('category', 2), label: 'Category', min: 8, dropOrder: 4 },
+    { ...text('account', 3), label: amazon ? 'Order' : 'Account', min: 8, dropOrder: 1 },
     metric('amount', 'Amount', 'amount'),
     { key: 'flags', label: 'Flags', align: 'start', width: '6.5rem', min: 6.5, dropOrder: 2 },
   ]
-  return columns.map((column) =>
-    drilled && column.key === drilled.dimension ? narrowed(column, drilled) : column,
-  )
+}
+
+/**
+ * The grid's track size of each column shown. The shown text column with the lowest `slack`
+ * takes the room the others leave; with none shown, a flexible track such as the Net bar's does.
+ */
+export function columnTracks(columns: readonly Column[]): string[] {
+  let taker: Column | undefined
+  for (const column of columns) {
+    if (column.slack !== undefined && (!taker || column.slack < (taker.slack ?? 0))) taker = column
+  }
+  return columns.map((column) => (column === taker ? SLACK_TRACK : column.width))
 }
 
 /** The class list of a header or body cell in the column. */

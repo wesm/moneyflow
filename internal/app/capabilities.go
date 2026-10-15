@@ -134,7 +134,31 @@ func (service *Service) capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Ca
 		refresh.Available = false
 		refresh.Reason = unavailableProviderWrite
 	}
-	return append(result, refresh)
+	return append(result, refresh, completeHistoryCapability(refresh, profileKind))
+}
+
+// completeHistoryCapability offers a complete-history refresh where a refresh otherwise reads
+// recent data: Monarch. YNAB and SimpleFIN read complete data on every refresh.
+func completeHistoryCapability(refresh Capability, profileKind string) Capability {
+	history := Capability{
+		Action: ActionRefreshProviderHistory, Available: refresh.Available, Reason: refresh.Reason,
+	}
+	switch profileKind {
+	case "monarch":
+		return history
+	case "ynab":
+		history.Reason = "Press r: every YNAB refresh reads complete data."
+	case "simplefin":
+		history.Reason = "Press r: every SimpleFIN refresh reads complete data."
+	case amazonProvider:
+		history.Reason = "Press r to import Amazon order history."
+	default:
+		if history.Reason == "" {
+			history.Reason = "Only Monarch profiles refresh complete history separately."
+		}
+	}
+	history.Available = false
+	return history
 }
 
 func setCapability(values []Capability, action ActionID, available bool, reason string) {

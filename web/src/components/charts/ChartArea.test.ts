@@ -233,43 +233,6 @@ describe('ChartArea', () => {
     expect(screen.getByText('Income')).not.toBeNull()
   })
 
-  it('reports its height when it resizes, and zero once it is gone', () => {
-    const observed: (() => void)[] = []
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        constructor(callback: () => void) {
-          observed.push(callback)
-        }
-        observe(): void {}
-        disconnect(): void {}
-      },
-    )
-    try {
-      const { cache } = harness()
-      const measure = vi.fn()
-      const { unmount } = render(ChartArea, {
-        projection: view(),
-        cache,
-        chartsOn: true,
-        measure,
-        ...interaction,
-      })
-      let height = 180
-      const area = document.querySelector<HTMLElement>('.mf-chart-area')!
-      Object.defineProperty(area, 'offsetHeight', { configurable: true, get: () => height })
-      observed[0]!()
-      expect(measure).toHaveBeenLastCalledWith(180)
-      height = 240
-      observed[0]!()
-      expect(measure).toHaveBeenLastCalledWith(240)
-      unmount()
-      expect(measure).toHaveBeenLastCalledWith(0)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
   it('shows nothing for a view of every currency at once', () => {
     const { cache } = harness()
     render(ChartArea, { projection: testProjection(), cache, chartsOn: true, ...interaction })

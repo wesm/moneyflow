@@ -27,6 +27,7 @@ export type LocalAction =
   | 'edit.delete'
   | 'transaction.info'
   | 'provider.refresh'
+  | 'provider.refresh-history'
   | 'time.choose'
 
 const bindings = [
@@ -141,6 +142,13 @@ const bindings = [
     combos: ['r'],
     local: true,
     localID: 'provider.refresh',
+  },
+  {
+    id: 'provider.refresh-history',
+    display: 'R',
+    combos: ['shift+r'],
+    local: true,
+    localID: 'provider.refresh-history',
   },
   {
     id: 'transactions.export',

@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -255,6 +256,37 @@ func TestProviderTypesNeverExposeRemoteRowsOrIdentifiers(t *testing.T) {
 	assert.NotContains(t, text, "merchant_name")
 	assert.NotContains(t, text, "transaction_id")
 	assert.NotContains(t, text, "remote_profile")
+}
+
+// The browser's refresh reads Monarch's recent window; complete history is an explicit request.
+// Status says which one a plain manual refresh reads, so the dialog can name it.
+func TestManualRefreshReadsRecentDataUnlessTheBodyAsksForCompleteHistory(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	polled := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.Equal(t, http.StatusOK, polled.Code, polled.Body.String())
+	var status ProviderStatusResponse
+	require.NoError(t, json.Unmarshal(polled.Body.Bytes(), &status))
+	assert.Equal(t, "recent", status.ManualRefresh)
+
+	issued, err := fixture.server.security.Issue(CatalogMutationScope)
+	require.NoError(t, err)
+	recent := requestSignedJSON(
+		t, fixture.server, "/api/v1/provider/refresh", manualRefreshBody(), issued.Value,
+	)
+	require.Equal(t, http.StatusOK, recent.Code, recent.Body.String())
+	body := manualRefreshBody()
+	body.CompleteHistory = true
+	complete := requestSignedJSON(t, fixture.server, "/api/v1/provider/refresh", body, issued.Value)
+	require.Equal(t, http.StatusOK, complete.Code, complete.Body.String())
+
+	fixture.source.mu.Lock()
+	requests := append([]provider.FetchRequest(nil), fixture.source.requests...)
+	fixture.source.mu.Unlock()
+	require.Len(t, requests, 3, "the fixture's first import, then the two refreshes")
+	assert.NotNil(t, requests[1].TransactionWindow, "a plain manual refresh reads recent data")
+	assert.Nil(t, requests[2].TransactionWindow, "complete_history reads complete history")
 }
 
 func TestProviderStatusReportsDueRefreshAndLastFailure(t *testing.T) {
@@ -506,10 +538,16 @@ func (ctx *expiringContext) Err() error {
 	}
 }
 
-func TestUnexpectedRefreshFailureLogsItsCauseWithoutRequestSecrets(t *testing.T) {
+// A browser that closes, reloads, or cancels abandons its refresh request. That is not a server
+// failure: the response says the request was canceled, nothing is logged, nothing is imported,
+// and the provider status shows the refresh ended.
+func TestCanceledRefreshIsNotAServerFailure(t *testing.T) {
 	t.Parallel()
 
 	fixture := newProviderAPIFixture(t, "/", 3)
+	before, err := fixture.service.ProviderStatus(t.Context())
+	require.NoError(t, err)
+	fixture.source.setSnapshot(apiProviderSnapshot(t, fixture.now, 5))
 	started := make(chan struct{})
 	fixture.source.failNextFetch(apiFetchUntilStopped, started)
 	issued, err := fixture.server.security.Issue(CatalogMutationScope)
@@ -523,15 +561,24 @@ func TestUnexpectedRefreshFailureLogsItsCauseWithoutRequestSecrets(t *testing.T)
 		ctx, t, fixture.server, "/api/v1/provider/refresh", manualRefreshBody(), issued.Value,
 	)
 
-	require.Equal(t, http.StatusInternalServerError, response.Code, response.Body.String())
+	require.Equal(t, statusClientClosedRequest, response.Code, response.Body.String())
 	var problem Problem
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
-	assert.Equal(t, "internal_error", problem.Code)
-	assert.Equal(t, "The request could not be completed.", problem.Detail)
-	assert.NotContains(t, response.Body.String(), "context canceled", "the response stays generic")
-	logged := fixture.errorLog.String()
-	assert.Contains(t, logged, "POST /api/v1/provider/refresh: 500 internal_error: context canceled")
-	assertLogOmitsRequestSecrets(t, logged, issued.Value)
+	assert.Equal(t, string(CodeRequestCanceled), problem.Code)
+	assert.NotContains(t, response.Body.String(), "context canceled")
+	assert.Empty(t, fixture.errorLog.String(), "a canceled request is not a server failure")
+
+	polled := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil)
+	require.Equal(t, http.StatusOK, polled.Code, polled.Body.String())
+	var status ProviderStatusResponse
+	require.NoError(t, json.Unmarshal(polled.Body.Bytes(), &status))
+	assert.False(t, status.Refreshing, "the stopped refresh released its lease")
+	assert.NotEmpty(t, status.LastAttempt, "the status records the stopped attempt")
+	assert.Equal(t, strconv.FormatUint(before.Generation, 10), status.Generation,
+		"no provider data was imported")
+	loaded, err := fixture.profile.Load(t.Context())
+	require.NoError(t, err)
+	assert.Len(t, loaded.Committed.Transactions, 3, "the import was not applied")
 }
 
 func TestRefreshPanicLogsItsCauseWithoutRequestSecrets(t *testing.T) {
@@ -690,6 +737,7 @@ type apiProviderSource struct {
 	fetchStarted  chan struct{}
 	fetchRelease  chan struct{}
 	fetchFailure  apiFetchFailure
+	requests      []provider.FetchRequest
 	writesEnabled bool
 	writes        int
 }
@@ -775,12 +823,13 @@ type apiProviderReader apiProviderSource
 
 func (reader *apiProviderReader) FetchSnapshot(
 	ctx context.Context,
-	_ provider.FetchRequest,
+	request provider.FetchRequest,
 	progress provider.ProgressFunc,
 ) (provider.SnapshotResult, error) {
 	source := (*apiProviderSource)(reader)
 	source.mu.Lock()
-	snapshot := source.snapshot.Clone()
+	source.requests = append(source.requests, request)
+	snapshot := windowedAPISnapshot(source.snapshot.Clone(), request.TransactionWindow)
 	identity := source.identity
 	started := source.fetchStarted
 	release := source.fetchRelease
@@ -828,3 +877,22 @@ func (reader *apiIncrementingReader) Read(buffer []byte) (int, error) {
 }
 
 var _ io.Reader = (*apiIncrementingReader)(nil)
+
+// windowedAPISnapshot keeps the transactions inside a requested window, as Monarch does.
+func windowedAPISnapshot(
+	snapshot domain.ImportSnapshot,
+	window *domain.DateRange,
+) domain.ImportSnapshot {
+	if window == nil {
+		return snapshot
+	}
+	snapshot.TransactionWindow = window
+	rows := snapshot.Transactions[:0]
+	for _, transaction := range snapshot.Transactions {
+		if snapshot.InTransactionWindow(transaction.Date) {
+			rows = append(rows, transaction)
+		}
+	}
+	snapshot.Transactions = rows
+	return snapshot
+}

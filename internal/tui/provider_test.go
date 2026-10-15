@@ -64,7 +64,7 @@ func TestRefreshKeyStartsAsyncAndEscapeCancelsBeforeFold(t *testing.T) {
 	statusMessage := model.providerStatusCommand(fixture.now)().(providerStatusMsg)
 	updated, _ = model.Update(statusMessage)
 	model = updated.(Model)
-	assert.Contains(t, model.status, "2 of 3")
+	assert.Contains(t, model.status, "2 transactions fetched (66%)")
 
 	updated, cancelCommand := model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	model = updated.(Model)
@@ -180,7 +180,8 @@ func TestMonarchOpenStartsTheDueRefreshKind(t *testing.T) {
 	}
 }
 
-func TestManualMonarchRefreshNamesCompleteHistory(t *testing.T) {
+// r reads Monarch's last 90 days; R reads complete history. Each names what it reads.
+func TestRefreshKeyReadsRecentMonarchDataAndShiftRReadsCompleteHistory(t *testing.T) {
 	t.Parallel()
 
 	fixture := newProviderModel(t, 3)
@@ -188,10 +189,75 @@ func TestManualMonarchRefreshNamesCompleteHistory(t *testing.T) {
 	model := updated.(Model)
 	require.NotNil(t, command)
 	assert.True(t, model.provider.refreshing)
+	assert.Equal(t, "Refreshing recent provider data (last 90 days)… Esc=Cancel", model.status)
+	updated, _ = model.Update(model.providerRefreshCommand(true, "")())
+	model = updated.(Model)
+	require.False(t, model.provider.refreshing)
+
+	updated, command = model.Update(keyRune('R'))
+	model = updated.(Model)
+	require.NotNil(t, command)
 	assert.Equal(t, "Refreshing complete provider history… Esc=Cancel", model.status)
-	model.provider.status = app.ProviderStatus{Fetched: 2, Total: 3}
-	assert.Equal(t, "Refreshing complete provider history: 2 of 3 fetched.",
+	model.provider.status = app.ProviderStatus{Fetched: 2, Total: 3, Percent: 33}
+	assert.Equal(t, "Refreshing complete provider history: 2 transactions fetched (33%).",
 		model.providerProgressMessage(model.provider.status))
+	updated, _ = model.Update(model.providerRefreshCommand(true, "")())
+	model = updated.(Model)
+	require.False(t, model.provider.refreshing)
+
+	fixture.source.mu.Lock()
+	requests := append([]provider.FetchRequest(nil), fixture.source.requests...)
+	fixture.source.mu.Unlock()
+	require.Len(t, requests, 3)
+	assert.Nil(t, requests[0].TransactionWindow, "the first import reads complete history")
+	assert.NotNil(t, requests[1].TransactionWindow, "r reads the recent window")
+	assert.Nil(t, requests[2].TransactionWindow, "R reads complete history")
+}
+
+func TestShiftRExplainsThatOtherProvidersAlwaysReadCompleteData(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+	source := &tuiProviderSource{
+		identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: "plan-example"},
+		snapshot: tuiProviderSnapshot(t, now, 3), fingerprint: "session-a",
+	}
+	model := newPristineProviderModel(t, source, now, "ynab")
+	updated, command := model.Update(keyRune('R'))
+	model = updated.(Model)
+	assert.Nil(t, command)
+	assert.False(t, model.provider.refreshing)
+	assert.Equal(t, "Press r: every YNAB refresh reads complete data.", model.status)
+}
+
+// The count continues across Monarch's visible and hidden transactions, so the second partition
+// does not look like a second refresh; the confirming read names itself and its total.
+func TestProviderProgressCountsOneReadAndNamesTheConfirmingRead(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderModel(t, 3)
+	model := fixture.model
+	tests := []struct {
+		status app.ProviderStatus
+		want   string
+	}{
+		{app.ProviderStatus{}, "Refreshing complete provider history… Esc=Cancel"},
+		{
+			app.ProviderStatus{Fetched: 1},
+			"Refreshing complete provider history: 1 transaction fetched.",
+		},
+		{
+			app.ProviderStatus{Fetched: 31_808, Total: 31_808, Percent: 50},
+			"Refreshing complete provider history: 31,808 transactions fetched (50%).",
+		},
+		{
+			app.ProviderStatus{Fetched: 12_000, Total: 31_808, Verifying: true, Percent: 68},
+			"Refreshing complete provider history: verifying 12,000 of 31,808 transactions (68%).",
+		},
+	}
+	for _, test := range tests {
+		assert.Equal(t, test.want, model.providerProgressMessage(test.status))
+	}
 }
 
 func TestProviderLateProgressStatusCannotStartSecondRefresh(t *testing.T) {
@@ -590,6 +656,7 @@ type tuiProviderSource struct {
 	probeErr    error
 	fetch       func(context.Context, provider.ProgressFunc) (domain.ImportSnapshot, error)
 	writer      provider.Writer
+	requests    []provider.FetchRequest
 }
 
 func (source *tuiProviderSource) Reader(
@@ -650,13 +717,14 @@ type tuiProviderReader tuiProviderSource
 
 func (reader *tuiProviderReader) FetchSnapshot(
 	ctx context.Context,
-	_ provider.FetchRequest,
+	request provider.FetchRequest,
 	progress provider.ProgressFunc,
 ) (provider.SnapshotResult, error) {
 	source := (*tuiProviderSource)(reader)
 	source.mu.Lock()
 	fetch := source.fetch
-	snapshot := source.snapshot.Clone()
+	source.requests = append(source.requests, request)
+	snapshot := windowedTUISnapshot(source.snapshot.Clone(), request.TransactionWindow)
 	identity := source.identity
 	probeErr := source.probeErr
 	source.mu.Unlock()
@@ -664,8 +732,9 @@ func (reader *tuiProviderReader) FetchSnapshot(
 		return provider.SnapshotResult{}, probeErr
 	}
 	if fetch != nil {
-		snapshot, err := fetch(ctx, progress)
-		return provider.SnapshotResult{Identity: identity, Snapshot: snapshot}, err
+		fetched, err := fetch(ctx, progress)
+		fetched = windowedTUISnapshot(fetched, request.TransactionWindow)
+		return provider.SnapshotResult{Identity: identity, Snapshot: fetched}, err
 	}
 	if progress != nil {
 		progress(provider.Progress{Partition: "visible", Fetched: len(snapshot.Transactions), Total: len(snapshot.Transactions), Attempt: 1})
@@ -689,3 +758,22 @@ func (reader *tuiIncrementingReader) Read(buffer []byte) (int, error) {
 }
 
 var _ io.Reader = (*tuiIncrementingReader)(nil)
+
+// windowedTUISnapshot keeps the transactions inside a requested window, as Monarch does.
+func windowedTUISnapshot(
+	snapshot domain.ImportSnapshot,
+	window *domain.DateRange,
+) domain.ImportSnapshot {
+	if window == nil {
+		return snapshot
+	}
+	snapshot.TransactionWindow = window
+	rows := snapshot.Transactions[:0]
+	for _, transaction := range snapshot.Transactions {
+		if snapshot.InTransactionWindow(transaction.Date) {
+			rows = append(rows, transaction)
+		}
+	}
+	snapshot.Transactions = rows
+	return snapshot
+}

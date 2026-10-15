@@ -123,7 +123,7 @@ test('pending warnings, empty bypass, and failures remain keyboard safe', async 
     })
     await page.keyboard.press('Shift+E')
     await expect(page.getByRole('dialog', { name: 'Export transactions' })).toBeHidden()
-    await expect(page.locator('.kit-flash-banner', { hasText: 'No data to export.' })).toBeVisible()
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText('No data to export.')
     await page.unroute(`${server.profileAPI}export/preview`)
 
     await page.route(`${server.profileAPI}export/preview`, async (route) => {

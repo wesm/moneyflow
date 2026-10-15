@@ -135,7 +135,7 @@ describe('WorkspaceBody', () => {
       render(WorkspaceBody, { projection, actions, onapply: vi.fn(), charts })
 
       expect(screen.getByText(/Editing is locked until the write finishes/)).toBeTruthy()
-      expect(document.querySelector('.mf-workspace > .mf-chart-area')).toBeNull()
+      expect(document.querySelector('.mf-workspace-body > .mf-chart-area')).toBeNull()
     } finally {
       restore()
     }

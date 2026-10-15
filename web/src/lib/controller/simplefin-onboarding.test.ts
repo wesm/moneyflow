@@ -18,7 +18,7 @@ it('guards connect and retries import without sending the credential again', asy
     state_version: 2,
     state: 'credentials_required',
     provider_kind: 'simplefin',
-    progress: { fetched: 0, total: 0 },
+    progress: { fetched: 0, total: 0, verifying: false, percent: 0 },
     imported_transactions: 0,
   }
   const transport: SimpleFINOnboardingTransport = {
@@ -82,7 +82,7 @@ it('ignores a late start response after the wizard is destroyed', async () => {
     state_version: 1,
     state: 'complete',
     provider_kind: 'simplefin',
-    progress: { fetched: 0, total: 0 },
+    progress: { fetched: 0, total: 0, verifying: false, percent: 0 },
     imported_transactions: 0,
   })
   await pending
@@ -97,7 +97,7 @@ it('says why a connect request failed and keeps the input step open', async () =
     state_version: 2,
     state: 'credentials_required',
     provider_kind: 'simplefin',
-    progress: { fetched: 0, total: 0 },
+    progress: { fetched: 0, total: 0, verifying: false, percent: 0 },
     imported_transactions: 0,
   }
   const transport: SimpleFINOnboardingTransport = {

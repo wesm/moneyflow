@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -810,5 +811,61 @@ func (profile *memoryProfile) advanceExternally(operation domain.Operation) {
 	operation.CreatedRevision = profile.snapshot.Revision
 	profile.snapshot.Journal = append(profile.snapshot.Journal, operation)
 	profile.snapshot.Cursor = len(profile.snapshot.Journal)
+	profile.snapshot.Revision++
+}
+
+func TestProfileServiceToggleAfterSelectAllUsesTheRowsOfTheCurrentRevision(t *testing.T) {
+	t.Parallel()
+
+	profile := newMemoryProfile(t, 5)
+	template := profile.snapshot.Committed.Transactions[0]
+	// Enough rows that selecting all names the view instead of listing every row.
+	for index := range 60 {
+		record := template
+		record.ID = domain.EntityID(fmt.Sprintf("transaction_%03d", index))
+		record.ProviderID = fmt.Sprintf("provider-%03d", index)
+		profile.snapshot.Committed.Transactions = append(profile.snapshot.Committed.Transactions, record)
+	}
+	service, err := app.NewProfileService(context.Background(), profile)
+	require.NoError(t, err)
+	state := detailViewState()
+	_, all, projection, err := service.TransitionView(
+		state, app.EmptySelection(),
+		app.TransitionRequest{Action: app.ActionToggleSelectAll}, app.WindowRequest{},
+	)
+	require.NoError(t, err)
+	require.Equal(t, 62, projection.SelectionCount)
+
+	imported := template
+	imported.ID, imported.ProviderID = "transaction_new", "provider-new"
+	profile.importExternally(imported)
+	changed, err := service.Refresh(context.Background())
+	require.NoError(t, err)
+	require.True(t, changed)
+	_, toggled, projection, err := service.TransitionView(
+		state, all,
+		app.TransitionRequest{
+			Action: app.ActionToggleSelection,
+			Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_a"},
+		},
+		app.WindowRequest{},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, 62, projection.SelectionCount)
+	snapshot, err := service.ResolveSelection(state.Current, toggled)
+	require.NoError(t, err)
+	assert.NotContains(t, snapshot.IDs, "transaction_a")
+	assert.Contains(t, snapshot.IDs, "transaction_new")
+	rebound, err := app.BindSelectionRevision(toggled, service.Revision())
+	require.NoError(t, err)
+	assert.Equal(t, rebound, toggled)
+}
+
+// importExternally commits a transaction the way another process's import would.
+func (profile *memoryProfile) importExternally(record domain.TransactionRecord) {
+	profile.mu.Lock()
+	defer profile.mu.Unlock()
+	profile.snapshot.Committed.Transactions = append(profile.snapshot.Committed.Transactions, record)
 	profile.snapshot.Revision++
 }
