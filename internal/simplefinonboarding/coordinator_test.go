@@ -118,15 +118,37 @@ func (h *harness) FetchSnapshot(ctx context.Context, request provider.FetchReque
 	identity, identityErr := h.ProbeIdentity(ctx)
 	return provider.SnapshotResult{Identity: identity, Snapshot: domain.ImportSnapshot{ObservedAt: request.Now}}, errors.Join(err, identityErr)
 }
+
+// waitState polls until the attempt reaches state. Only a running job changes the state without a
+// call from the test, and the job ends after its last transition, so the state that a stopped job
+// leaves is final.
 func waitState(t *testing.T, c *Coordinator, initial Snapshot, state State) Snapshot {
 	t.Helper()
-	var value Snapshot
-	require.Eventually(t, func() bool {
-		var err error
-		value, err = c.Status(t.Context(), StatusRequest{ProfileID: initial.ProfileID, AttemptID: initial.AttemptID})
-		return err == nil && value.State == state
-	}, 3*time.Second, time.Millisecond)
-	return value
+	request := StatusRequest{ProfileID: initial.ProfileID, AttemptID: initial.AttemptID}
+	for {
+		running := attemptJobRunning(c, initial.AttemptID)
+		value, err := c.Status(t.Context(), request)
+		require.NoError(t, err)
+		if value.State == state || !running {
+			require.Equal(t, state, value.State, "the setup job stopped: %+v", value.Failure)
+			return value
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+func attemptJobRunning(c *Coordinator, attemptID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	current, ok := c.attempts[attemptID]
+	if !ok {
+		return false
+	}
+	select {
+	case <-current.done:
+		return false
+	default:
+		return true
+	}
 }
 func startInput(t *testing.T, h *harness) Snapshot {
 	t.Helper()

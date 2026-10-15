@@ -51,7 +51,8 @@ func TestSupervisorUsesApplicationReservationAsWriteAuthority(t *testing.T) {
 	assert.False(t, active)
 	assert.Equal(t, uint64(3), status.Version)
 	close(release)
-	require.Eventually(t, func() bool { return !supervisor.WriteActive() }, time.Second, time.Millisecond)
+	supervisor.wait.Wait()
+	assert.False(t, supervisor.WriteActive())
 	assert.Equal(t, 1, first.runCalls)
 	require.NoError(t, supervisor.Close(context.Background()))
 }
@@ -72,9 +73,7 @@ func TestSupervisorCloseCancelsBlockingWriteReservation(t *testing.T) {
 		reservationDone <- err
 	}()
 	<-started
-	closeContext, cancelClose := context.WithTimeout(context.Background(), time.Second)
-	defer cancelClose()
-	require.NoError(t, supervisor.Close(closeContext))
+	require.NoError(t, supervisor.Close(context.Background()))
 	assert.ErrorIs(t, <-reservationDone, context.Canceled)
 }
 
@@ -126,12 +125,10 @@ func TestSupervisorReconcileAttemptIsRecoverableAndRequestIndependent(t *testing
 	assert.Equal(t, attempt.ID, recovered.ID)
 
 	close(release)
-	require.Eventually(t, func() bool {
-		current, statusErr := supervisor.ReconcileStatus(attempt.ID)
-		return statusErr == nil && current.State == AttemptCompleted
-	}, time.Second, time.Millisecond)
+	supervisor.wait.Wait()
 	terminal, err := supervisor.ReconcileStatus(attempt.ID)
 	require.NoError(t, err)
+	require.Equal(t, AttemptCompleted, terminal.State)
 	assert.Equal(t, uint64(7), terminal.Revision)
 	assert.Equal(t, uint64(3), terminal.Generation)
 	assert.Equal(t, uint64(9), terminal.Write.Version)
@@ -174,12 +171,10 @@ func TestSupervisorRefreshAttemptIsRecoverableAndSingleFlight(t *testing.T) {
 	assert.Equal(t, AttemptRunning, recovered.State)
 
 	close(release)
-	require.Eventually(t, func() bool {
-		current, statusErr := supervisor.RefreshStatus(attempt.ID)
-		return statusErr == nil && current.State == AttemptCompleted
-	}, time.Second, time.Millisecond)
+	supervisor.wait.Wait()
 	terminal, err := supervisor.RefreshStatus(attempt.ID)
 	require.NoError(t, err)
+	require.Equal(t, AttemptCompleted, terminal.State)
 	assert.Equal(t, uint64(11), terminal.Revision)
 	assert.Equal(t, uint64(7), terminal.Generation)
 	assert.Equal(t, 40, terminal.Refresh.Fetched)
@@ -198,10 +193,10 @@ func TestSupervisorRefreshConfirmationIsProcessLocal(t *testing.T) {
 		}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 4}
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		status, statusErr := supervisor.RefreshStatus(attempt.ID)
-		return statusErr == nil && status.State == AttemptConfirmationRequired
-	}, time.Second, time.Millisecond)
+	supervisor.wait.Wait()
+	parked, err := supervisor.RefreshStatus(attempt.ID)
+	require.NoError(t, err)
+	require.Equal(t, AttemptConfirmationRequired, parked.State)
 	_, err = supervisor.ConfirmRefresh(attempt.ID, "wrong", func(context.Context) (app.ProviderRefreshResult, error) {
 		return app.ProviderRefreshResult{}, nil
 	})
@@ -235,12 +230,10 @@ func TestSupervisorRefreshFailureKeepsAuthoritativeVersions(t *testing.T) {
 		return result, failure
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		status, statusErr := supervisor.RefreshStatus(attempt.ID)
-		return statusErr == nil && status.State == AttemptConfirmationRequired
-	}, time.Second, time.Millisecond)
+	supervisor.wait.Wait()
 	status, err := supervisor.RefreshStatus(attempt.ID)
 	require.NoError(t, err)
+	require.Equal(t, AttemptConfirmationRequired, status.State)
 	assert.Equal(t, uint64(9), status.Revision)
 	assert.Equal(t, uint64(12), status.Generation)
 	require.NoError(t, supervisor.Close(context.Background()))
@@ -256,10 +249,10 @@ func TestSupervisorConfirmationUsesServerLifetimeAndCloseWaits(t *testing.T) {
 		}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 8}
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		status, statusErr := supervisor.ReconcileStatus(attempt.ID)
-		return statusErr == nil && status.State == AttemptConfirmationRequired
-	}, time.Second, time.Millisecond)
+	supervisor.wait.Wait()
+	parked, err := supervisor.ReconcileStatus(attempt.ID)
+	require.NoError(t, err)
+	require.Equal(t, AttemptConfirmationRequired, parked.State)
 	started := make(chan struct{})
 	stopped := make(chan struct{})
 	result := make(chan error, 1)
@@ -346,10 +339,10 @@ func TestSupervisorReservesOnlyMatchingReconcileConfirmation(t *testing.T) {
 		return result, failure
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		status, statusErr := supervisor.ReconcileStatus(attempt.ID)
-		return statusErr == nil && status.State == AttemptConfirmationRequired
-	}, time.Second, time.Millisecond)
+	supervisor.wait.Wait()
+	parked, err := supervisor.ReconcileStatus(attempt.ID)
+	require.NoError(t, err)
+	require.Equal(t, AttemptConfirmationRequired, parked.State)
 	_, err = supervisor.ConfirmReconcile(
 		attempt.ID, "wrong", func(context.Context) (app.ProviderWriteResult, error) {
 			return app.ProviderWriteResult{}, nil
@@ -410,7 +403,8 @@ func TestSupervisorLogsAWriteRunThatStopped(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.True(t, active)
-	require.Eventually(t, func() bool { return !supervisor.WriteActive() }, time.Second, time.Millisecond)
+	supervisor.wait.Wait()
+	assert.False(t, supervisor.WriteActive())
 	require.NoError(t, supervisor.Close(context.Background()))
 	logMu.Lock()
 	defer logMu.Unlock()
