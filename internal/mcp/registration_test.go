@@ -815,9 +815,9 @@ func TestPanicDuringAWriteReservationLeavesNothingHeldAndCloseFinishes(t *testin
 	require.True(t, result.IsError)
 	assert.Equal(t, "mcp_internal_error", result.StructuredContent.(map[string]any)["code"])
 	assert.Zero(t, profiles.leases.Load(), "the reservation kept the profile held")
-	closing, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	assert.NoError(t, supervisor.Close(closing), "Close is still waiting for the reservation")
+	// Close returns once no work remains. A reservation that leaked would hold it until the go
+	// test timeout.
+	assert.NoError(t, supervisor.Close(t.Context()))
 }
 
 // Provider code can panic in the resumed run itself, outside the calls that the run turns into
@@ -961,9 +961,9 @@ func TestSupervisorClosedDuringAReservationGivesTheProfileBack(t *testing.T) {
 
 	require.True(t, result.IsError)
 	assert.Zero(t, profiles.leases.Load(), "the closed supervisor kept the profile held")
-	closing, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	assert.NoError(t, supervisor.Close(closing), "Close is still waiting for the reservation")
+	// Close returns once no work remains. A reservation that leaked would hold it until the go
+	// test timeout.
+	assert.NoError(t, supervisor.Close(t.Context()))
 	_, again, err := service.ReserveProviderWriteExecution(t.Context(), 0)
 	require.NoError(t, err)
 	require.NotNil(t, again, "the closed supervisor kept the write reserved")

@@ -255,11 +255,7 @@ func TestCompletedOnboardingWaitsForOneReleaseAndPreservesReleaseFailure(t *test
 	require.NoError(t, err)
 	responses := make(chan *httptest.ResponseRecorder, 2)
 	go func() { responses <- requestServer(t, server, http.MethodGet, path, nil) }()
-	select {
-	case <-closeStarted:
-	case <-time.After(time.Second):
-		t.Fatal("completed onboarding did not start releasing its lease")
-	}
+	<-closeStarted
 	go func() { responses <- requestServer(t, server, http.MethodGet, path, nil) }()
 	select {
 	case <-responses:

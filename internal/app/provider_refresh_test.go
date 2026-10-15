@@ -660,11 +660,17 @@ func TestProviderRefreshHeartbeatRenewsWithoutProgressAndCancelsOnLeaseLoss(t *t
 		clockMu.Lock()
 		clockValue = now.Add(80 * time.Millisecond)
 		clockMu.Unlock()
-		require.Eventually(t, func() bool {
+		// The fetch holds the refresh, and its lease, until release closes. Poll until a heartbeat
+		// renews the lease from the advanced clock; a lease that disappears fails at once.
+		for {
 			state, stateErr := profileHandle.ProviderState(ctx)
-			return stateErr == nil && state.Lease != nil &&
-				state.Lease.ExpiresAt.Equal(now.Add(170*time.Millisecond))
-		}, 2*time.Second, 5*time.Millisecond)
+			require.NoError(t, stateErr)
+			require.NotNil(t, state.Lease)
+			if state.Lease.ExpiresAt.Equal(now.Add(170 * time.Millisecond)) {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
 		competitorNow := now.Add(100 * time.Millisecond)
 		_, acquired, err := profileHandle.AcquireRefreshLease(ctx, store.RefreshLease{
 			OwnerID: "instance-b", Renderer: "web", ExpiresAt: competitorNow.Add(time.Minute),

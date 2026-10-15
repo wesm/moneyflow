@@ -66,15 +66,25 @@ func TestSimpleFINOnboardingAPILifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(started.Body.Bytes(), &snapshot))
 	statusPath, err := ProfileAPIPath("/", testProfileID, "simplefin-onboarding/"+snapshot.AttemptID)
 	require.NoError(t, err)
+	// Only a setup job in one of these phases changes the state without a request from the test,
+	// so poll until the state arrives or the attempt leaves them.
+	working := map[simplefinonboarding.State]bool{
+		simplefinonboarding.StateInspect: true, simplefinonboarding.StateClaiming: true,
+		simplefinonboarding.StateSavingSession: true, simplefinonboarding.StateImporting: true,
+	}
 	wait := func(state simplefinonboarding.State) {
-		require.Eventually(t, func() bool {
+		for {
 			response := requestServer(t, server, http.MethodGet, statusPath, nil)
 			require.Equal(t, 200, response.Code, response.Body.String())
 			require.NotContains(t, response.Body.String(), access)
 			require.NotContains(t, response.Body.String(), "synthetic-secret")
 			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &snapshot))
-			return snapshot.State == state
-		}, 3*time.Second, time.Millisecond, "last status: %+v", &snapshot)
+			if snapshot.State == state || !working[snapshot.State] {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+		require.Equal(t, state, snapshot.State, "last status: %+v", &snapshot)
 	}
 	wait(simplefinonboarding.StateCredentialsRequired)
 	body := SimpleFINOnboardingSubmitBody{ProtocolVersion: 1, ExpectedStateVersion: snapshot.StateVersion, Action: simplefinonboarding.ActionConnect, Input: "synthetic-token", Settings: SimpleFINOnboardingSettingsResponse{Currency: "USD", Scale: 2}}

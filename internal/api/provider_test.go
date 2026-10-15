@@ -194,11 +194,7 @@ func TestProviderDeletionConfirmationIncludesConcurrentEditRevision(t *testing.T
 	go func() {
 		responseDone <- requestProtectedJSON(t, fixture.server, "/api/v1/provider/refresh", body)
 	}()
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("provider fetch did not start")
-	}
+	<-started
 
 	_, err = other.Mutate(t.Context(), app.MutationRequest{
 		Action: app.ActionEditMerchant, ExpectedRevision: 1, State: app.DefaultViewState(),
@@ -373,11 +369,7 @@ func TestProviderStatusRemainsResponsiveDuringProviderFetch(t *testing.T) {
 		})
 		refreshDone <- err
 	}()
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("provider fetch did not start")
-	}
+	<-started
 
 	responseDone := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
@@ -385,13 +377,10 @@ func TestProviderStatusRemainsResponsiveDuringProviderFetch(t *testing.T) {
 			t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil,
 		)
 	}()
-	select {
-	case response := <-responseDone:
-		assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	case <-time.After(time.Second):
-		close(release)
-		t.Fatal("provider status blocked behind the network fetch")
-	}
+	// The fetch stays blocked until release closes. A status read that waited behind it would
+	// never return, and the test would fail at the go test timeout.
+	response := <-responseDone
+	assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
 
 	close(release)
 	require.NoError(t, <-refreshDone)

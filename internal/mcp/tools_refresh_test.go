@@ -26,9 +26,8 @@ import (
 
 func TestRefreshToolReturnsPromptlyAndRecoversLostResponse(t *testing.T) {
 	service, source, closeProfile := refreshTestService(t, 1)
-	defer closeProfile()
-	client, cleanup := connectRefreshTestServer(t, service)
-	defer cleanup()
+	t.Cleanup(closeProfile)
+	client, supervisor := connectSupervisedServer(t, service, time.Now)
 
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -51,11 +50,8 @@ func TestRefreshToolReturnsPromptlyAndRecoversLostResponse(t *testing.T) {
 	assert.Equal(t, "running", recovered["state"])
 
 	close(release)
-	require.Eventually(t, func() bool {
-		status := callRefreshTool(t, client, "get_refresh_status", map[string]any{"attempt_id": attemptID})
-		return status["state"] == "completed"
-	}, time.Second, time.Millisecond)
-	terminal := callRefreshTool(t, client, "get_refresh_status", map[string]any{"attempt_id": attemptID})
+	terminal := awaitRefreshAttempt(t, client, supervisor, attemptID)
+	require.Equal(t, "completed", terminal["state"])
 	assert.Equal(t, "2", terminal["generation"])
 	assert.Empty(t, terminal["confirmation_token"])
 }
@@ -90,20 +86,17 @@ func TestRefreshStatusReportsProgressWhileTheRefreshRuns(t *testing.T) {
 
 func TestRefreshConfirmationTokenAppearsOnlyInMatchingStatus(t *testing.T) {
 	service, source, closeProfile := refreshTestService(t, 6)
-	defer closeProfile()
+	t.Cleanup(closeProfile)
 	source.setTransactionCount(0)
-	client, cleanup := connectRefreshTestServer(t, service)
-	defer cleanup()
+	client, supervisor := connectSupervisedServer(t, service, time.Now)
 
 	started := callRefreshTool(t, client, "refresh_data", nil)
 	assert.Empty(t, started["confirmation_token"])
 	attemptID := started["attempt_id"].(string)
-	var token string
-	require.Eventually(t, func() bool {
-		status := callRefreshTool(t, client, "get_refresh_status", map[string]any{"attempt_id": attemptID})
-		token, _ = status["confirmation_token"].(string)
-		return status["state"] == "deletion_confirmation_required" && token != ""
-	}, time.Second, time.Millisecond)
+	parked := awaitRefreshAttempt(t, client, supervisor, attemptID)
+	require.Equal(t, "deletion_confirmation_required", parked["state"])
+	token, _ := parked["confirmation_token"].(string)
+	require.NotEmpty(t, token)
 
 	invalid := callRefreshToolResult(t, client, "confirm_refresh_deletions", map[string]any{
 		"attempt_id": attemptID, "confirmation_token": "wrong",

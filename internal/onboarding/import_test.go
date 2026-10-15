@@ -94,11 +94,7 @@ func TestCancelWaitsForProviderFetchBeforeReleasingResources(t *testing.T) {
 	source.entered = make(chan struct{})
 	coordinator, started, _, opened := newImportCoordinator(t, source, &fakeCredentialVault{})
 	importing := waitForState(t, coordinator, started, StateImporting)
-	select {
-	case <-source.entered:
-	case <-time.After(3 * time.Second):
-		t.Fatal("provider fetch did not start")
-	}
+	<-source.entered
 
 	canceled, err := coordinator.Cancel(context.Background(), CancelRequest{
 		ProfileID: testProfileID, AttemptID: importing.AttemptID,
@@ -121,11 +117,7 @@ func TestProgressCopiesCountsWithoutProviderValues(t *testing.T) {
 	}
 	coordinator, started, _, _ := newImportCoordinator(t, source, &fakeCredentialVault{})
 	importing := waitForState(t, coordinator, started, StateImporting)
-	select {
-	case <-source.entered:
-	case <-time.After(3 * time.Second):
-		t.Fatal("provider fetch did not publish progress")
-	}
+	<-source.entered
 	current, err := coordinator.Status(context.Background(), StatusRequest{
 		ProfileID: testProfileID, AttemptID: importing.AttemptID,
 	})

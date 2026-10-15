@@ -65,9 +65,8 @@ func TestCommitStatusExplainsAWorkerRunThatStopped(t *testing.T) {
 	service, _, closeProfile := providerTestServiceOn(t, 1, "ynab", func(profile store.Profile) store.Profile {
 		return failingWriteLeaseProfile{Profile: profile}
 	})
-	defer closeProfile()
-	client, cleanup := connectWriteTestServer(t, service, true)
-	defer cleanup()
+	t.Cleanup(closeProfile)
+	client, supervisor := connectSupervisedServer(t, service, time.Now)
 	state := app.DefaultViewState()
 	state.Current.Mode = domain.ResultModeDetail
 	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
@@ -81,23 +80,21 @@ func TestCommitStatusExplainsAWorkerRunThatStopped(t *testing.T) {
 	committed := callWriteTool(t, client, "commit_changes", map[string]any{"expected_revision": revision, "reviewed_revision": revision})
 	require.False(t, committed.IsError, "%v", committed.StructuredContent)
 
-	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		status, err := client.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "get_commit_status"})
-		require.NoError(collect, err)
-		require.False(collect, status.IsError, "%v", status.StructuredContent)
-		write := status.StructuredContent.(map[string]any)["write"].(map[string]any)
-		assert.Equal(collect, string(store.WritePhaseWriting), write["phase"])
-		failure, ok := write["run_failure"].(map[string]any)
-		require.True(collect, ok, "status has no run_failure: %v", write)
-		assert.Equal(collect, string(app.AppStoreError), failure["code"])
-	}, 3*time.Second, 10*time.Millisecond)
+	supervisor.wait.Wait()
+	status, err := client.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "get_commit_status"})
+	require.NoError(t, err)
+	require.False(t, status.IsError, "%v", status.StructuredContent)
+	write := status.StructuredContent.(map[string]any)["write"].(map[string]any)
+	assert.Equal(t, string(store.WritePhaseWriting), write["phase"])
+	failure, ok := write["run_failure"].(map[string]any)
+	require.True(t, ok, "status has no run_failure: %v", write)
+	assert.Equal(t, string(app.AppStoreError), failure["code"])
 }
 
 func TestYNABCategoryClearCommitsThroughMCPWorker(t *testing.T) {
 	service, source, closeProfile := providerTestService(t, 1, "ynab")
-	defer closeProfile()
-	client, cleanup := connectWriteTestServer(t, service, true)
-	defer cleanup()
+	t.Cleanup(closeProfile)
+	client, supervisor := connectSupervisedServer(t, service, time.Now)
 	state := app.DefaultViewState()
 	state.Current.Mode = domain.ResultModeDetail
 	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
@@ -111,17 +108,15 @@ func TestYNABCategoryClearCommitsThroughMCPWorker(t *testing.T) {
 	revision := staged.StructuredContent.(map[string]any)["revision"]
 	committed := callWriteTool(t, client, "commit_changes", map[string]any{"expected_revision": revision, "reviewed_revision": revision})
 	require.False(t, committed.IsError, "%v", committed.StructuredContent)
-	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		status, err := client.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "get_commit_status"})
-		require.NoError(collect, err)
-		// Finalization can advance the revision while a status poll is reading it.
-		require.False(collect, status.IsError, "%v", status.StructuredContent)
-		write := status.StructuredContent.(map[string]any)["write"].(map[string]any)
-		assert.Empty(collect, write["phase"])
-		assert.InDelta(collect, 1, write["total"], 0)
-		assert.InDelta(collect, 1, write["completed"], 0)
-		assert.NotEmpty(collect, write["completed_at"], "a finished write keeps its result")
-	}, 3*time.Second, 10*time.Millisecond)
+	supervisor.wait.Wait()
+	status, err := client.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "get_commit_status"})
+	require.NoError(t, err)
+	require.False(t, status.IsError, "%v", status.StructuredContent)
+	write := status.StructuredContent.(map[string]any)["write"].(map[string]any)
+	assert.Empty(t, write["phase"])
+	assert.InDelta(t, 1, write["total"], 0)
+	assert.InDelta(t, 1, write["completed"], 0)
+	assert.NotEmpty(t, write["completed_at"], "a finished write keeps its result")
 	projection, err = service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
 	require.NoError(t, err)
 	assert.Zero(t, projection.Pending.ActiveOperations)
