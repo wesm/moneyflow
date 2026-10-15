@@ -224,6 +224,62 @@ describe('cashflowGeometry', () => {
     expect(scopeFromColumns(context, 1, 1)).toEqual({ start: '2025-01-01', end: '2025-12-31' })
   })
 
+  it('names the dates a historical custom range covers in its clipped edge periods', () => {
+    // Jan 15 – May 10, 2026, long before today (Oct 7): its edges are partial but not in progress.
+    const clip = (period: Context[number], start: string, end: string) => ({
+      ...period,
+      start,
+      end,
+      partial: true,
+    })
+    const context = [
+      clip(month(2026, 1), '2026-01-15', '2026-01-31'),
+      month(2026, 2),
+      month(2026, 3),
+      month(2026, 4),
+      clip(month(2026, 5), '2026-05-01', '2026-05-10'),
+    ]
+    const zeros = ['0', '0', '0', '0', '0']
+    const flow = { labels: ['Jan 2026', 'Feb 2026', 'Mar 2026', 'Apr 2026', 'May 2026'] }
+    const geometry = cashflowGeometry(
+      entry(
+        context,
+        { ...flow, in: zeros, out: zeros, net: zeros },
+        { kind: 'custom', scope: { start: '2026-01-15', end: '2026-05-10' } },
+      ),
+      500,
+      100,
+    )
+    expect(geometry.columns.map((column) => column.label)).toEqual([
+      'Jan 2026 (Jan 15–31)',
+      'Feb 2026',
+      'Mar 2026',
+      'Apr 2026',
+      'May 2026 (May 1–10)',
+    ])
+    // Both edges still draw lighter.
+    expect(geometry.columns.map((column) => column.partial)).toEqual([
+      true,
+      false,
+      false,
+      false,
+      true,
+    ])
+    expect(geometry.columns[0]!.name).toMatch(/^Jan 2026 \(Jan 15–31\), in /)
+
+    // A clipped year names its months too.
+    const years = cashflowGeometry(
+      entry(
+        [clip(year(2021), '2021-03-05', '2021-12-31'), year(2022)],
+        { labels: ['2021', '2022'], in: ['0', '0'], out: ['0', '0'], net: ['0', '0'] },
+        { kind: 'custom', scope: { start: '2021-03-05', end: '2022-12-31' } },
+      ),
+      200,
+      100,
+    )
+    expect(years.columns.map((column) => column.label)).toEqual(['2021 (Mar 5 – Dec 31)', '2022'])
+  })
+
   it('refuses a summary whose cash flow does not line up with the chart context', () => {
     const chart = megastore()
     chart.response.summary!.cashflow.net = ['-30000']

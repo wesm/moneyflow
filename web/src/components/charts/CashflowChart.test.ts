@@ -233,6 +233,7 @@ describe('CashflowChart', () => {
     const entry = chart()
     const last = entry.response.ranges.context[2]!
     entry.response.ranges.context[2] = { ...last, partial: true }
+    entry.response.today = '2026-09-20'
     render(CashflowChart, { entry, onperiod: vi.fn(), cursor })
     const group = screen.getByRole('group', { name: 'Cash flow' })
     const partial = within(group).getByRole('button', { name: /^Sep 2026 \(to date\), / })

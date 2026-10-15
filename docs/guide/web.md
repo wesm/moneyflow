@@ -146,8 +146,10 @@ The **cash-flow chart** draws one column per period of the
 a line with dots traces Net. A band marks the periods in the current scope.
 
 - Point at a column to see its In, Out, and Net.
-- **Unreleased:** A period in progress draws its bars and Net dot lighter, and its name reads
-  as running to date, such as `Oct 2026 (to date)`, in the tooltip and for screen readers.
+- **Unreleased:** A partial period draws its bars and Net dot lighter, and its name says what
+  it covers, in the tooltip and for screen readers. The period in progress reads
+  `Oct 2026 (to date)`. A custom range's clipped first or last period names its days, such as
+  `Jan 2026 (Jan 15–31)` or `May 2026 (May 1–10)`.
 - In a grouped view, the cursor row's part of each column is solid, and the tooltip adds that
   row's In and Out. In the Time grouping, the cursor period's column is solid.
 - Click a column to choose its period.

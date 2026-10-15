@@ -22,9 +22,10 @@ function months(absent = 0, partial = false): Month[] {
     const month = ((10 + index) % 12) + 1
     const year = index < 2 ? 2025 : 2026
     const start = `${year}-${String(month).padStart(2, '0')}-01`
+    const last = new Date(Date.UTC(year, month, 0)).getUTCDate()
     return {
       start,
-      end: start,
+      end: `${start.slice(0, 8)}${last}`,
       period: { granularity: 'month', year, month },
       absent: index < absent,
       partial: partial && index === 11,
@@ -33,11 +34,13 @@ function months(absent = 0, partial = false): Month[] {
 }
 
 const zero = SPARK_HEIGHT / 2
+/** The server's date: inside the last trend month, Oct 2026. */
+const today = '2026-10-07'
 
 describe('sparkline', () => {
   it('spreads twelve months across the width around a zero line at mid-height', () => {
     const trend = ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '-400']
-    const line = sparkline(trend, months())
+    const line = sparkline(trend, months(), today)
     expect(line.zero).toBe(zero)
     expect(line.segments).toHaveLength(1)
     const points = line.segments[0]!
@@ -49,7 +52,7 @@ describe('sparkline', () => {
 
   it('draws income above and spending below the zero line, scaled to the row’s largest month', () => {
     const trend = ['200', '-400', '0', '0', '0', '0', '0', '0', '0', '0', '0', '-100']
-    const [points] = sparkline(trend, months()).segments
+    const [points] = sparkline(trend, months(), today).segments
     const [income, spending, flat] = points!
     expect(income!.y).toBeLessThan(zero)
     expect(spending!.y).toBeGreaterThan(zero)
@@ -61,32 +64,32 @@ describe('sparkline', () => {
 
   it('leaves absent months out as a gap rather than drawing zero', () => {
     const trend = ['0', '0', '0', '-100', '-200', '0', '0', '0', '0', '0', '0', '-50']
-    const line = sparkline(trend, months(3))
+    const line = sparkline(trend, months(3), today)
     expect(line.segments).toHaveLength(1)
     expect(line.segments[0]).toHaveLength(9)
-    const first = sparkline(trend, months()).segments[0]![3]!
+    const first = sparkline(trend, months(), today).segments[0]![3]!
     expect(line.segments[0]![0]).toEqual(first)
   })
 
   it('draws a flat line at zero for a row with no money in any month', () => {
-    const line = sparkline(Array<string>(12).fill('0'), months())
+    const line = sparkline(Array<string>(12).fill('0'), months(), today)
     expect(line.segments[0]!.every((point) => point.y === zero)).toBe(true)
   })
 
   const trend = [...Array<string>(11).fill('-100'), '-20']
-  const full = sparkline(trend, months())
+  const full = sparkline(trend, months(), today)
 
   it('ends a partial last month at the same point, named as running to date', () => {
-    const partial = sparkline(trend, months(0, true))
+    const partial = sparkline(trend, months(0, true), today)
     expect(partial.segments).toEqual(full.segments)
     expect(partial.end).toEqual(full.end)
     expect(full.end).toEqual(full.segments[0]!.at(-1))
-    expect(partial.toDate).toBe('Oct 2026 (to date)')
-    expect(full.toDate).toBeUndefined()
+    expect(partial.partial).toBe('Oct 2026 (to date)')
+    expect(full.partial).toBeUndefined()
   })
 
   it('draws nothing when every month is absent', () => {
-    const line = sparkline(Array<string>(12).fill('0'), months(12))
+    const line = sparkline(Array<string>(12).fill('0'), months(12), today)
     expect(line.segments).toEqual([])
     expect(line.end).toBeUndefined()
   })

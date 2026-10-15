@@ -475,6 +475,17 @@ test('the cash-flow chart is one Tab stop that arrows, Enter, and Esc drive', as
   await expect(periodControl(page)).toHaveAccessibleName('Jul 1 – Sep 30, 2026')
 })
 
+test('a historical custom range names the days its clipped edge months cover', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2026-01-15&to=2026-05-10&v=1')
+  await expect(column(page, 'Jan 2026 \\(Jan 15–31\\)')).toHaveClass(/mf-cashflow__column--partial/)
+  await expect(column(page, 'May 2026 \\(May 1–10\\)')).toHaveClass(/mf-cashflow__column--partial/)
+  await expect(column(page, 'Mar 2026')).not.toHaveClass(/mf-cashflow__column--partial/)
+  await expect(cashflow(page).getByRole('button', { name: /to date/ })).toHaveCount(0)
+})
+
 test('cash-flow columns stay even in the phone drawer, labeled or not', async ({
   page,
   server,

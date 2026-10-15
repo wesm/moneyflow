@@ -14,15 +14,15 @@
   let { series }: Props = $props()
   const line = $derived(
     series.state === 'ready'
-      ? sparkline(series.series.trend, series.response.ranges.trend)
+      ? sparkline(series.series.trend, series.response.ranges.trend, series.response.today)
       : undefined,
   )
 </script>
 
 <!-- A picture of the row's last twelve months; the row's own cells carry its numbers. Text names
-     a last month still in progress. -->
+     a partial last month. -->
 {#if line}
-  {#if line.toDate}<span class="kit-sr-only">{line.toDate}</span>{/if}
+  {#if line.partial}<span class="kit-sr-only">{line.partial}</span>{/if}
   <svg
     class="mf-trend"
     width={SPARK_WIDTH}
@@ -31,7 +31,7 @@
     aria-hidden="true"
     focusable="false"
   >
-    {#if line.toDate}<title>{line.toDate}</title>{/if}
+    {#if line.partial}<title>{line.partial}</title>{/if}
     <line class="mf-trend__zero" x1="0" x2={SPARK_WIDTH} y1={line.zero} y2={line.zero} />
     {#each line.segments as points, index (index)}
       <polyline
@@ -41,7 +41,7 @@
     {/each}
     {#if line.end}
       <circle
-        class={['mf-trend__end', line.toDate && 'mf-trend__end--partial']}
+        class={['mf-trend__end', line.partial && 'mf-trend__end--partial']}
         cx={line.end.x}
         cy={line.end.y}
         r={END_RADIUS}

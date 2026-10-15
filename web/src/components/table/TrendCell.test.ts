@@ -9,9 +9,10 @@ import { testInsights } from '../../test/insights'
 type Month = components['schemas']['InsightsPeriodRange']
 
 function month(start: string, flags: Partial<Month> = {}): Month {
+  const last = new Date(Date.UTC(2026, Number(start.slice(5, 7)), 0)).getUTCDate()
   return {
     start,
-    end: start,
+    end: `${start.slice(0, 8)}${last}`,
     period: { granularity: 'month', year: 2026, month: Number(start.slice(5, 7)) },
     absent: false,
     partial: false,
