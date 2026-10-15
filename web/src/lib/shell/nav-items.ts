@@ -12,7 +12,6 @@ export type NavRun =
 export interface NavItem {
   id: string
   label: string
-  key: string
   active: boolean
   available: boolean
   /** Why the entry is unavailable; undefined while it is available. */
@@ -28,7 +27,6 @@ export interface NavSections {
 interface EntrySpec {
   id: string
   label: string
-  key: string
   capability: string
   run: NavRun
   active?: boolean
@@ -43,16 +41,15 @@ const groupings: Array<{ dimension: Dimension; label: string }> = [
 ]
 
 const maintainEntries: EntrySpec[] = [
-  maintenance('duplicates', 'Duplicates', 'D', 'view.find-duplicates', 'view.duplicates'),
-  maintenance('export', 'Export', 'E', 'transactions.export', 'transactions.export'),
-  maintenance('categories', 'Edit categories', 'C', 'category.manage', 'manage.categories'),
-  maintenance('groups', 'Edit groups', 'G', 'category-group.manage', 'manage.groups'),
+  maintenance('duplicates', 'Duplicates', 'view.find-duplicates', 'view.duplicates'),
+  maintenance('export', 'Export', 'transactions.export', 'transactions.export'),
+  maintenance('categories', 'Edit categories', 'category.manage', 'manage.categories'),
+  maintenance('groups', 'Edit groups', 'category-group.manage', 'manage.groups'),
 ]
 
 const amazonEntry = maintenance(
   'amazon',
   'Import Amazon orders',
-  'r',
   'provider.refresh',
   'provider.refresh',
 )
@@ -65,7 +62,6 @@ export function navItems(projection: ViewProjection): NavSections {
     return {
       id: spec.id,
       label: spec.label,
-      key: spec.key,
       active: spec.active ?? false,
       available: offered,
       reason: offered ? undefined : unavailableReason(projection, spec.capability),
@@ -73,11 +69,10 @@ export function navItems(projection: ViewProjection): NavSections {
     }
   }
   const allTransactions = projection.view.mode === 'detail' && drillFrames(projection).length === 0
-  const explore = groupings.map(({ dimension, label }, index) =>
+  const explore = groupings.map(({ dimension, label }) =>
     entry({
       id: dimension,
       label,
-      key: String(index + 1),
       capability: 'view.set-grouping',
       run: { kind: 'apply', action: 'view.set-grouping', dimension },
       active: !allTransactions && projection.view.grouping === dimension,
@@ -87,7 +82,6 @@ export function navItems(projection: ViewProjection): NavSections {
     entry({
       id: 'detail',
       label: 'All transactions',
-      key: 'd',
       capability: 'view.show-detail',
       run: { kind: 'apply', action: 'view.show-detail' },
       active: allTransactions,
@@ -98,11 +92,6 @@ export function navItems(projection: ViewProjection): NavSections {
   return { explore, maintain }
 }
 
-/** Converts a displayed key ("D") to its `aria-keyshortcuts` value ("Shift+D"). */
-export function ariaKeyshortcuts(key: string): string {
-  return /^[A-Z]$/.test(key) ? `Shift+${key}` : key
-}
-
 /** Reports whether the profile has a provider to refresh from the sidebar's provider status. */
 export function hasProviderStatus(kind: ViewProjection['profile_kind']): boolean {
   return kind === 'monarch' || kind === 'ynab' || kind === 'simplefin'
@@ -111,9 +100,8 @@ export function hasProviderStatus(kind: ViewProjection['profile_kind']): boolean
 function maintenance(
   id: string,
   label: string,
-  key: string,
   capability: string,
   action: LocalAction,
 ): EntrySpec {
-  return { id, label, key, capability, run: { kind: 'local', action } }
+  return { id, label, capability, run: { kind: 'local', action } }
 }

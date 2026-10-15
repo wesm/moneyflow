@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { Button, IconButton, Toggle } from '@kenn-io/kit-ui'
-  import MenuIcon from '@lucide/svelte/icons/menu'
+  import { Button, IconButton, MEDIA, Toggle } from '@kenn-io/kit-ui'
   import SearchIcon from '@lucide/svelte/icons/search'
   import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal'
   import { onDestroy, tick } from 'svelte'
+  import { MediaQuery } from 'svelte/reactivity'
 
   import Breadcrumbs from './Breadcrumbs.svelte'
   import BreakDownBy from './BreakDownBy.svelte'
@@ -46,6 +46,8 @@
   let searchFromIcon = false
   /** Whether the search row was open when the icon was pressed, before the press took focus. */
   let shownAtPress = false
+  /** Where the sidebar shows its top bar, which is then the page's banner. */
+  const narrow = new MediaQuery(MEDIA.wide)
   /** Keeps a search being typed when the window crosses the phone width and the field changes. */
   const searchCarry = new SearchCarry()
   onDestroy(() => searchCarry.destroy())
@@ -164,16 +166,8 @@
 {/snippet}
 
 {#if compact}
-  <CommandBar>
+  <CommandBar banner={!narrow.current}>
     {#snippet leading()}
-      <IconButton
-        ariaLabel="Open navigation"
-        ariaHaspopup="dialog"
-        ariaExpanded={overlays.current === 'navigation'}
-        onclick={(event) => overlays.open('navigation', event.currentTarget as HTMLElement)}
-      >
-        <MenuIcon size={18} aria-hidden="true" />
-      </IconButton>
       <Breadcrumbs {projection} onback={(depth) => void backTo(depth)} />
       {@render chartsSwitch()}
     {/snippet}
@@ -221,7 +215,7 @@
     {breakdown}
   />
 {:else}
-  <CommandBar>
+  <CommandBar banner={!narrow.current}>
     {#snippet leading()}
       <Breadcrumbs {projection} onback={(depth) => void backTo(depth)} />
       {@render breakdown()}

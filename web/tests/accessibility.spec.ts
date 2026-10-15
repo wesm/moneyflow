@@ -4,26 +4,13 @@ import { activeRow, cell, expect, openMoneyflow, test } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 import { withScenarioServer } from '../scripts/scenario-server'
 
-// kit CollapsibleSidebar renders its resize separator between the sidebar <aside> and the main
-// <section>, outside every landmark. Moneyflow cannot move it without patching kit-ui (upstream gap).
-const kitResizeHandle = 'kit-split-resize-handle'
 // kit's focus trap brackets each dialog with tab stops that hand focus straight back inside. They
 // are aria-hidden, so axe reports them as hidden focusable content (kit-ui upstream gap).
 const kitFocusGuard = '[data-kit-focus-guard]'
 
 async function expectNoAxeViolations(page: import('@playwright/test').Page): Promise<void> {
   const result = await new AxeBuilder({ page }).exclude(kitFocusGuard).analyze()
-  const violations = result.violations
-    .map((violation) =>
-      violation.id === 'region'
-        ? {
-            ...violation,
-            nodes: violation.nodes.filter((node) => !node.html.includes(kitResizeHandle)),
-          }
-        : violation,
-    )
-    .filter((violation) => violation.nodes.length > 0)
-  expect(violations).toEqual([])
+  expect(result.violations).toEqual([])
 }
 
 for (const colorScheme of ['light', 'dark'] as const) {
@@ -140,11 +127,21 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
-test('the collapsed sidebar rail passes axe at full-sidebar width', async ({ page, server }) => {
+test('the expanded sidebar passes axe at rail widths', async ({ page, server }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.addInitScript(() => localStorage.setItem('moneyflow-sidebar', 'collapsed'))
+  await page.addInitScript(() => localStorage.setItem('moneyflow-sidebar', 'expanded'))
   await openMoneyflow(page, server)
-  await expect(page.getByRole('button', { name: 'Expand sidebar' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Collapse sidebar' })).toBeVisible()
+  await expectNoAxeViolations(page)
+})
+
+test('the top bar and inline controls pass axe from 641 to 900 px', async ({ page, server }) => {
+  await page.setViewportSize({ width: 700, height: 800 })
+  await openMoneyflow(page, server)
+  await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible()
+  const bar = page.getByRole('region', { name: 'View controls' })
+  await expect(bar.getByRole('radiogroup', { name: 'Period', exact: true })).toBeVisible()
+  await expect(page.locator('.mf-kpis').getByText('Income', { exact: true })).toBeVisible()
   await expectNoAxeViolations(page)
 })
 

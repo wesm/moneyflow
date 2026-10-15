@@ -13,12 +13,29 @@ test('an unbound provider profile explains why refresh is unavailable', async ({
     }
     await page.route('**/api/v1/profiles/*/view', asMonarch)
     await page.route('**/api/v1/profiles/*/view/transition', asMonarch)
+    // The full sidebar shows the provider status with its text.
+    await page.setViewportSize({ width: 1440, height: 900 })
     await openMoneyflow(page, server)
 
     const refresh = page.getByRole('button', { name: 'Refresh provider data' })
     await expect(refresh).toBeDisabled()
     await expect(refresh).toHaveAttribute('title', 'Connect a provider before refreshing.')
     await expect(page.getByText('Connect a provider before refreshing.')).toBeVisible()
+
+    // The rail's icon keeps focus: its tooltip gives the reason, and a press puts the reason in
+    // the status line.
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await expect(refresh).toHaveAttribute('aria-disabled', 'true')
+    await page.getByRole('button', { name: 'Review pending changes' }).focus()
+    await page.keyboard.press('Tab')
+    await expect(refresh).toBeFocused()
+    await expect(
+      page.getByRole('tooltip').filter({ hasText: 'Connect a provider before refreshing.' }),
+    ).toBeVisible()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('status', { name: 'Notice' })).toHaveText(
+      'Connect a provider before refreshing.',
+    )
   } finally {
     await server.stop()
   }
@@ -30,6 +47,7 @@ test('r refreshes through the protected base-path API without leaking provider s
   const server = await startE2EServer('/moneyflow/')
   try {
     const fixture = await installProviderRoutes(page, false)
+    await page.setViewportSize({ width: 1440, height: 900 })
     await openMoneyflow(page, server)
     // Idle status keeps the last refresh's progress counts; the sidebar shows the update time.
     await expect(page.getByText('Updated just now')).toBeVisible()

@@ -34,4 +34,15 @@ describe('CommandBar', () => {
     const { container } = render(CommandBar, { leading: snippet('Trail') })
     expect(container.textContent?.trim()).toBe('Trail')
   })
+
+  it('is the page banner by default', () => {
+    render(CommandBar, { leading: snippet('Trail') })
+    expect(screen.getByRole('banner').textContent).toContain('Trail')
+  })
+
+  it('is the View controls region where the sidebar bar is the banner', () => {
+    render(CommandBar, { leading: snippet('Trail'), banner: false })
+    expect(screen.queryByRole('banner')).toBeNull()
+    expect(screen.getByRole('region', { name: 'View controls' }).textContent).toContain('Trail')
+  })
 })

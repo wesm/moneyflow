@@ -48,7 +48,7 @@ Its **Maintain** entries open tools:
   [managers](editing.md#manage-categories-and-groups).
 - Amazon profiles add **Import Amazon orders** (`r`); see [Amazon](amazon-mode.md).
 
-An entry that cannot run now is dimmed and shows its reason when you point at it.
+An entry that cannot run now explains why in the status line when you choose it.
 
 The bottom of the sidebar holds:
 
@@ -58,15 +58,18 @@ The bottom of the sidebar holds:
 - Provider status for Monarch, YNAB, and SimpleFIN profiles: when data was last refreshed, a
   refresh button (`r`), and **Reconnect** when the provider needs it. **Unreleased:** Below the
   button, the sidebar shows why refresh is unavailable, such as a provider write in progress or
-  another process refreshing. The refresh dialog, and then the
-  [stale data banner](#stale-data-banner), say why a refresh failed. See
+  another process refreshing. In the icon rail, the **Refresh** icon's tooltip shows when data
+  was last refreshed, then why refresh is unavailable or a warning from the last refresh.
+  Pressing the icon while refresh is unavailable shows why in the status line. The refresh
+  dialog, and then the [stale data banner](#stale-data-banner), say why a refresh failed. See
   [Refresh provider data](#refresh-provider-data).
 - The theme toggle; see [Themes](#themes).
 
-**Unreleased:** At 1280 px and wider, the **Collapse sidebar** button beside the Moneyflow name
-switches the sidebar to the icon rail that narrower windows use. The **Expand sidebar** button at
-the top of the rail brings the sidebar back. The browser remembers the choice. Narrower windows
-show the rail or the phone drawer whatever you chose; see [Narrow screens](#narrow-screens).
+**Unreleased:** From 901 to 1439 px wide, the sidebar shows as an icon rail; point at an entry's
+icon or move focus to it to see its name. **Expand sidebar** at the bottom of the rail shows the
+full sidebar, and **Collapse sidebar** returns to the rail. The browser remembers the choice.
+Until you choose, touch screens start with the full sidebar. At 1440 px and wider the full
+sidebar always shows; see [Narrow screens](#narrow-screens).
 
 The command bar shows where you are and what the view includes. It holds the
 [breadcrumb and Break down by](navigation.md#use-the-breadcrumb-and-break-down-by-in-the-browser),
@@ -243,13 +246,15 @@ previous currency. It also clears the selection. Esc does not undo a currency ch
 
 **Unreleased:** The workspace adapts to the window width:
 
-- **1280 px and wider:** the full sidebar, unless you collapse it to the icon rail.
-- **641 to 1279 px:** an icon rail with tooltips replaces the sidebar. The status line shows the
-  pending-edits text.
+- **1440 px and wider:** the full sidebar.
+- **901 to 1439 px:** an icon rail, unless you expand it to the full sidebar. Touch screens start
+  with the full sidebar. While the rail shows, the status line shows the pending-edits text.
+- **900 px and narrower:** a top bar with the Moneyflow name and a menu button, which opens the
+  sidebar as a drawer. The status line shows the pending-edits text.
 - **Below 900 px:** the panel moves under the cash-flow chart.
-- **640 px and narrower:** the phone layout. The menu button opens the sidebar as a drawer, the
-  command bar takes two rows, and the charts open from the **Charts** switch. The status line
-  shows the pending-edits text instead of keys, and leaves out the profile revision.
+- **640 px and narrower:** the phone layout. The command bar takes two rows, and the charts open
+  from the **Charts** switch. The status line shows the pending-edits text instead of keys, and
+  leaves out the profile revision.
 
 The table never scrolls sideways. [Navigate and search](navigation.md#move-through-results)
 explains the phone rows and the order in which columns leave a narrow table.
@@ -309,7 +314,8 @@ What happens next:
 
 - **Success:** the dialog closes and a notice reports the result, such as
   `Refresh complete: 40 imported, 0 removed.` A warning, such as an unrecorded full refresh,
-  appears in its own notice and beside **Refresh** in the sidebar.
+  appears in its own notice and beside **Refresh** in the sidebar, or in the **Refresh** icon's
+  tooltip in the icon rail.
 - **Cancel (Esc):** Moneyflow stops the refresh. The dialog shows **Stopping…** until the server
   confirms that it stopped, then closes. The view loads the latest saved data and reports
   `Refresh stopped.` Data saved before the cancel arrived remains saved.

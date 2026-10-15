@@ -5,6 +5,7 @@
 
   import type { ProviderController } from '../lib/controller/provider'
   import { refreshOwner } from '../lib/controller/refresh-notice'
+  import { status } from '../lib/shell/status.svelte'
 
   interface Props {
     controller: ProviderController
@@ -53,6 +54,16 @@
     const timer = setInterval(() => (now = Date.now()), 60_000)
     return () => clearInterval(timer)
   })
+
+  /**
+   * The rail's Refresh icon is aria-disabled while refresh cannot start, so it keeps focus and its
+   * tooltip opens for keyboard users. kit's icon button then swallows a press, so this sees the
+   * press first and, when refresh is unavailable, says why in the status line, as `r` does.
+   */
+  function explainUnavailable(): void {
+    const reason = controller.state.capability?.reason
+    if (!available && reason) status.notify(reason)
+  }
 </script>
 
 {#if rail}
@@ -63,16 +74,18 @@
       </IconButton>
     </Tooltip>
   {:else}
-    <Tooltip text={refreshTip}>
-      <IconButton
-        ariaLabel="Refresh provider data"
-        title=""
-        disabled={!available || refreshing}
-        onclick={() => void controller.refresh()}
-      >
-        <RefreshCwIcon size={14} aria-hidden="true" />
-      </IconButton>
-    </Tooltip>
+    <span onclickcapture={explainUnavailable}>
+      <Tooltip text={refreshTip}>
+        <IconButton
+          ariaLabel="Refresh provider data"
+          title=""
+          ariaDisabled={!available || refreshing}
+          onclick={() => void controller.refresh()}
+        >
+          <RefreshCwIcon size={14} aria-hidden="true" />
+        </IconButton>
+      </Tooltip>
+    </span>
   {/if}
 {:else}
   <div class="provider-status">

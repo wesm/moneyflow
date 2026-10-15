@@ -322,7 +322,7 @@ test('a pointer alone can start, leave, and confirm a manager step', async ({ pa
   const server = await startE2EServer()
   try {
     await openMoneyflow(page, server)
-    await page.getByRole('button', { name: 'Edit categories' }).click()
+    await page.getByRole('link', { name: 'Edit categories' }).click()
     const manager = page.getByRole('dialog', { name: 'Manage categories' })
     const list = manager.getByRole('listbox', { name: 'Categories' })
     await list.getByRole('option', { name: /^Books,/ }).click()

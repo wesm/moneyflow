@@ -2,11 +2,13 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import ProviderStatus from './ProviderStatus.svelte'
+import { status } from '../lib/shell/status.svelte'
 import { providerCapability, stubProvider, testProviderStatus } from '../test/provider'
 
 describe('ProviderStatus', () => {
   afterEach(() => {
     cleanup()
+    status.clear()
     vi.useRealTimers()
   })
 
@@ -154,6 +156,32 @@ describe('ProviderStatus', () => {
     })
     await fireEvent.click(screen.getByRole('button', { name: 'Reconnect provider' }))
     expect(onreconnect).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps an unavailable rail icon focusable and says why when it is pressed', async () => {
+    const controller = stubProvider(false)
+    render(ProviderStatus, { controller, rail: true })
+    const button = screen.getByRole('button', { name: 'Refresh provider data' })
+    expect(button.hasAttribute('disabled')).toBe(false)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    await fireEvent.focusIn(button)
+    expect((await screen.findByRole('tooltip')).textContent).toContain(
+      'Connect a provider before refreshing.',
+    )
+
+    await fireEvent.click(button)
+    expect(controller.refresh).not.toHaveBeenCalled()
+    expect(status.notice).toBe('Connect a provider before refreshing.')
+  })
+
+  it('ignores a press on the rail icon while a refresh runs', async () => {
+    const controller = stubProvider(true, { phase: 'refreshing' })
+    render(ProviderStatus, { controller, rail: true })
+    const button = screen.getByRole('button', { name: 'Refresh provider data' })
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    await fireEvent.click(button)
+    expect(controller.refresh).not.toHaveBeenCalled()
+    expect(status.notice).toBe('')
   })
 })
 

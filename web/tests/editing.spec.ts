@@ -1068,7 +1068,7 @@ test('@smoke overlays opened by a click return focus to the control clicked', as
     await openMoneyflow(page, server)
     const grid = page.getByRole('grid', { name: 'Financial results' })
 
-    const sidebarItem = page.getByRole('button', { name: 'Edit categories', exact: true })
+    const sidebarItem = page.getByRole('link', { name: 'Edit categories', exact: true })
     await sidebarItem.click()
     await expect(page.getByRole('dialog', { name: 'Manage categories' })).toBeVisible()
     await page.keyboard.press('Escape')
