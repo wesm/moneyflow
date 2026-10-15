@@ -109,9 +109,11 @@ messages.
 
 **Unreleased:** While a profile opens, the workspace appears at once with its regions empty and
 `Loading…` in the status line, so nothing moves when the data arrives. If the profile does not
-open, the page reads `Couldn't load this profile`, gives the reason, and offers **Retry**. A
-missing profile, a profile busy with recovery or another Moneyflow command, and a profile saved in
-a format this version cannot open each have their own reason. The reason suggests checking the
+open, the page reads `Couldn't load` with the profile's name, such as `Couldn't load Household`,
+gives the reason, and offers **Retry**. When Moneyflow cannot look up the name, the page reads
+`Couldn't load this profile`. A missing profile, a profile busy with recovery or another
+Moneyflow command, and a profile saved in a format this version cannot open each have their own
+reason. The reason suggests checking the
 connection only when the browser could not reach the server.
 
 ## Charts

@@ -1,6 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { startOnboardingE2EServer } from '../scripts/e2e-server'
+import { startE2EServer, startOnboardingE2EServer } from '../scripts/e2e-server'
 
 test('two profile tabs keep routes, data, and revisions independent', async ({ browser }) => {
   const server = await startOnboardingE2EServer()
@@ -120,3 +123,38 @@ async function createConnectedProfile(page: Page, baseURL: string, name: string)
   if (!match?.[1]) throw new Error('Onboarding did not reach a canonical profile route.')
   return match[1]
 }
+
+test('a profile that fails to open is named on the failure page', async ({ page }) => {
+  const profileHome = await mkdtemp(join(tmpdir(), 'moneyflow-named-failure-'))
+  const server = await startE2EServer({ profileHome, seedProfile: true })
+  try {
+    const catalog = await page.request.get(`${server.origin}${server.basePath}api/v1/profiles`)
+    const { profiles } = (await catalog.json()) as {
+      profiles: { id: string; display_name: string }[]
+    }
+    const name = profiles.find((profile) => profile.id === server.profileID)?.display_name
+    expect(name).toBeTruthy()
+    await page.route('**/api/v1/profiles/*/view', (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: 'application/problem+json',
+        json: {
+          type: 'about:blank',
+          title: 'Service Unavailable',
+          status: 503,
+          detail: 'The profile is in use by another Moneyflow command.',
+          code: 'profile_busy',
+        },
+      }),
+    )
+
+    await page.goto(server.url)
+    await expect(page.getByRole('heading', { name: `Couldn't load ${name}` })).toBeVisible()
+    await expect(
+      page.getByText('The profile is in use by another Moneyflow command.', { exact: true }),
+    ).toBeVisible()
+  } finally {
+    await server.stop()
+    await rm(profileHome, { recursive: true, force: true })
+  }
+})

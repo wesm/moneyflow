@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App.svelte'
@@ -86,6 +87,53 @@ describe('Moneyflow application scaffold', () => {
     expect(screen.getByText(detail)).not.toBeNull()
     expect(screen.queryByText('Profile problem')).toBeNull()
     expect(screen.queryByText(/server is reachable/)).toBeNull()
+  })
+
+  describe('a first load that fails', () => {
+    const profileID = 'profile_bbbbbbbbbbbbbbbbbbbbbbbbbb'
+    const failed = () =>
+      stubController({
+        loading: false,
+        problem: { kind: 'request', code: 'profile_busy', detail: 'The profile is busy.' },
+      })
+    const catalogResponse = (profiles: unknown[]) =>
+      new Response(JSON.stringify({ version: '1', profiles }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    const summary = {
+      key: 'example',
+      id: profileID,
+      display_name: 'Example Budget',
+      provider_kind: 'monarch',
+      status: 'ready',
+    }
+
+    it('names the profile the catalog knows', async () => {
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => catalogResponse([summary]))
+      vi.stubGlobal('fetch', fetch)
+      render(App, { basePath: '/moneyflow/', profileID, controller: failed() })
+
+      expect(
+        await screen.findByRole('heading', { name: "Couldn't load Example Budget" }),
+      ).not.toBeNull()
+      expect(screen.getByText('The profile is busy.')).not.toBeNull()
+      const request = fetch.mock.calls[0]![0]
+      const url = request instanceof Request ? request.url : String(request)
+      expect(new URL(url).pathname).toBe('/moneyflow/api/v1/profiles')
+    })
+
+    it.each([
+      ['the catalog cannot be read', () => Promise.reject(new Error('offline'))],
+      ['the catalog lacks the profile', () => Promise.resolve(catalogResponse([]))],
+    ])('says "this profile" when %s', async (_, respond) => {
+      const fetch = vi.fn<typeof globalThis.fetch>(respond)
+      vi.stubGlobal('fetch', fetch)
+      render(App, { basePath: '/moneyflow/', profileID, controller: failed() })
+
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+      await tick()
+      expect(screen.getByRole('heading', { name: "Couldn't load this profile" })).not.toBeNull()
+    })
   })
 
   it('offers fresh setup for a legacy profile with no provider', async () => {
