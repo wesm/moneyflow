@@ -5,7 +5,7 @@
     "": {
       "name": "moneyflow-web",
       "dependencies": {
-        "@kenn-io/kit-ui": "github:kenn-io/kit-ui#16db58ef8122dd00e21ce8ad90ba295b9174c6ef",
+        "@kenn-io/kit-ui": "github:kenn-io/kit-ui#dc7a4184843343cb1fa639ea6e77b68d13e755af",
         "@lucide/svelte": "1.21.0",
         "openapi-fetch": "0.17.0",
         "svelte": "5.56.3",
@@ -110,7 +110,7 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@kenn-io/kit-ui": ["@kenn-io/kit-ui@github:kenn-io/kit-ui#16db58e", { "peerDependencies": { "@lucide/svelte": ">=1.0.0", "dompurify": "^3.2.0", "marked": "^18.0.0", "mermaid": ">=11.15.0 <12", "shiki": "^4.0.0", "svelte": "^5.29.0" }, "optionalPeers": ["mermaid"], "bin": { "kit-ui-check": "./bin/kit-ui-check.mjs" } }, "kenn-io-kit-ui-16db58e", "sha512-/xDrzuroxuOCvg4H3bxVxrnJtFzRB/ou52PLEBUVRxY++EeDpeJj6QXVoeVb6Kto0BK/CW63majXT1DQNCvx0g=="],
+    "@kenn-io/kit-ui": ["@kenn-io/kit-ui@github:kenn-io/kit-ui#dc7a418", { "peerDependencies": { "@lucide/svelte": ">=1.0.0", "dompurify": "^3.2.0", "marked": "^18.0.0", "mermaid": "12.0.0", "shiki": "^4.0.0", "svelte": "^5.29.0" }, "optionalPeers": ["mermaid"], "bin": { "kit-ui-check": "./bin/kit-ui-check.mjs" } }, "kenn-io-kit-ui-dc7a418", "sha512-gq7ej9l91ykNy7Xgo9sWNRwLjJ3iXs0ut9ct5NooQfWYVyjsBYt1iV48iNURAipowT3aAzOyPbPJfH0MZP9t0A=="],
 
     "@lucide/svelte": ["@lucide/svelte@1.21.0", "", { "peerDependencies": { "svelte": "^5" } }, "sha512-MEv//A7Jv3kHukZowv/DWp1MAtUzJKYwtJsmnQ7X98lCgtac3z3NbaToDl3Q6jO3gS9sougFpcD+t+YuxOkRMw=="],
 

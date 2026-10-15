@@ -22,7 +22,7 @@
 
 {#if open}
   <!-- kit-ui-check-ignore: kit-ui has no left navigation drawer; this composes its focus trap. -->
-  <div class="mf-nav-drawer" role="presentation" onpointerdown={backdropCloses(onclose)}>
+  <div class="mf-nav-drawer" role="presentation" {@attach backdropCloses(onclose)}>
     <div
       class="mf-nav-drawer__panel"
       role="dialog"

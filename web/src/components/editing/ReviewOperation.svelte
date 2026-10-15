@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Chip } from '@kenn-io/kit-ui'
+  import { Button, Chip, Table } from '@kenn-io/kit-ui'
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right'
 
   import StagedValue from '../table/StagedValue.svelte'
@@ -60,43 +60,32 @@
   {#if expanded && total}
     <div class="mf-review-op__targets" id={`${id}-targets`}>
       {#if targets.length}
-        <table class="mf-review-op__table">
-          <caption class="kit-sr-only">Affected transactions</caption>
-          <thead>
+        <Table ariaLabel="Affected transactions" stickyHeader={false} zebra={false} unsorted>
+          {#snippet header()}
+            <th scope="col">Date</th>
+            <th scope="col">Merchant</th>
+            <th scope="col">Category</th>
+            <th scope="col" class="mf-review-op__amount">Amount</th>
+          {/snippet}
+          {#each targets as target, index (index)}
+            {@const change = reviewRowChange(operation, target)}
             <tr>
-              <th scope="col">Date</th>
-              <th scope="col">Merchant</th>
-              <th scope="col">Category</th>
-              <th scope="col" class="mf-review-op__amount">Amount</th>
+              <td>{target.date}</td>
+              <td
+                ><StagedValue committed={target.merchant} staged={after(change, 'merchant')} />
+                {#if change?.field === 'visibility'}<StagedValue
+                    committed={change.before}
+                    staged={change.after}
+                  />{:else if target.hidden}<Chip size="xs" tone="muted" uppercase={false}
+                    >Hidden</Chip
+                  >{/if}</td
+              >
+              <td><StagedValue committed={target.category} staged={after(change, 'category')} /></td
+              >
+              <td class="mf-review-op__amount">{target.amount.display} {target.amount.currency}</td>
             </tr>
-          </thead>
-          <tbody>
-            {#each targets as target, index (index)}
-              {@const change = reviewRowChange(operation, target)}
-              <tr>
-                <td>{target.date}</td>
-                <td
-                  ><StagedValue committed={target.merchant} staged={after(change, 'merchant')} />
-                  {#if change?.field === 'visibility'}<StagedValue
-                      committed={change.before}
-                      staged={change.after}
-                    />{:else if target.hidden}<Chip size="xs" tone="muted" uppercase={false}
-                      >Hidden</Chip
-                    >{/if}</td
-                >
-                <td
-                  ><StagedValue
-                    committed={target.category}
-                    staged={after(change, 'category')}
-                  /></td
-                >
-                <td class="mf-review-op__amount"
-                  >{target.amount.display} {target.amount.currency}</td
-                >
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+          {/each}
+        </Table>
       {/if}
       {#if loading}
         <p class="mf-review-op__more mf-quiet">Loading transactions…</p>
@@ -168,37 +157,43 @@
   }
   .mf-review-op__targets {
     padding: 0 var(--space-4) var(--space-5) var(--space-6);
+    /* The drawer already frames the operation; a second frame touches the cell text. */
+    --shadow-panel: none;
   }
-  .mf-review-op__table {
-    width: 100%;
-    border-collapse: collapse;
+  /* kit Table rules tie at two classes; the targets class out-ranks them. */
+  .mf-review-op__targets :global(.kit-table) {
     font-size: var(--font-size-sm);
     font-variant-numeric: tabular-nums;
   }
-  .mf-review-op__table th {
+  .mf-review-op__targets :global(.kit-table th) {
     color: var(--text-secondary);
     font-weight: var(--font-weight-medium);
     text-align: left;
   }
-  .mf-review-op__table :is(th, td) {
+  .mf-review-op__targets :global(.kit-table :is(th, td)) {
     padding: var(--space-2) var(--space-4) var(--space-2) 0;
     border-bottom: 1px solid var(--border-muted);
   }
   /* Dates and amounts keep to one line; names wrap, even inside a long word, so a row fits. */
-  .mf-review-op__table td {
+  .mf-review-op__targets :global(.kit-table td) {
     overflow-wrap: anywhere;
+    color: inherit;
   }
-  .mf-review-op__table td:first-child,
-  .mf-review-op__table .mf-review-op__amount {
+  .mf-review-op__targets :global(.kit-table td:first-child),
+  .mf-review-op__targets :global(.kit-table .mf-review-op__amount) {
     white-space: nowrap;
   }
   /* As the table shows amounts: right-aligned figures. */
-  .mf-review-op__table .mf-review-op__amount {
+  .mf-review-op__targets :global(.kit-table .mf-review-op__amount) {
     padding-inline-end: 0;
     text-align: right;
   }
-  .mf-review-op__table td.mf-review-op__amount {
+  .mf-review-op__targets :global(.kit-table td.mf-review-op__amount) {
     font-family: var(--font-mono);
+  }
+  /* A hover background would leave the gold new value below AA contrast. */
+  .mf-review-op__targets :global(.kit-table tbody tr:hover) {
+    background: none;
   }
   /* As tall as the small button it replaces, so loading does not move the rows below. */
   .mf-review-op__more {

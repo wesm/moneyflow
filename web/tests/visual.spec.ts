@@ -1,6 +1,7 @@
 import type { Locator, Page } from '@playwright/test'
 
 import { cell, expect, openMoneyflow, test } from './fixtures'
+import { startE2EServer } from '../scripts/e2e-server'
 
 test.skip(({ browserName }) => browserName !== 'chromium', 'Layout contracts are Chromium-only.')
 
@@ -152,6 +153,83 @@ async function themeColor(page: Page, property: string): Promise<string> {
     probe.remove()
     return color
   }, property)
+}
+
+/** The computed shadow of a theme custom property, such as `--shadow-raised`. */
+async function themeShadow(page: Page, property: string): Promise<string> {
+  return await page.evaluate((name) => {
+    const probe = document.createElement('div')
+    probe.style.boxShadow = `var(${name})`
+    document.body.append(probe)
+    const shadow = getComputedStyle(probe).boxShadow
+    probe.remove()
+    return shadow
+  }, property)
+}
+
+for (const theme of themes) {
+  test(`${theme} controls, fields, and panels take their depth from the theme`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
+    await openMoneyflow(page, server)
+    const raised = await themeShadow(page, '--shadow-raised')
+    const sunken = await themeShadow(page, '--shadow-sunken')
+    const panel = await themeShadow(page, '--shadow-panel')
+    for (const shadow of [raised, sunken, panel]) expect(shadow).not.toBe('none')
+    expect(raised, 'a raised control must differ from a sunken one').not.toBe(sunken)
+    if (theme === 'dark') {
+      const highlight = await themeColor(page, '--edge-highlight')
+      expect(highlight, 'the dark theme sets its own edge highlight').not.toBe('rgb(255, 255, 255)')
+    }
+    const banner = page.getByRole('banner')
+    await expect(banner.locator('.kit-filter-dropdown__btn')).toHaveCSS('box-shadow', raised)
+    await expect(banner.locator('.kit-text-input')).toHaveCSS('box-shadow', sunken)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await expect(grid).toHaveCSS('box-shadow', panel)
+  })
+
+  test(`${theme} row actions stay flat while top-bar icon buttons are raised`, async ({
+    page,
+    server,
+  }) => {
+    await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const rail = page.getByRole('complementary', { name: 'Moneyflow sidebar' })
+    // Buttons repeated down a column: the detail view's pencils on a wide screen, the icon rail's
+    // entries between, and the rows' own buttons on a phone.
+    for (const [width, repeated] of [
+      [1440, grid.getByRole('button', { name: 'Edit merchant' })],
+      [1024, rail.getByRole('button', { name: 'Categories', exact: true })],
+      [390, grid.getByRole('button', { name: /^Actions for / })],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 })
+      await openMoneyflow(page, server)
+      await page.keyboard.press('d')
+      const raised = await themeShadow(page, '--shadow-raised')
+      expect(raised, `${width} px`).not.toBe('none')
+      const topBarButton = page.getByRole('button', { name: 'Previous period' })
+      await expect(topBarButton, `${width} px`).toHaveCSS('box-shadow', raised)
+      await expect(repeated.first(), `${width} px`).toHaveCSS('box-shadow', 'none')
+    }
+  })
+
+  test(`${theme} review drawer table is not framed a second time`, async ({ page }) => {
+    const server = await startE2EServer()
+    try {
+      await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
+      await openMoneyflow(page, server)
+      await page.keyboard.press('h')
+      await expect(page.getByText(/1 pending edit/).first()).toBeAttached()
+      await page.keyboard.press('w')
+      const review = page.getByRole('dialog', { name: 'Review pending changes' })
+      const wrapper = review.getByRole('table', { name: 'Affected transactions' }).locator('..')
+      await expect(wrapper).toHaveCSS('box-shadow', 'none')
+    } finally {
+      await server.stop()
+    }
+  })
 }
 
 test('hover keeps the cursor and selection tints; hidden rows keep ☐ and flags bright', async ({

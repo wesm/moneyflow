@@ -64,7 +64,7 @@
         {#if pending && !compact}{@render pendingStatus()}{/if}
         <span class="mf-status-line__connection">
           {#if shown === 'updating'}
-            <StatusDot status="working" label="" />Updating…
+            <StatusDot status="working" label="" animated />Updating…
           {:else if shown === 'offline'}
             <StatusDot status="unclean" label="" />Offline
             <Button size="sm" onclick={onretry}>Retry</Button>
