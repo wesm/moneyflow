@@ -123,7 +123,7 @@ func requireNoDevProfile(t *testing.T, home string) {
 }
 
 // requireWorkingDevProfile resolves the profile by name from the home, as `moneyflow web
-// --profile Moneyflow` does with MONEYFLOW_HOME set, and checks that it holds the fixture data.
+// --profile Local` does with MONEYFLOW_HOME set, and checks that it holds the fixture data.
 func requireWorkingDevProfile(t *testing.T, devHome string) {
 	t.Helper()
 	info, err := os.Stat(devHome)
@@ -142,7 +142,7 @@ func requireWorkingDevProfile(t *testing.T, devHome string) {
 		Paths: paths, Random: rand.Reader, Now: time.Now, Version: "test",
 	})
 	require.NoError(t, err)
-	entry, err := catalog.Resolve(t.Context(), "Moneyflow")
+	entry, err := catalog.Resolve(t.Context(), "Local")
 	require.NoError(t, err)
 	profile, err := sqlite.OpenTransferSource(t.Context(), entry.ProfilePaths(), sqlite.DefaultOptions)
 	require.NoError(t, err)

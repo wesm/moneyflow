@@ -663,7 +663,7 @@ func TestBoundProfileConfiguresProviderForProductionTUIAndWebCommands(t *testing
 		args []string
 	}{
 		{name: "tui", args: []string{"tui"}},
-		{name: "web", args: []string{"web", "--profile", "Moneyflow", "--open=false"}},
+		{name: "web", args: []string{"web", "--profile", "Monarch", "--open=false"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "profile")
@@ -702,7 +702,7 @@ func TestBoundProfileConfiguresProviderForProductionTUIAndWebCommands(t *testing
 			command := newRootCommand(streams)
 			args := test.args
 			if test.name == "tui" {
-				args = []string{"tui", "--profile", "Moneyflow"}
+				args = []string{"tui", "--profile", "Monarch"}
 			}
 			command.SetArgs(args)
 			require.NoError(t, command.Execute())

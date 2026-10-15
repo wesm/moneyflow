@@ -104,7 +104,11 @@ top-level `accounts.json`, `config.yaml`, `credentials.enc`, `merchants.json`, o
 `moneyflow.log`. The retired Python app wrote those files and Go never does. Python also kept
 `profiles/<account-id>/` folders, which would collide with Go's nested profiles.
 New profiles live under `profiles/<opaque-id>/`. A root-level legacy Go database remains in place;
-downstream code receives its root just as it does any other profile.
+downstream code receives its root just as it does any other profile. When the root profile gets
+its manifest, it is named after its provider ("Monarch", "YNAB", "SimpleFIN", "Amazon", "Local",
+or "CSV"), with " 2", " 3", and so on when another profile already uses that name. Before then,
+the catalog lists it under that provider name, using "Local" for an unbound database, or as
+"Unknown profile" when its provider cannot be read.
 
 Selection resolves ID/key first, then a unique normalized display name. Without an explicit choice,
 CLI commands use the sole persistent profile only when exactly one exists. Interactive commands

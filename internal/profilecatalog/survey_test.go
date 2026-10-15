@@ -124,7 +124,7 @@ func TestSurveyReportsAnInvalidLegacyProfileAndKeepsTheOthers(t *testing.T) {
 	byKey := entriesByKey(entries)
 	legacy := byKey[LegacyKey]
 	assert.Equal(t, StatusUnavailable, legacy.Status)
-	assert.Equal(t, "Moneyflow", legacy.DisplayName)
+	assert.Equal(t, "Unknown profile", legacy.DisplayName)
 	assert.Empty(t, legacy.ID)
 	assert.Equal(t, catalog.paths.Root, legacy.Root)
 	assert.True(t, strings.HasPrefix(legacy.Problem, "profile_invalid:"),

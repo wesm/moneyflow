@@ -44,7 +44,7 @@ sh_quote() {
 }
 
 run_backend() {
-  local home=$DEV_HOME profile=Moneyflow
+  local home=$DEV_HOME profile=Local
   if [ -n "$DEV_PROFILE" ]; then
     home=${MONEYFLOW_HOME:-}
     profile=$DEV_PROFILE

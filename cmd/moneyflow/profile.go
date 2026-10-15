@@ -93,7 +93,7 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 			providerKind = "local"
 		}
 		entry, err = catalog.FinalizeLegacyManifest(ctx, profilecatalog.LegacyManifestRequest{
-			DisplayName: "Moneyflow", ProviderKind: providerKind,
+			ProviderKind: providerKind,
 		})
 		if err != nil {
 			return OpenedProfile{}, persistentProfileOpenError(paths, err)
@@ -183,8 +183,9 @@ func resolvePersistentSelection(
 	}
 	if len(entries) == 0 && profile == "" {
 		return catalog, profilecatalog.Entry{
-			Key: profilecatalog.LegacyKey, DisplayName: "Moneyflow", ProviderKind: "monarch",
-			Root: catalog.Paths().Root, Status: profilecatalog.StatusSetupIncomplete,
+			Key: profilecatalog.LegacyKey, ProviderKind: "monarch",
+			DisplayName: profilecatalog.ProviderDisplayName("monarch"),
+			Root:        catalog.Paths().Root, Status: profilecatalog.StatusSetupIncomplete,
 		}, false, nil
 	}
 	entry, err := resolveCommandProfile(entries, profile)

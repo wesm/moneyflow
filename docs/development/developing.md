@@ -84,11 +84,12 @@ after changing `profile.sql`, because the dev profile keeps the schema it was cr
 Without `PROFILE`, `make dev` never uses `~/.moneyflow`. Output is also written to
 `tmp/logs/backend.log` and `tmp/logs/web.log`.
 
-The synthetic profile has no provider connection, so it opens offline. To work against one of
+The synthetic profile is named `Local`. It has no provider connection, so it opens offline.
+If `tmp/dev-home` holds no profile with that name, run `make dev-reset`. To work against one of
 your own profiles, such as one connected to Monarch, name it with `PROFILE`:
 
 ```bash
-make dev PROFILE="Example Profile"
+make dev PROFILE=Monarch
 ```
 
 This opens the profile from `MONEYFLOW_HOME` when it is set, and from `~/.moneyflow`

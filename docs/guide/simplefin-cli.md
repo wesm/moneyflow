@@ -48,10 +48,10 @@ simplefin_demo_root="$(mktemp -d "$HOME/moneyflow-simplefin-demo.XXXXXX")"
 MONEYFLOW_HOME="$simplefin_demo_root" moneyflow provider connect simplefin --currency USD --scale 2
 # Paste the newly obtained demo token only at the masked prompt above.
 
-MONEYFLOW_HOME="$simplefin_demo_root" moneyflow tui --profile Moneyflow
+MONEYFLOW_HOME="$simplefin_demo_root" moneyflow tui --profile SimpleFIN
 ```
 
-The first command creates the **Moneyflow** profile within that new catalog. Check that setup
+The first command creates the **SimpleFIN** profile within that new catalog. Check that setup
 finishes and posted rows can be viewed. Try a local edit, review/commit, and reopen with the same
 command. A manual refresh before one hour should be refused; retry only after the displayed time.
 No bank write should occur. Keep or remove only this explicitly identified temporary catalog when

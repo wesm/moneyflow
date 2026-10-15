@@ -25,6 +25,7 @@ type CreateRequest struct {
 
 // LegacyManifestRequest contains the metadata assigned after a successful legacy open.
 type LegacyManifestRequest struct {
+	// DisplayName names the profile. When it is empty, the profile is named after its provider.
 	DisplayName  string
 	ProviderKind string
 	ProfileID    string
@@ -59,9 +60,7 @@ func (catalog *Catalog) ActivateForProvider(
 	if providerKind == "" {
 		providerKind = "local"
 	}
-	return catalog.FinalizeLegacyManifest(ctx, LegacyManifestRequest{
-		DisplayName: "Moneyflow", ProviderKind: providerKind,
-	})
+	return catalog.FinalizeLegacyManifest(ctx, LegacyManifestRequest{ProviderKind: providerKind})
 }
 
 // Create installs one current pristine profile under a new opaque ID.
@@ -188,10 +187,6 @@ func (catalog *Catalog) FinalizeLegacyManifest(
 	if err != nil {
 		return Entry{}, err
 	}
-	name, key, err := NormalizeDisplayName(request.DisplayName)
-	if err != nil {
-		return Entry{}, newError(CodeProfileInvalid, err)
-	}
 	if !supportedProviderKind(request.ProviderKind) {
 		return Entry{}, newError(CodeProfileInvalid, errors.New("provider kind is unsupported"))
 	}
@@ -201,6 +196,14 @@ func (catalog *Catalog) FinalizeLegacyManifest(
 	nested, err := catalog.discoverNested(ctx, false)
 	if err != nil {
 		return Entry{}, err
+	}
+	requestedName := request.DisplayName
+	if requestedName == "" {
+		requestedName = providerProfileName(nested, request.ProviderKind, catalog.paths.Root)
+	}
+	name, key, err := NormalizeDisplayName(requestedName)
+	if err != nil {
+		return Entry{}, newError(CodeProfileInvalid, err)
 	}
 	if displayNameConflict(nested, key, catalog.paths.Root) {
 		return Entry{}, newError(CodeProfileNameConflict, errors.New("display name collides"))
@@ -377,6 +380,20 @@ func (catalog *Catalog) entryForCurrentManifest(
 	}
 	entry.Status, err = catalog.localStatus(entry, inspection)
 	return entry, err
+}
+
+// providerProfileName names a profile after its provider. When another profile uses that name,
+// it adds " 2", " 3", and so on.
+func providerProfileName(entries []Entry, providerKind string, excludedRoot string) string {
+	base := ProviderDisplayName(providerKind)
+	name := base
+	for number := 2; ; number++ {
+		_, key, err := NormalizeDisplayName(name)
+		if err != nil || !displayNameConflict(entries, key, excludedRoot) {
+			return name
+		}
+		name = fmt.Sprintf("%s %d", base, number)
+	}
 }
 
 func displayNameConflict(entries []Entry, requestedKey string, excludedRoot string) bool {

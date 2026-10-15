@@ -20,7 +20,7 @@ func TestDevBackendOpensTheSyntheticProfileByDefault(t *testing.T) {
 	home, args, output := runDev(t, devScript(), "DEV_HOME="+devHome)
 
 	require.Equal(t, devHome, home)
-	require.Equal(t, "Moneyflow", profileArgument(t, args))
+	require.Equal(t, "Local", profileArgument(t, args))
 	require.NotContains(t, output, "real profile")
 }
 
@@ -65,7 +65,7 @@ func TestMakeDevBackendIgnoresAnExportedProfile(t *testing.T) {
 			home, args, output := runDev(t, makeDevBackend(t, arguments...), environment...)
 
 			require.Equal(t, devHome, home)
-			require.Equal(t, "Moneyflow", profileArgument(t, args))
+			require.Equal(t, "Local", profileArgument(t, args))
 			require.NotContains(t, output, "real profile")
 		})
 	}

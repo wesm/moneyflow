@@ -80,10 +80,13 @@ func compareEntries(left, right Entry) int {
 	return cmp.Or(strings.Compare(leftKey, rightKey), strings.Compare(left.Key, right.Key))
 }
 
+// unknownProfileName labels a root profile whose name and provider cannot be read.
+const unknownProfileName = "Unknown profile"
+
 func placeholderEntry(key, id, root string) Entry {
 	name := key
 	if key == LegacyKey {
-		name = "Moneyflow"
+		name = unknownProfileName
 	}
 	return Entry{
 		Key: key, ID: id, DisplayName: name, Root: root,
@@ -243,7 +246,7 @@ func (catalog *Catalog) discoverProfile(
 		return entry, true, nil
 	}
 	entry := Entry{
-		Key: LegacyKey, DisplayName: "Moneyflow", Root: root, placeholderName: manifestMissing,
+		Key: LegacyKey, DisplayName: unknownProfileName, Root: root, placeholderName: manifestMissing,
 	}
 	if !manifestMissing {
 		var manifest Manifest
@@ -303,6 +306,10 @@ func (catalog *Catalog) discoverProfile(
 	}
 	if entry.ProviderKind == "" {
 		entry.ProviderKind = inspection.ProviderKind
+	}
+	if manifestMissing {
+		// Activate gives an unbound root profile the local provider unless a provider is requested.
+		entry.DisplayName = ProviderDisplayName(cmp.Or(entry.ProviderKind, "local"))
 	}
 	if inspection.Bound && entry.ProviderKind != inspection.ProviderKind {
 		return entry, true, newError(CodeProfileInvalid, errors.New("provider kind is inconsistent"))

@@ -142,7 +142,7 @@ export async function startE2EServer(
         : options.profileHome
           ? []
           : ['--demo']),
-      ...(options.profileHome && !options.selector ? ['--profile', 'Moneyflow'] : []),
+      ...(options.profileHome && !options.selector ? ['--profile', 'Local'] : []),
       '--open=false',
       '--listen',
       `127.0.0.1:${port}`,

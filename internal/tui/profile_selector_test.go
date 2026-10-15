@@ -131,6 +131,27 @@ func TestProfileSelectorLongNameKeepsStatusVisible(t *testing.T) {
 	assert.Contains(t, rendered, "Monarch")
 }
 
+func TestProfileSelectorNamesEveryProvider(t *testing.T) {
+	t.Parallel()
+	dependencies, _ := fakeShellDependencies(t)
+	dependencies.Catalog = fakeCatalogView{entries: []profilecatalog.Entry{
+		{
+			ID: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", DisplayName: "Example Bank",
+			ProviderKind: "csv", Status: profilecatalog.StatusLocalOnly,
+		},
+		{
+			ID: "profile_bbbbbbbbbbbbbbbbbbbbbbbbbb", DisplayName: "Example Orders",
+			ProviderKind: "amazon", Status: profilecatalog.StatusLocalOnly,
+		},
+	}}
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	shell.width, shell.height = 80, 24
+	rendered := strings.Join(shell.RenderScreen().Frame.PlainLines(), "\n")
+	assert.Contains(t, rendered, "CSV")
+	assert.Contains(t, rendered, "Amazon")
+}
+
 func TestProfileSelectorKeepsFocusedRowVisible(t *testing.T) {
 	t.Parallel()
 	entries := make([]profilecatalog.Entry, 30)
