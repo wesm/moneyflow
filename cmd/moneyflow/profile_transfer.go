@@ -21,7 +21,7 @@ import (
 )
 
 func newProfileCommand(streams IOStreams) *cobra.Command {
-	command := &cobra.Command{Use: "profile", Short: "Transfer saved profiles without database migrations"}
+	command := &cobra.Command{Use: "profile", Short: "Transfer or rename saved profiles without database migrations"}
 	var selector, output, input, name string
 	export := &cobra.Command{Use: "export", Short: "Export an existing profile to an unencrypted JSONL file", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -45,8 +45,46 @@ func newProfileCommand(streams IOStreams) *cobra.Command {
 		}}
 	importCommand.Flags().StringVar(&input, "input", "", "Moneyflow profile JSONL file (required)")
 	importCommand.Flags().StringVar(&name, "name", "", "New profile display name (required)")
-	command.AddCommand(export, importCommand)
+	rename := &cobra.Command{Use: "rename", Short: "Rename a profile in place; its data, credentials, and ID stay", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if strings.TrimSpace(selector) == "" || strings.TrimSpace(name) == "" {
+				return errors.New("profile rename requires --profile and --name")
+			}
+			return renameProfile(cmd.Context(), cmd.OutOrStdout(), selector, name)
+		}}
+	rename.Flags().StringVar(&selector, "profile", "", "Existing profile name or ID (required)")
+	rename.Flags().StringVar(&name, "name", "", "New profile display name (required)")
+	command.AddCommand(export, importCommand, rename)
 	return command
+}
+
+func renameProfile(ctx context.Context, out io.Writer, selector, name string) error {
+	catalog, err := openProfileCatalog("")
+	if err != nil {
+		return err
+	}
+	entries, err := catalog.List(ctx)
+	if err != nil {
+		return err
+	}
+	entry, err := resolveCommandProfile(entries, selector)
+	if err != nil {
+		return err
+	}
+	if entry.ID == "" {
+		if entry, err = catalog.Activate(ctx, entry.Key); err != nil {
+			return err
+		}
+	}
+	renamed, err := catalog.Rename(ctx, entry.ID, name)
+	if profilecatalog.CodeOf(err) == profilecatalog.CodeProfileBusy {
+		return fmt.Errorf("profile rename: close other Moneyflow processes using this profile: %w", err)
+	}
+	if err != nil {
+		return fmt.Errorf("profile rename: %w", err)
+	}
+	_, err = fmt.Fprintf(out, "Renamed %q to %q (%s).\n", entry.DisplayName, renamed.DisplayName, renamed.ID)
+	return err
 }
 
 func exportProfile(ctx context.Context, out, notices io.Writer, selector, output string, now time.Time) (resultErr error) {

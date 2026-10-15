@@ -58,6 +58,13 @@ Move the folder yourself; Moneyflow never moves your data:
 
 Keep `~/.moneyflow-python` until the Python exporter exists.
 
+Earlier Go builds named a new profile "Moneyflow". To name it after its provider instead,
+[rename it](go.md#rename-a-profile):
+
+```bash
+moneyflow profile rename --profile Moneyflow --name Monarch
+```
+
 ## Transfer a Go profile with JSONL
 
 1. Commit or undo active edits. Finish or reconcile unfinished provider writes.

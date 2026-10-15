@@ -10,6 +10,7 @@ Command help belongs to the installed binary; it may differ from newer source do
 | `moneyflow mcp` | [Profile-scoped MCP server](../guide/mcp.md) |
 | `moneyflow profile export --profile NAME_OR_ID --output FILE` | [Export saved Go profile data](../getting-started/transition.md#transfer-a-go-profile-with-jsonl) |
 | `moneyflow profile import --input FILE --name NAME` | [Import into a new Go profile](../getting-started/transition.md#transfer-a-go-profile-with-jsonl) |
+| `moneyflow profile rename --profile NAME_OR_ID --name NAME` | [Rename a profile in place](../getting-started/go.md#rename-a-profile) |
 | `moneyflow provider connect monarch` | [Connect Monarch](../guide/monarch.md) |
 | `moneyflow provider connect ynab` | [Connect YNAB](../guide/ynab.md) |
 | `moneyflow provider connect simplefin` | [Connect experimental SimpleFIN](../guide/simplefin-cli.md) |

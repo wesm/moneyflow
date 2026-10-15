@@ -49,6 +49,21 @@ After setup, select the profile directly by its name or ID:
 profiles you can choose. Profiles that share a name are listed with their IDs; pass one of those
 IDs to `--profile`.
 
+## Rename a profile
+
+**Unreleased:** A profile that a provider command or first run creates is named after its
+provider, such as "Monarch" or "YNAB". When that name is taken, it becomes "Monarch 2",
+"Monarch 3", and so on. To choose another name, close every TUI, web, and MCP process using the
+profile, then run:
+
+```bash
+./bin/moneyflow profile rename --profile Monarch --name "Example Budget"
+```
+
+The profile keeps its ID, data, and credentials. The new name must not belong to another
+profile, but it may change the capitalization of the current one. While another process holds
+the profile, the command refuses and asks you to close that process.
+
 Go's default catalog is `~/.moneyflow`. `MONEYFLOW_HOME` overrides that catalog root.
 Go refuses a catalog folder that holds Python app data; [moving to Go](transition.md) explains
 how to move that data aside. Opening Go does not convert Python profiles. During the
