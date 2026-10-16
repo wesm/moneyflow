@@ -219,6 +219,23 @@ definition, including the documented rebase/redo side effects.
 response content at 8 MiB. Oversize results return a bounded failure. HTTP request bodies have
 their own 1 MiB bound. Raw provider or credential data is not part of public status/error payloads.
 
+## Embedding
+
+The root package `moneyflow` lets a Go host run Moneyflow in its own process. An `Instance` owns
+the profile catalog, a pool of opened profiles, the onboarding coordinators, one refresh
+supervisor per profile, and an API server that leaves request admission to the host. The API, the
+host's refresh schedule, and every MCP server that `RegisterTools` populates share those
+supervisors, so a refresh attempt started in one place shows up in the others. Provider wiring
+that the CLI and the package both need lives in `internal/assembly`.
+
+Every API operation and MCP tool has one class: `read`, `stage`, or `commit`. The standalone web
+server wraps the same API handler with its canonical-origin and mutation-token checks; an
+embedded instance checks neither. The standalone web app adds mutation tokens in its own `fetch`,
+so the views it shares with hosts never handle tokens. The root `package.json` makes the
+repository the `moneyflow-views` Svelte package, which a host installs from the same Moneyflow
+commit or tag as the Go module. [Embedding Moneyflow](../development/embedding.md) owns the host
+contract.
+
 ## Credentials, cancellation, and process ownership
 
 The profile database is not encrypted. [Credential vault][source-13] uses

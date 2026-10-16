@@ -90,13 +90,16 @@ make web-demo          # Serve fresh temporary synthetic data
 
 | Directory | Owns |
 | --- | --- |
+| Repository root (`package moneyflow`) | Embedding package for host applications |
+| `package.json` | Makes the repository the `moneyflow-views` package; its versions follow `web/package.json` |
 | `cmd/moneyflow/` | CLI and process startup |
+| `internal/assembly/` | Provider wiring shared by the CLI and the embedding package |
 | `internal/app/` | Shared application service and journal operations |
 | `internal/domain/`, `internal/analytics/` | Exact money, identities, and queries |
 | `internal/store/` | SQLite persistence and atomic changes |
 | `internal/provider/`, `internal/importer/` | Provider adapters and file parsing |
 | `internal/tui/`, `internal/api/`, `internal/mcp/` | Interface adapters |
-| `web/` | Browser application |
+| `web/` | Browser application; `web/src/lib/views/` is the `moneyflow-views` package entry |
 | `testdata/` | Synthetic fixtures |
 
 ## Tests and Verification
