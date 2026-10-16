@@ -159,8 +159,11 @@ In the browser, `5` or **Time** in the sidebar also groups by Time. The browser 
 from the period: a day or month lists days, and a year lists months. All time lists months,
 or years when your transactions span more than 60 months. A custom range lists days up to 62
 days, months up to 36 months, and years beyond. A unit you choose with `t` lists the same
-dates in that unit and stays until you change the period. The TUI keeps the unit you chose
-and lists only periods with transactions.
+dates in that unit and stays until you change the period. The TUI keeps the unit you chose.
+
+Days without transactions are left out, in the TUI and in the browser's table and cash-flow
+chart. Months and years without transactions stay listed so gaps are visible: the browser lists
+every one in the period, and the TUI lists those between your first and last transactions.
 
 When you have drilled into a period and no single year, month, or day is selected, left and
 right select the period next to that drill-down. Every period change, whether from these

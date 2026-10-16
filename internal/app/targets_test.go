@@ -181,9 +181,9 @@ func TestSelectionsWithEmptyTimeRowsTargetTheirTransactions(t *testing.T) {
 	assert.ErrorContains(t, failure.Unwrap(), "no current transaction targets")
 }
 
-// TestEditTargetsUseTheServiceClock selects two days of January 2025 while the service is on
-// the system clock, then moves the service clock back to January 15. The projection now ends
-// at the 15th, so edit targets must not resolve the selected 20th either.
+// TestEditTargetsUseTheServiceClock selects two months of 2025 while the service is on the
+// system clock, then moves the service clock back to March 15. The projection now ends at
+// March, so edit targets must not resolve the selected June either.
 func TestEditTargetsUseTheServiceClock(t *testing.T) {
 	t.Parallel()
 
@@ -191,12 +191,12 @@ func TestEditTargetsUseTheServiceClock(t *testing.T) {
 		snapshot: domain.ProfileSnapshot{Revision: 7, Committed: profileOn(t, "2025-01-01")},
 	})
 	require.NoError(t, err)
-	state := timeTargetState(t, "2025-01-01", "2025-01-31")
+	state := timeTargetState(t, "2025-01-01", "2025-12-31")
 	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
 	require.NoError(t, err)
-	require.Len(t, projection.AggregateRows, 31, "the system clock lists the whole month")
+	require.Len(t, projection.AggregateRows, 12, "the system clock lists the whole year")
 	selection := app.EmptySelection()
-	for _, key := range []string{"2025-01-01", "2025-01-20"} {
+	for _, key := range []string{"2025-01", "2025-06"} {
 		selection, err = service.ToggleSelection(
 			state.Current, selection, app.IdentityAggregate, timeRowIdentity(key),
 		)
@@ -205,17 +205,17 @@ func TestEditTargetsUseTheServiceClock(t *testing.T) {
 	selection, err = app.BindSelectionRevision(selection, projection.Revision)
 	require.NoError(t, err)
 
-	service.SetClock(func() time.Time { return time.Date(2025, 1, 15, 12, 0, 0, 0, time.Local) })
+	service.SetClock(func() time.Time { return time.Date(2025, 3, 15, 12, 0, 0, 0, time.Local) })
 	projection, err = service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
 	require.NoError(t, err)
-	assert.Len(t, projection.AggregateRows, 15, "the service clock ends the month at the 15th")
+	assert.Len(t, projection.AggregateRows, 3, "the service clock ends the year at March")
 	_, err = service.PreviewMutation(context.Background(), app.MutationRequest{
 		Action: app.ActionToggleHidden, ExpectedRevision: projection.Revision,
 		State: state, Selection: selection,
 	})
 	failure := requireMutationCode(t, err, app.MutationInvalidTarget)
 	assert.ErrorContains(t, failure.Unwrap(), "selected aggregate does not resolve",
-		"the 20th is not a row under the service clock")
+		"June is not a row under the service clock")
 }
 
 func TestResolveTargetsKeepsCommittedAggregateScopeAfterPendingMerge(t *testing.T) {

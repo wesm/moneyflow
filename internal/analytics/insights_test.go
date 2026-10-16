@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -164,8 +165,13 @@ func TestInsightsTimeGroupingComposesEveryPeriodByGroup(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Nil(t, result.Summary.Composition)
-	require.Len(t, result.Summary.PeriodComposition, 30, "one per day row")
-	twelfth := result.Summary.PeriodComposition[11].Composition
+	compositions := result.Summary.PeriodComposition
+	require.Len(t, compositions, len(result.Summary.Cashflow), "one per day row")
+	index := slices.IndexFunc(compositions, func(composition PeriodComposition) bool {
+		return composition.Period.Day == 12
+	})
+	require.GreaterOrEqual(t, index, 0)
+	twelfth := compositions[index].Composition
 	assert.Equal(t, []CompositionEntry{{
 		Key: "group-food", Label: "Food", Net: -333418, ShareTenths: 1000,
 	}}, twelfth.Spending)
@@ -174,6 +180,31 @@ func TestInsightsTimeGroupingComposesEveryPeriodByGroup(t *testing.T) {
 		Query: query, Today: rangeDate(t, "2026-10-08"), Keys: []string{"2026-09-12"},
 	})
 	require.Error(t, err, "time rows have no series")
+}
+
+func TestInsightsTimeChartLeavesOutEmptyDaysOnly(t *testing.T) {
+	t.Parallel()
+	days, err := ComputeInsights(metricsExample(t), InsightsSpec{
+		Query: insightsQuery(t, domain.DimensionTime, "2026-09-01", "2026-09-30"),
+		Today: rangeDate(t, "2026-10-08"), Summary: true,
+	})
+	require.NoError(t, err)
+	cashflow := days.Summary.Cashflow
+	require.NotEmpty(t, cashflow)
+	assert.Less(t, len(cashflow), 30, "September has days without transactions")
+	assert.Len(t, days.Ranges.Context, len(cashflow))
+	for index, period := range cashflow {
+		assert.Positive(t, period.Count, period.Label)
+		assert.Equal(t, days.Ranges.Context[index].Period, period.Period)
+	}
+
+	months, err := ComputeInsights(metricsExample(t), InsightsSpec{
+		Query: insightsQuery(t, domain.DimensionTime, "2026-01-01", "2026-12-31"),
+		Today: rangeDate(t, "2026-10-08"), Summary: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, months.Summary.Cashflow, 10, "months keep their gaps through today")
+	assert.Zero(t, months.Summary.Cashflow[0].Count)
 }
 
 func TestInsightsDayScopeShowsCalendarInGroupedViews(t *testing.T) {

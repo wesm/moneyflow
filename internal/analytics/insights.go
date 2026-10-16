@@ -168,6 +168,7 @@ func ComputeInsights(transactions []domain.Transaction, spec InsightsSpec) (Insi
 	if err != nil {
 		return Insights{}, fmt.Errorf("insights: %w", err)
 	}
+	plan.dropEmptyContextPeriods(&crossTab)
 	result := Insights{
 		Currency: spec.Query.Currency.Currency, Scale: spec.Query.Currency.Scale,
 		Today: spec.Today, Latest: plan.latest, Ranges: plan.ranges,
@@ -320,6 +321,24 @@ func currencyBounds(
 		}
 	}
 	return first, latest
+}
+
+// dropEmptyContextPeriods leaves the periods without transactions out of a Time grouping's
+// chart when ListsEmptyPeriods says its rows do, so the chart and the rows agree.
+func (plan *insightsPlan) dropEmptyContextPeriods(crossTab *CrossTab) {
+	if plan.grouping != domain.DimensionTime || ListsEmptyPeriods(plan.ranges.ContextGranularity) {
+		return
+	}
+	frame := &crossTab.Frames[frameContext]
+	periods := make([]PeriodRange, 0, len(plan.ranges.Context))
+	totals := make([]CrossTabCell, 0, len(frame.Totals))
+	for index, period := range plan.ranges.Context {
+		if frame.Totals[index].Count > 0 {
+			periods = append(periods, period)
+			totals = append(totals, frame.Totals[index])
+		}
+	}
+	plan.ranges.Context, frame.Totals = periods, totals
 }
 
 func (plan insightsPlan) crossTabSpec(spec InsightsSpec) CrossTabSpec {

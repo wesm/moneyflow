@@ -211,7 +211,8 @@ The **chart context** depends on the scope:
 - A custom range: days up to 62 days, months up to 36 months, and years beyond.
 - All time: months from your first to your newest transaction in the currency, or years when
   that is more than 60 months.
-- Periods without transactions are drawn as empty columns.
+- Periods without transactions are drawn as empty columns. In the Time grouping by day, days
+  without transactions are left out, as they are in the table.
 
 In the Time grouping, the columns are the table's rows; see
 [Navigate and search](navigation.md#choose-a-year-month-or-day) for their unit.

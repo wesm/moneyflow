@@ -108,7 +108,7 @@ func TestWebToggleTimeCyclesFromTheDerivedUnit(t *testing.T) {
 		granularity domain.TimeGranularity
 		rows        int
 	}{
-		{domain.TimeGranularityDay, 1011},
+		{domain.TimeGranularityDay, 2},
 		{domain.TimeGranularityYear, 3},
 		{domain.TimeGranularityMonth, 34},
 	} {
@@ -129,13 +129,12 @@ func TestWebChosenTimeUnitLastsUntilThePeriodChanges(t *testing.T) {
 	require.Equal(t, domain.TimeGranularityMonth, state.Current.TimeGranularity)
 	state, projection := toggleWebTime(t, service, state)
 	assert.Equal(t, domain.TimeGranularityDay, state.Current.TimeGranularity)
-	assert.Equal(t, 365, projection.TotalRows)
+	assert.Zero(t, projection.TotalRows, "2025 has no transactions, and empty days are left out")
 
 	sorted, _, projection, err := service.TransitionView(state, EmptySelection(),
 		TransitionRequest{Action: ActionReverseSort}, WindowRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, domain.TimeGranularityDay, sorted.Current.TimeGranularity)
-	assert.Equal(t, 365, projection.TotalRows)
 
 	next, _, projection, err := service.TransitionView(sorted, EmptySelection(),
 		TransitionRequest{Action: ActionNextPeriod}, WindowRequest{})

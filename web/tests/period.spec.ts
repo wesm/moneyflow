@@ -39,7 +39,8 @@ test('the Month segment and ‹ move the scope and the grid follows', async ({ p
 
   await grid(page).focus()
   await page.keyboard.press('5')
-  await expect(grid(page)).toHaveAttribute('aria-rowcount', '31')
+  // The header row and the 29 days of September that have transactions; empty days are left out.
+  await expect(grid(page)).toHaveAttribute('aria-rowcount', '30')
 })
 
 test('arrows inside the Period segments change the kind without shifting it', async ({

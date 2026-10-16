@@ -154,7 +154,7 @@ func TestInsightsChartAChosenTimeUnit(t *testing.T) {
 	derived, err := service.Insights(context.Background(), app.InsightsRequest{State: state})
 	require.NoError(t, err)
 	assert.Equal(t, domain.TimeGranularityDay, derived.Insights.Ranges.ContextGranularity)
-	assert.Len(t, derived.Insights.Ranges.Context, 31)
+	assert.Len(t, derived.Insights.Ranges.Context, 1, "only the day with transactions")
 
 	state.TimeGranularity = domain.TimeGranularityMonth
 	state.TimeGranularityChosen = true
