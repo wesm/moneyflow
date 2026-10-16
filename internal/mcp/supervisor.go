@@ -596,9 +596,9 @@ func (supervisor *Supervisor) expireConfirmationLocked(attempt *supervisedAttemp
 // ExpireObsolete fails the parked refresh or reconcile that the profile's stored state, which it
 // reads through service, has moved past. Another process can refresh or edit the profile after a
 // refresh parked, and it can finish the write batch that a reconcile parked, or reconcile the batch
-// again. The service then refuses the parked attempt's token, so the attempt fails as an expired
-// one does: a start that follows neither joins it nor refuses because of it. Call it before
-// StartRefresh or StartReconcile, and before reading a parked reconcile to join it.
+// again. The parked attempt was computed before that change, so it fails as an expired one does:
+// a start that follows neither joins it nor refuses because of it. Call it before StartRefresh or
+// StartReconcile, and before reading a parked reconcile to join it.
 func (supervisor *Supervisor) ExpireObsolete(ctx context.Context, service *app.Service) error {
 	stored, err := readStoredState(ctx, service)
 	if err != nil {
@@ -659,7 +659,8 @@ func (attempt *supervisedAttempt) parked() bool {
 	return attempt != nil && attempt.State == AttemptConfirmationRequired
 }
 
-// expire fails a parked attempt whose token the service no longer accepts.
+// expire fails a parked attempt whose confirmation deadline passed, or that the profile's stored
+// state moved past.
 func (attempt *supervisedAttempt) expire() {
 	attempt.State = AttemptFailed
 	attempt.Code = string(app.AppProviderConfirmationInvalid)

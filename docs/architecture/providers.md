@@ -76,9 +76,10 @@ is refused because of a waiting attempt, the process compares that attempt with 
 stored state. A waiting refresh is obsolete once the stored refresh generation or revision has
 moved past it, for example after another process refreshed or edited the profile. A waiting
 reconcile is obsolete once the stored write batch is a different one, or its version or the
-revision has moved past it, for example after another process finished the batch. The service
-would refuse an obsolete attempt's token, so the attempt fails with `provider_confirmation_invalid`,
-as it does at its deadline, and the request is handled as a new one.
+revision has moved past it, for example after another process finished the batch. An obsolete
+attempt was computed before that change, so it fails with `provider_confirmation_invalid`, as it
+does at its deadline, and the request is handled as a new one. The service would also refuse an
+obsolete reconcile's token, because its confirmation checks the batch ID, version and revision.
 
 YNAB uses a six-hour cadence in long-lived TUI/web processes. SimpleFIN uses 24 hours and parks
 failed automatic attempts until explicit action. MCP refresh is explicit.
