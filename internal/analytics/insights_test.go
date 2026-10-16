@@ -207,6 +207,41 @@ func TestInsightsTimeChartLeavesOutEmptyDaysOnly(t *testing.T) {
 	assert.Zero(t, months.Summary.Cashflow[0].Count)
 }
 
+func TestInsightsClipAChosenCoarserUnitToTheSelectedMonth(t *testing.T) {
+	t.Parallel()
+	outside := insightsTransaction(
+		t, "outside", "2026-08-14", "-40.00", "Example Merchant", "Dining", "Food",
+	)
+	transactions := append(metricsExample(t), outside)
+	insights := func(unit domain.TimeGranularity) Insights {
+		result, err := ComputeInsights(transactions, InsightsSpec{
+			Query:    insightsQuery(t, domain.DimensionTime, "2026-09-01", "2026-09-30"),
+			Today:    rangeDate(t, "2026-10-08"),
+			TimeUnit: unit,
+			Summary:  true,
+		})
+		require.NoError(t, err)
+		return result
+	}
+	result := insights(domain.TimeGranularityYear)
+	require.Len(t, result.Ranges.Context, 1)
+	year := result.Ranges.Context[0]
+	assert.Equal(t, domain.TimeGranularityYear, year.Period.Granularity)
+	assert.Equal(t, "2026-09-01", year.Start.String())
+	assert.Equal(t, "2026-09-30", year.End.String())
+	assert.True(t, year.Partial, "the year column covers only September")
+	kpis := result.Summary.KPIs.Scope
+	require.Len(t, result.Summary.Cashflow, 1)
+	column := result.Summary.Cashflow[0]
+	assert.Equal(t, kpis.Out, column.Out, "the chart leaves out August")
+	assert.Equal(t, kpis.Count, column.Count)
+	september := insights(domain.TimeGranularityMonth).Summary.PeriodComposition
+	require.Len(t, result.Summary.PeriodComposition, 1)
+	require.Len(t, september, 1)
+	assert.Equal(t, september[0].Composition, result.Summary.PeriodComposition[0].Composition,
+		"the year's composition is September's")
+}
+
 func TestInsightsDayScopeShowsCalendarInGroupedViews(t *testing.T) {
 	t.Parallel()
 	result, err := ComputeInsights(metricsExample(t), InsightsSpec{

@@ -209,7 +209,9 @@ func yearContextPeriods(input RangeInput) ([]PeriodRange, error) {
 	)
 }
 
-// timeRowPeriods returns the Time grouping's rows, which are also its chart columns.
+// timeRowPeriods returns the Time grouping's rows, which are also its chart columns. A
+// chosen unit coarser than the scope, such as Year over one month, is clipped to the scope
+// so its periods hold only the selected dates.
 func timeRowPeriods(
 	kind ScopeKind, input RangeInput,
 ) (domain.TimeGranularity, []PeriodRange, error) {
@@ -221,7 +223,13 @@ func timeRowPeriods(
 		return granularity, nil, nil
 	}
 	periods, err := enumeratePeriods(*bounds, granularity, input.Today, clip)
-	return granularity, periods, err
+	if err != nil || input.TimeUnit == "" || input.Scope == nil {
+		return granularity, periods, err
+	}
+	for index := range periods {
+		periods[index] = clipPeriod(periods[index], *input.Scope)
+	}
+	return granularity, periods, nil
 }
 
 // timeRowBounds returns the dates a Time grouping's rows cover, the unit the scope gives
@@ -295,13 +303,23 @@ func enumeratePeriods(
 			Period: period, Start: start, End: end,
 			Partial: contains(domain.DateRange{Start: start, End: end}, today) && today != end,
 		}
-		if clip && (start.Compare(bounds.Start) < 0 || end.Compare(bounds.End) > 0) {
-			value.Start, value.End = laterDate(start, bounds.Start), earlierDate(end, bounds.End)
-			value.Partial = true
+		if clip {
+			value = clipPeriod(value, bounds)
 		}
 		result = append(result, value)
 	}
 	return result, nil
+}
+
+// clipPeriod limits a period to the part inside bounds and marks a clipped period partial.
+func clipPeriod(period PeriodRange, bounds domain.DateRange) PeriodRange {
+	if period.Start.Compare(bounds.Start) >= 0 && period.End.Compare(bounds.End) <= 0 {
+		return period
+	}
+	period.Start = laterDate(period.Start, bounds.Start)
+	period.End = earlierDate(period.End, bounds.End)
+	period.Partial = true
+	return period
 }
 
 func trendPeriods(input RangeInput) ([]PeriodRange, error) {
