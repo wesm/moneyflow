@@ -53,13 +53,22 @@ windowed.
 
 **Unreleased:** A process that serves MCP tools or embeds moneyflow's Go package runs one refresh
 at a time for each profile. A new request shares the running refresh when that refresh reads at
-least as much. From the same provider status, a scheduled request reads nothing or what a manual
-request reads, and complete history covers both. So a scheduled request shares any refresh, a
-manual request shares a manual or complete-history refresh, and a complete-history request shares
-only a complete-history refresh. Any other request waits for one follow-up refresh, which starts
-when the running refresh stops and reads the most that any of its requests asked for. A refresh
-that waits for deletion confirmation has read what a manual refresh reads, so only a
-complete-history request replaces it. Shutdown drops a follow-up that has not started.
+least as much:
+
+- A scheduled request reads nothing or what a manual request reads from the same provider status,
+  so it shares any refresh.
+- A manual request shares a manual or complete-history refresh.
+- YNAB and SimpleFIN read complete data on every manual refresh, so for them a complete-history
+  request is a manual request. A Monarch complete-history request shares only a complete-history
+  refresh.
+
+Any other request waits for one follow-up refresh, which reads the most that any of its requests
+asked for once the running refresh stops. A refresh that read the provider read at least what a
+manual refresh reads, so when a scheduled refresh read, a manual follow-up behind it takes its
+outcome and does not read the same data again. A follow-up behind a scheduled refresh that read
+nothing still reads. A refresh that waits for deletion confirmation has read what a manual
+refresh reads, so only a Monarch complete-history request replaces it. Shutdown drops a follow-up
+that has not started.
 
 YNAB uses a six-hour cadence in long-lived TUI/web processes. SimpleFIN uses 24 hours and parks
 failed automatic attempts until explicit action. MCP refresh is explicit.
