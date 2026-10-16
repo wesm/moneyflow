@@ -60,6 +60,7 @@ func TestProviderSchedulerRecordsRetryAfterAndDoesNotSpinBeforeEligible(t *testi
 	assertProviderAppCode(t, err, provider.CodeRateLimited)
 	assert.Equal(t, now.Add(90*time.Minute), result.Status.NextEligible)
 	assert.Equal(t, 1, source.fetchCalls())
+	assert.True(t, result.ReadProvider, "a refresh whose read failed still read the provider")
 
 	result, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
 		Manual: false, State: app.DefaultViewState(), Selection: app.EmptySelection(),
@@ -67,6 +68,7 @@ func TestProviderSchedulerRecordsRetryAfterAndDoesNotSpinBeforeEligible(t *testi
 	require.NoError(t, err)
 	assert.Equal(t, provider.CodeRateLimited, result.Status.Code)
 	assert.Equal(t, 1, source.fetchCalls(), "an ineligible status tick must not retry")
+	assert.False(t, result.ReadProvider, "a refresh with nothing due reads nothing")
 }
 
 func TestProviderReconnectParkHealsOnlyAfterSessionFingerprintChanges(t *testing.T) {

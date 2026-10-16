@@ -23,10 +23,11 @@ type refreshOutcome struct {
 
 // RefreshProvider starts the profile's refresh, or joins one that reads at least what the request
 // asks for, as mcp.Supervisor.StartRefresh says, and answers once that refresh stops running. A
-// refresh it started answers as the service does; answerJoined answers one it joined. Either
-// answer keeps selected the rows that the request's selection held when the call arrived, as
+// refresh that ran this call's request answers as the service does; answerJoined answers any
+// other, from the outcome of the refresh the call waited for. Either answer keeps selected the
+// rows that the request's selection held when the call arrived, as
 // app.Service.PinRefreshSelection says. When ctx ends first, it answers
-// provider_refresh_in_progress, and the refresh runs on, even one that is still queued. After
+// provider_refresh_in_progress, and the refresh goes on, even one that is still queued. After
 // Close, or once a removal stopped the refresh, it answers as busyIfStopped says.
 func (refresher apiRefresher) RefreshProvider(
 	ctx context.Context,

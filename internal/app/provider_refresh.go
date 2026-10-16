@@ -112,6 +112,9 @@ type ProviderRefreshResult struct {
 	SelectionDisposition SelectionDisposition
 	Projection           WebProjection
 	RebaseDetails        []RebaseDetail
+	// ReadProvider reports whether this call read the provider. It is false when the call
+	// answered before reading, as when nothing was due.
+	ReadProvider bool
 }
 
 // ProviderStatus is the renderer-neutral, counts-only refresh projection.
@@ -268,7 +271,7 @@ func ProviderDeletionConfirmationRequired(existing, removed int) bool {
 func (service *Service) RefreshProvider(
 	ctx context.Context,
 	request ProviderRefreshRequest,
-) (ProviderRefreshResult, error) {
+) (refreshed ProviderRefreshResult, err error) {
 	service.interactions.Lock()
 	interactionLocked := true
 	defer func() {
@@ -350,6 +353,8 @@ func (service *Service) RefreshProvider(
 	}
 	service.interactions.Unlock()
 	interactionLocked = false
+	// The call reads the provider from here on, so every answer it gives says so.
+	defer func() { refreshed.ReadProvider = true }()
 
 	fetch.LastSuccess = providerState.Refresh.LastSuccess
 	candidate, remoteIdentity, fingerprint, fetchErr := service.fetchProviderCandidateWithHeartbeat(

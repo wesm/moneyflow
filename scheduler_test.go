@@ -24,6 +24,8 @@ import (
 	"github.com/wesm/moneyflow/internal/mcp"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
+	"github.com/wesm/moneyflow/internal/provider/simplefin"
+	"github.com/wesm/moneyflow/internal/simplefinonboarding"
 	"github.com/wesm/moneyflow/internal/uitest"
 	uitestruntime "github.com/wesm/moneyflow/internal/uitest/runtime"
 )
@@ -500,28 +502,107 @@ func scheduleGatedRefresh(
 }
 
 func TestAnAPIRefreshThatAsksForMoreThanTheScheduledRefreshReadsAfterIt(t *testing.T) {
-	cases := map[string]struct{ completeHistory, windowed bool }{
-		"a manual refresh reads the recent window":          {windowed: true},
-		"a complete-history refresh reads complete history": {completeHistory: true},
-	}
-	for name, test := range cases {
-		t.Run(name, func(t *testing.T) {
-			gate := make(chan struct{})
-			// The scheduled refresh goes on once the API refresh has started or joined a refresh.
-			instance, acme, reads := scheduleGatedRefresh(t, gate, seams{
-				beforeRefreshWait: func(*mcp.Supervisor) { close(gate) },
-			})
-			body := manualRefresh()
-			body.CompleteHistory = test.completeHistory
+	gate := make(chan struct{})
+	// The scheduled refresh goes on once the API refresh has started or joined a refresh.
+	instance, acme, reads := scheduleGatedRefresh(t, gate, seams{
+		beforeRefreshWait: func(*mcp.Supervisor) { close(gate) },
+	})
+	body := manualRefresh()
+	body.CompleteHistory = true
 
-			response := serveAPI(t, instance, http.MethodPost,
-				"api/v1/profiles/"+acme+"/provider/refresh", encode(t, body))
+	response := serveAPI(t, instance, http.MethodPost,
+		"api/v1/profiles/"+acme+"/provider/refresh", encode(t, body))
 
-			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-			require.Len(t, reads, 1, "the API refresh reads the provider itself")
-			assert.Equal(t, test.windowed, <-reads != nil)
-		})
-	}
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.Len(t, reads, 1, "the API refresh reads the provider itself")
+	assert.Nil(t, <-reads, "it reads complete history")
+}
+
+// A scheduled refresh that read the provider read what a manual refresh reads, so a manual
+// refresh that waited behind it answers with its outcome. SimpleFIN would refuse a second read
+// within the hour.
+func TestAManualRefreshTakesTheOutcomeOfTheScheduledReadItWaitedFor(t *testing.T) {
+	root, providerRoot := testRoot(t), t.TempDir()
+	bank := createBoundProfile(t, root, "Example Bank", "simplefin", providerRoot)
+	source, err := uitest.OpenProvider(providerRoot)
+	require.NoError(t, err)
+	// A day after the refresh that created the profile, a scheduled refresh is due.
+	require.NoError(t, source.Advance(25*time.Hour))
+	reads, gate := make(chan *domain.DateRange, 2), make(chan struct{})
+	instance := openTestInstance(t, root, seams{
+		inspectSession: sessionPresent,
+		factories: assembly.Factories{
+			SimpleFIN: func(home.Paths) (simplefinonboarding.Runtime, error) {
+				return simplefinonboarding.Runtime{
+					InstanceID: "test-simplefin", Now: source.Now,
+					NewSource: func(
+						app.ProviderConnectionState, simplefin.Session,
+					) (provider.ReaderSource, error) {
+						return gatedReader{
+							kindSource: kindSource{source, "simplefin"}, reads: reads, gate: gate,
+						}, nil
+					},
+				}, nil
+			},
+		},
+		// The scheduled refresh goes on once the API refresh has started or joined a refresh.
+		beforeRefreshWait: func(*mcp.Supervisor) { close(gate) },
+	})
+	instance.schedulePass(t.Context())
+	require.Nil(t, <-reads, "the scheduled SimpleFIN refresh reads complete data")
+
+	response := serveAPI(t, instance, http.MethodPost,
+		"api/v1/profiles/"+bank+"/provider/refresh", encode(t, manualRefresh()))
+
+	assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.Empty(t, reads, "the manual refresh reads nothing itself")
+}
+
+// A scheduled refresh that finds nothing due reads nothing, so a manual refresh that waited
+// behind it still reads the provider.
+func TestAManualRefreshBehindAScheduledRefreshThatReadNothingReadsItself(t *testing.T) {
+	gate := make(chan struct{})
+	// The scheduled refresh stops once the API refresh has started or joined a refresh.
+	instance, acme, reads := openGatedInstance(t, gate, seams{
+		beforeRefreshWait: func(*mcp.Supervisor) { close(gate) },
+	})
+	supervisor, err := instance.supervisor(acme)
+	require.NoError(t, err)
+	_, err = supervisor.StartRefresh(mcp.RefreshDue, settledRefresh(gate, nil))
+	require.NoError(t, err)
+
+	response := serveAPI(t, instance, http.MethodPost,
+		"api/v1/profiles/"+acme+"/provider/refresh", encode(t, manualRefresh()))
+
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.Len(t, reads, 1, "the manual refresh reads the provider itself")
+	assert.NotNil(t, <-reads, "it reads the recent window")
+}
+
+// An MCP client follows its refresh by the attempt ID that refresh_data returned, even when the
+// refresh took the outcome of the scheduled read it waited for.
+func TestAnMCPRefreshThatTookTheScheduledReadKeepsItsAttemptID(t *testing.T) {
+	gate := make(chan struct{})
+	instance, acme, reads := scheduleGatedRefresh(t, gate, seams{})
+	supervisor, err := instance.supervisor(acme)
+	require.NoError(t, err)
+	scheduled, err := supervisor.RefreshStatus("")
+	require.NoError(t, err)
+	session := connectTools(t, instance, ToolOptions{Classes: []Class{ClassRead, ClassStage}})
+	started, startError := callTool(t, session, "refresh_data", nil)
+	require.False(t, startError, started)
+	close(gate)
+	finished, err := supervisor.WaitRefresh(t.Context(), started["attempt_id"].(string))
+	require.NoError(t, err)
+
+	status, statusError := callTool(t, session, "get_refresh_status",
+		map[string]any{"attempt_id": started["attempt_id"]})
+
+	assert.NotEqual(t, scheduled.ID, started["attempt_id"])
+	assert.Equal(t, mcp.AttemptCompleted, finished.State)
+	require.False(t, statusError, status)
+	assert.Equal(t, "completed", status["state"])
+	assert.Empty(t, reads, "the MCP refresh reads nothing itself")
 }
 
 func TestAnMCPRefreshOfCompleteHistoryRunsAfterTheScheduledRefresh(t *testing.T) {

@@ -102,7 +102,8 @@ type Supervisor struct {
 	closed       bool
 	writeWorkers int
 	refreshNow   *supervisedAttempt
-	// refreshNext is the follow-up refresh that starts when refreshNow stops running, or nil.
+	// refreshNext is the follow-up refresh that starts, or takes refreshNow's outcome, when
+	// refreshNow stops running, or nil.
 	refreshNext  *queuedRefresh
 	reconcileNow *supervisedAttempt
 }
@@ -321,8 +322,10 @@ func RefreshScopeOf(request app.ProviderRefreshRequest, providerKind string) Ref
 // refresh reads at least scope; a refresh that waits for confirmation has read what a manual
 // refresh reads. Otherwise, while a refresh runs, it queues one follow-up refresh, or joins the
 // queued one, which starts when the running refresh stops. The follow-up runs the work of its
-// broadest caller, so it reads at least what each of its callers asked for. A refresh that waits
-// for confirmation and reads less than scope is replaced at once.
+// broadest caller, so it reads at least what each of its callers asked for. When the running
+// refresh read the provider and that covers the follow-up's scope, the follow-up takes its outcome
+// instead, as finishRefresh says. A refresh that waits for confirmation and reads less than scope
+// is replaced at once.
 func (supervisor *Supervisor) StartRefresh(
 	scope RefreshScope,
 	run func(context.Context) (app.ProviderRefreshResult, error),
@@ -413,10 +416,12 @@ func (supervisor *Supervisor) runRefreshLocked(
 	}()
 }
 
-// finishRefresh records the outcome of the attempt's current run, wakes that run's waiters, starts
-// the queued follow-up refresh, if any, and returns the outcome. A running attempt is never
-// replaced, and its next run starts only after this one ends, so the attempt and the run are both
-// still current here.
+// finishRefresh records the outcome of the attempt's current run, wakes that run's waiters, ends
+// the queued follow-up refresh, if any, and returns the outcome. When the run read the provider
+// and so read what the follow-up asks for, the follow-up never runs: it becomes the current
+// refresh with the run's outcome, so a caller that follows it by ID, or confirms it, still finds
+// it. Otherwise the follow-up starts. A running attempt is never replaced, and its next run starts
+// only after this one ends, so the attempt and the run are both still current here.
 func (supervisor *Supervisor) finishRefresh(
 	attempt *supervisedAttempt,
 	result app.ProviderRefreshResult,
@@ -425,10 +430,19 @@ func (supervisor *Supervisor) finishRefresh(
 	supervisor.mu.Lock()
 	defer supervisor.mu.Unlock()
 	status := supervisor.recordRefreshLocked(attempt, result, err)
-	if next := supervisor.refreshNext; next != nil {
-		supervisor.refreshNext = nil
-		supervisor.runRefreshLocked(next.attempt, next.run)
+	next := supervisor.refreshNext
+	if next == nil {
+		return status
 	}
+	supervisor.refreshNext = nil
+	// A scheduled refresh reads only what is due, which is what a manual refresh reads then, so a
+	// run that read covers a manual refresh even when it was scheduled.
+	if result.ReadProvider && max(attempt.scope, RefreshManual) >= next.attempt.scope {
+		supervisor.refreshNow = next.attempt
+		supervisor.recordRefreshLocked(next.attempt, result, err)
+		return status
+	}
+	supervisor.runRefreshLocked(next.attempt, next.run)
 	return status
 }
 
