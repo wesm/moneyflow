@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,13 +97,13 @@ func TestBackgroundProviderWriteFailuresAreLogged(t *testing.T) {
 	server.startProviderWrite(otherProfileID)
 	server.startProviderWrite(testProfileID)
 
-	require.Eventually(t, func() bool {
-		output := logged.String()
-		return strings.Contains(output,
-			"provider write for "+otherProfileID+" could not start: resolver-private-detail") &&
-			strings.Contains(output, "provider write for "+testProfileID+
-				" stopped: The requested operation is invalid.: provider refresh is not configured")
-	}, 3*time.Second, 10*time.Millisecond, logged.String())
+	// Each write logs its failure before it ends.
+	server.workers.Wait()
+	output := logged.String()
+	assert.Contains(t, output,
+		"provider write for "+otherProfileID+" could not start: resolver-private-detail")
+	assert.Contains(t, output, "provider write for "+testProfileID+
+		" stopped: The requested operation is invalid.: provider refresh is not configured")
 }
 
 func TestNonProblemServerFailureIsLogged(t *testing.T) {

@@ -286,11 +286,7 @@ func TestProviderWriteWorkerCapsConcurrencyAtFour(t *testing.T) {
 		done <- runErr
 	}()
 	for range providerWriteConcurrencyForTest() {
-		select {
-		case <-started:
-		case <-time.After(5 * time.Second):
-			t.Fatal("worker did not start four calls")
-		}
+		<-started
 	}
 	close(release)
 	require.NoError(t, <-done)
@@ -502,12 +498,17 @@ func TestProviderWriteHeartbeatRenewsLeaseDuringSlowRequest(t *testing.T) {
 	clockMu.Lock()
 	clockValue = base.Add(45 * time.Millisecond)
 	clockMu.Unlock()
-	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+	// The update holds the write, and its lease, until release closes. Poll until a heartbeat
+	// renews the lease from the advanced clock; a lease that disappears fails at once.
+	for {
 		state, err := profileHandle.ProviderState(ctx)
-		require.NoError(collect, err)
-		require.NotNil(collect, state.Lease)
-		assert.True(collect, state.Lease.ExpiresAt.After(base.Add(60*time.Millisecond)))
-	}, 5*time.Second, 10*time.Millisecond)
+		require.NoError(t, err)
+		require.NotNil(t, state.Lease)
+		if state.Lease.ExpiresAt.After(base.Add(60 * time.Millisecond)) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	close(release)
 	require.NoError(t, <-done)
 }
@@ -584,11 +585,7 @@ func TestProviderWriteHeartbeatFailurePreservesCompletedRemoteResult(t *testing.
 	clockMu.Lock()
 	clockValue = base.Add(30 * time.Millisecond)
 	clockMu.Unlock()
-	select {
-	case <-lost:
-	case <-time.After(5 * time.Second):
-		t.Fatal("write heartbeat did not observe the expired lease")
-	}
+	<-lost
 	close(release)
 	require.NoError(t, <-done)
 	persisted, err := profileHandle.Load(ctx)
@@ -1047,7 +1044,10 @@ func TestPausePreventsClaimAfterRequestArrivesDuringLeaseRenewal(t *testing.T) {
 	}()
 	// Release the renewal only once the pause request is registered, so the claim that follows
 	// sees it however long the pause goroutine took to start.
-	require.Eventually(t, service.ProviderWritePausePending, 5*time.Second, time.Millisecond)
+	for !service.ProviderWritePausePending() {
+		require.Empty(t, pauseDone, "pause returned before it was registered")
+		time.Sleep(time.Millisecond)
+	}
 	select {
 	case <-pauseDone:
 		t.Fatal("pause returned while the write lease renewal was blocked")

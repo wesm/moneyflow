@@ -114,16 +114,10 @@ func TestCloseStopsProviderWritesAndRefusesNewOnes(t *testing.T) {
 	server, err := New(Config{Resolver: resolver, BasePath: "/", Version: "test", HostAdmission: true})
 	require.NoError(t, err)
 	server.startProviderWrite(testProfileID)
-	select {
-	case <-resolver.entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the provider write never reached the resolver")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	require.NoError(t, server.Close(ctx))
+	<-resolver.entered
+	require.NoError(t, server.Close(context.Background()))
 	server.startProviderWrite(testProfileID)
-	require.NoError(t, server.Close(ctx))
+	require.NoError(t, server.Close(context.Background()))
 	assert.Equal(t, int32(1), resolver.calls.Load())
 }
 
@@ -159,15 +153,9 @@ func TestCloseCancelsAProviderWriteThatIsRunning(t *testing.T) {
 		Selection: staged.Projection.Selection, Window: Window{Limit: 200},
 	})
 	require.Equal(t, http.StatusOK, committed.Code, committed.Body.String())
-	select {
-	case <-source.started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the provider write never started")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	<-source.started
 
-	require.NoError(t, fixture.server.Close(ctx))
+	require.NoError(t, fixture.server.Close(context.Background()))
 }
 
 func TestCloseWaitsForRunningWritesUntilItsContextEnds(t *testing.T) {
@@ -230,11 +218,13 @@ func TestProviderWritePanicBecomesAReportedFailure(t *testing.T) {
 	})
 	require.NoError(t, err)
 	server.startProviderWrite(testProfileID)
+	// The worker reports its panic before it ends.
+	server.workers.Wait()
 	select {
 	case failure := <-failures:
 		assert.True(t, errors.Is(failure, errProviderWritePanicked))
 		assert.Contains(t, failure.Error(), testProfileID)
-	case <-time.After(5 * time.Second):
+	default:
 		t.Fatal("the panic was not reported")
 	}
 	require.NoError(t, server.Close(context.Background()))
@@ -251,6 +241,8 @@ func TestRecoveredProviderWritePanicIsLoggedBeforeItIsReported(t *testing.T) {
 	})
 	require.NoError(t, err)
 	server.startProviderWrite(testProfileID)
+	// The worker reports its panic before it ends.
+	server.workers.Wait()
 
 	select {
 	case logged := <-loggedAtReport:
@@ -258,7 +250,7 @@ func TestRecoveredProviderWritePanicIsLoggedBeforeItIsReported(t *testing.T) {
 			"provider write for "+testProfileID+": panic: synthetic resolver failure\n")
 		assert.Contains(t, logged, "api.panickingResolver.Acquire (background_test.go:",
 			"the log locates the panic")
-	case <-time.After(5 * time.Second):
+	default:
 		t.Fatal("the panic was not reported")
 	}
 	require.NoError(t, server.Close(context.Background()))
@@ -429,10 +421,13 @@ func TestProviderWorkerPanicsReachHostReporter(t *testing.T) {
 				return
 			}
 			server.startProviderWrite(testProfileID)
+			// The worker reports its panic before it ends, so the report's status read runs while
+			// the test, and its context, are still live.
+			server.workers.Wait()
 			select {
 			case failure := <-failures:
 				require.ErrorIs(t, failure, errProviderWritePanicked)
-			case <-time.After(5 * time.Second):
+			default:
 				t.Fatal("worker panic did not reach the host reporter")
 			}
 			require.NoError(t, server.Close(t.Context()))

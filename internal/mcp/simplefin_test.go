@@ -108,15 +108,6 @@ func simpleFINData(t *testing.T, session *sdk.ClientSession, name string, args m
 	t.Helper()
 	return callRefreshTool(t, session, name, args)
 }
-func waitSimpleFINRefresh(t *testing.T, session *sdk.ClientSession, id string) map[string]any {
-	t.Helper()
-	var data map[string]any
-	require.Eventually(t, func() bool {
-		data = simpleFINData(t, session, "get_refresh_status", map[string]any{"attempt_id": id})
-		return data["state"] != "running"
-	}, 3*time.Second, time.Millisecond)
-	return data
-}
 
 func TestSimpleFINMCPReadInventoryRefreshAndCancellation(t *testing.T) {
 	f := newSimpleFINFixture(t)
@@ -139,17 +130,17 @@ func TestSimpleFINMCPReadInventoryRefreshAndCancellation(t *testing.T) {
 	require.Len(t, rows["transactions"], 2)
 	require.Equal(t, before, f.requests.Load(), "cached read must not schedule a refresh")
 	attempt := simpleFINData(t, session, "refresh_data", map[string]any{})
-	failed := waitSimpleFINRefresh(t, session, attempt["attempt_id"].(string))
+	failed := awaitRefreshAttempt(t, session, server.supervisor, attempt["attempt_id"])
 	require.Equal(t, "failed", failed["state"])
 	require.Equal(t, before, f.requests.Load(), "manual floor must prevent network work")
 	f.clock.Add(int64(time.Hour))
 	attempt = simpleFINData(t, session, "refresh_data", map[string]any{})
-	completed := waitSimpleFINRefresh(t, session, attempt["attempt_id"].(string))
+	completed := awaitRefreshAttempt(t, session, server.supervisor, attempt["attempt_id"])
 	require.Equal(t, "completed", completed["state"])
 	f.clock.Add(int64(time.Hour))
 	f.failure.Store(http.StatusServiceUnavailable)
 	attempt = simpleFINData(t, session, "refresh_data", map[string]any{})
-	failed = waitSimpleFINRefresh(t, session, attempt["attempt_id"].(string))
+	failed = awaitRefreshAttempt(t, session, server.supervisor, attempt["attempt_id"])
 	require.Equal(t, "failed", failed["state"])
 	rows = simpleFINData(t, session, "get_transactions", map[string]any{"limit": 10})
 	require.Len(t, rows["transactions"], 2)
@@ -157,11 +148,7 @@ func TestSimpleFINMCPReadInventoryRefreshAndCancellation(t *testing.T) {
 	f.block.Store(true)
 	f.clock.Add(int64(time.Hour))
 	simpleFINData(t, session, "refresh_data", map[string]any{})
-	select {
-	case <-f.entered:
-	case <-time.After(3 * time.Second):
-		t.Fatal("refresh did not reach the adapter")
-	}
+	<-f.entered
 	require.NoError(t, server.Close(context.Background()))
 	// Shutdown forgets process-local attempts after joining their canceled workers.
 	state, err := f.profile.ProviderState(t.Context())

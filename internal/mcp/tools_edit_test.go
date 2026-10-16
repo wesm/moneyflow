@@ -158,9 +158,8 @@ func TestMCPProviderDeletionFailureRetainsDurableIntent(t *testing.T) {
 	for _, kind := range []string{"monarch", "ynab"} {
 		t.Run(kind, func(t *testing.T) {
 			service, _, closeProfile := providerTestService(t, 1, kind)
-			defer closeProfile()
-			client, cleanup := connectWriteTestServer(t, service, true)
-			defer cleanup()
+			t.Cleanup(closeProfile)
+			client, supervisor := connectSupervisedServer(t, service, time.Now)
 			rows, err := service.TransactionWindow(t.Context(), app.TransactionWindowRequest{Limit: 1})
 			require.NoError(t, err)
 			staged := callWriteTool(t, client, "delete_transactions", map[string]any{"expected_revision": strconv.FormatUint(rows.Revision, 10), "transaction_ids": []string{rows.Rows[0].ID}})
@@ -168,10 +167,10 @@ func TestMCPProviderDeletionFailureRetainsDurableIntent(t *testing.T) {
 			revision := staged.StructuredContent.(map[string]any)["revision"]
 			committed := callWriteTool(t, client, "commit_changes", map[string]any{"expected_revision": revision, "reviewed_revision": revision})
 			require.False(t, committed.IsError)
-			require.Eventually(t, func() bool {
-				status, statusErr := service.ProviderWriteStatus(t.Context())
-				return statusErr == nil && status.Phase == store.WritePhaseAttentionRequired
-			}, 3*time.Second, 10*time.Millisecond)
+			supervisor.wait.Wait()
+			status, err := service.ProviderWriteStatus(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
 			review := callWriteTool(t, client, "review_changes", map[string]any{"expected_revision": strconv.FormatUint(service.Revision(), 10)})
 			require.False(t, review.IsError)
 			assert.Equal(t, float64(1), review.StructuredContent.(map[string]any)["pending"].(map[string]any)["active_operations"])

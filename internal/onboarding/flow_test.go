@@ -426,10 +426,13 @@ func newFlowCoordinator(
 	return coordinator, started
 }
 
+// waitForStableState polls until the attempt leaves inspection. Only a running job moves it on, and
+// the job clears running after its last transition, so an attempt whose job has stopped stays
+// where it is.
 func waitForStableState(t *testing.T, coordinator *Coordinator, snapshot Snapshot) Snapshot {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	for {
+		running := attemptJobRunning(coordinator, snapshot.AttemptID)
 		current, err := coordinator.Status(context.Background(), StatusRequest{
 			ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
 		})
@@ -437,10 +440,11 @@ func waitForStableState(t *testing.T, coordinator *Coordinator, snapshot Snapsho
 		if current.State != StateInspect && current.State != StateValidateSession {
 			return current
 		}
+		if !running {
+			t.Fatalf("onboarding attempt stopped at %s before it reached a stable state", current.State)
+		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatalf("onboarding attempt did not reach a stable state")
-	return Snapshot{}
 }
 
 func importConfig(currency domain.Currency, scale uint8) *monarch.ImportConfig {
