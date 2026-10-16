@@ -85,6 +85,7 @@ attr_list = {}
 tables = {}
 "pymdownx.superfences" = {}
 "pymdownx.details" = {}
+"pymdownx.tabbed" = { alternate_style = true }
 
 [project.extra]
 homepage = "/"
