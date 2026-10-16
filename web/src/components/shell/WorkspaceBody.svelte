@@ -165,8 +165,10 @@
       onleave={actions.focusGrid}
     />
   {/if}
+  <!-- Firefox gives every scroller a Tab stop; the grid inside is this scroller's stop. -->
   <div
     class={['mf-workspace', selecting && 'mf-workspace--selecting']}
+    tabindex="-1"
     style:--mf-selection-height={`${covered}px`}
     bind:this={scroller}
     bind:clientHeight={viewport}
