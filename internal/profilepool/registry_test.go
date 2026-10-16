@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -314,6 +315,174 @@ func TestProfileRegistryShutdownDuringOpenReportsClosed(t *testing.T) {
 
 	assert.ErrorIs(t, <-acquired, ErrProfileRegistryClosed)
 	assert.Equal(t, 1, closes)
+}
+
+func TestProfileRegistryWaitsForAnInterruptedOpenToCloseItsProfile(t *testing.T) {
+	tests := []struct {
+		name       string
+		stop       func(context.Context, *ProfileRegistry) error
+		acquireErr error
+	}{
+		{
+			name: "shutdown",
+			stop: func(ctx context.Context, registry *ProfileRegistry) error {
+				return registry.Close(ctx)
+			},
+			acquireErr: ErrProfileRegistryClosed,
+		},
+		{
+			name: "eviction",
+			stop: func(ctx context.Context, registry *ProfileRegistry) error {
+				return registry.Evict(ctx, registryTestProfileID)
+			},
+			acquireErr: ErrProfileEvicting,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				continueOpen := make(chan struct{})
+				continueClose := make(chan struct{})
+				var profileClosed atomic.Bool
+				service, err := app.NewService(nil)
+				require.NoError(t, err)
+				registry, err := NewProfileRegistry(ProfileRegistryConfig{
+					Open: func(context.Context, string) (RegistryProfile, error) {
+						<-continueOpen
+						return RegistryProfile{
+							ID: registryTestProfileID, Service: service, Paths: home.Paths{Root: root},
+							Close: func() error {
+								<-continueClose
+								profileClosed.Store(true)
+								return nil
+							},
+						}, nil
+					},
+				})
+				require.NoError(t, err)
+				acquired := make(chan error, 1)
+				go func() {
+					_, acquireErr := registry.Acquire(ctx, registryTestProfileID)
+					acquired <- acquireErr
+				}()
+				synctest.Wait()
+				type outcome struct {
+					err           error
+					profileClosed bool
+				}
+				stopped := make(chan outcome, 1)
+				go func() {
+					stopErr := test.stop(ctx, registry)
+					stopped <- outcome{err: stopErr, profileClosed: profileClosed.Load()}
+				}()
+				synctest.Wait()
+				close(continueOpen)
+				// The open finishes, finds the registry stopping, and blocks closing its profile.
+				synctest.Wait()
+				_, err = registry.Acquire(ctx, registryTestProfileID)
+				assert.ErrorIs(t, err, test.acquireErr, "the registry answers while the profile closes")
+				close(continueClose)
+
+				result := <-stopped
+				require.NoError(t, result.err)
+				assert.True(t, result.profileClosed, "returned while the opened profile was closing")
+				assert.ErrorIs(t, <-acquired, test.acquireErr)
+			})
+		})
+	}
+}
+
+func TestProfileRegistryLastReleaseClosesAProfileThatShutdownLeftOpen(t *testing.T) {
+	t.Parallel()
+	closeErr := errors.New("synthetic close failure")
+	closes := 0
+	registry, err := NewProfileRegistry(ProfileRegistryConfig{
+		Open: func(context.Context, string) (RegistryProfile, error) {
+			service, serviceErr := app.NewService(nil)
+			return RegistryProfile{
+				ID: registryTestProfileID, Service: service, Paths: home.Paths{Root: t.TempDir()},
+				Close: func() error { closes++; return closeErr },
+			}, serviceErr
+		},
+	})
+	require.NoError(t, err)
+	first, err := registry.Acquire(context.Background(), registryTestProfileID)
+	require.NoError(t, err)
+	last, err := registry.Acquire(context.Background(), registryTestProfileID)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	assert.ErrorIs(t, registry.Close(ctx), context.Canceled)
+	assert.Zero(t, closes, "Close leaves a profile in use open")
+	require.NoError(t, first.Release())
+	assert.Zero(t, closes, "the profile stays open while another lease holds it")
+
+	assert.ErrorIs(t, last.Release(), closeErr, "the last release closes the profile")
+	assert.Equal(t, 1, closes)
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	assert.Empty(t, registry.entries)
+}
+
+func TestProfileRegistryClosesAProfileWhoseLastReleaseRacesTheOwnersCancel(t *testing.T) {
+	stops := map[string]func(context.Context, *ProfileRegistry) error{
+		"shutdown": func(ctx context.Context, registry *ProfileRegistry) error {
+			return registry.Close(ctx)
+		},
+		"eviction": func(ctx context.Context, registry *ProfileRegistry) error {
+			return registry.Evict(ctx, registryTestProfileID)
+		},
+	}
+	for name, stop := range stops {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				var cancelOnClockRead atomic.Bool
+				var closes atomic.Int32
+				service, err := app.NewService(nil)
+				require.NoError(t, err)
+				registry, err := NewProfileRegistry(ProfileRegistryConfig{
+					// A release reads the clock while it holds the registry, after it drops its
+					// reference. Ending the owner's context there wakes the owner while the release
+					// still decides who closes the profile.
+					Now: func() time.Time {
+						if cancelOnClockRead.Load() {
+							cancel()
+						}
+						return time.Now()
+					},
+					Open: func(context.Context, string) (RegistryProfile, error) {
+						return RegistryProfile{
+							ID: registryTestProfileID, Service: service,
+							Paths: home.Paths{Root: root},
+							Close: func() error { closes.Add(1); return nil },
+						}, nil
+					},
+				})
+				require.NoError(t, err)
+				lease, err := registry.Acquire(ctx, registryTestProfileID)
+				require.NoError(t, err)
+				stopped := make(chan error, 1)
+				go func() { stopped <- stop(ctx, registry) }()
+				synctest.Wait()
+
+				cancelOnClockRead.Store(true)
+				require.NoError(t, lease.Release())
+
+				require.ErrorIs(t, ctx.Err(), context.Canceled,
+					"the release ended the owner's context")
+				stopErr := <-stopped
+				assert.Equal(t, int32(1), closes.Load(), "the profile closes exactly once")
+				assert.NoError(t, stopErr, "the owner closed the profile")
+			})
+		})
+	}
 }
 
 func TestProfileRegistryOnboardingOpenerUsesCachedService(t *testing.T) {

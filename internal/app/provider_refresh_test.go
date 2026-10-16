@@ -1084,3 +1084,29 @@ func assertProviderAppCode(t testing.TB, err error, code provider.ErrorCode) {
 	require.ErrorAs(t, err, &failure)
 	assert.Equal(t, app.AppErrorCode(code), failure.Code)
 }
+
+func TestProjectionOnlyRefreshAnswersFromLocalData(t *testing.T) {
+	t.Parallel()
+
+	service, _ := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 29, 15, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 3), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "projection-instance")
+	request := app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	}
+	refreshed, err := service.RefreshProvider(t.Context(), request)
+	require.NoError(t, err)
+	request.ProjectionOnly = true
+
+	projected, err := service.RefreshProvider(t.Context(), request)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, source.fetchCalls())
+	assert.Equal(t, refreshed.Revision, projected.Revision)
+	assert.Equal(t, refreshed.Generation, projected.Generation)
+	assert.Equal(t, refreshed.Projection, projected.Projection)
+}

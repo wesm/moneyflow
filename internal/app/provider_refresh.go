@@ -96,6 +96,11 @@ type ProviderRefreshRequest struct {
 	// CompleteHistory asks a manual Monarch refresh to read complete history instead of the
 	// recent window. See ManualRefreshScope.
 	CompleteHistory bool
+	// ProjectionOnly answers from local data without reading the provider, as a refresh that is
+	// not due does. It answers even while a provider write runs.
+	ProjectionOnly bool
+	// selected holds the rows that Selection held when PinRefreshSelection pinned it.
+	selected *SelectionSnapshot
 }
 
 // ProviderRefreshResult is one refreshed projection plus counts-only provider status.
@@ -107,6 +112,9 @@ type ProviderRefreshResult struct {
 	SelectionDisposition SelectionDisposition
 	Projection           WebProjection
 	RebaseDetails        []RebaseDetail
+	// ReadProvider reports whether this call read the provider. It is false when the call
+	// answered before reading, as when nothing was due.
+	ReadProvider bool
 }
 
 // ProviderStatus is the renderer-neutral, counts-only refresh projection.
@@ -263,7 +271,7 @@ func ProviderDeletionConfirmationRequired(existing, removed int) bool {
 func (service *Service) RefreshProvider(
 	ctx context.Context,
 	request ProviderRefreshRequest,
-) (ProviderRefreshResult, error) {
+) (refreshed ProviderRefreshResult, err error) {
 	service.interactions.Lock()
 	interactionLocked := true
 	defer func() {
@@ -282,7 +290,7 @@ func (service *Service) RefreshProvider(
 	if _, err = service.refreshLocked(ctx); err != nil {
 		return ProviderRefreshResult{}, err
 	}
-	selectionBefore, err := service.ResolveSelection(request.State.Current, request.Selection)
+	selectionBefore, err := service.refreshSelection(request)
 	if err != nil {
 		return ProviderRefreshResult{}, newAppError(AppInvalidOperation, service.Revision(), err)
 	}
@@ -290,10 +298,8 @@ func (service *Service) RefreshProvider(
 	if err != nil {
 		return ProviderRefreshResult{}, mapAppError(err, service.Revision())
 	}
-	if providerState.Write != nil {
-		return ProviderRefreshResult{}, providerWriteAppError(
-			provider.NewError(provider.CodeWriteInProgress), service.Revision(),
-		)
+	if err = refreshWriteError(request, providerState, service.Revision()); err != nil {
+		return ProviderRefreshResult{}, err
 	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	status := providerStatusFromState(providerState, runtime.provider)
@@ -347,6 +353,8 @@ func (service *Service) RefreshProvider(
 	}
 	service.interactions.Unlock()
 	interactionLocked = false
+	// The call reads the provider from here on, so every answer it gives says so.
+	defer func() { refreshed.ReadProvider = true }()
 
 	fetch.LastSuccess = providerState.Refresh.LastSuccess
 	candidate, remoteIdentity, fingerprint, fetchErr := service.fetchProviderCandidateWithHeartbeat(
@@ -528,6 +536,52 @@ func (service *Service) requireProviderRuntime() (*providerRuntimeState, error) 
 	return runtime, nil
 }
 
+// PinRefreshSelection returns request with the rows that its selection holds now. A refresh
+// that runs later, or that answers once another caller's refresh completes, then keeps those rows
+// selected, as a refresh that starts at once does, instead of the rows that the selection holds
+// after the refresh changed the data, such as rows that it imported.
+func (service *Service) PinRefreshSelection(
+	ctx context.Context,
+	request ProviderRefreshRequest,
+) (ProviderRefreshRequest, error) {
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
+	if _, err := service.refreshLocked(ctx); err != nil {
+		return request, err
+	}
+	request = normalizeProviderRefreshRequest(request)
+	selected, err := service.ResolveSelection(request.State.Current, request.Selection)
+	if err != nil {
+		return request, newAppError(AppInvalidOperation, service.Revision(), err)
+	}
+	request.selected = &selected
+	return request, nil
+}
+
+// refreshSelection returns the rows that the request's selection held when it was pinned, or
+// otherwise holds now.
+func (service *Service) refreshSelection(
+	request ProviderRefreshRequest,
+) (SelectionSnapshot, error) {
+	if request.selected != nil {
+		return *request.selected, nil
+	}
+	return service.ResolveSelection(request.State.Current, request.Selection)
+}
+
+// refreshWriteError refuses a refresh that would read the provider while a provider write runs.
+// A projection starts no provider work, so it answers even then.
+func refreshWriteError(
+	request ProviderRefreshRequest,
+	state store.ProviderState,
+	revision uint64,
+) error {
+	if state.Write == nil || request.ProjectionOnly {
+		return nil
+	}
+	return providerWriteAppError(provider.NewError(provider.CodeWriteInProgress), revision)
+}
+
 func normalizeProviderRefreshRequest(request ProviderRefreshRequest) ProviderRefreshRequest {
 	if request.Selection == "" {
 		request.Selection = EmptySelection()
@@ -535,10 +589,10 @@ func normalizeProviderRefreshRequest(request ProviderRefreshRequest) ProviderRef
 	return request
 }
 
-// providerFetchRequest decides whether a refresh runs and which data it reads. A manual
-// refresh always runs: it reads the window the request names, complete history when the request
-// asks for it, and otherwise what ManualRefreshScope chooses. A scheduled refresh runs only when
-// one is due.
+// providerFetchRequest decides whether a refresh runs and which data it reads. A projection-only
+// request never runs. Otherwise a manual refresh always runs: it reads the window the request
+// names, complete history when the request asks for it, and otherwise what ManualRefreshScope
+// chooses. A scheduled refresh runs only when one is due.
 func providerFetchRequest(
 	runtime *providerRuntimeState,
 	request ProviderRefreshRequest,
@@ -546,6 +600,9 @@ func providerFetchRequest(
 	now time.Time,
 ) (provider.FetchRequest, bool) {
 	fetch := provider.FetchRequest{Now: now}
+	if request.ProjectionOnly {
+		return fetch, false
+	}
 	if request.Manual {
 		fetch.TransactionWindow = request.TransactionWindow
 		if fetch.TransactionWindow == nil && !request.CompleteHistory &&

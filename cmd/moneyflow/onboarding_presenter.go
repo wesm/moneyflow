@@ -16,25 +16,9 @@ import (
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/provider"
-	"github.com/wesm/moneyflow/internal/provider/monarch"
-	"github.com/wesm/moneyflow/internal/provider/simplefin"
-	"github.com/wesm/moneyflow/internal/provider/ynab"
 )
 
 const cliOnboardingPollInterval = 2 * time.Millisecond
-
-func inspectCommandProviderSession(profileRoot string, providerKind string) (bool, error) {
-	switch providerKind {
-	case "monarch":
-		return monarch.SessionFilePresent(profileRoot)
-	case "ynab":
-		return ynab.CredentialFilePresent(profileRoot)
-	case "simplefin":
-		return simplefin.SessionFilePresent(profileRoot)
-	default:
-		return false, nil
-	}
-}
 
 type cliOnboardingFailure struct {
 	message string

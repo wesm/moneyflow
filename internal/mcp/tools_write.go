@@ -46,8 +46,8 @@ func registerWriteTools(server *Server) {
 			return resumeCommitDocument(ctx, dependencies, input)
 		})
 	registerTool(server, "stop_and_reconcile", "Abandon an unfinished write prefix and reconcile provider truth.", false,
-		func(_ context.Context, dependencies Dependencies, input StopReconcileInput) (any, error) {
-			return stopAndReconcileDocument(dependencies, input)
+		func(ctx context.Context, dependencies Dependencies, input StopReconcileInput) (any, error) {
+			return stopAndReconcileDocument(ctx, dependencies, input)
 		})
 	registerTool(server, "get_reconcile_status", "Return one process-local reconciliation attempt.", true,
 		func(_ context.Context, dependencies Dependencies, input ReconcileStatusInput) (any, error) {
@@ -148,6 +148,7 @@ func resumeCommitDocument(
 }
 
 func stopAndReconcileDocument(
+	ctx context.Context,
 	dependencies Dependencies,
 	input StopReconcileInput,
 ) (AttemptDocument, error) {
@@ -159,15 +160,18 @@ func stopAndReconcileDocument(
 	if err != nil {
 		return AttemptDocument{}, err
 	}
+	if err = dependencies.Supervisor.ExpireObsolete(ctx, dependencies.Service); err != nil {
+		return AttemptDocument{}, err
+	}
 	attempt, err := dependencies.Supervisor.StartReconcile(
 		expected, version,
-		func(ctx context.Context) (app.ProviderWriteResult, error) {
-			service, release, err := dependencies.Hold(ctx)
+		func(workerContext context.Context) (app.ProviderWriteResult, error) {
+			service, release, err := dependencies.Hold(workerContext)
 			if err != nil {
 				return app.ProviderWriteResult{}, err
 			}
 			defer release()
-			return service.StopAndReconcileProviderWrite(ctx, app.ProviderWriteReconcileRequest{
+			return service.StopAndReconcileProviderWrite(workerContext, app.ProviderWriteReconcileRequest{
 				ExpectedRevision: expected, ExpectedVersion: version,
 				State: app.DefaultViewState(), Selection: app.EmptySelection(),
 				Window: app.WindowRequest{Limit: 1},
@@ -177,7 +181,7 @@ func stopAndReconcileDocument(
 	if err != nil {
 		return AttemptDocument{}, err
 	}
-	return attemptDocument(attempt, dependencies.Service.Revision(), false), nil
+	return attemptDocument(attempt.AttemptStatus, dependencies.Service.Revision(), false), nil
 }
 
 func reconcileStatusDocument(dependencies Dependencies, input ReconcileStatusInput) (any, error) {

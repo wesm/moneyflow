@@ -6,19 +6,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/wesm/moneyflow/internal/diagnostic"
 )
 
 // Server failures reach the browser as generic problems, so the cause goes to the operator log.
 // Log lines name the request method and path only: never the query string, headers, or body,
 // which can carry mutation tokens, credentials, or financial data.
-
-// maximumPanicFrames bounds the stack written for one recovered panic.
-const maximumPanicFrames = 16
 
 type problemCauseKey struct{}
 
@@ -63,92 +60,17 @@ func humaErrorText(model *huma.ErrorModel) string {
 	return strings.Join(parts, ": ")
 }
 
-// describeCause renders a whole error tree, joined branches included. AppError, SafeError, and
-// store.Error keep their cause out of Error(), so every link is unwrapped explicitly instead of
-// trusting an outer message; a message that an earlier one already contains is left out.
-func describeCause(err error) string {
-	var messages []string
-	for _, message := range causeMessages(err, nil) {
-		if !containedIn(messages, message) {
-			messages = append(messages, message)
-		}
-	}
-	return strings.Join(messages, ": ")
-}
-
-// causeMessages lists the messages of err and everything it wraps, depth first.
-func causeMessages(err error, messages []string) []string {
-	if err == nil {
-		return messages
-	}
-	messages = append(messages, err.Error())
-	switch wrapped := err.(type) {
-	case interface{ Unwrap() error }:
-		return causeMessages(wrapped.Unwrap(), messages)
-	case interface{ Unwrap() []error }:
-		for _, branch := range wrapped.Unwrap() {
-			messages = causeMessages(branch, messages)
-		}
-	}
-	return messages
-}
-
-func containedIn(messages []string, message string) bool {
-	for _, earlier := range messages {
-		if strings.Contains(earlier, message) {
-			return true
-		}
-	}
-	return false
-}
-
 func logServerFailure(logger *log.Logger, request *http.Request, problem *Problem, cause error) {
 	line := fmt.Sprintf("%s %s: %d %s", request.Method, request.URL.Path, problem.Status, problem.Code)
 	if cause != nil {
-		line += ": " + describeCause(cause)
+		line += ": " + diagnostic.DescribeCause(cause)
 	}
 	logger.Print(line)
 }
 
 func logPanic(logger *log.Logger, request *http.Request, recovered any) {
 	logger.Printf(
-		"%s %s: panic: %s\n%s", request.Method, request.URL.Path, panicText(recovered), panicFrames(),
+		"%s %s: panic: %s\n%s", request.Method, request.URL.Path,
+		diagnostic.PanicText(recovered), diagnostic.PanicFrames(),
 	)
-}
-
-func panicText(recovered any) string {
-	switch value := recovered.(type) {
-	case error:
-		return describeCause(value)
-	case string:
-		return value
-	default:
-		return fmt.Sprintf("value of type %T", value)
-	}
-}
-
-// panicFrames lists the panicking call stack by function and file, without argument values.
-func panicFrames() string {
-	counters := make([]uintptr, 64)
-	return formatPanicFrames(counters[:runtime.Callers(1, counters)])
-}
-
-func formatPanicFrames(counters []uintptr) string {
-	frames := runtime.CallersFrames(counters)
-	var lines []string
-	panicking := false
-	for len(lines) < maximumPanicFrames {
-		frame, more := frames.Next()
-		if frame.Function == "runtime.gopanic" {
-			panicking = true
-		} else if panicking && !strings.HasPrefix(frame.Function, "runtime.") {
-			lines = append(lines, fmt.Sprintf(
-				"    %s (%s:%d)", frame.Function, filepath.Base(frame.File), frame.Line,
-			))
-		}
-		if !more {
-			break
-		}
-	}
-	return strings.Join(lines, "\n")
 }

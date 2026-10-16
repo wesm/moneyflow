@@ -19,13 +19,17 @@ const (
 	CodeProfileExists       Code = "profile_exists"
 )
 
+// BusyDetail is the detail of a CodeProfileBusy error.
+const BusyDetail = "Moneyflow profiles are busy. " +
+	"Wait for the current import or profile operation to finish, then retry."
+
 var safeDetails = map[Code]string{
 	CodeProfileNotFound:     "profile was not found",
 	CodeProfileAmbiguous:    "profile selection is ambiguous",
 	CodeProfileNameConflict: "profile name is already in use",
 	CodeProfileInvalid:      "profile metadata is invalid",
 	CodeManifestUnsupported: "profile metadata requires another Moneyflow version",
-	CodeProfileBusy:         "Moneyflow profiles are busy. Wait for the current import or profile operation to finish, then retry.",
+	CodeProfileBusy:         BusyDetail,
 	CodeRecoveryIncomplete:  "profile recovery is incomplete",
 	CodeRecoveryUnavailable: "profile cannot be recovered by this Moneyflow version",
 	CodeProfileExists:       "profile already exists",

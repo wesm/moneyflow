@@ -140,11 +140,11 @@ install-hooks: ## Install the prek Git hooks
 	prek install -f
 
 verify-go: ## Check Go formatting and run the tests, storage and provider gates, vet, and lint
-	go run ./internal/tools/checkfmt cmd internal
+	go run ./internal/tools/checkfmt cmd internal $(wildcard *.go)
 	$(MAKE) test test-mcp test-store test-provider test-provider-write vet lint
 
 fmt: ## Format the Go sources
-	gofmt -w cmd internal
+	gofmt -w cmd internal $(wildcard *.go)
 
 tui-demo: build ## Run the terminal application with temporary synthetic data
 	$(BINARY) tui --demo

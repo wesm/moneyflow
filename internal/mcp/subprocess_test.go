@@ -384,10 +384,13 @@ func assertProtocolFrames(t *testing.T, content []byte) {
 }
 
 // mcpStderrEventLine matches a whole log line from the MCP logger: a severity and the generic SDK
-// code, or the provider-write event with a bounded stable cause code. Nothing else may follow.
+// code, the provider-write event with a bounded stable cause code, or the panic of supervised
+// background work or of a tool call. Nothing else may follow.
 var mcpStderrEventLine = regexp.MustCompile(
 	`^level=(?:WARN|ERROR)(?:[+-][0-9]+)? code=mcp_sdk_event$` +
-		`|^level=ERROR code=provider_write_stopped cause=[a-z_]{1,64}$`,
+		`|^level=ERROR code=provider_write_stopped cause=[a-z_]{1,64}$` +
+		`|^level=ERROR code=background_work_panicked cause=internal_error$` +
+		`|^level=ERROR code=tool_call_panicked cause=internal_error$`,
 )
 
 func assertMCPStderrAllowlist(t *testing.T, content string, allowStartup bool) {

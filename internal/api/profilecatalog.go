@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/wesm/moneyflow/internal/diagnostic"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 	"github.com/wesm/moneyflow/internal/store"
 )
@@ -292,7 +293,13 @@ func (server *Server) registerProfileRemoval(config Config) {
 			return nil, err
 		}
 		if err := config.Remover.Remove(ctx, input.ProfileID); err != nil {
-			return nil, problemFromCatalogError(err)
+			problem := problemFromCatalogError(err)
+			// The 422 detail names no cause, so only the log can say why the removal failed.
+			if problem.Status == http.StatusUnprocessableEntity {
+				server.errorLog.Printf("remove profile %s: %s",
+					input.ProfileID, diagnostic.DescribeCause(err))
+			}
+			return nil, problem
 		}
 		return &profileRemoveOutput{
 			Body: ProfileRemoveResponse{Version: ProfileCatalogSchemaVersion},

@@ -70,7 +70,7 @@ func newTestProfiles(t *testing.T, services map[string]*app.Service, order ...st
 	}
 	for _, id := range order {
 		supervisor := NewSupervisor(context.Background(), time.Now,
-			strings.NewReader(strings.Repeat("p", 256)), nil)
+			strings.NewReader(strings.Repeat("p", 256)), nil, nil)
 		t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 		profiles.entries[id] = Dependencies{
 			Service: services[id], ProfileID: id, ProfileName: "Example Shop " + id,
@@ -315,6 +315,37 @@ func TestPanickingToolAnswersWithItsProfilesRevision(t *testing.T) {
 	failure := result.StructuredContent.(map[string]any)
 	assert.Equal(t, "mcp_internal_error", failure["code"])
 	assert.Equal(t, strconv.FormatUint(service.Revision(), 10), failure["revision"])
+}
+
+// panickingToolBody panics like app or provider code that a tool calls synchronously.
+func panickingToolBody(context.Context, Dependencies, EmptyInput) (any, error) {
+	panic("synthetic tool failure")
+}
+
+func TestAPanickingToolBodyIsLoggedOnceWithItsFrames(t *testing.T) {
+	service, closeProfile := writeTestService(t, 1)
+	defer closeProfile()
+	profiles := newTestProfiles(t, map[string]*app.Service{"profile-a": service}, "profile-a")
+	var logMu sync.Mutex
+	var logged strings.Builder
+	dependencies := profiles.entries["profile-a"]
+	dependencies.Logger = slog.New(slog.NewTextHandler(&lockedWriter{mu: &logMu, out: &logged}, nil))
+	profiles.entries["profile-a"] = dependencies
+	sdk := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "host", Version: "1"}, nil)
+	registerTool(&Server{SDK: sdk, profiles: profiles}, "panicking_tool", "Panics.", true,
+		panickingToolBody)
+
+	result := callRefreshToolResult(t, connectSDK(t, sdk), "panicking_tool", nil)
+
+	require.True(t, result.IsError)
+	assert.Equal(t, "mcp_internal_error", result.StructuredContent.(map[string]any)["code"])
+	logMu.Lock()
+	defer logMu.Unlock()
+	assert.Equal(t, 1, strings.Count(logged.String(), "\n"), logged.String())
+	assert.Contains(t, logged.String(), "moneyflow_event=tool_call_panicked")
+	assert.Contains(t, logged.String(), "moneyflow_cause=internal_error")
+	assert.Contains(t, logged.String(), `panic="synthetic tool failure"`)
+	assert.Contains(t, logged.String(), "mcp.panickingToolBody", "the log locates the panic")
 }
 
 // panickingProfiles panics once in Acquire or List when armed, then answers like testProfiles.

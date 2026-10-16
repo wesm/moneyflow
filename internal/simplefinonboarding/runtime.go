@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -44,6 +45,9 @@ type Config struct {
 	OpenProfile func(context.Context, string) (OpenedProfile, error)
 	Runtime     func(home.Paths) (Runtime, error)
 	Rollback    func(context.Context, string) error
+	// Logger records the panics that setup jobs recover, and the profile releases that fail after a
+	// caller stopped waiting for their jobs. Nil discards them.
+	Logger *slog.Logger
 }
 type attemptFlow struct {
 	opened            *OpenedProfile

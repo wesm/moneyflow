@@ -72,6 +72,52 @@ func TestHostAdmissionHasNoBootstrapEndpoints(t *testing.T) {
 	}
 }
 
+func TestAServerThatStoppedAdmittingAnswersEveryRequestBusy(t *testing.T) {
+	t.Parallel()
+	service, err := app.NewService([]domain.Transaction{apiTransaction(t)})
+	require.NoError(t, err)
+	resolver := &testProfileResolver{services: map[string]*app.Service{testProfileID: service}}
+	server, err := New(Config{
+		Resolver: resolver, BasePath: "/embedded/", Version: "test", HostAdmission: true,
+	})
+	require.NoError(t, err)
+	prefix := "/embedded/api/v1/profiles/" + testProfileID + "/"
+	requests := map[string]struct {
+		send   func() *httptest.ResponseRecorder
+		before int
+	}{
+		"a read": {before: http.StatusOK, send: func() *httptest.ResponseRecorder {
+			return requestServer(t, server, http.MethodGet, prefix+"health", nil)
+		}},
+		"a view": {before: http.StatusOK, send: func() *httptest.ResponseRecorder {
+			return requestJSON(t, server, prefix+"view",
+				ViewBody{Query: "v=1", Window: Window{Limit: 200}})
+		}},
+		"a route no operation serves": {before: http.StatusNotFound,
+			send: func() *httptest.ResponseRecorder {
+				return requestServer(t, server, http.MethodGet, "/embedded/api/v1/unserved", nil)
+			}},
+	}
+	for name, request := range requests {
+		response := request.send()
+		assert.Equal(t, request.before, response.Code, "%s: %s", name, response.Body.String())
+	}
+	acquires := resolver.acquires
+
+	server.StopAdmitting()
+
+	for name, request := range requests {
+		response := request.send()
+		assert.Equal(t, http.StatusServiceUnavailable, response.Code,
+			"%s: %s", name, response.Body.String())
+		var problem Problem
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem), name)
+		assert.Equal(t, "profile_busy", problem.Code, name)
+		assert.Contains(t, problem.Detail, "Wait a moment", name)
+	}
+	assert.Equal(t, acquires, resolver.acquires, "a refused request opens no profile")
+}
+
 func TestStandaloneServerStillRequiresTheMutationToken(t *testing.T) {
 	t.Parallel()
 	server := newPersistentAPITestServer(t)

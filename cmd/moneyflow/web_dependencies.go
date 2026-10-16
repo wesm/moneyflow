@@ -12,19 +12,21 @@ import (
 	"github.com/wesm/moneyflow/internal/amazonimport"
 	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/assembly"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/importer/amazon"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 	"github.com/wesm/moneyflow/internal/profilepool"
 	"github.com/wesm/moneyflow/internal/simplefinonboarding"
+	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
 // WebDependencies owns the profile-neutral services shared by one web server.
 type WebDependencies struct {
 	Catalog              api.ProfileCatalog
 	Registry             *profilepool.ProfileRegistry
-	Evictor              profileEvictor
+	Evictor              api.ProfileEvictor
 	Onboarding           *onboarding.Coordinator
 	SimpleFINOnboarding  *simplefinonboarding.Coordinator
 	AmazonImports        *amazonimport.Coordinator
@@ -65,7 +67,8 @@ func buildWebDependencies(
 	if err != nil {
 		return WebDependencies{}, err
 	}
-	amazonMatcher, err := newCatalogAmazonMatcher(catalog)
+	amazonMatcher, err := assembly.NewAmazonMatcher(
+		catalog.List, catalog.Resolve, sqlite.DefaultOptions)
 	if err != nil {
 		return WebDependencies{}, err
 	}
@@ -103,7 +106,7 @@ func buildWebDependencies(
 	if err != nil {
 		return WebDependencies{}, err
 	}
-	instanceID, err := newProviderInstanceID("web")
+	instanceID, err := assembly.NewInstanceID("web")
 	if err != nil {
 		_ = registry.Close(context.Background())
 		return WebDependencies{}, err
@@ -137,7 +140,7 @@ func buildWebDependencies(
 		Runtime: func(paths home.Paths) (simplefinonboarding.Runtime, error) {
 			factory := streams.OpenSimpleFIN
 			if factory == nil {
-				factory = defaultSimpleFINCommandFactory
+				factory = assembly.NewSimpleFINRuntime
 			}
 			runtime, runtimeErr := factory(paths)
 			runtime.InstanceID = instanceID + "-simplefin"
@@ -160,7 +163,7 @@ func buildWebDependencies(
 			if entry.ProviderKind != "amazon" {
 				return amazonimport.Target{}, errors.New("selected profile is not an Amazon profile")
 			}
-			return openAmazonImportTarget(targetContext, catalog, entry)
+			return assembly.OpenAmazonImportTarget(targetContext, catalog, entry, sqlite.DefaultOptions)
 		},
 	})
 	if err != nil {
@@ -170,11 +173,12 @@ func buildWebDependencies(
 		return WebDependencies{}, err
 	}
 	return WebDependencies{
-		Catalog: amazonMatchingProfileLifecycle{ProfileCatalog: catalog, matcher: amazonMatcher}, Registry: registry,
-		Evictor:    amazonMatchingProfileEvictor{profileEvictor: registry, matcher: amazonMatcher},
+		Catalog: assembly.AmazonMatchingLifecycle{ProfileCatalog: catalog, Matcher: amazonMatcher}, Registry: registry,
+		Evictor:    assembly.AmazonMatchingEvictor{Evictor: registry, Matcher: amazonMatcher},
 		Onboarding: coordinator, SimpleFINOnboarding: simplefinCoordinator, AmazonImports: amazonCoordinator,
 		LoadAmazonTaxonomy: func(loadContext context.Context, selector string) (*app.TaxonomyClone, error) {
-			return loadAmazonTaxonomyClone(loadContext, catalog, selector)
+			return assembly.LoadAmazonTaxonomyClone(
+				loadContext, catalog.Resolve, selector, sqlite.DefaultOptions)
 		},
 		PreselectedProfileID: preselectedID,
 		DemoProfileID:        demoProfileID,

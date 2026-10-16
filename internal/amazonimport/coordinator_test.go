@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"testing/iotest"
 	"time"
@@ -427,4 +428,210 @@ func TestCoordinatorExecuteNamesWhyTheInstallFailed(t *testing.T) {
 			assert.Equal(t, test.code, snapshot.Failure.Code)
 		})
 	}
+}
+
+func TestCoordinatorCloseReleasesIdleAttemptsAndRefusesNewWork(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	closes := 0
+	coordinator := closingTestCoordinator(t, root, &closes)
+	settings := amazon.Settings{Currency: "USD", Scale: 2}
+	started, err := coordinator.Start(context.Background(), StartRequest{
+		ProfileID: "profile-a", Settings: settings,
+	})
+	require.NoError(t, err)
+	staged, err := coordinator.Stage(context.Background(), StageRequest{
+		ProfileID: "profile-a", AttemptID: started.AttemptID,
+		ExpectedStateVersion: started.StateVersion,
+		Files: []Upload{{
+			RelativeName: "Retail.OrderHistory.1.csv", Reader: strings.NewReader("header\n"),
+		}},
+	})
+	require.NoError(t, err)
+
+	coordinator.Close()
+
+	assert.Equal(t, 1, closes, "the attempt's target is closed")
+	assert.NoDirExists(t, filepath.Join(root, managedStageDirectory))
+	lock, err := home.TryLockExisting(root, home.LockAmazonImport, home.LockExclusive)
+	require.NoError(t, err, "the import lock is released")
+	require.NoError(t, lock.Release())
+	_, err = coordinator.Status(context.Background(), StatusRequest{
+		ProfileID: "profile-a", AttemptID: staged.AttemptID,
+	})
+	assert.Equal(t, CodeAttemptInvalid, CodeOf(err), "Close removed the attempt")
+	_, err = coordinator.Start(context.Background(), StartRequest{
+		ProfileID: "profile-a", Settings: settings,
+	})
+	assert.Equal(t, CodeAttemptInvalid, CodeOf(err))
+	assert.Equal(t, 2, closes, "a refused start closes its target")
+	_, err = coordinator.Execute(context.Background(), ExecuteRequest{
+		ProfileID: "profile-a", AttemptID: staged.AttemptID,
+		ExpectedStateVersion: staged.StateVersion,
+	})
+	assert.Equal(t, CodeAttemptInvalid, CodeOf(err))
+	_, err = coordinator.ImportDirectory(context.Background(), DirectoryRequest{
+		ProfileID: "profile-a", Directory: t.TempDir(), Settings: settings,
+	})
+	assert.Equal(t, CodeAttemptInvalid, CodeOf(err))
+	assert.Equal(t, 2, closes, "a refused directory import opens no target")
+}
+
+func TestCoordinatorCloseLetsARunningStageCleanUpWhenItStops(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	closes := 0
+	coordinator := closingTestCoordinator(t, root, &closes)
+	started, err := coordinator.Start(context.Background(), StartRequest{
+		ProfileID: "profile-a", Settings: amazon.Settings{Currency: "USD", Scale: 2},
+	})
+	require.NoError(t, err)
+	upload := &gatedReader{
+		reading: make(chan struct{}), release: make(chan struct{}),
+		body: strings.NewReader("header\n"),
+	}
+	staged := make(chan error, 1)
+	go func() {
+		_, stageErr := coordinator.Stage(context.Background(), StageRequest{
+			ProfileID: "profile-a", AttemptID: started.AttemptID,
+			ExpectedStateVersion: started.StateVersion,
+			Files:                []Upload{{RelativeName: "Retail.OrderHistory.1.csv", Reader: upload}},
+		})
+		staged <- stageErr
+	}()
+	select {
+	case <-upload.reading:
+	case stageErr := <-staged:
+		t.Fatalf("Stage returned before it read the upload: %v (%v)", stageErr, errors.Unwrap(stageErr))
+	}
+
+	coordinator.Close()
+	_, err = home.TryLockExisting(root, home.LockAmazonImport, home.LockExclusive)
+	require.ErrorIs(t, err, home.ErrLockBusy, "Close leaves a running attempt alone")
+	close(upload.release)
+
+	assert.Equal(t, CodeAttemptInvalid, CodeOf(<-staged))
+	_, err = coordinator.Status(context.Background(), StatusRequest{
+		ProfileID: "profile-a", AttemptID: started.AttemptID,
+	})
+	assert.Equal(t, CodeAttemptInvalid, CodeOf(err), "the stopped attempt is removed")
+	assert.Equal(t, 1, closes, "the attempt's target is closed")
+	assert.NoDirExists(t, filepath.Join(root, managedStageDirectory))
+	lock, err := home.TryLockExisting(root, home.LockAmazonImport, home.LockExclusive)
+	require.NoError(t, err, "the import lock is released")
+	require.NoError(t, lock.Release())
+}
+
+func TestCoordinatorExecutePanicStopsTheAttemptSoCloseReleasesIt(t *testing.T) {
+	tests := []struct {
+		name    string
+		parse   ParseFunc
+		install ImportFunc
+	}{
+		{
+			name: "parse",
+			parse: func(
+				context.Context, []amazon.SourceFile, amazon.Settings, amazon.Limits, amazon.ObserveFunc,
+			) (amazon.Candidate, error) {
+				panic("synthetic parse failure")
+			},
+		},
+		{
+			name: "install",
+			parse: func(
+				context.Context, []amazon.SourceFile, amazon.Settings, amazon.Limits, amazon.ObserveFunc,
+			) (amazon.Candidate, error) {
+				return amazon.Candidate{Digest: "candidate", ObservedOrderIDs: []string{"order"}}, nil
+			},
+			install: func(context.Context, app.AmazonImportRequest) (app.AmazonImportResult, error) {
+				panic("synthetic install failure")
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			require.NoError(t, err)
+			closes := 0
+			coordinator, err := New(Config{
+				InstanceID: "server-a", Now: time.Now,
+				Random: strings.NewReader(strings.Repeat("a", 256)), Limits: amazon.ProductionLimits,
+				ResolveTarget: func(context.Context, string) (Target, error) {
+					return Target{
+						ProfileID: "profile-a", Root: root, Import: test.install,
+						Close: func() error { closes++; return nil },
+					}, nil
+				},
+				Discover: amazon.DiscoverDirectory, Parse: test.parse,
+			})
+			require.NoError(t, err)
+			started, err := coordinator.Start(context.Background(), StartRequest{
+				ProfileID: "profile-a", Settings: amazon.Settings{Currency: "USD", Scale: 2},
+			})
+			require.NoError(t, err)
+			staged, err := coordinator.Stage(context.Background(), StageRequest{
+				ProfileID: "profile-a", AttemptID: started.AttemptID,
+				ExpectedStateVersion: started.StateVersion,
+				Files: []Upload{{
+					RelativeName: "Retail.OrderHistory.1.csv", Reader: strings.NewReader("header\n"),
+				}},
+			})
+			require.NoError(t, err)
+
+			var recovered any
+			func() {
+				defer func() { recovered = recover() }()
+				_, _ = coordinator.Execute(context.Background(), ExecuteRequest{
+					ProfileID: "profile-a", AttemptID: staged.AttemptID,
+					ExpectedStateVersion: staged.StateVersion,
+				})
+			}()
+
+			assert.Equal(t, "synthetic "+test.name+" failure", recovered, "the panic reaches the caller")
+			status, err := coordinator.Status(context.Background(), StatusRequest{
+				ProfileID: "profile-a", AttemptID: staged.AttemptID,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, StateFailed, status.State, "the attempt is no longer running")
+			assert.NotContains(t, status.Failure.Detail, "synthetic")
+			coordinator.Close()
+			assert.Equal(t, 1, closes, "the attempt's target is closed")
+			lock, err := home.TryLockExisting(root, home.LockAmazonImport, home.LockExclusive)
+			require.NoError(t, err, "the import lock is released")
+			require.NoError(t, lock.Release())
+		})
+	}
+}
+
+// closingTestCoordinator returns a coordinator whose targets count their closes in closes.
+func closingTestCoordinator(t *testing.T, root string, closes *int) *Coordinator {
+	t.Helper()
+	coordinator, err := New(Config{
+		InstanceID: "server-a", Now: time.Now,
+		Random: strings.NewReader(strings.Repeat("a", 256)), Limits: amazon.ProductionLimits,
+		ResolveTarget: func(context.Context, string) (Target, error) {
+			return Target{
+				ProfileID: "profile-a", Root: root, Close: func() error { *closes++; return nil },
+			}, nil
+		},
+		Discover: amazon.DiscoverDirectory, Parse: amazon.Parse,
+	})
+	require.NoError(t, err)
+	return coordinator
+}
+
+// gatedReader closes reading on its first read, then waits for release before reading body.
+type gatedReader struct {
+	reading chan struct{}
+	release chan struct{}
+	once    sync.Once
+	body    io.Reader
+}
+
+func (reader *gatedReader) Read(buffer []byte) (int, error) {
+	reader.once.Do(func() {
+		close(reader.reading)
+		<-reader.release
+	})
+	return reader.body.Read(buffer)
 }

@@ -3,7 +3,9 @@ package onboarding
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,6 +20,35 @@ import (
 	"github.com/wesm/moneyflow/internal/provider/ynab"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
+
+// panickingRuntime panics like provider code that a setup job calls.
+func panickingRuntime(home.Paths) (Runtime, error) {
+	panic("synthetic runtime failure")
+}
+
+func TestAPanickingSetupJobIsLoggedWithItsFrames(t *testing.T) {
+	opened := newFlowOpenedProfile(t, flowProfilePristine)
+	var logged strings.Builder
+	coordinator, err := NewCoordinator(Config{
+		Now: time.Now, InstanceID: "test-instance",
+		OpenProfile: func(context.Context, string) (OpenedProfile, error) { return opened, nil },
+		Runtime:     panickingRuntime,
+		Logger:      slog.New(slog.NewTextHandler(&logged, nil)),
+	})
+	require.NoError(t, err)
+	started, err := coordinator.Start(t.Context(), StartRequest{ProfileID: testProfileID})
+	require.NoError(t, err)
+
+	final := waitForState(t, coordinator, started, StateFailed)
+
+	require.NotNil(t, final.Failure)
+	assert.Equal(t, "Setup stopped unexpectedly.", final.Failure.Message)
+	assert.Equal(t, 1, strings.Count(logged.String(), "\n"), logged.String())
+	assert.Contains(t, logged.String(), "moneyflow_event=onboarding_job_panicked")
+	assert.Contains(t, logged.String(), "moneyflow_cause=internal_error")
+	assert.Contains(t, logged.String(), `panic="synthetic runtime failure"`)
+	assert.Contains(t, logged.String(), "onboarding.panickingRuntime", "the log locates the panic")
+}
 
 func TestCredentialReentryAfterSessionLoadPanicCompletesImport(t *testing.T) {
 	paths, err := home.ResolveRoot(t.TempDir(), nil, "")

@@ -145,8 +145,6 @@ func (registry *ProfileRegistry) Acquire(
 			err = validateRegistryProfile(profile, profileID)
 		}
 		registry.mutex.Lock()
-		entry.opening = false
-		close(entry.ready)
 		if err != nil || registry.closed || entry.evicting {
 			terminalErr := err
 			if terminalErr == nil && registry.closed {
@@ -155,14 +153,22 @@ func (registry *ProfileRegistry) Acquire(
 			if terminalErr == nil {
 				terminalErr = ErrProfileEvicting
 			}
+			// The entry still reads as opening, so an eviction or Close waiting on it returns only
+			// after the profile's store and lock are closed.
+			if opened && profile.Close != nil {
+				registry.mutex.Unlock()
+				terminalErr = errors.Join(terminalErr, profile.Close())
+				registry.mutex.Lock()
+			}
+			entry.opening = false
+			close(entry.ready)
 			delete(registry.entries, profileID)
 			registry.signalLocked()
 			registry.mutex.Unlock()
-			if opened && profile.Close != nil {
-				terminalErr = errors.Join(terminalErr, profile.Close())
-			}
 			return nil, terminalErr
 		}
+		entry.opening = false
+		close(entry.ready)
 		entry.profile = profile
 		entry.refs = 1
 		entry.lastUsed = registry.now()
@@ -208,23 +214,36 @@ func (lease *profileLease) ProfileRoot() string { return lease.entry.profile.Pat
 // Temporary reports whether the profile is disposed with this process.
 func (lease *profileLease) Temporary() bool { return lease.entry.profile.Temporary }
 
-// Release drops exactly one reference and makes the profile eligible for idle close.
+// Release drops exactly one reference and makes the profile eligible for idle close. Once the
+// registry is closed, the last release closes a profile that no eviction is closing and returns
+// the close error.
 func (lease *profileLease) Release() error {
 	if lease == nil || lease.registry == nil || lease.entry == nil {
 		return nil
 	}
-	lease.once.Do(func() {
-		lease.registry.mutex.Lock()
-		defer lease.registry.mutex.Unlock()
-		if lease.entry.refs < 1 {
-			lease.err = errors.New("release profile lease: reference count is invalid")
-			return
-		}
-		lease.entry.refs--
-		lease.entry.lastUsed = lease.registry.now()
-		lease.registry.signalLocked()
-	})
+	lease.once.Do(func() { lease.err = lease.registry.release(lease.entry) })
 	return lease.err
+}
+
+// release drops one reference to entry. Once the registry is closed, the last release evicts an
+// entry that no eviction owns, such as one that Close stopped waiting for when its context ended.
+func (registry *ProfileRegistry) release(entry *registryEntry) error {
+	registry.mutex.Lock()
+	if entry.refs < 1 {
+		registry.mutex.Unlock()
+		return errors.New("release profile lease: reference count is invalid")
+	}
+	entry.refs--
+	entry.lastUsed = registry.now()
+	registry.signalLocked()
+	if !registry.closed || entry.evicting || entry.refs > 0 {
+		registry.mutex.Unlock()
+		return nil
+	}
+	entry.evicting = true
+	entry.evicted = make(chan struct{})
+	registry.mutex.Unlock()
+	return registry.finishEviction(context.Background(), entry.profile.ID, entry)
 }
 
 // Evict waits for active requests, closes the cached service, and permits a fresh open.
@@ -270,8 +289,10 @@ func (registry *ProfileRegistry) Evict(ctx context.Context, profileID string) er
 	}
 }
 
-// finishEviction is run by the evictor that owns an entry. It publishes the terminal close
-// result to waiters, or wakes them to take over when the owner's context ends first.
+// finishEviction is run by the evictor that owns an entry. Once no lease holds the profile, it
+// closes the profile and publishes the result to waiters, even after the owner's context ends.
+// While a lease holds the profile or it is still opening, an owner whose context ends gives the
+// entry up and wakes the waiters to take over.
 func (registry *ProfileRegistry) finishEviction(
 	ctx context.Context,
 	profileID string,
@@ -297,18 +318,19 @@ func (registry *ProfileRegistry) finishEviction(
 			registry.mutex.Unlock()
 			return err
 		}
+		// The owner gives the entry up only here, after the check above, so a release that drops
+		// the last reference as the owner's context ends never leaves the profile open.
+		if err := ctx.Err(); err != nil {
+			entry.evicting = false
+			close(entry.evicted)
+			registry.signalLocked()
+			registry.mutex.Unlock()
+			return err
+		}
 		changed := registry.changed
 		registry.mutex.Unlock()
 		select {
 		case <-ctx.Done():
-			registry.mutex.Lock()
-			if registry.entries[profileID] == entry {
-				entry.evicting = false
-			}
-			close(entry.evicted)
-			registry.signalLocked()
-			registry.mutex.Unlock()
-			return ctx.Err()
 		case <-changed:
 		}
 	}
@@ -336,7 +358,8 @@ func (registry *ProfileRegistry) CloseIdle(ctx context.Context) error {
 	return result
 }
 
-// Close rejects new acquisitions and closes every service after active leases finish.
+// Close rejects new acquisitions and closes every service after active leases finish. When ctx
+// ends first, Close returns its error, and a profile still in use closes on its last release.
 func (registry *ProfileRegistry) Close(ctx context.Context) error {
 	registry.mutex.Lock()
 	registry.closed = true

@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	cryptorand "crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -11,47 +9,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/assembly"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/onboarding"
-	"github.com/wesm/moneyflow/internal/profilecatalog"
-	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
-	"github.com/wesm/moneyflow/internal/provider/ynab"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
-
-// MonarchSessionStore is the provider-owned session surface used by the CLI.
-type MonarchSessionStore interface {
-	Load() (monarch.Session, provider.SessionFingerprint, error)
-	Save(monarch.Session) error
-	Delete() error
-}
-
-// MonarchCredentialVault is the password-protected provider credential surface used by the CLI.
-type MonarchCredentialVault interface {
-	Exists() (bool, error)
-	Load([]byte) (monarch.StoredCredentials, error)
-	Save(monarch.StoredCredentials, []byte) error
-}
-
-// MonarchCommandRuntime contains the injected connection dependencies for one profile.
-type MonarchCommandRuntime struct {
-	Connector   provider.Connector
-	Sessions    MonarchSessionStore
-	Credentials MonarchCredentialVault
-	ReadSource  provider.ReaderSource
-	WriteSource provider.WriterSource
-	InstanceID  string
-	Now         func() time.Time
-}
-
-// MonarchCommandFactory constructs provider dependencies for the selected private profile root.
-type MonarchCommandFactory func(home.Paths, monarch.ImportConfig) (MonarchCommandRuntime, error)
-
-// YNABCommandFactory constructs the shared onboarding runtime for one profile.
-type YNABCommandFactory func(home.Paths) (onboarding.Runtime, error)
 
 func newProviderCommand(streams IOStreams) *cobra.Command {
 	providerCommand := &cobra.Command{
@@ -144,85 +108,6 @@ func newProviderCommand(streams IOStreams) *cobra.Command {
 	return providerCommand
 }
 
-func commandOnboardingRuntime(
-	paths home.Paths,
-	streams IOStreams,
-	initial monarch.ImportConfig,
-) (onboarding.Runtime, error) {
-	factory := streams.OpenMonarch
-	if factory == nil {
-		factory = defaultMonarchCommandFactory
-	}
-	if initial.Validate() != nil {
-		initial = monarch.ImportConfig{Currency: "USD", Scale: 2}
-	}
-	bootstrap, err := factory(paths, initial)
-	if err != nil {
-		return onboarding.Runtime{}, err
-	}
-	if bootstrap.Sessions == nil || bootstrap.Credentials == nil || bootstrap.InstanceID == "" {
-		return onboarding.Runtime{}, errors.New("monarch command dependencies are incomplete")
-	}
-	now := bootstrap.Now
-	if now == nil {
-		now = time.Now
-	}
-	return onboarding.Runtime{
-		ProviderKind: "monarch", Sessions: bootstrap.Sessions, Credentials: bootstrap.Credentials,
-		InstanceID: bootstrap.InstanceID, Now: now,
-		NewConnector: func(config monarch.ImportConfig) (provider.Connector, error) {
-			runtime, runtimeErr := factory(paths, config)
-			if runtimeErr != nil {
-				return nil, runtimeErr
-			}
-			if runtime.Connector == nil {
-				return nil, errors.New("monarch connector is unavailable")
-			}
-			return runtime.Connector, nil
-		},
-		NewSources: func(config monarch.ImportConfig) (
-			provider.ReaderSource,
-			provider.WriterSource,
-			error,
-		) {
-			runtime, runtimeErr := factory(paths, config)
-			if runtimeErr != nil {
-				return nil, nil, runtimeErr
-			}
-			if runtime.ReadSource == nil || runtime.WriteSource == nil {
-				return nil, nil, errors.New("monarch source is unavailable")
-			}
-			return runtime.ReadSource, runtime.WriteSource, nil
-		},
-	}, nil
-}
-
-func defaultCommandOnboardingRuntime(
-	paths home.Paths,
-	streams IOStreams,
-) (onboarding.Runtime, error) {
-	return commandOnboardingRuntime(
-		paths,
-		streams,
-		monarch.ImportConfig{Currency: "USD", Scale: 2},
-	)
-}
-
-func defaultProviderOnboardingRuntime(paths home.Paths, streams IOStreams) (onboarding.Runtime, error) {
-	manifest, err := profilecatalog.ReadManifest(filepath.Join(paths.Root, profilecatalog.ManifestFilename))
-	if err != nil {
-		return onboarding.Runtime{}, err
-	}
-	if manifest.ProviderKind == "ynab" {
-		factory := streams.OpenYNAB
-		if factory == nil {
-			factory = defaultYNABCommandFactory
-		}
-		return factory(paths)
-	}
-	return defaultCommandOnboardingRuntime(paths, streams)
-}
-
 func runMonarchConnect(
 	command *cobra.Command,
 	streams IOStreams,
@@ -247,7 +132,7 @@ func runMonarchConnect(
 			closeOpenedProfile(opened, errors.New("opened profile has no identity")),
 		)
 	}
-	runtime, err := commandOnboardingRuntime(opened.Paths, streams, importConfig)
+	runtime, err := assembly.MonarchOnboardingRuntime(opened.Paths, streams.OpenMonarch, importConfig)
 	if err != nil {
 		return fmt.Errorf("connect Monarch: %w", closeOpenedProfile(opened, err))
 	}
@@ -280,7 +165,7 @@ func runYNABConnect(command *cobra.Command, streams IOStreams, profile string) e
 	}
 	factory := streams.OpenYNAB
 	if factory == nil {
-		factory = defaultYNABCommandFactory
+		factory = assembly.NewYNABRuntime
 	}
 	runtime, err := factory(opened.Paths)
 	if err != nil {
@@ -293,35 +178,6 @@ func runYNABConnect(command *cobra.Command, streams IOStreams, profile string) e
 		return fmt.Errorf("connect YNAB: %w", err)
 	}
 	return nil
-}
-
-func defaultYNABCommandFactory(paths home.Paths) (onboarding.Runtime, error) {
-	vault, err := ynab.NewCredentialVault(paths)
-	if err != nil {
-		return onboarding.Runtime{}, err
-	}
-	instanceID, err := newProviderInstanceID("cli")
-	if err != nil {
-		return onboarding.Runtime{}, err
-	}
-	return onboarding.Runtime{
-		ProviderKind: "ynab", YNABVault: vault, InstanceID: instanceID, Now: time.Now,
-		NewYNABClient: func(token []byte) (onboarding.YNABPlanClient, error) {
-			return ynab.NewClient(ynab.ClientOptions{}, string(token))
-		},
-		NewYNABSource: func(
-			credentials ynab.StoredCredentials,
-			initial *provider.SnapshotResult,
-		) (provider.ReaderSource, provider.WriterSource, error) {
-			source, err := ynab.NewSource(ynab.SourceOptions{
-				Credentials: credentials, Vault: vault, Now: time.Now, Initial: initial,
-			})
-			if err != nil {
-				return nil, nil, err
-			}
-			return source, source, nil
-		},
-	}, nil
 }
 
 func runYNABDisconnect(command *cobra.Command, streams IOStreams, profile string) error {
@@ -341,7 +197,7 @@ func runYNABDisconnect(command *cobra.Command, streams IOStreams, profile string
 	defer func() { _ = connectLock.Release() }()
 	factory := streams.OpenYNAB
 	if factory == nil {
-		factory = defaultYNABCommandFactory
+		factory = assembly.NewYNABRuntime
 	}
 	runtime, err := factory(paths)
 	if err != nil {
@@ -392,7 +248,7 @@ func runMonarchDisconnect(command *cobra.Command, streams IOStreams, profile str
 	}
 	factory := streams.OpenMonarch
 	if factory == nil {
-		factory = defaultMonarchCommandFactory
+		factory = assembly.NewMonarchRuntime
 	}
 	runtime, err := factory(paths, monarch.ImportConfig{})
 	if err != nil {
@@ -412,19 +268,19 @@ func openMonarchCommand(
 	ctx context.Context,
 	streams IOStreams,
 	importConfig monarch.ImportConfig,
-) (OpenedProfile, MonarchCommandRuntime, error) {
+) (OpenedProfile, assembly.MonarchRuntime, error) {
 	opener := streams.OpenProfile
 	if opener == nil {
 		opener = openProfile
 	}
 	opened, err := opener(ctx, ProfileOptions{ProviderKind: "monarch"})
 	if err != nil {
-		return OpenedProfile{}, MonarchCommandRuntime{}, err
+		return OpenedProfile{}, assembly.MonarchRuntime{}, err
 	}
 	connection, err := opened.Service.ProviderConnection(ctx)
 	if err != nil {
 		_ = opened.Close()
-		return OpenedProfile{}, MonarchCommandRuntime{}, err
+		return OpenedProfile{}, assembly.MonarchRuntime{}, err
 	}
 	if connection.Bound {
 		importConfig = monarch.ImportConfig{Currency: connection.Currency, Scale: connection.Scale}
@@ -436,67 +292,33 @@ func openMonarchCommand(
 	opened.Paths = paths
 	factory := streams.OpenMonarch
 	if factory == nil {
-		factory = defaultMonarchCommandFactory
+		factory = assembly.NewMonarchRuntime
 	}
 	runtime, err := factory(paths, importConfig)
 	if err != nil {
 		_ = opened.Close()
-		return OpenedProfile{}, MonarchCommandRuntime{}, err
+		return OpenedProfile{}, assembly.MonarchRuntime{}, err
 	}
 	if runtime.Connector == nil || runtime.Sessions == nil || runtime.Credentials == nil ||
 		runtime.ReadSource == nil || runtime.WriteSource == nil ||
 		runtime.InstanceID == "" {
 		_ = opened.Close()
-		return OpenedProfile{}, MonarchCommandRuntime{}, errors.New("monarch command dependencies are incomplete")
+		return OpenedProfile{}, assembly.MonarchRuntime{}, errors.New("monarch command dependencies are incomplete")
 	}
 	return opened, runtime, nil
 }
 
-func defaultMonarchCommandFactory(
-	paths home.Paths,
-	importConfig monarch.ImportConfig,
-) (MonarchCommandRuntime, error) {
-	sessions, err := monarch.NewSessionStore(paths)
-	if err != nil {
-		return MonarchCommandRuntime{}, err
+func providerFactories(streams IOStreams) assembly.Factories {
+	return assembly.Factories{
+		Monarch: streams.OpenMonarch, YNAB: streams.OpenYNAB, SimpleFIN: streams.OpenSimpleFIN,
 	}
-	if importConfig.Validate() != nil {
-		if storedSession, _, loadErr := sessions.Load(); loadErr == nil {
-			importConfig = storedSession.Import
-		}
-	}
-	options := monarch.Options{
-		ImportCurrency: importConfig.Currency,
-		ImportScale:    importConfig.Scale,
-	}
-	connector, err := monarch.NewAuthenticator(options)
-	if err != nil {
-		return MonarchCommandRuntime{}, err
-	}
-	source, err := monarch.NewSource(options, sessions)
-	if err != nil {
-		return MonarchCommandRuntime{}, err
-	}
-	credentials, err := monarch.NewCredentialVault(paths)
-	if err != nil {
-		return MonarchCommandRuntime{}, err
-	}
-	instanceID, err := newProviderInstanceID("cli")
-	if err != nil {
-		return MonarchCommandRuntime{}, err
-	}
-	return MonarchCommandRuntime{
-		Connector: connector, Sessions: sessions, Credentials: credentials,
-		ReadSource: source, WriteSource: source, InstanceID: instanceID, Now: time.Now,
-	}, nil
 }
 
-func newProviderInstanceID(renderer string) (string, error) {
-	material := make([]byte, 16)
-	if _, err := cryptorand.Read(material); err != nil {
-		return "", errors.New("create provider instance identity")
-	}
-	return renderer + "-" + hex.EncodeToString(material), nil
+func defaultProviderOnboardingRuntime(
+	paths home.Paths,
+	streams IOStreams,
+) (onboarding.Runtime, error) {
+	return assembly.ProviderOnboardingRuntime(paths, providerFactories(streams))
 }
 
 func configureOpenedProvider(
@@ -508,47 +330,24 @@ func configureOpenedProvider(
 	if opened.Demo || (opened.Paths.Root == "" && opened.Path == "") {
 		return nil
 	}
-	connection, err := opened.Service.ProviderConnection(ctx)
-	if err != nil {
-		return err
-	}
-	if !connection.Bound {
-		return nil
-	}
-	if connection.Kind == "simplefin" {
-		return configureOpenedSimpleFINProvider(opened, streams, renderer, connection)
-	}
-	if connection.Kind != "monarch" {
-		// Password-locked YNAB credentials are configured by the shared onboarding flow.
-		// Amazon and local profiles have no network reader runtime.
-		return nil
-	}
 	paths := opened.Paths
 	if paths.Root == "" {
 		paths = home.Paths{Root: filepath.Dir(opened.Path), Database: opened.Path}
 	}
-	factory := streams.OpenMonarch
-	production := factory == nil
-	if production {
-		factory = defaultMonarchCommandFactory
+	factories := providerFactories(streams)
+	factories.Monarch = wallClockMonarch(factories.Monarch)
+	return assembly.ConfigureProvider(ctx, opened.Service, paths, factories, renderer)
+}
+
+// wallClockMonarch runs the command line's Monarch refreshes on the wall clock, as they ran
+// before internal/assembly passed a factory's clock through. Onboarding keeps the factory's.
+func wallClockMonarch(factory assembly.MonarchFactory) assembly.MonarchFactory {
+	if factory == nil {
+		return nil
 	}
-	importConfig := monarch.ImportConfig{Currency: connection.Currency, Scale: connection.Scale}
-	runtime, err := factory(paths, importConfig)
-	if err != nil {
-		return err
+	return func(paths home.Paths, config monarch.ImportConfig) (assembly.MonarchRuntime, error) {
+		runtime, err := factory(paths, config)
+		runtime.Now = time.Now
+		return runtime, err
 	}
-	if runtime.ReadSource == nil || runtime.WriteSource == nil {
-		return errors.New("monarch renderer source is unavailable")
-	}
-	if production {
-		runtime.InstanceID, err = newProviderInstanceID(renderer)
-		if err != nil {
-			return err
-		}
-	}
-	return opened.Service.ConfigureProvider(app.ProviderRuntime{
-		ReadSource: runtime.ReadSource, WriteSource: runtime.WriteSource, Provider: "monarch",
-		Currency: importConfig.Currency, Scale: importConfig.Scale, Renderer: renderer,
-		InstanceID: runtime.InstanceID,
-	})
 }

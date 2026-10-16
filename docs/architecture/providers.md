@@ -51,6 +51,36 @@ plausibility within the window. A month-to-date first import passes its range as
 that one manual refresh, so the provider source keeps no range and later refreshes are not
 windowed.
 
+**Unreleased:** A process that serves MCP tools or embeds moneyflow's Go package runs one refresh
+at a time for each profile. A new request shares the running refresh when that refresh reads at
+least as much:
+
+- A scheduled request reads nothing or what a manual request reads from the same provider status,
+  so it shares any refresh.
+- A manual request shares a manual or complete-history refresh.
+- YNAB and SimpleFIN read complete data on every manual refresh, so for them a complete-history
+  request is a manual request. A Monarch complete-history request shares only a complete-history
+  refresh.
+
+Any other request waits for one follow-up refresh, which reads the most that any of its requests
+asked for once the running refresh stops. A refresh that read the provider read at least what a
+manual refresh reads, so when a scheduled refresh read, a manual follow-up behind it takes its
+outcome and does not read the same data again. A follow-up behind a scheduled refresh that read
+nothing still reads. A refresh that waits for deletion confirmation has read what a manual
+refresh reads, so only a Monarch complete-history request replaces it. Shutdown drops a follow-up
+that has not started.
+
+Confirmation tokens are process-local, but another process can change the profile while a refresh
+or reconcile here waits for confirmation. Before a refresh or reconcile request joins, starts, or
+is refused because of a waiting attempt, the process compares that attempt with the profile's
+stored state. A waiting refresh is obsolete once the stored refresh generation or revision has
+moved past it, for example after another process refreshed or edited the profile. A waiting
+reconcile is obsolete once the stored write batch is a different one, or its version or the
+revision has moved past it, for example after another process finished the batch. An obsolete
+attempt was computed before that change, so it fails with `provider_confirmation_invalid`, as it
+does at its deadline, and the request is handled as a new one. The service would also refuse an
+obsolete reconcile's token, because its confirmation checks the batch ID, version and revision.
+
 YNAB uses a six-hour cadence in long-lived TUI/web processes. SimpleFIN uses 24 hours and parks
 failed automatic attempts until explicit action. MCP refresh is explicit.
 Amazon and bank CSV have no network refresh scheduler.

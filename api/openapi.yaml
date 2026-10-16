@@ -3199,6 +3199,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
       summary: Start Amazon import
   /api/v1/profiles/{profile_id}/amazon-import/{attempt_id}/cancel:
     post:
@@ -3257,6 +3263,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
       summary: Cancel Amazon import
   /api/v1/profiles/{profile_id}/amazon-import/{attempt_id}/execute:
     post:
@@ -3321,6 +3333,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
       summary: Execute Amazon import
   /api/v1/profiles/{profile_id}/amazon-import/{attempt_id}/files:
     post:
@@ -3407,6 +3425,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
       summary: Stage Amazon import files
   /api/v1/profiles/{profile_id}/amazon-import/{attempt_id}/status:
     get:
@@ -3447,6 +3471,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
       summary: Read Amazon import status
   /api/v1/profiles/{profile_id}/bootstrap:
     get:

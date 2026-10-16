@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
@@ -19,6 +23,7 @@ import (
 )
 
 const testProfileID = "profile_ijbeeqscijbeeqscijbeeqscie"
+const otherProfileID = "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"
 const syntheticAccess = "https://user:synthetic-secret@example.com/access" // #nosec G101 -- Reserved fixture credential.
 
 type harness struct {
@@ -298,6 +303,221 @@ func TestShutdownWaitsForImportAndReleasesProfile(t *testing.T) {
 	require.NoError(t, lock.Release())
 }
 
+func TestCloseCancelsAttemptsAndRefusesLaterStarts(t *testing.T) {
+	h := newHarness(t)
+	started, err := h.coordinator.Start(t.Context(),
+		StartRequest{ProfileID: testProfileID, Renderer: "cli"})
+	require.NoError(t, err)
+
+	require.NoError(t, h.coordinator.Close(t.Context()))
+
+	closed, err := h.coordinator.Status(t.Context(),
+		StatusRequest{ProfileID: testProfileID, AttemptID: started.AttemptID})
+	require.NoError(t, err)
+	require.Equal(t, StateCanceled, closed.State)
+	_, err = h.coordinator.Start(t.Context(),
+		StartRequest{ProfileID: testProfileID, Renderer: "cli"})
+	require.ErrorIs(t, err, ErrClosed)
+}
+
+func TestCloseWhoseContextEndedStillRefusesLaterStarts(t *testing.T) {
+	h := newHarness(t)
+	ended, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	require.NoError(t, h.coordinator.Close(ended))
+
+	_, err := h.coordinator.Start(t.Context(),
+		StartRequest{ProfileID: testProfileID, Renderer: "cli"})
+	require.ErrorIs(t, err, ErrClosed)
+}
+
+// coordinatorHoldingAProfile returns a coordinator with one attempt that holds an opened profile,
+// whose close runs closeProfile, and runs job, as an attempt that reached the claim does.
+func coordinatorHoldingAProfile(
+	t *testing.T,
+	logger *slog.Logger,
+	closeProfile func() error,
+	job func(context.Context),
+) (*Coordinator, *attempt) {
+	t.Helper()
+	unused := errors.New("unused")
+	c, err := NewCoordinator(Config{InstanceID: "test", Logger: logger,
+		OpenProfile: func(context.Context, string) (OpenedProfile, error) {
+			return OpenedProfile{}, unused
+		},
+		Runtime: func(home.Paths) (Runtime, error) { return Runtime{}, unused },
+	})
+	require.NoError(t, err)
+	return c, holdAProfile(c, testProfileID, "attempt_test", closeProfile, job)
+}
+
+// holdAProfile adds an attempt that holds profileID opened, whose close runs closeProfile, and
+// runs job, as an attempt that reached the claim does. Inspect takes the profile's exclusive
+// connect lock before an attempt holds the profile, so only one attempt of a profile holds it.
+func holdAProfile(
+	c *Coordinator,
+	profileID, attemptID string,
+	closeProfile func() error,
+	job func(context.Context),
+) *attempt {
+	a := &attempt{
+		snapshot: Snapshot{ProfileID: profileID, AttemptID: attemptID, State: StateClaiming},
+		flow:     &attemptFlow{opened: &OpenedProfile{Close: closeProfile}},
+	}
+	a.ctx, a.cancel = context.WithCancel(context.Background())
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.attempts[attemptID] = a
+	c.startJob(a, job)
+	return a
+}
+
+func TestCloseReleasesTheProfileOfAJobThatOutlivesItsContext(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var released atomic.Bool
+		finishJob := make(chan struct{})
+		// The job ignores cancellation, like a claim that outlives Close's 30 seconds.
+		c, _ := coordinatorHoldingAProfile(t, nil,
+			func() error { released.Store(true); return nil },
+			func(context.Context) { <-finishJob })
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+
+		// Until the job ends, a failed check must not stop the test, or the bubble deadlocks.
+		assert.ErrorIs(t, c.Close(ctx), context.DeadlineExceeded)
+		synctest.Wait()
+		assert.False(t, released.Load(), "the attempt keeps its profile while its job runs")
+		close(finishJob)
+		synctest.Wait()
+		require.True(t, released.Load(), "the attempt released its profile when its job ended")
+	})
+}
+
+func TestCloseWhoseContextEndedReleasesAnAttemptWhoseJobEnded(t *testing.T) {
+	ended, cancel := context.WithCancel(t.Context())
+	cancel()
+	// Close's wait sees an ended job and an ended context together. A wait that chose one at
+	// random would fail about half of these closes.
+	for range 64 {
+		var closes atomic.Int32
+		c, a := coordinatorHoldingAProfile(t, nil, func() error { closes.Add(1); return nil },
+			func(context.Context) {})
+		<-a.done
+
+		require.NoError(t, c.Close(ended))
+		require.Equal(t, int32(1), closes.Load(), "Close released the profile before it returned")
+	}
+}
+
+func TestEveryCanceledAttemptReleasesItsProfileAfterTheWaitGivesUp(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var closes atomic.Int32
+		closeProfile := func() error { closes.Add(1); return nil }
+		finishJobs := make(chan struct{})
+		// Each profile has its own connect lock, so each can have an attempt that holds it. Both
+		// jobs ignore cancellation, so Close gives up waiting at whichever profile comes first.
+		job := func(context.Context) { <-finishJobs }
+		c, _ := coordinatorHoldingAProfile(t, nil, closeProfile, job)
+		holdAProfile(c, otherProfileID, "attempt_second", closeProfile, job)
+		ended, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		assert.ErrorIs(t, c.Close(ended), context.Canceled)
+		close(finishJobs)
+		synctest.Wait()
+		require.Equal(t, int32(2), closes.Load(), "every attempt released its profile")
+	})
+}
+
+func TestAStalledInspectionDoesNotHoldUpTheOwnersRelease(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var closes atomic.Int32
+		c, owner := coordinatorHoldingAProfile(t, nil,
+			func() error { closes.Add(1); return nil }, func(context.Context) {})
+		<-owner.done
+		// A second attempt stalls while it opens the profile, before it tries the connect lock that
+		// the owner holds.
+		stalled := make(chan struct{})
+		c.config.OpenProfile = func(context.Context, string) (OpenedProfile, error) {
+			<-stalled
+			return OpenedProfile{}, errors.New("unused")
+		}
+		started, err := c.Start(t.Context(),
+			StartRequest{ProfileID: testProfileID, Renderer: "cli"})
+		require.NoError(t, err)
+		c.mu.Lock()
+		inspection := c.attempts[started.AttemptID]
+		c.cancelLocked(inspection)
+		c.cancelLocked(owner)
+		c.mu.Unlock()
+		ended, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		// CancelProfile releases the attempts in map order. In this order the owner is released
+		// only when the wait goes on past the inspection. Until the inspection ends, a failed check
+		// must not stop the test, or the bubble deadlocks.
+		assert.ErrorIs(t, c.releasePending(ended, []*attempt{inspection, owner}), context.Canceled)
+		assert.Equal(t, int32(1), closes.Load(), "the owner released its profile")
+		close(stalled)
+		synctest.Wait()
+		require.Equal(t, int32(1), closes.Load(), "the inspection held no profile")
+	})
+}
+
+func TestAFailedReleaseDoesNotStopTheOthers(t *testing.T) {
+	failure := errors.New("synthetic close failure")
+	var closes atomic.Int32
+	noWork := func(context.Context) {}
+	c, first := coordinatorHoldingAProfile(t, nil, func() error { return failure }, noWork)
+	// A release frees the connect lock before it closes the profile, so after this failed close a
+	// second attempt can hold the profile.
+	_, err := c.Cancel(t.Context(),
+		CancelRequest{ProfileID: testProfileID, AttemptID: "attempt_test"})
+	require.ErrorIs(t, err, failure)
+	second := holdAProfile(c, testProfileID, "attempt_second",
+		func() error { closes.Add(1); return nil }, noWork)
+	<-second.done
+
+	// CancelProfile releases the attempts in map order; this order puts the failed one first.
+	err = c.releasePending(t.Context(), []*attempt{first, second})
+
+	require.ErrorIs(t, err, failure)
+	assert.Equal(t, int32(1), closes.Load(), "the attempt after a failed release was released")
+}
+
+func TestALateReleaseFailureIsLoggedWithoutItsText(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var logged strings.Builder
+		finishJob := make(chan struct{})
+		c, _ := coordinatorHoldingAProfile(t, slog.New(slog.NewTextHandler(&logged, nil)),
+			func() error { return errors.New("synthetic close failure") },
+			func(context.Context) { <-finishJob })
+		ended, cancel := context.WithCancel(t.Context())
+		cancel()
+		assert.ErrorIs(t, c.Close(ended), context.Canceled)
+
+		close(finishJob)
+		synctest.Wait()
+
+		require.Equal(t, 1, strings.Count(logged.String(), "\n"), logged.String())
+		require.Contains(t, logged.String(), "level=ERROR")
+		require.Contains(t, logged.String(), "moneyflow_event=simplefin_onboarding_release_failed")
+		require.Contains(t, logged.String(), "moneyflow_cause=internal_error")
+		require.NotContains(t, logged.String(), "synthetic close failure")
+	})
+}
+
+func TestShutdownAloneStillAllowsALaterStart(t *testing.T) {
+	h := newHarness(t)
+	require.NoError(t, h.coordinator.Shutdown(t.Context()))
+
+	_, err := h.coordinator.Start(t.Context(),
+		StartRequest{ProfileID: testProfileID, Renderer: "tui"})
+
+	require.NoError(t, err, "the terminal UI starts setup again after its Shutdown")
+}
+
 func TestPanickingSetupJobFailsTheAttempt(t *testing.T) {
 	h := newHarness(t)
 	h.claimHook = func(context.Context) error { panic("synthetic claim failure") }
@@ -308,6 +528,38 @@ func TestPanickingSetupJobFailsTheAttempt(t *testing.T) {
 	require.Equal(t, "Setup stopped unexpectedly.", s.Failure.Message)
 	require.False(t, s.Failure.CanRetry)
 	require.True(t, s.Failure.CanReenter)
+}
+
+// panickingRuntime panics like provider code that a setup job calls.
+func panickingRuntime(home.Paths) (Runtime, error) {
+	panic("synthetic runtime failure")
+}
+
+func TestAPanickingSetupJobIsLoggedWithItsFrames(t *testing.T) {
+	h := newHarness(t)
+	var logged strings.Builder
+	h.coordinator.config.Logger = slog.New(slog.NewTextHandler(&logged, nil))
+	h.coordinator.config.Runtime = panickingRuntime
+	s, err := h.coordinator.Start(t.Context(),
+		StartRequest{ProfileID: testProfileID, Renderer: "cli"})
+	require.NoError(t, err)
+	h.coordinator.mu.Lock()
+	done := h.coordinator.attempts[s.AttemptID].done
+	h.coordinator.mu.Unlock()
+
+	<-done
+
+	s, err = h.coordinator.Status(t.Context(),
+		StatusRequest{ProfileID: testProfileID, AttemptID: s.AttemptID})
+	require.NoError(t, err)
+	require.Equal(t, StateFailed, s.State)
+	require.Equal(t, "Setup stopped unexpectedly.", s.Failure.Message)
+	require.Equal(t, 1, strings.Count(logged.String(), "\n"), logged.String())
+	require.Contains(t, logged.String(), "moneyflow_event=simplefin_onboarding_job_panicked")
+	require.Contains(t, logged.String(), "moneyflow_cause=internal_error")
+	require.Contains(t, logged.String(), `panic="synthetic runtime failure"`)
+	require.Contains(t, logged.String(), "simplefinonboarding.panickingRuntime",
+		"the log locates the panic")
 }
 
 func TestPanickingSetupRetriesWithoutClaimingAgain(t *testing.T) {

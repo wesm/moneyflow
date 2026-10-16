@@ -386,6 +386,14 @@ unlocked YNAB, or connected SimpleFIN profile. It
 starts one explicit refresh and returns a process-local attempt ID. **Unreleased:** For Monarch,
 it reads the last 90 days unless complete history is due, as `r` does; pass
 `complete_history: true` to read complete history. See [Monarch refresh](monarch.md#refresh-data).
+**Unreleased:** While a refresh runs, `refresh_data` returns that refresh's attempt ID when the
+refresh reads at least what the call asks for. A call that asks for more, such as
+`complete_history: true` during a refresh of the last 90 days, returns the ID of one follow-up
+refresh instead. The follow-up starts when the running refresh stops, later calls share it, and
+`get_refresh_status` reports it as running until then. A call during a refresh that waits for
+deletion confirmation returns that refresh, unless the call asks for more: then a new refresh
+replaces it, and its confirmation token stops working. A new refresh also replaces it once another
+process has refreshed or edited the profile, because it read the provider before that change.
 `get_refresh_status` reports `fetched`, `total`, `verifying`, and `percent` while the refresh
 runs. Poll `get_refresh_status` for
 completion. If the deletion guard requires confirmation, retrieve the process-local token from the
@@ -469,6 +477,11 @@ Direct requests to the loopback listener are rejected while `--external-url` is 
 - **Unreleased:** A confirmation token expires 10 minutes after its refresh or reconciliation
   began reading provider data. The attempt then fails with `provider_confirmation_invalid`, and a
   new refresh or reconciliation can start.
+- **Unreleased:** A refresh or reconciliation that waits for confirmation is obsolete once another
+  process refreshes or edits the profile, or resumes, reconciles, or finishes its write batch,
+  because it was computed before that change. The next `refresh_data` or `stop_and_reconcile` call
+  then fails the waiting attempt with `provider_confirmation_invalid`, as at its deadline, and
+  handles the call as a new request.
 
 Use `moneyflow tui` or `moneyflow web` for profile creation, provider onboarding, interactive Amazon
 imports, and visual review of large edit batches.

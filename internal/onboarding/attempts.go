@@ -6,10 +6,12 @@ import (
 	"encoding/base32"
 	"errors"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/wesm/moneyflow/internal/diagnostic"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
 
@@ -21,6 +23,9 @@ const (
 
 var attemptIDEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
 
+// ErrClosed reports a Start after Close: a closed coordinator refuses new attempts.
+var ErrClosed = errors.New("onboarding is closed")
+
 // Config supplies deterministic attempt-lifecycle dependencies.
 type Config struct {
 	Random      io.Reader
@@ -29,6 +34,9 @@ type Config struct {
 	IdleTimeout time.Duration
 	OpenProfile ProfileOpener
 	Runtime     RuntimeFactory
+	// Logger records the panics that setup jobs recover, and the profile releases that fail after a
+	// caller stopped waiting for their jobs. Nil discards them.
+	Logger *slog.Logger
 }
 
 // Coordinator owns process-local, versioned onboarding attempts.
@@ -41,6 +49,8 @@ type Coordinator struct {
 	idleTimeout    time.Duration
 	openProfile    ProfileOpener
 	runtimeFactory RuntimeFactory
+	logger         *slog.Logger
+	closed         bool
 }
 
 type attempt struct {
@@ -85,11 +95,12 @@ func NewCoordinator(config Config) (*Coordinator, error) {
 	return &Coordinator{
 		attempts: make(map[string]*attempt), random: config.Random, now: config.Now,
 		instanceID: config.InstanceID, idleTimeout: config.IdleTimeout,
-		openProfile: config.OpenProfile, runtimeFactory: config.Runtime,
+		openProfile: config.OpenProfile, runtimeFactory: config.Runtime, logger: config.Logger,
 	}, nil
 }
 
-// Start creates one new profile-bound attempt at the inspect state.
+// Start creates one new profile-bound attempt at the inspect state. After Close, it refuses with
+// ErrClosed.
 func (coordinator *Coordinator) Start(
 	ctx context.Context,
 	request StartRequest,
@@ -114,8 +125,7 @@ func (coordinator *Coordinator) Start(
 	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
-	coordinator.reapExpiredLocked("")
-	id, err := coordinator.newAttemptID()
+	id, err := coordinator.admitLocked()
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -384,15 +394,16 @@ func (coordinator *Coordinator) CancelProfile(ctx context.Context, profileID str
 		pending = append(pending, pendingRelease{done: current.jobDone, flow: current.flow})
 	}
 	coordinator.mu.Unlock()
-	return releasePending(ctx, pending)
+	return coordinator.releasePending(ctx, pending)
 }
 
-// Close cancels every process-local attempt, waits for running jobs, and releases their profiles.
+// Close refuses new attempts and cancels every process-local attempt, even when ctx has ended.
+// It releases each attempt's profile once the attempt's job ends. If ctx ends while a job still
+// runs, that attempt releases its profile when its job ends, and Close returns ctx's error with
+// any release errors. Otherwise Close returns only the release errors.
 func (coordinator *Coordinator) Close(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	coordinator.mu.Lock()
+	coordinator.closed = true
 	pending := make([]pendingRelease, 0, len(coordinator.attempts))
 	for id, current := range coordinator.attempts {
 		current.cancel()
@@ -400,7 +411,7 @@ func (coordinator *Coordinator) Close(ctx context.Context) error {
 		delete(coordinator.attempts, id)
 	}
 	coordinator.mu.Unlock()
-	return releasePending(ctx, pending)
+	return coordinator.releasePending(ctx, pending)
 }
 
 type pendingRelease struct {
@@ -408,21 +419,56 @@ type pendingRelease struct {
 	flow *attemptFlow
 }
 
-func releasePending(ctx context.Context, pending []pendingRelease) error {
-	var releaseErr error
+// releasePending releases the flow of each attempt whose job has ended or never ran, and returns
+// the release errors. Each attempt whose job outlives ctx gets a goroutine that releases it once
+// the job ends, and the result then includes ctx's error.
+func (coordinator *Coordinator) releasePending(
+	ctx context.Context,
+	pending []pendingRelease,
+) error {
+	var releaseErr, waitErr error
 	for _, release := range pending {
-		if release.done != nil {
-			select {
-			case <-release.done:
-			case <-ctx.Done():
-				return errors.Join(releaseErr, ctx.Err())
-			}
+		if err := waitDone(ctx, release.done); err != nil {
+			go coordinator.releaseLate(context.WithoutCancel(ctx), release)
+			waitErr = err
+			continue
 		}
-		if release.flow != nil {
-			releaseErr = errors.Join(releaseErr, release.flow.release())
-		}
+		releaseErr = errors.Join(releaseErr, release.flow.release())
 	}
-	return releaseErr
+	return errors.Join(releaseErr, waitErr)
+}
+
+// waitDone waits for a job to end and returns nil, or returns ctx's error when ctx ends first. It
+// checks done first, so a job that has ended returns nil even when ctx has ended too. A nil done
+// means that no job runs.
+func waitDone(ctx context.Context, done chan struct{}) error {
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	default:
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// releaseLate releases an attempt's flow after its job ends, for a caller that stopped waiting.
+// A failed release has no caller to return to, so it is logged as onboarding_release_failed,
+// without the error's text.
+func (coordinator *Coordinator) releaseLate(ctx context.Context, release pendingRelease) {
+	<-release.done
+	if err := release.flow.release(); err != nil && coordinator.logger != nil {
+		coordinator.logger.LogAttrs(ctx, slog.LevelError, "moneyflow onboarding release failed",
+			slog.String(diagnostic.LogEventKey, "onboarding_release_failed"),
+			slog.String(diagnostic.LogCauseKey, "internal_error"),
+		)
+	}
 }
 
 func (coordinator *Coordinator) lookup(profileID, attemptID string) (*attempt, error) {
@@ -440,6 +486,16 @@ func (coordinator *Coordinator) lookup(profileID, attemptID string) (*attempt, e
 		return nil, newError(CodeOnboardingExpired, errors.New("attempt is idle"))
 	}
 	return current, nil
+}
+
+// admitLocked returns the ID of a new attempt, after it reaps idle attempts. Once Close has run,
+// it refuses with ErrClosed.
+func (coordinator *Coordinator) admitLocked() (string, error) {
+	if coordinator.closed {
+		return "", ErrClosed
+	}
+	coordinator.reapExpiredLocked("")
+	return coordinator.newAttemptID()
 }
 
 func (coordinator *Coordinator) reapExpiredLocked(exceptAttemptID string) {
@@ -533,12 +589,27 @@ func (coordinator *Coordinator) startJobLocked(
 			}
 		}()
 		defer func() {
-			if recover() != nil {
+			if value := recover(); value != nil {
+				coordinator.logPanic(ctx, value)
 				coordinator.failUnexpectedly(attemptID)
 			}
 		}()
 		job(ctx, attemptID)
 	}()
+}
+
+// logPanic records a panic that a setup job recovered as the event onboarding_job_panicked, with
+// the panic text and frames and never argument values. Call it while the panic is being recovered.
+func (coordinator *Coordinator) logPanic(ctx context.Context, value any) {
+	if coordinator.logger == nil {
+		return
+	}
+	coordinator.logger.LogAttrs(ctx, slog.LevelError, "moneyflow onboarding job panicked",
+		slog.String(diagnostic.LogEventKey, "onboarding_job_panicked"),
+		slog.String(diagnostic.LogCauseKey, "internal_error"),
+		slog.String("panic", diagnostic.PanicText(value)),
+		slog.String("frames", diagnostic.PanicFrames()),
+	)
 }
 
 func (coordinator *Coordinator) failUnexpectedly(attemptID string) {

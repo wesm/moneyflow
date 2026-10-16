@@ -11,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/diagnostic"
 	"github.com/wesm/moneyflow/internal/store"
 )
 
@@ -98,7 +99,18 @@ type providerWriteConfirmationInput struct {
 type providerWriteStatusOutput struct{ Body ProviderWriteStatusResponse }
 type providerWriteOutput struct{ Body ProviderWriteResponse }
 
-func (server *Server) registerProviderWriteEndpoints(_ Config) {
+// ProviderReconciler runs a profile's stop-and-reconcile and its confirmation through reconcile
+// attempts that a host shares with its MCP servers.
+type ProviderReconciler interface {
+	StopAndReconcileProviderWrite(
+		ctx context.Context, profileID string, request app.ProviderWriteReconcileRequest,
+	) (app.ProviderWriteResult, error)
+	ConfirmProviderWriteReconcile(
+		ctx context.Context, profileID string, request app.ProviderWriteReconcileRequest,
+	) (app.ProviderWriteResult, error)
+}
+
+func (server *Server) registerProviderWriteEndpoints(config Config) {
 	huma.Register(server.api, huma.Operation{
 		OperationID: "providerWriteStatus", Method: http.MethodGet,
 		Path:    server.profilePath("provider/write-status"),
@@ -168,7 +180,9 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 				if err != nil {
 					return nil, problemFromError(ctx, err)
 				}
-				return providerWriteReconcileOutput(ctx, profileService(ctx), request, true)
+				return providerWriteReconcileOutput(
+					ctx, config.Reconciler, input.ProfileID, request, true,
+				)
 			})
 			return
 		}
@@ -179,7 +193,9 @@ func (server *Server) registerProviderWriteEndpoints(_ Config) {
 			if err != nil {
 				return nil, problemFromError(ctx, err)
 			}
-			return providerWriteReconcileOutput(ctx, profileService(ctx), request, false)
+			return providerWriteReconcileOutput(
+				ctx, config.Reconciler, input.ProfileID, request, false,
+			)
 		})
 	}
 	registerReconcile("reconcileProviderWrite", server.profilePath("provider/write/reconcile"), false)
@@ -222,19 +238,28 @@ func providerWriteReconcileRequest(
 	}, nil
 }
 
+// providerWriteReconcileOutput runs one reconcile or confirmation through the host's reconciler, or
+// through the profile's service when the host set none, and answers with the caller's view.
 func providerWriteReconcileOutput(
 	ctx context.Context,
-	service *app.Service,
+	reconciler ProviderReconciler,
+	profileID string,
 	request app.ProviderWriteReconcileRequest,
 	confirm bool,
 ) (*providerWriteOutput, error) {
+	service := profileService(ctx)
 	ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)
 	defer cancel()
 	var result app.ProviderWriteResult
 	var err error
-	if confirm {
+	switch {
+	case reconciler != nil && confirm:
+		result, err = reconciler.ConfirmProviderWriteReconcile(ctx, profileID, request)
+	case reconciler != nil:
+		result, err = reconciler.StopAndReconcileProviderWrite(ctx, profileID, request)
+	case confirm:
 		result, err = service.ConfirmProviderWriteReconcile(ctx, request)
-	} else {
+	default:
 		result, err = service.StopAndReconcileProviderWrite(ctx, request)
 	}
 	if err != nil {
@@ -264,7 +289,7 @@ func (server *Server) logSessionCheck(ctx context.Context, err error) {
 	profile, _ := ctx.Value(resolvedProfileContextKey{}).(resolvedProfile)
 	cause := ""
 	if err != nil {
-		cause = describeCause(err)
+		cause = diagnostic.DescribeCause(err)
 	}
 	previous, _ := server.sessionChecks.Swap(profile.id, cause)
 	if cause != "" && previous != cause {
@@ -365,7 +390,7 @@ func problemFromProviderWriteError(
 	err error,
 	result app.ProviderWriteResult,
 ) *Problem {
-	problem := problemFromError(ctx, err)
+	problem := problemFromProviderWork(ctx, err)
 	problem.ProviderWriteConfirmationToken = result.ConfirmationToken
 	status, revision, _, statusErr := currentProviderWriteStatus(ctx, service)
 	if statusErr != nil {
@@ -395,7 +420,7 @@ func (server *Server) startProviderWrite(profileID string) {
 		if err != nil {
 			if server.work.Err() == nil {
 				server.errorLog.Printf(
-					"provider write for %s could not start: %s", profileID, describeCause(err),
+					"provider write for %s could not start: %s", profileID, diagnostic.DescribeCause(err),
 				)
 			}
 			return
@@ -406,7 +431,9 @@ func (server *Server) startProviderWrite(profileID string) {
 		defer func() { _ = lease.Release() }()
 		_, err = lease.Service().RunProviderWrite(server.work)
 		if err != nil && server.work.Err() == nil {
-			server.errorLog.Printf("provider write for %s stopped: %s", profileID, describeCause(err))
+			server.errorLog.Printf(
+				"provider write for %s stopped: %s", profileID, diagnostic.DescribeCause(err),
+			)
 		}
 	})
 }
@@ -419,13 +446,13 @@ func (server *Server) recoverProviderWrite(profileID string) {
 	if server.reportFailure == nil {
 		panic(recovered)
 	}
-	frames := panicFrames()
+	frames := diagnostic.PanicFrames()
 	if failure, ok := recovered.(*app.ProviderWritePanic); ok {
 		recovered = failure.Value
-		frames = formatPanicFrames(failure.Counters)
+		frames = diagnostic.FormatPanicFrames(failure.Counters)
 	}
 	server.errorLog.Printf(
-		"provider write for %s: panic: %s\n%s", profileID, panicText(recovered), frames,
+		"provider write for %s: panic: %s\n%s", profileID, diagnostic.PanicText(recovered), frames,
 	)
 	server.reportFailure(profileID, fmt.Errorf("profile %s: %w", profileID, errProviderWritePanicked))
 }

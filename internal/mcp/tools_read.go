@@ -105,28 +105,42 @@ func refreshDataDocument(
 			"This provider has no MCP refresh operation.",
 		), nil
 	}
-	for _, capability := range dependencies.Service.Capabilities() {
-		if capability.Action == app.ActionRefreshProvider && !capability.Available {
-			return capabilityUnavailable(dependencies.Service, capability.Reason), nil
-		}
-	}
-	attempt, err := dependencies.Supervisor.StartRefresh(
-		func(workerContext context.Context) (app.ProviderRefreshResult, error) {
-			service, release, err := dependencies.Hold(workerContext)
-			if err != nil {
-				return app.ProviderRefreshResult{}, err
-			}
-			defer release()
-			return service.RefreshProvider(workerContext, app.ProviderRefreshRequest{
-				Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
-				Window: app.WindowRequest{Limit: 1}, CompleteHistory: completeHistory,
-			})
-		},
-	)
+	refresh, err := dependencies.Service.ProviderRefreshCapability(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return refreshAttemptDocument(attempt, dependencies.Service.Revision(), false), nil
+	if !refresh.Available {
+		return capabilityUnavailable(dependencies.Service, refresh.Reason), nil
+	}
+	request := app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		Window: app.WindowRequest{Limit: 1}, CompleteHistory: completeHistory,
+	}
+	if err = dependencies.Supervisor.ExpireObsolete(ctx, dependencies.Service); err != nil {
+		return nil, err
+	}
+	attempt, err := dependencies.Supervisor.StartRefresh(RefreshScopeOf(request, connection.Kind),
+		heldRefresh(dependencies, request))
+	if err != nil {
+		return nil, err
+	}
+	return refreshAttemptDocument(attempt.AttemptStatus, dependencies.Service.Revision(), false), nil
+}
+
+// heldRefresh runs request under its own hold on the profile, so the profile stays open until the
+// refresh ends.
+func heldRefresh(
+	dependencies Dependencies,
+	request app.ProviderRefreshRequest,
+) func(context.Context) (app.ProviderRefreshResult, error) {
+	return func(workerContext context.Context) (app.ProviderRefreshResult, error) {
+		service, release, err := dependencies.Hold(workerContext)
+		if err != nil {
+			return app.ProviderRefreshResult{}, err
+		}
+		defer release()
+		return service.RefreshProvider(workerContext, request)
+	}
 }
 
 func refreshStatusDocument(
