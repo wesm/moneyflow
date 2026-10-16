@@ -175,7 +175,9 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 	case app.ActionChooseTime:
 		model.openTimeChooser()
 	case app.ActionToggleTime:
-		if model.session.ToggleTime(app.ViewPosition{Cursor: model.cursor, Scroll: model.scroll}) {
+		if reason := model.session.ToggleTimeUnavailable(); reason != "" {
+			model.status = reason
+		} else if model.session.ToggleTime(app.ViewPosition{Cursor: model.cursor, Scroll: model.scroll}) {
 			model.resetAndRefresh()
 		}
 	case app.ActionClearTime:

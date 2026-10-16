@@ -113,6 +113,23 @@ func TestTimeJumpWithinDrilldownPreservesScopeAndBack(t *testing.T) {
 	}
 }
 
+const periodDrillReason = "Already inside one period. Press Esc to go back to the time rows."
+
+func TestTimeKeyExplainsWhyAPeriodCannotGroupByTime(t *testing.T) {
+	t.Parallel()
+	session := app.NewSession()
+	session.Dimension = domain.DimensionTime
+	model := newTestModel(t, session)
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, model.result.DetailRows)
+	before := model.session.QuerySpec()
+
+	model = press(t, model, keyRune('t'))
+
+	assert.Equal(t, before, model.session.QuerySpec())
+	assert.Equal(t, periodDrillReason, model.status)
+}
+
 func TestTimeJumpWithinSelectedPeriodKeepsCurrentGrouping(t *testing.T) {
 	t.Parallel()
 	session := app.NewSession()
@@ -126,6 +143,7 @@ func TestTimeJumpWithinSelectedPeriodKeepsCurrentGrouping(t *testing.T) {
 	model = press(t, model, keyRune('t'))
 
 	assert.Equal(t, before, model.session.QuerySpec())
+	assert.Equal(t, periodDrillReason, model.status)
 	require.NotEmpty(t, model.result.AggregateRows)
 	assert.Equal(t, domain.DimensionMerchant, model.result.AggregateRows[0].Dimension)
 }

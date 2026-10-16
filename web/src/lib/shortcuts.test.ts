@@ -278,6 +278,27 @@ describe('Moneyflow browser shortcuts', () => {
     shortcuts.destroy()
   })
 
+  it('explains why t cannot group by time inside a period', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const reason = 'Already inside one period. Press Esc to go back to the time rows.'
+    const shortcuts = createMoneyflowShortcuts(
+      capabilities.map((capability) =>
+        capability.id === 'time.toggle-granularity'
+          ? { ...capability, available: false, reason }
+          : capability,
+      ),
+      handlers,
+    )
+    try {
+      expect(shortcuts.manager.handleKeydown(keyboard('t'))).toBe(true)
+      expect(status.notice).toBe(reason)
+      expect(handlers.apply).not.toHaveBeenCalled()
+    } finally {
+      status.clear()
+      shortcuts.destroy()
+    }
+  })
+
   it('explains other unavailable keys and clears the notice on the next shortcut', () => {
     const handlers = { local: vi.fn(), apply: vi.fn() }
     const reason = 'Export is not available here.'

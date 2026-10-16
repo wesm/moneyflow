@@ -388,3 +388,30 @@ func capabilitiesByAction(values []app.Capability) map[app.ActionID]app.Capabili
 	}
 	return result
 }
+
+func TestTimeToggleCapabilityExplainsAPeriodDrill(t *testing.T) {
+	t.Parallel()
+
+	service, err := app.NewProfileService(context.Background(), newMemoryProfile(t, 5))
+	require.NoError(t, err)
+	session := app.NewSession()
+	top := capabilitiesByAction(service.CapabilitiesForState(session.ViewState()))
+	assert.True(t, top[app.ActionToggleTime].Available)
+	require.True(t, session.ToggleTime(app.ViewPosition{}))
+	timeView := capabilitiesByAction(service.CapabilitiesForState(session.ViewState()))
+	assert.True(t, timeView[app.ActionToggleTime].Available, "a Time view cycles its unit")
+
+	require.NoError(t, session.Drill(domain.AggregateRow{
+		Dimension: domain.DimensionTime, Key: "2026", Label: "2026",
+		Period: &domain.Period{Granularity: domain.TimeGranularityYear, Year: 2026},
+		Total:  domain.Money{Currency: "USD", Scale: 2},
+	}, app.ViewPosition{}))
+	period := capabilitiesByAction(service.CapabilitiesForState(session.ViewState()))
+	require.NoError(t, session.SetSubGrouping(domain.DimensionMerchant))
+	brokenDown := capabilitiesByAction(service.CapabilitiesForState(session.ViewState()))
+	for _, capabilities := range []map[app.ActionID]app.Capability{period, brokenDown} {
+		assert.False(t, capabilities[app.ActionToggleTime].Available)
+		assert.Equal(t, "Already inside one period. Press Esc to go back to the time rows.",
+			capabilities[app.ActionToggleTime].Reason)
+	}
+}

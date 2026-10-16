@@ -149,8 +149,9 @@ Enter still opens a selected group and Esc returns to its summary.
 
 To browse grouped periods instead, press `t`. At the top level it groups by Time; inside a
 drill-down or breakdown it breaks the rows down by Time. In a Time view, each press cycles the
-unit through year, month, and day. A drill-down into a period cannot break down by Time again,
-so `t` does nothing there. `t` works the same way in the TUI and the browser.
+unit through year, month, and day. A drill-down into a period cannot break down by Time
+again, so there `t` tells you to press Esc to go back to the time rows. `t` works the same way
+in the TUI and the browser.
 
 In the browser, `5` or **Time** in the sidebar also groups by Time. The browser picks the unit
 from the period: a day or month lists days, and a year lists months. All time lists months,

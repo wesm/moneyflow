@@ -263,10 +263,22 @@ func (session Session) TimeContext() bool {
 	return session.Mode == domain.ResultModeAggregate && session.Dimension == domain.DimensionTime
 }
 
+// ToggleTimeUnavailable explains why ToggleTime cannot change the view, or returns "" when it
+// can. A view drilled into one period cannot be grouped by time again.
+func (session Session) ToggleTimeUnavailable() string {
+	if session.TimeContext() || !slices.ContainsFunc(session.Drilldowns, isTimeDrilldown) {
+		return ""
+	}
+	return "Already inside one period. Press Esc to go back to the time rows."
+}
+
 // ToggleTime is the time key's action. Rows already grouped by time cycle their unit through
 // year, month, and day. Otherwise it groups the view by time as JumpToTime does, and reports
-// false when a time drill-down rules that out.
+// false when ToggleTimeUnavailable gives a reason.
 func (session *Session) ToggleTime(position ViewPosition) bool {
+	if session.ToggleTimeUnavailable() != "" {
+		return false
+	}
 	if session.TimeContext() {
 		session.ToggleTimeGranularity()
 		return true
