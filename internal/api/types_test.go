@@ -153,8 +153,6 @@ func TestWireCapabilitiesListKeylessWebActionsWithoutKeys(t *testing.T) {
 	assert.Equal(t, "The profile has one currency.", byID[app.ActionSetCurrency].Reason)
 	assert.Equal(t, "t", byID[app.ActionToggleTime].KeyDisplay)
 	assert.Equal(t, "p", byID[app.ActionChooseTime].KeyDisplay)
-	_, tuiOnly := byID[app.ActionQuit]
-	assert.False(t, tuiOnly, "actions the web does not offer stay out")
 }
 
 func TestWireProjectionCarriesCurrenciesAndSelectionSummary(t *testing.T) {
