@@ -1,8 +1,11 @@
 # Paths and web access
 
-Use `MONEYFLOW_HOME` to choose the profile catalog. Keep it separate from Python data.
-Use `--profile` with an exact name or profile ID to bypass the selector.
-See [storage](caching.md) for the directory layout and backups.
+Choose where Moneyflow keeps its profiles and how the browser application is reached. Profiles
+live in `~/.moneyflow`; set `MONEYFLOW_HOME` to use another directory, separate from any Python
+Moneyflow data.
+Use `--profile` with an exact name or profile ID to bypass the selector. See
+[storage](caching.md) for the directory layout and backups, and the
+[command reference](../reference/cli.md#moneyflow-web) for every `web` flag.
 
 ## Serve the browser application
 
@@ -10,9 +13,10 @@ See [storage](caching.md) for the directory layout and backups.
 moneyflow web --open=false
 ```
 
-The default listener is loopback. The web application has no built-in user authentication.
-For access from another machine, restrict the network or put an authenticated TLS reverse
-proxy in front of it. Do not expose it directly to the public Internet.
+The default listener is `127.0.0.1:8080`. The web application has no built-in user
+authentication, and a non-loopback `--listen` address prints a warning at startup. For access
+from another machine, restrict the network or put an authenticated TLS reverse proxy in front of
+it. Do not expose it directly to the public Internet.
 
 For a path-preserving Caddy mount:
 
@@ -29,14 +33,15 @@ moneyflow.example.invalid {
 ```
 
 Replace the example host. Configure authentication or network access controls separately.
-Preserve the full path; do not use a proxy rule that strips `/moneyflow/`.
-With `--external-url`, mutations must use that canonical origin. Direct listener reads
-remain available for diagnostics.
+Preserve the full path; do not use a proxy rule that strips `/moneyflow/`. With
+`--external-url`, mutations must use that canonical origin. Direct listener reads remain
+available for diagnostics.
 
 Omit query strings from proxy access logs: URLs can contain financial search and filter values.
-[MCP HTTP](../guide/mcp.md#authenticated-http) has separate bearer-token and loopback requirements.
+[MCP HTTP](../guide/mcp.md#authenticated-http) has separate bearer-token and loopback
+requirements.
 
 ## What configuration is not carried forward?
 
-Go does not read Python's category YAML, encrypted cache, or default-provider settings.
-Use the profile selector and [transition guide](../getting-started/transition.md).
+Go does not read Python's category YAML, encrypted cache, or default-provider settings. Use the
+profile selector and the [transition guide](../getting-started/transition.md).
