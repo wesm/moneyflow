@@ -1,5 +1,9 @@
 # Verification and test data
 
+Moneyflow's gates test behavior against synthetic data: temporary profiles, synthetic provider
+servers, and the real application, TUI, API, MCP, and browser code. This page lists what they
+cover and the rules for adding to them.
+
 ## What remains a contract
 
 Use synthetic fixtures, including the [duplicate transactions][source-1], to exercise
@@ -11,20 +15,18 @@ back typed rows and metadata. No Python Moneyflow package is needed for these ga
 
 ## Commands
 
-Use the Makefile and `AGENTS.md` for current required commands:
+The Makefile and `AGENTS.md` own the required commands. The main gates are:
 
-```bash
-make test
-make test-store
-make test-provider-write
-make test-race
-make test-export
-make verify-go
-make verify-web
-```
+| Command | Checks |
+| --- | --- |
+| `make verify-go` | Go formatting, then `test`, `test-mcp`, `test-store`, `test-provider`, `test-provider-write`, `vet`, and `lint` |
+| `make test-race` | All Go tests under the race detector |
+| `make verify-web` | Generated API, types, lint, formatting, unit tests, audit, embedded assets, and the Playwright suite |
+| `make test-export` | Export formats |
+| `make test-amazon`, `make test-amazon-e2e` | Amazon import, reimport, matching, and the browser import flow |
 
-`make test-export` checks export formats. Inspect test output after changing gate wiring;
-a pattern that matches no tests is not verification.
+Inspect test output after changing gate wiring; a pattern that matches no tests is not
+verification.
 
 Ordinary tests use temporary profiles and synthetic HTTP transports. Live provider tests are
 explicitly opt-in; an inherited shell opt-in must be disabled during ordinary validation.
@@ -40,8 +42,8 @@ against temporary SQLite profiles. They cover explicit category clearing, approv
 preservation, transfer restrictions, quota waits, uncertain updates, failed reconciliation,
 confirmation, and stable-ID restoration. The 100k write gates run both provider kinds; YNAB
 mixes deletion and category clearing and compares application finalization with the store oracle.
-Browser workflows include YNAB unlock, `w` then Enter, and refresh after commit in all three
-engines under the existing Chromium/full and Firefox/WebKit/smoke split.
+Browser workflows cover YNAB unlock, `w` then Enter, and refresh after commit. Chromium runs the
+full suite; Firefox and WebKit run the `@smoke` tests. See [UI testing](../development/ui-testing.md).
 Review regressions also cover missing/null zero-scale declarations, vault replacement between
 read requests and before ordinary/confirmed folds, failed vault-save re-entry, MCP unlock lock
 contention, live destination-payee rejection before PUT, and cross-group returned-ID conflicts.
@@ -86,4 +88,4 @@ Generated screenshots and `internal/web/dist` remain ignored outputs. Durable vi
 retained, belong on a separately managed orphan-assets branch. No personal data belongs in test
 fixtures, documentation, screenshots, or commit messages.
 
-[source-1]: https://github.com/wesm/moneyflow/blob/go-port/testdata/fixtures/duplicate_transactions.json
+[source-1]: https://github.com/wesm/moneyflow/blob/main/testdata/fixtures/duplicate_transactions.json

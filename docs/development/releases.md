@@ -1,22 +1,25 @@
 # Go releases
 
-The Go application ships as one binary with its web application embedded. End users do not need
-Python, Go, Bun, or a separate web server. Nix packaging has been removed.
+No Go release has been published yet. Users [build from source](../getting-started/installation.md),
+and the Python 0.11.1 package on PyPI is the legacy app. This page describes how the release
+workflow builds, checks, and publishes Go releases once maintainers cut one. A release will ship
+one binary with the web app embedded, so end users will not need Python, Go, Bun, or a separate
+web server. Nix packaging has been removed.
 
 A local build does not prove that a release was published or tested on every operating system.
-Use prereleases while validating the replacement. Follow the
+Use preview releases while validating the replacement. Follow the
 [transition policy](../getting-started/transition.md) before recommending a full switch;
 provider reconnection and Amazon reimport alone do not preserve local-only edits.
 
-SimpleFIN ships as **experimental**. Its automated adapter, storage, CLI, TUI, web, and MCP gates
-are required; live-bank testing is pending and nonblocking for the preview. Request community
-validation using the [SimpleFIN guide](../guide/simplefin.md#help-validate-an-institution).
+SimpleFIN will ship as **experimental**. Its automated adapter, storage, CLI, TUI, web, and MCP
+gates are required; live-bank testing is pending and does not block a preview. Request community
+validation through the [SimpleFIN guide](../guide/simplefin.md#help-validate-an-institution).
 Public-demo success is not bank validation. Maintainers must review institution evidence before
 removing the experimental label; the label does not replace the automated release gates.
 
 ## Release contents
 
-Every release contains six archives, `SHA256SUMS`, `install.sh`, and `install.ps1`:
+Every release will contain six archives, `SHA256SUMS`, `install.sh`, and `install.ps1`:
 
 | Platform | Architectures | Archive |
 | --- | --- | --- |
@@ -68,7 +71,8 @@ or profiles.
 
 `.github/workflows/release.yml` builds and checks archives on pull requests and manual workflow runs
 without publishing. A pushed annotated tag triggers publication after all six native smoke jobs
-pass. Stable tags must point to a commit on `main`; preview tags may be cut from `go-port`.
+pass. A stable tag must point to a commit on `main`; the workflow checks this. A preview tag
+(`-rc.N`) can point to any commit.
 
 Use `vX.Y.Z` for a stable release or `vX.Y.Z-rc.N` for a preview. Choose the version deliberately;
 there is no Python version bump for Go releases. The annotated tag message becomes the release

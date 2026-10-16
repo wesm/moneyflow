@@ -1,6 +1,8 @@
 # Develop Moneyflow
 
-Install [mise](https://mise.jdx.dev/getting-started.html) and Make. From the repository root:
+Set up the pinned toolchain, build `bin/moneyflow`, try a change against synthetic data, and run
+the gates a commit must pass. Install [mise](https://mise.jdx.dev/getting-started.html) and Make,
+then run from the repository root:
 
 ```bash
 mise trust
@@ -16,7 +18,10 @@ Keep the Go pin aligned with `go.mod` and the Bun pin aligned with `web/package.
 
 Prefix commands below with `mise exec --`, or
 [activate mise in your shell](https://mise.jdx.dev/cli/activate.html) to use them directly.
-Git hooks run through mise as well. Make remains the build and test entry point.
+Make is the build and test entry point; `make help` lists the main targets. The prek hooks in
+`prek.toml` run through mise too: before a commit they check formatting and run
+`make test-go-quick`, and before a push they run `make vet` and `make lint`. `make install-hooks`
+installs them.
 The application has no Python or CGO requirement. Python and uv are needed only for the
 [documentation website](https://github.com/wesm/moneyflow/blob/main/docs/README.md).
 
@@ -40,10 +45,11 @@ directory with `rmdir "$TMPDIR"` if it is empty, then `unset TMPDIR`.
 make web-install
 make build
 make tui-demo
+make web-demo
 ```
 
-`make web-demo` runs the browser demo on a free port and prints its URL. Both use temporary
-synthetic profiles, not personal data.
+`make tui-demo` opens the terminal app and `make web-demo` serves the browser app on a free port
+and prints its URL. Both use temporary synthetic profiles, not personal data.
 The binary is `bin/moneyflow` or `bin/moneyflow.exe` on Windows.
 
 ## Live development
@@ -124,18 +130,17 @@ Limits:
 Write a failing test before changing application behavior. Keep fixtures synthetic.
 The installer tests use the PowerShell version selected by mise.
 
-```bash
-make verify-go
-make test-race
-make verify-web
-```
+| Command | Run it | Checks |
+| --- | --- | --- |
+| `make verify-go` | Before every commit | Formatting, Go tests, MCP, storage and provider gates, vet, and lint |
+| `make test-race` | Before every commit | Go tests under the race detector |
+| `git diff --check` | Before every commit | Whitespace errors |
+| `make verify-web` | For browser, API, embedded-asset, or cross-interface changes | Generated API, types, formatting, lint, unit tests, dependency audit, assets, and the Playwright suite |
+| `make docs-check` | For documentation changes | Markdown lint and the website build; see the [docs guide](https://github.com/wesm/moneyflow/blob/main/docs/README.md) |
 
-`verify-go` checks formatting, Go tests, storage gates, provider workflows, vet, and lint.
-`verify-web` checks the generated API, types, formatting, lint,
-unit tests, dependency audit, assets, and browser journeys.
-
-Use the [UI harness](ui-testing.md) to probe synthetic editing workflows, fuzz
-service histories, and replay terminal or browser failures.
+[UI testing](ui-testing.md) covers the Playwright browser suite, the terminal tests, and the UI
+harness that probes synthetic editing workflows, fuzzes service histories, and replays terminal
+or browser failures.
 
 Install the pinned Playwright browsers when needed:
 
