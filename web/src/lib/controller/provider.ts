@@ -142,8 +142,9 @@ interface RefreshRequest {
 export function createProviderController(options: ProviderControllerOptions): ProviderController {
   const now = options.now ?? Date.now
   /**
-   * In a host, the server runs a refresh on after its request ends, so Cancel could not stop it.
-   * Refreshes show in the status strip instead, and no dialog blocks the host page.
+   * In a host, the server runs a refresh on after its request ends, so Cancel could not stop it,
+   * and the refresh dialog offers Close. Another interface's refresh shows in the status strip,
+   * not in a dialog over the host page.
    */
   const hosted = options.standalone !== true
   const autoRefresh = options.autoRefresh !== false
