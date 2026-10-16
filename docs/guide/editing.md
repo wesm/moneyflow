@@ -1,308 +1,219 @@
 # Edit transactions
 
-Edits are staged locally first. Review their scope before committing.
-Pending edits, undo history, and redo history survive closing the application.
+Fix merchant names and categories, hide transactions from reports, and delete duplicates, one row
+or many at a time. Every edit waits as a pending change until you review and commit it, so you
+can undo anything first. Amazon, bank CSV, and SimpleFIN edits change only your local profile.
+Monarch and YNAB edits are written back to the provider when you commit.
 
-**Unreleased:** Transaction tables, group totals, and filters keep showing committed data
-while edits are pending. A pending marker identifies affected rows; in the browser it is a gold
-dot. For Monarch and YNAB, the table updates after the provider-write batch completes
-successfully; local profiles update on commit.
-
-**Unreleased:** Browser transaction rows also show their staged values. A changed merchant or
-category appears as the old value struck through, an arrow, and the new value in gold. Gold
-**Hidden**, **Visible**, and **Delete** tags mark staged hides, unhides, and deletions, and a
-staged deletion strikes through the row. Grouped rows and totals stay committed until you
-commit.
+The terminal application (TUI) and the browser use the same keys and stage the same edits.
+Pending edits, undo history, and redo history are kept when you close Moneyflow.
 
 ## Choose the transactions
 
-In detail view, an edit targets the current transaction. In a grouped view, it can target the
-transactions represented by that row. Space selects rows; `Ctrl+A` toggles the current result
-selection. The merchant editor shows the affected count and a bounded transaction preview.
+An edit changes the cursor row: one transaction in a transaction list, or every transaction in a
+group in a grouped view. To change several rows at once, select them first:
 
-**Unreleased:** In the browser, a selection bar shows at the bottom of the table while rows are
-selected. It counts the selected groups in a grouped view, then the affected transactions and
-their Net, such as `3 merchants · 127 transactions · -4,212.40`. Its buttons do what their keys
-do:
+| Action | Key | In the browser |
+| --- | --- | --- |
+| Select or clear the cursor row | Space | Click or tap the row's box |
+| Select or clear every row | Ctrl+A | Click the select-all box |
+| Clear the selection | Esc | Choose **Clear** |
 
-- **Merchant** (`m`), **Category** (`c`), **Hide** (`h`), and **Delete** (`x`) edit the
-  selection.
-- **Clear** (`Esc`) empties the selection and returns focus to the table.
+While rows are selected, the browser's selection bar has **Merchant**, **Category**, **Hide**,
+and **Delete** buttons for the selection. On a phone, a row's ⋯ menu edits that one row.
 
-Delete is disabled in grouped views; open a group to delete its transactions. A disabled button
-shows its reason when you point at it, for example while a provider write runs. On a phone, the
-bar spans the bottom of the screen with larger buttons.
+### Which transactions an edit changes
 
-**Unreleased:** On a phone, a transaction row's ⋯ button opens a sheet with **Merchant**,
-**Category**, **Hide**, **Delete**, and **Info** for that transaction. They do what `m`, `c`,
-`h`, `x`, and `i` do on the cursor row. An item that cannot run shows its reason under it.
-While a selection exists, the four edits are disabled because they would edit the selection;
-use the selection bar, or clear the selection to edit one transaction. **Info** stays available.
-**Merchant** and **Category** open the editor as a sheet at the bottom of the screen, with the
-same keys as on a larger screen. Esc, or cancelling an editor opened from the sheet, returns
-focus to the ⋯ button. Staging a change returns focus to the edited row.
+Merchant and category edits change only the transactions in the current view:
 
-**Unreleased:** Merchant and category edits use the current filtered transactions by default.
-Editing a merchant group with a year or month selected leaves transactions outside that period
-unchanged. Editing a single transaction inside a merchant drill affects only that transaction.
-In the TUI merchant editor, Tab switches to **whole merchant** when available. The browser
-editor has a scope control instead; see [Edit in the browser](#edit-in-the-browser).
+- Editing a merchant group while a year or month is chosen leaves other periods unchanged.
+- Editing one transaction inside a merchant changes only that transaction.
+- To rename a merchant everywhere, choose **whole merchant**. In the TUI, press Tab in the
+  merchant editor. In the browser, use the [scope choice](#open-the-editor).
 
 ## Apply an edit
 
-| Key | Action |
-| --- | --- |
-| `m` | Rename merchant |
-| `c` | Change category |
-| `h` | Toggle hide from reports, when supported |
-| `x` | Stage a confirmed deletion from detail view |
-| `u` / `U` | Undo / redo a pending operation |
-| `C` / `G` | Manage categories / groups, when supported |
-| `w` | Review pending changes |
+| Edit | Key | In the browser |
+| --- | --- | --- |
+| Rename merchant | `m` | Double-click the Merchant cell, or choose **Merchant** |
+| Change category | `c` | Double-click the Category cell, or choose **Category** |
+| Hide from reports, or show again | `h` | Choose **Hide** |
+| Delete | `x` | Choose **Delete** |
+| Undo / redo | `u` / `U` | |
 
-When a group or selection contains both hidden and visible transactions, `h` stages hiding
-only the visible transactions. Transactions already hidden stay hidden. Use `u` to undo it.
-When all targeted transactions are hidden, `h` stages unhiding them.
+- `x` asks you to confirm. It works only in a transaction list. In a grouped view, open the
+  group first.
+- `h` on a mix of hidden and visible transactions hides the visible ones. When all are hidden,
+  `h` shows them again. When every target already has a pending hide or show, `h` cancels it.
+- If an action is not available, the key says why, for example `No pending edit to undo.`
 
-**Unreleased:** `h` always flips what the targeted transactions show. When every target has a
-pending hide or unhide that changed it, `h` cancels those pending toggles instead of adding
-another. A transaction whose pending toggles cancel each other out already shows its committed
-state, so `h` stages a new toggle for it.
+What you can edit depends on the provider. See [Monarch](monarch.md), [YNAB](ynab.md),
+[Amazon](amazon-mode.md), [bank CSV](bank-csv.md), or [SimpleFIN](simplefin.md).
 
-Deleting is undoable until commit. Editing capabilities depend on the provider; the interface
-explains unavailable actions. See [Monarch](monarch.md), [YNAB](ynab.md),
-[Amazon](amazon-mode.md), [bank CSV](bank-csv.md), or [SimpleFIN](simplefin.md) for exact limits.
+Tables and totals show committed data until you commit. Rows with pending edits are marked. In
+the browser, a transaction row also shows its pending new value. For Monarch and YNAB, totals
+change after the provider write finishes.
 
-## Edit in the browser
+## Rename a merchant or change a category
 
-**Unreleased:** The browser editor stages the same pending edits as the TUI. Nothing reaches a
-provider until you [review and commit](#review-and-commit).
+1. Press `m` for the merchant or `c` for the category.
+2. Type to filter the existing names, and pick one. To add a new name, pick `Create "…"`. A new
+   category also asks for its group.
+3. Press Enter to stage the change.
+
+In the TUI, Up and Down pick a name, Tab switches to **whole merchant** when it is available, and
+Esc cancels.
+
+### Edit in the browser
+
+The browser editor works the same way and shows how many transactions the change affects before
+you stage it.
 
 ### Open the editor
 
-Press `m` to edit the merchant or `c` to change the category of the cursor row. You can also:
+Press `m` or `c`, double-click a Merchant or Category cell, or choose **Merchant** or
+**Category** for a selection.
 
-- point at a transaction's Merchant or Category cell and select its pencil button;
-- double-click a transaction's Merchant or Category cell;
-- use **Merchant** or **Category** in the selection bar, or in a phone row's ⋯ sheet.
+A merchant edit has two scopes:
 
-The editor opens below the cursor row, or above the selection bar while rows are selected. Its
-title reads **Edit merchant** or **Change category**, followed by the target, such as `· 1
-transaction` or `· 3 selected`. On screens 640 px wide or narrower, the same editor opens as a
-sheet at the bottom of the screen, with the same keys.
+- **These transactions** changes only the targeted rows.
+- **Whole merchant** renames the merchant everywhere, including other periods, filters, and
+  currencies. It is available only when nothing is selected and the cursor is on a merchant or
+  inside one. The editor says how many affected transactions are outside the current view.
 
-Type a name to filter the suggestions. Each suggestion shows its committed transaction count
-across the whole profile, and a category suggestion also shows its group. When the text matches
-no existing name, the list offers `Create "…"`. A new category then asks for its group.
-
-A merchant edit offers two scopes:
-
-- **These transactions**, or the selected transactions, changes only the targeted rows.
-- **Whole merchant** renames the merchant everywhere. It is available only when nothing is
-  selected and the cursor is on a merchant row or inside a merchant drill. Otherwise it stays
-  visible but disabled, with the reason.
-
-The editor previews the affected transactions. For **Whole merchant**, it also says how many of
-them are outside the current view, such as other periods, filters, or currencies. A rename onto
-another existing merchant shows **Merges into** and that merchant's name. For **Whole merchant**,
-the editor compares merchant IDs, so the line is exact: renaming a merchant to its own name in
-another case does not show it. The stage button states the count, for example **Stage change to 3
-transactions**.
+If the new name belongs to another merchant, the editor says the rename **Merges into** that
+merchant. Changing only the capitalization of a merchant's own name is not a merge.
 
 ### Editor keys
 
 | Key | Action |
 | --- | --- |
-| Type | Filter the suggestions and open the list |
-| Down / Up | Open the list, or move through it |
-| Enter | With the list open, use the highlighted suggestion; with it closed, stage the ready change. A category suggestion stages at once |
-| `Ctrl+Enter` / `Cmd+Enter` | Use the highlighted suggestion, if the list is open, and stage the change |
-| Tab | Move focus to the next control |
-| Esc | Close the list; with the list closed, cancel the editor |
+| Type | Filter the names |
+| Down / Up | Move through the names |
+| Enter | Use the highlighted name. A category stages at once; a merchant stages on a second Enter, so you can choose the scope first |
+| `Ctrl+Enter` / `Cmd+Enter` | Use the highlighted name and stage the change |
+| Tab | Move to the next control. Tab does not change the scope in the browser |
+| Esc | Close the list, or cancel the editor |
 
-A merchant takes a second Enter to stage, so you can choose the scope first. A category has no
-scope, so one Enter on the highlighted category stages the change; on `Create "…"` it opens the
-group step instead.
+For a new category, Enter opens the group list and `Ctrl+Enter` stages the change. Esc returns
+to the name.
 
-`Tab` never changes scope in the browser; choose the scope with the scope control. In the TUI,
-Tab still switches to **whole merchant**.
+If you stage before the names finish loading, the editor stages once they load. Changing the name
+or scope first cancels that. A category must come from the loaded names.
 
-On a new category's group step, Enter opens the group list and `Ctrl+Enter` stages the change.
-Esc returns to the name field.
+## Undo, redo, and quick edits
 
-If you stage a change before the editor finishes loading its suggestions and preview, it waits
-and stages the change once they load. Editing the name or changing the scope first cancels that
-waiting stage. A category must be chosen from the loaded suggestions, so Enter before they load
-does nothing.
+Press `u` to undo the latest pending edit and `U` to redo it. In the browser, the status line
+confirms hides, deletes, undos, and redos, such as `Hidden 3 transactions · Undo u`.
 
-Cancelling returns focus to the control that opened the editor. Pressing outside the editor on
-a larger screen closes it and leaves focus where you pressed. After a change is staged, the
-cursor stays on the edited row's position, so `j` moves on to the next row.
+In the browser, you can press editing keys quickly, such as `h` then `u`; each waits for the one
+before it. An edit from a dialog does not wait. If another edit is still saving, the dialog shows
+`Wait for the previous edit to finish, then try again.` and sends nothing.
 
-### Hide, delete, undo, and redo
+## Manage categories and groups
 
-`h` stages a hide or unhide at once. **Unreleased:** A notice in the status line confirms it
-until your next action, such as `Hidden 3 transactions · Undo u` or
-`Shown 1 transaction · Undo u`.
+Create, rename, move, merge, and delete categories and groups. Press `C` for categories or `G`
+for groups. In the browser, choose **Edit categories** or **Edit groups**. Monarch and YNAB
+profiles manage these in the provider, so the keys tell you to do that. **Uncategorized** cannot
+be changed. See [categories and groups](../categories.md).
 
-`x` asks for confirmation next to the cursor row, or above the selection bar: `Delete 2
-transactions?`. Enter deletes and Esc cancels. On a phone, the confirmation is a bottom sheet.
-A staged delete shows `Deleted 2 transactions · Undo u`. In grouped views, `x` shows `Open the
-group to delete its transactions.`
-
-`u` and `U` show what they undid or redid, such as `Undid hide · 3 transactions · Redo U` or
-`Redid Rename merchant · Undo u`. Staged renames, category changes, and category or group edits
-show no message; the staged values in the table and the pending-edits card already show them.
-
-**Unreleased:** An editing key pressed while an earlier key's edit is still on its way waits for
-that edit, so `h` then `u`, or `u` then `U`, works however quickly you press them. A key whose
-action is unavailable says why, such as `No pending edit to undo.` or `No undone edit to redo.`
-
-Edits from dialogs do not wait. An edit confirmed in a dialog while another edit is still saving,
-or while an editing key is still waiting for its turn, is not sent, and the dialog shows
-`Wait for the previous edit to finish, then try again.` An editing key pressed while a dialog's
-edit is still saving, such as after closing an editor with Esc before its change finished, shows
-the same message and does nothing.
-
-### Manage categories and groups
-
-`C` opens **Manage categories** and `G` opens **Manage category groups**. Each is a large drawer
-that lists every category or group with its transaction count. Categories also show their group.
-Protected entries, such as **Uncategorized**, cannot be changed.
-
-The filter field has focus when the drawer opens, so typing filters the list. Press Down to move
-into the list, and Up from its first row to return to the filter. Then use these keys:
+Type to filter the list, and press Down to move into it. Then use these keys:
 
 | Key | Action |
 | --- | --- |
 | `n` | New category or group |
 | `r` | Rename the highlighted entry |
-| `g` | Move the highlighted category to another group (categories only) |
-| `m` | Merge the highlighted entry into a destination |
-| `d` | Delete the highlighted entry, moving any contents to a replacement |
-| Enter | Confirm the open step; in a destination field with its list open, take the highlighted entry and confirm |
-| Esc | Leave the open step; then clear the filter; then close the drawer |
+| `g` | Move the highlighted category to another group |
+| `m` | Merge the highlighted entry into another |
+| `d` | Delete the highlighted entry |
+| Enter | Confirm the step |
+| Esc | Leave the step, then clear the filter, then close |
 
-The drawer's buttons do the same. Each action opens a short step above the list. Merge stays
-disabled until you choose a destination. The delete step shows how many committed transactions
-use the entry. A category with transactions, or a group that still has categories, needs a
-replacement, and Delete stays disabled until you choose one. Pending edits count: a new category
-that a pending edit fills needs a replacement, and its step says
-`Pending edits use this category`. An entry that pending edits emptied needs none, and its step
-says so, for example `Pending edits already moved its 4 transactions elsewhere`. A group without
-transactions shows how many categories it has. An unused category, or a group without
-categories, needs none: Enter deletes it. A merged category, or a deleted one with a
-replacement, moves its transactions there; a merged or deleted group moves its categories there.
-While the drawer is open, these keys do not reach the table, so `g`, `m`, and `d` never change
-the view or open the merchant editor behind it.
+In the TUI, `/` returns to the filter. Each confirmed step is a pending edit.
 
-Each confirmed step is a pending edit. A new or renamed entry cannot take a name another entry
-already uses, ignoring case and surrounding spaces. The step then shows
-`That label already exists; use merge instead.` and stages nothing. If the server refuses a
-step, the step stays open and shows the server's collision reason when there is one. A name
-collision that only the server finds, such as with an entry created after the drawer loaded its
-list, shows the same `That label already exists; use merge instead.` The editor's
-`Create "…"` does the same: if another tab or an MCP client created that category after the
-editor loaded its suggestions, the editor stays open and shows that message. Other refusals show
-a general message, such as `That action is not available for the current target.` If you leave a
-step with Esc before the server answers, the drawer does not show that answer.
+- Merging moves the entry's transactions, or a group's categories, into the one you choose.
+- Deleting a category with transactions, or a group with categories, needs a replacement to move
+  them to. Pending edits count: a new category that a pending edit uses needs one too.
+- An unused category, or an empty group, deletes without a replacement.
+- A new or renamed entry cannot use another entry's name, ignoring case and surrounding spaces.
+  Moneyflow shows `That label already exists; use merge instead.` and stages nothing.
 
 ## Review possible duplicates
 
-Press `D` to find possible duplicates in the current filtered view. Moneyflow groups rows
-only when date, signed amount, currency, scale, account label, and lowercased merchant label
-match. It uses the original provider merchant label when available. Merchant matching uses
-Unicode lowercasing, without trimming, other normalization, fuzzy matching, or date tolerance.
+Find transactions that may have been recorded twice. Press `D`, or choose **Duplicates** in the
+browser, to search the current view.
 
-Matches are suggestions, not proof of an accidental duplicate. Inspect the transactions,
-choose any rows to remove, and confirm the deletion. It remains a pending edit until you
-review and commit it; Moneyflow never deletes duplicate suggestions automatically.
+Moneyflow groups rows only when the date, signed amount, currency, scale, account, and merchant
+name all match. Merchant names are compared ignoring case, with no other cleanup, fuzzy
+matching, or date tolerance. Moneyflow uses the provider's original merchant name when it has
+one.
+
+A match is a suggestion, not proof. Moneyflow never deletes duplicates by itself. Inspect the
+rows, then delete the ones you choose; the deletion is a pending edit until you commit it.
+
+| Key | Action |
+| --- | --- |
+| ↑ / `k`, ↓ / `j`, Home, End, Page Up, Page Down | Move through the list |
+| Space | Select or clear the row |
+| `i` or Enter | See the row's details; press again to return |
+| `h` | Hide or show the selected rows, or the cursor row |
+| `x` | Delete the selected rows, or the cursor row, after you confirm |
+| Esc | Close the list |
 
 ## Review and commit
 
-Press `w` to inspect active operations, inactive redo history, and affected transactions.
-In the TUI, use Up/Down to select a change. Its From/To values appear below the list,
-and the transaction preview shows values **before that change**. Press `i` to inspect
-all affected rows, using Left/Right to page through them. Enter commits all active
-changes and discards redo history. Esc returns without committing.
+Check exactly what will change, then save it. Press `w`, or choose **Review** in the browser.
+The review lists each pending change with its old and new values and the transactions it
+affects.
 
-**Unreleased:** In the browser, `w` or the pending-edits card's **Review** button opens **Review
-pending changes** as a large drawer. It lists each staged operation as its old and new value with
-the affected count. Each operation starts expanded and lists its first 20 transactions, with each
-transaction's date, merchant, category, and amount in its currency. When the operation changes
-a transaction's merchant, category, or visibility, the row shows that field's old and new value.
-A longer operation says how many transactions are not shown, and **Show 400 more** loads up to
-400 more. Select an operation's heading to collapse or expand it. Enter commits unless focus is
-on a button or another control with its own Enter.
-Esc or **Cancel** closes the drawer without committing. A commit closes it too. For Monarch and
-YNAB, the status line then shows the provider write's progress, such as
-`Writing to Monarch: 3 of 6…`, and `Saved 6 changes to Monarch.` when the write finishes.
+- In the TUI, Up and Down pick a change. `i` lists all affected rows, and Left and Right page
+  through them. Enter commits. Esc goes back without committing.
+- In the browser, the review shows the first 20 transactions of each change; **Show 400 more**
+  loads more. Enter commits. Esc or **Cancel** closes without committing.
 
-**Unreleased:** The browser and TUI review name each hide operation by its direction:
-**Hide transactions** or **Show transactions**.
+Commit applies exactly the revision you reviewed. If another process changed the profile, review
+again. Committing clears redo history.
 
-Commit applies the reviewed revision. If another process changed the profile, refresh the
-review instead of assuming the old preview is still current.
+Amazon, bank CSV, and SimpleFIN commits change only the local database. Monarch and YNAB commits
+start a provider write. Moneyflow saves each successful result as it arrives, so a restart does
+not lose progress. Edits that cancel out are cleared without contacting the provider. For
+Monarch and YNAB, the browser status line shows the write's progress, such as
+`Writing to Monarch: 3 of 6…`, and then `Saved 6 changes to Monarch.`
 
-Amazon, bank CSV, and SimpleFIN commits write only to local SQLite. Monarch and YNAB commits prepare a
-provider-write batch. Successful remote results are saved individually so restart does not
-lose progress. A net-zero set of edits can be cleared without provider work.
-
-Committing Monarch or YNAB edits takes priority over a refresh running in the same TUI.
-Moneyflow stops that refresh, then commits the changes you reviewed. While waiting,
-Esc cancels the commit and keeps the edits pending. If the refresh changed the data
-before it stopped, Moneyflow asks you to review the changes again before committing.
+If a refresh is running in the TUI, a Monarch or YNAB commit stops it first. Esc cancels the
+commit and keeps the edits pending. If the refresh already changed data, Moneyflow asks you to
+review again.
 
 ## Recover an interrupted provider write
 
-In the TUI, `w` opens write status. Esc returns to transactions without discarding edits.
-An unfinished batch blocks further edits and refreshes; the footer keeps `w Write status`
-visible so you can return to its recovery actions.
+Finish or undo a Monarch or YNAB write that stopped partway. Until it finishes, you cannot edit
+or refresh. Press `w` to open write status, then use the action it offers:
 
-**Unreleased:** In the browser, a banner above the table reads `Writing to Monarch · Editing is
-locked until the write finishes` while a write runs. Its **Status** button, or `w`, opens write
-status. Write status shows progress and offers the actions the batch allows: **Pause**,
-**Resume** or **Check and resume**, **Stop and reconcile**, **Confirm reconciliation**, or
-**Reconnect Monarch** / **Reconnect YNAB**. Write status opens by itself when the write needs
-you: when it pauses, needs attention or a reconnect, asks you to confirm a reconciliation, or a
-write request fails.
+| Action | TUI key | Browser button |
+| --- | --- | --- |
+| Open or close write status | `w`, or Esc to close | `w`, or **Status** |
+| Pause | `p` | **Pause** |
+| Resume, or check an uncertain Monarch update and resume | `r` | **Resume** or **Check and resume** |
+| Discard the batch's pending edits and reload provider data | `s` | **Stop and reconcile** |
+| Confirm a reconciliation | Enter | **Confirm reconciliation** |
+| Reconnect the provider | `c` | **Reconnect Monarch** / **Reconnect YNAB** |
 
-**Unreleased:** If the background write stops without parking its batch, for example because
-the profile store failed, write status still reads as writing. An error banner then shows
-`Provider write stopped:` with the reason, and Moneyflow resumes the write within 2 minutes, when
-its lease expires. The terminal running `moneyflow web` logs the cause. An error banner also says
-when write status cannot be read, so the progress shown may be out of date.
+- Pause waits for requests already sent. A paused write offers Resume.
+- A rejected change offers `s`. It discards that write's pending edits and reloads provider data.
+  You can edit again when the reload finishes. If the reload fails, write status shows the
+  error and you can try again. For Monarch, press `w`, then `s`, to retry it.
+- **Check and resume** looks up an uncertain Monarch update on its recorded date. If the
+  transaction already has the new value, Moneyflow records it without sending it again. If it
+  still has the old value, Moneyflow can retry. Anything else leaves the write paused. The check
+  does not download your history or resend finished edits.
+- The browser opens write status by itself when the write needs you. If the background write
+  stops unexpectedly, the browser shows `Provider write stopped:` with the reason, and Moneyflow
+  resumes the write within 2 minutes. The terminal running `moneyflow web` logs the cause.
+- A write that stops before it finishes, such as after **Stop and reconcile**, reports
+  `Provider write stopped. Remaining edits discarded.` instead of success.
+- After a write finishes and no edits are pending, `w` or **Last write** reopens its status.
 
-**Unreleased:** When a write finishes, a status line notice reports it, such as
-`Saved 4 changes to Monarch.`, and adds when the view could not be refreshed. Write status keeps
-the counts, such as `4 of 4 complete`, and shows when the write finished. While no edits are
-pending, `w` or the sidebar's **Last write** button reopens it until the profile changes again,
-such as by an edit. A write that ends before it finishes, such as after **Stop and reconcile**,
-shows an error banner, such as `Provider write stopped. Remaining edits discarded.`, instead of
-reporting success.
-
-**Unreleased:** In the TUI, write status shows the first change's From/To values and
-transaction count, alongside overall progress. It also reports when the batch contains
-additional changes.
-
-Use the action shown for the current state. Pause waits for in-flight results. A paused
-batch offers Resume. A rejected change offers `s` to discard that batch's pending edits
-and reload provider data. During the reload, Esc returns to transactions while work
-continues. Editing becomes available again after the reload finishes. A failed reload
-keeps the batch and displays its error in write status, where you can try recovery again.
-For Monarch, reopening the profile or reconnecting does not restart that reload;
-use `w`, then `s` when you want to retry it.
-
-**Unreleased:** For an uncertain Monarch update, press `r` for **Check and resume**.
-Moneyflow checks the affected transaction on its recorded date. If the edit already
-matches the requested value, it records that result without sending the edit again.
-If the transaction still matches its previous value, Moneyflow can retry the edit.
-Other values or an inconclusive lookup leave the batch paused for attention.
-This check does not download your transaction history or resend completed edits.
-
-If a provider removal confirmation appears, review it before continuing. A completed
-write updates the local cache directly. It does not trigger another download.
-Neither a warning nor a timeout proves that the provider rejected the request.
-
-See the [edit audit log](../config/caching.md#where-can-i-inspect-past-edits) for persistent
-before/requested values and provider outcomes.
+Review any provider removal confirmation before you continue. A warning or a timeout does not
+prove that the provider rejected a change, so do not resend it blindly. The
+[edit audit log](../config/caching.md#where-can-i-inspect-past-edits) records each change's old
+and requested values and the provider's answer.

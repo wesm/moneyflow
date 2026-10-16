@@ -1,7 +1,8 @@
 # Export transactions
 
-Press `E` in the terminal or browser to save committed transactions for analysis.
-Exports contain financial data and are not encrypted. They are not profile backups.
+Save your committed transactions as a Parquet, CSV, or SQLite file to analyze in other tools.
+Press `E` in the terminal application (TUI) or the browser, or choose **Export** in the browser.
+Exports contain financial data and are not encrypted. An export is not a profile backup.
 
 ## Choose a format
 
@@ -11,29 +12,29 @@ Exports contain financial data and are not encrypted. They are not profile backu
 | CSV | Exact decimal text and integer minor units; metadata in `#` comment lines |
 | SQLite | `transactions` table plus an `export_metadata` table |
 
-Every format includes `amount`, `amount_minor`, `currency`, and `scale`.
-Free-text CSV values, including provider transaction IDs, are prefixed with an apostrophe when
-they look like spreadsheet formulas. Treat those prefixes as export formatting, not changes to
-the saved data. Money columns remain numeric decimal strings without added prefixes.
+Every format includes `amount`, `amount_minor`, `currency`, and `scale`. In CSV, a text value
+that looks like a spreadsheet formula, including a provider transaction ID, starts with an
+apostrophe. The apostrophe is export formatting; the saved data is unchanged. Money columns stay
+plain decimal numbers.
 
 ## Choose what to include
 
-**Full** exports every committed transaction. **Filtered** applies the current search,
-date, visibility, and drill-down filters to committed data. Pending edits and inactive redo
-operations are excluded; their counts appear in metadata. An empty selected scope does not
-produce a file.
+**Full** exports every committed transaction. **Filtered** exports the committed transactions
+that match the current search, period, filters, and drill-down. Pending edits and undone edits
+are left out; the file's metadata counts them. If nothing matches, Moneyflow writes no file.
 
-Export captures one revision so a concurrent edit cannot mix rows from different states.
-Metadata includes the source revision, time, scope, date range, provider kinds, and counts.
-Review metadata as well as transaction rows before sharing a file.
+An export reads one revision of the profile, so an edit made at the same time cannot mix into
+it. The metadata records the revision, time, scope, date range, provider kinds, and counts.
+Check the metadata as well as the rows before you share a file.
+
+In the TUI, Tab switches between format and scope, the arrow keys change the choice, Enter
+exports, and Esc closes or cancels a running export. In the browser, pick a format and a scope,
+then choose **Export**.
 
 ## Find the file
 
-The TUI writes beneath the selected profile's `exports/` directory. Existing files are
-not overwritten. The browser downloads a file through its normal download controls.
-Browser downloads inherit the browser and operating system's handling; they are not encrypted
-by Moneyflow.
+The TUI saves the file in the profile's `exports/` directory and never overwrites an existing
+file. The browser downloads the file like any other download, and Moneyflow does not encrypt it.
 
-Export runs without changing committed transactions. Cancel from the export interface if
-needed. To preserve the full profile, including credentials and pending changes, follow
-[profile backups](../config/caching.md#back-up-a-profile) instead.
+Export does not change your transactions. To keep everything, including credentials and pending
+edits, make a [profile backup](../config/caching.md#back-up-a-profile) instead.
