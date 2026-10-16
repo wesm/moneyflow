@@ -36,9 +36,9 @@ documentation environment; it installs no part of the Python application.
 `docs/site-manifest.json` selects the published files. Its `current` list names the docs pages
 and their stylesheet. Its `static` list names the homepage and its assets under
 `docs/website/`. Its `redirects` map old routes to current pages. The builder stages the
-selected files in ignored `docs/.site-work/`, runs Zensical, and assembles ignored `site/`. It removes only those owned output
-directories before rebuilding. Do not hand-edit them. Edit links come from `edit_uri` in
-`docs/zensical.toml`.
+selected files in ignored `docs/.site-work/`, runs Zensical, and assembles ignored `site/`.
+It removes only those owned output directories before rebuilding. Do not hand-edit them.
+Edit links come from `edit_uri` in `docs/zensical.toml`.
 
 ## Pages for agents
 

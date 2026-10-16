@@ -65,7 +65,7 @@ jobs:
         env:
           TMPDIR: ${{ runner.temp }}
         run: make docs-test docs-check docs-browser-test
-      - name: Publish root, walkthrough, current docs and archive together
+      - name: Publish the homepage, docs and llms.txt together
         uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

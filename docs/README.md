@@ -25,8 +25,9 @@ copying details. Keep exact commands, limits, failure behavior, and authorizatio
 
 `docs/site-manifest.json` selects published pages. `docs/zensical.toml` defines current
 navigation; list every current page there so `/llms.txt`, which agents read, covers it. The
-combined site includes the homepage, the guides, their Markdown copies, and `/llms.txt`. See [website operation](architecture/website.md) for layout
-and capture tools. README and command help must agree with the current guides.
+combined site includes the homepage, the guides, their Markdown copies, and `/llms.txt`.
+See [website operation](architecture/website.md) for layout and capture tools. README and
+command help must agree with the current guides.
 
 The docs describe the release they are published with. Stable releases deploy docs from their
 tag after publication, so write for the next release. Prereleases do not replace the public site.

@@ -297,8 +297,9 @@ merchant over August:
 
 The result has the standard header and revision, plus `currency`, `scale`, `today`, `latest`,
 `ranges`, `summary`, and `series`. The server derives every range from the dates and its
-clock, following the web's [chart](web.md#charts) and [comparison](web.md#compare-with-the-previous-period) rules; a year scope, for
-example, charts one period per year. `ranges.context` lists the chart periods, and cash-flow
+clock, following the web's [chart](web.md#charts) and
+[comparison](web.md#compare-with-the-previous-period) rules; a year scope, for example, charts
+one period per year. `ranges.context` lists the chart periods, and cash-flow
 and series values follow its order. Each amount is a money object with `amount`,
 `amount_minor`, `currency`, and `scale`. The server computes changes such as `net_change` and
 `vs_prior`; `percent_tenths` and `share_tenths` are tenths of a percent. `pending_count` counts

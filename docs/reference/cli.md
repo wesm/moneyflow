@@ -44,7 +44,7 @@ input when standard input is not a terminal.
 | `moneyflow provider connect monarch` | Connect and import one Monarch profile | [Monarch](../guide/monarch.md) |
 | `moneyflow provider connect ynab` | Connect and import one YNAB profile | [YNAB](../guide/ynab.md) |
 | `moneyflow provider connect simplefin` | Connect experimental SimpleFIN; edits stay in Moneyflow | [SimpleFIN CLI](../guide/simplefin-cli.md) |
-| `moneyflow provider disconnect monarch` | Remove the local Monarch session | [Monarch](../guide/monarch.md#disconnect-or-recover) |
+| `moneyflow provider disconnect monarch` | Remove the local Monarch session | [Monarch](../guide/monarch.md#troubleshooting) |
 | `moneyflow provider disconnect ynab` | Remove the local YNAB credential vault | [YNAB](../guide/ynab.md) |
 | `moneyflow provider import amazon DIRECTORY` | Import Amazon order-history CSV files | [Amazon](../guide/amazon-mode.md) |
 | `moneyflow provider import list` | List bank CSV mappings | [Bank CSV](../guide/bank-csv.md) |

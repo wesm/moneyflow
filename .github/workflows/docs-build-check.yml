@@ -2,7 +2,7 @@ name: Documentation Build Check
 
 on:
   push:
-    branches: [go-port, main]
+    branches: [main]
     paths:
       - 'docs/**'
       - '*.md'
