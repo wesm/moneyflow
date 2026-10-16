@@ -1,4 +1,4 @@
-// Package home resolves and protects the Go v2 profile location.
+// Package home resolves and protects the Moneyflow home and its profile locations.
 package home
 
 import (
@@ -12,13 +12,24 @@ import (
 
 const databaseName = "moneyflow.db"
 
+// ErrPythonData reports a selected root that holds data from the retired Python app.
+var ErrPythonData = errors.New("moneyflow home holds Python app data")
+
+// pythonMarkers are files the retired Python app kept at the top of its data folder. Go never
+// writes these names in a root. Python wrote moneyflow.log on every start and accounts.json for
+// every account, so these files find any folder the Python app used.
+var pythonMarkers = []string{
+	"accounts.json", "config.yaml", "credentials.enc", "merchants.json", "moneyflow.log",
+}
+
 // Paths names the canonical profile root and its single SQLite database.
 type Paths struct {
 	Root     string
 	Database string
 }
 
-// ResolveRoot selects an explicit root, MONEYFLOW_HOME, or the isolated v2 default.
+// ResolveRoot selects an explicit root, MONEYFLOW_HOME, or ~/.moneyflow. It fails with
+// ErrPythonData, before anything is created, when the root holds Python app data.
 func ResolveRoot(
 	explicit string,
 	lookupEnv func(string) (string, bool),
@@ -34,13 +45,39 @@ func ResolveRoot(
 		if userHome == "" {
 			return Paths{}, errors.New("resolve profile root: user home is empty")
 		}
-		root = filepath.Join(userHome, ".moneyflow", "v2")
+		root = filepath.Join(userHome, ".moneyflow")
 	}
 	canonical, err := canonicalRoot(root)
 	if err != nil {
 		return Paths{}, err
 	}
+	if err = refusePythonData(canonical); err != nil {
+		return Paths{}, err
+	}
 	return Paths{Root: canonical, Database: filepath.Join(canonical, databaseName)}, nil
+}
+
+func refusePythonData(root string) error {
+	for _, marker := range pythonMarkers {
+		_, err := os.Lstat(filepath.Join(root, marker))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("resolve profile root: inspect %s: %w", marker, err)
+		}
+		return fmt.Errorf(
+			"%w: %s contains %s from the Python app, and Go Moneyflow cannot share that folder. "+
+				"Stop Moneyflow and move the folder aside with: mv %s %s. Then see "+
+				"\"Moving from Python to Go\" (docs/getting-started/transition.md)",
+			ErrPythonData, root, marker, shellQuote(root), shellQuote(root+"-python"),
+		)
+	}
+	return nil
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 // PrepareDatabase creates the managed root and database with private platform permissions.

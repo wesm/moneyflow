@@ -207,7 +207,7 @@ func (catalog *Catalog) Recreate(ctx context.Context, request RecoveryRequest) (
 			providerKind = "local"
 		}
 		if _, err = catalog.FinalizeLegacyManifest(ctx, LegacyManifestRequest{
-			DisplayName: "Moneyflow", ProviderKind: providerKind, ProfileID: plan.ProfileID,
+			ProviderKind: providerKind, ProfileID: plan.ProfileID,
 		}); err != nil {
 			return RecoveryResult{}, err
 		}

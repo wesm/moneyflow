@@ -167,18 +167,8 @@ func profileStatusLabel(status profilecatalog.Status) string {
 }
 
 func providerLabel(kind string) string {
-	switch kind {
-	case "monarch":
-		return "Monarch"
-	case "ynab":
-		return "YNAB"
-	case "local":
-		return "Local"
-	case "simplefin":
-		return "SimpleFIN"
-	case "":
+	if kind == "" {
 		return "Unknown"
-	default:
-		return kind
 	}
+	return profilecatalog.ProviderDisplayName(kind)
 }

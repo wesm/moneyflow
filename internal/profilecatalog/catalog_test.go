@@ -29,7 +29,7 @@ func TestListIncludesManifestlessLegacyAndSortsByCollisionKey(t *testing.T) {
 
 	entries, err := catalog.List(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, []string{"alpha", "Moneyflow", "Zulu"}, entryNames(entries))
+	assert.Equal(t, []string{"alpha", "Local", "Zulu"}, entryNames(entries))
 	assert.Equal(t, LegacyKey, entries[1].Key)
 	assert.Empty(t, entries[1].ID)
 	assert.Equal(t, catalog.paths.LegacyProfile(), entries[1].ProfilePaths())

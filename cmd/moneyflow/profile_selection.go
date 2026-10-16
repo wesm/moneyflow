@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -91,4 +92,19 @@ func profileNameKey(name string) string {
 		return name
 	}
 	return key
+}
+
+// activateCommandProfile gives a root profile without a manifest its catalog identity. While an
+// interrupted recovery holds that identity, it explains how to finish the recovery.
+func activateCommandProfile(
+	ctx context.Context,
+	catalog *profilecatalog.Catalog,
+	key string,
+) (profilecatalog.Entry, error) {
+	entry, err := catalog.Activate(ctx, key)
+	if profilecatalog.CodeOf(err) == profilecatalog.CodeRecoveryIncomplete {
+		return entry, fmt.Errorf("finish this profile's recovery first: run moneyflow tui "+
+			"(with the same MONEYFLOW_HOME if set), select the profile, and choose Recreate: %w", err)
+	}
+	return entry, err
 }

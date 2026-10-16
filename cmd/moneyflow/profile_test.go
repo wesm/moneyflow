@@ -66,7 +66,7 @@ func TestOpenProfileFinalizesAndUsesExistingRootLevelProfile(t *testing.T) {
 	require.NoError(t, opened.Close())
 	manifest, err := profilecatalog.ReadManifest(filepath.Join(root, profilecatalog.ManifestFilename))
 	require.NoError(t, err)
-	assert.Equal(t, "Moneyflow", manifest.DisplayName)
+	assert.Equal(t, "Local", manifest.DisplayName)
 }
 
 func TestOpenProfileFinalizesPristineLegacyProfileForRequestedProvider(t *testing.T) {
@@ -443,7 +443,7 @@ func TestOpenProfilePersistsPendingJournalAcrossRestart(t *testing.T) {
 			return nil
 		},
 	})
-	first.SetArgs([]string{"tui", "--profile", "Moneyflow"})
+	first.SetArgs([]string{"tui", "--profile", "Local"})
 	require.NoError(t, first.Execute())
 
 	second := newRootCommand(IOStreams{
@@ -465,7 +465,7 @@ func TestOpenProfilePersistsPendingJournalAcrossRestart(t *testing.T) {
 			return nil
 		},
 	})
-	second.SetArgs([]string{"tui", "--profile", "Moneyflow"})
+	second.SetArgs([]string{"tui", "--profile", "Local"})
 	require.NoError(t, second.Execute())
 }
 

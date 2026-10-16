@@ -227,6 +227,27 @@ func validateManifest(manifest Manifest, directory string) error {
 	return nil
 }
 
+// ProviderDisplayName names a provider kind for people, such as "YNAB" for "ynab". It returns an
+// unsupported kind unchanged.
+func ProviderDisplayName(kind string) string {
+	switch kind {
+	case "monarch":
+		return "Monarch"
+	case "ynab":
+		return "YNAB"
+	case "simplefin":
+		return "SimpleFIN"
+	case "amazon":
+		return "Amazon"
+	case "local":
+		return "Local"
+	case "csv":
+		return "CSV"
+	default:
+		return kind
+	}
+}
+
 func supportedProviderKind(kind string) bool {
 	return kind == "monarch" || kind == "ynab" || kind == "simplefin" || kind == "local" || kind == "amazon" || kind == "csv"
 }

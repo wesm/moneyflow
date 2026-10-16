@@ -10,7 +10,7 @@ type CatalogPaths struct {
 	Profiles string
 }
 
-// ResolveCatalogRoot selects and prepares the private Go v2 catalog root.
+// ResolveCatalogRoot selects and prepares the private catalog root.
 func ResolveCatalogRoot(
 	explicit string,
 	lookupEnv func(string) (string, bool),
@@ -29,7 +29,7 @@ func ResolveCatalogRoot(
 	}, nil
 }
 
-// LegacyProfile returns the root-level profile retained from the original Go v2 layout.
+// LegacyProfile returns the root-level profile retained from the original Go layout.
 func (paths CatalogPaths) LegacyProfile() Paths {
 	return Paths{Root: paths.Root, Database: filepath.Join(paths.Root, databaseName)}
 }

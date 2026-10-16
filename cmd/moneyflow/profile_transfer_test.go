@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -128,4 +131,103 @@ func TestProfileTransferCommandFailedPopulationStaysInvisible(t *testing.T) {
 	children, err := os.ReadDir(catalog.Paths().Profiles)
 	require.NoError(t, err)
 	require.Empty(t, children)
+}
+
+func TestProfileRenameCommandRenamesInPlace(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("MONEYFLOW_HOME", root)
+	catalog := newCommandTestCatalog(t, root)
+	entry, err := catalog.Create(t.Context(), profilecatalog.CreateRequest{
+		DisplayName: "Moneyflow", ProviderKind: "monarch",
+	})
+	require.NoError(t, err)
+
+	stdout, _, err := executeCommand(t, "profile", "rename", "--profile", "moneyflow", "--name", "Monarch")
+
+	require.NoError(t, err)
+	require.Contains(t, stdout, `Renamed "Moneyflow" to "Monarch" (`+entry.ID+`).`)
+	renamed, err := catalog.Resolve(t.Context(), "Monarch")
+	require.NoError(t, err)
+	require.Equal(t, entry.ID, renamed.ID)
+}
+
+func TestProfileRenameCommandRenamesAManifestlessRootProfile(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("MONEYFLOW_HOME", root)
+	catalog := newCommandTestCatalog(t, root)
+	require.NoError(t, sqlite.InstallPristineProfile(
+		t.Context(), catalog.Paths().LegacyProfile(), sqlite.DefaultOptions,
+	))
+
+	_, _, err := executeCommand(t, "profile", "rename", "--profile", "Local", "--name", "Example Budget")
+
+	require.NoError(t, err)
+	renamed, err := catalog.Resolve(t.Context(), "Example Budget")
+	require.NoError(t, err)
+	require.Equal(t, catalog.Paths().Root, renamed.Root)
+	require.NotEmpty(t, renamed.ID)
+}
+
+func TestProfileRenameCommandRejectsMissingFlagsAndBusyProfile(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("MONEYFLOW_HOME", root)
+	for _, args := range [][]string{
+		{"profile", "rename", "--name", "Monarch"},
+		{"profile", "rename", "--profile", "Moneyflow"},
+	} {
+		_, _, err := executeCommand(t, args...)
+		require.ErrorContains(t, err, "profile rename requires --profile and --name")
+	}
+	catalog := newCommandTestCatalog(t, root)
+	entry, err := catalog.Create(t.Context(), profilecatalog.CreateRequest{
+		DisplayName: "Moneyflow", ProviderKind: "monarch",
+	})
+	require.NoError(t, err)
+	lock, err := home.TryLock(entry.Root, home.LockProfile, home.LockShared)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, lock.Release()) }()
+
+	_, _, err = executeCommand(t, "profile", "rename", "--profile", "Moneyflow", "--name", "Monarch")
+
+	require.ErrorContains(t, err, "close other Moneyflow processes using this profile")
+	unchanged, err := catalog.Resolve(t.Context(), "Moneyflow")
+	require.NoError(t, err)
+	require.Equal(t, entry.ID, unchanged.ID)
+}
+
+func TestProfileRenameCommandRefusesAnInterruptedRootRecovery(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("MONEYFLOW_HOME", root)
+	paths, err := home.ResolveCatalogRoot(root, nil, "")
+	require.NoError(t, err)
+	legacy := paths.LegacyProfile()
+	require.NoError(t, sqlite.InstallPristineProfile(t.Context(), legacy, sqlite.DefaultOptions))
+	database, err := sql.Open("sqlite", legacy.Database)
+	require.NoError(t, err)
+	_, err = database.ExecContext(t.Context(),
+		"UPDATE schema_metadata SET schema_version = ? WHERE singleton = 1",
+		sqlite.CurrentSchemaVersion-1)
+	require.NoError(t, err)
+	require.NoError(t, database.Close())
+	interrupted := errors.New("synthetic recovery interruption")
+	catalog, err := profilecatalog.New(profilecatalog.Config{
+		Paths: paths, Random: rand.Reader, Now: time.Now, Version: "test",
+		RecoveryFault: func(point profilecatalog.RecoveryFaultPoint) error {
+			if point == profilecatalog.RecoveryAfterSchemaInstall {
+				return interrupted
+			}
+			return nil
+		},
+	})
+	require.NoError(t, err)
+	plan, err := catalog.RecoveryPlan(t.Context(), profilecatalog.LegacyKey)
+	require.NoError(t, err)
+	_, err = catalog.Recreate(t.Context(), profilecatalog.RecoveryRequest{Plan: plan, Confirmed: true})
+	require.ErrorIs(t, err, interrupted)
+
+	_, _, err = executeCommand(t, "profile", "rename", "--profile", "Unknown profile", "--name", "Monarch")
+
+	require.ErrorContains(t, err, "finish this profile's recovery first")
+	require.ErrorContains(t, err, "moneyflow tui")
+	require.NoFileExists(t, filepath.Join(paths.Root, profilecatalog.ManifestFilename))
 }

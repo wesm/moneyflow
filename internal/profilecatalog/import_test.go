@@ -353,7 +353,7 @@ func TestImportDoesNotTreatPlaceholderLabelsAsProfileNames(t *testing.T) {
 				}
 				name := existing.ID
 				if legacy {
-					name = "Moneyflow"
+					name = unknownProfileName
 				}
 				id := deterministicProfileID(t, 0x62)
 				populated := false
@@ -382,9 +382,9 @@ func TestImportDoesNotTreatPlaceholderLabelsAsProfileNames(t *testing.T) {
 
 func TestImportRefusesTheManifestlessLegacyName(t *testing.T) {
 	for _, inspectionFails := range []bool{false, true} {
-		name := "healthy"
+		name, displayName := "healthy", "Local"
 		if inspectionFails {
-			name = "unavailable"
+			name, displayName = "unavailable", unknownProfileName
 		}
 		t.Run(name, func(t *testing.T) {
 			catalog := newTestCatalog(t, nil)
@@ -396,7 +396,7 @@ func TestImportRefusesTheManifestlessLegacyName(t *testing.T) {
 			id := deterministicProfileID(t, 0x62)
 
 			_, err := catalog.Import(context.Background(), ImportRequest{
-				Manifest: importManifest(id, "Moneyflow"), Populate: installPristine,
+				Manifest: importManifest(id, displayName), Populate: installPristine,
 			})
 
 			assert.Equal(t, CodeProfileNameConflict, CodeOf(err))

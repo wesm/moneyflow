@@ -45,7 +45,7 @@ func TestImportReservesInterruptedLegacyRecoveryIdentity(t *testing.T) {
 			require.Len(t, entries, 1)
 			assert.Equal(t, LegacyKey, entries[0].Key)
 			assert.Empty(t, entries[0].ID, "recovery has not finalized the legacy manifest")
-			assert.Equal(t, "Moneyflow", entries[0].DisplayName)
+			assert.Equal(t, unknownProfileName, entries[0].DisplayName)
 			assert.Equal(t, test.wantStatus, entries[0].Status)
 
 			_, err = catalog.Import(t.Context(), ImportRequest{
@@ -58,7 +58,7 @@ func TestImportReservesInterruptedLegacyRecoveryIdentity(t *testing.T) {
 			if test.directory {
 				id := deterministicProfileID(t, 0x62)
 				_, err = catalog.Import(t.Context(), ImportRequest{
-					Manifest: importManifest(id, "Moneyflow"), Populate: installPristine,
+					Manifest: importManifest(id, unknownProfileName), Populate: installPristine,
 				})
 				assert.Equal(t, CodeProfileNameConflict, CodeOf(err))
 				assert.NoDirExists(t, filepath.Join(catalog.paths.Profiles, id))
@@ -75,6 +75,7 @@ func TestImportReservesInterruptedLegacyRecoveryIdentity(t *testing.T) {
 			require.Len(t, entries, 1)
 			assert.Equal(t, plan.ProfileID, entries[0].ID)
 			assert.Equal(t, catalog.paths.Root, entries[0].Root)
+			assert.Equal(t, "Local", entries[0].DisplayName)
 		})
 	}
 }

@@ -365,7 +365,7 @@ func TestActivateFinalizesManifestlessLegacyAndLeavesCanonicalProfilesUnchanged(
 	require.NoError(t, err)
 	assert.True(t, ValidProfileID(activated.ID))
 	assert.Equal(t, activated.ID, activated.Key)
-	assert.Equal(t, "Moneyflow", activated.DisplayName)
+	assert.Equal(t, "Local", activated.DisplayName)
 
 	again, err := catalog.Activate(context.Background(), activated.ID)
 	require.NoError(t, err)
