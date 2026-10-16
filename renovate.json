@@ -9,6 +9,12 @@
     {
       "matchManagers": ["github-actions"],
       "labels": ["dependencies", "ci"]
+    },
+    {
+      "description": "Keep the views package's peer ranges at the versions web/package.json pins.",
+      "matchFileNames": ["package.json"],
+      "matchDepTypes": ["peerDependencies"],
+      "rangeStrategy": "bump"
     }
   ],
   "lockFileMaintenance": {
