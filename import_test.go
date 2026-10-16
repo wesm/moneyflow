@@ -76,8 +76,8 @@ func TestImportCopiesEveryProfileAndLeavesTheSourceAlone(t *testing.T) {
 	assert.Equal(t, ImportedProfile{ID: acme, Name: "Acme", ProviderKind: "monarch"}, byName["Acme"])
 	assert.Equal(t, ImportedProfile{ID: shop, Name: "Example Shop", ProviderKind: "local"},
 		byName["Example Shop"])
-	assert.True(t, profilecatalog.ValidProfileID(byName["Moneyflow"].ID))
-	assert.Equal(t, "local", byName["Moneyflow"].ProviderKind)
+	assert.True(t, profilecatalog.ValidProfileID(byName["Local"].ID))
+	assert.Equal(t, "local", byName["Local"].ProviderKind)
 	copied, err := os.ReadFile(filepath.Clean(filepath.Join(root, "profiles", acme, session)))
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"synthetic":true}`, string(copied))
@@ -89,7 +89,7 @@ func TestImportCopiesEveryProfileAndLeavesTheSourceAlone(t *testing.T) {
 		assert.Equal(t, sourceFiles, copiedFiles, "every file but the database is copied as it is")
 	}
 	assert.Equal(t, 1, currentProfile(t.Context(), instance, acme).PendingEdits)
-	assert.Equal(t, StateReady, currentProfile(t.Context(), instance, byName["Moneyflow"].ID).State)
+	assert.Equal(t, StateReady, currentProfile(t.Context(), instance, byName["Local"].ID).State)
 	assert.Equal(t, before, fileDigests(t, source))
 }
 
@@ -268,6 +268,6 @@ func TestImportKeepsTheIDOfAProfileAtTheSourceRoot(t *testing.T) {
 	report, err := instance.ImportProfiles(t.Context(), source+string(filepath.Separator))
 
 	require.NoError(t, err)
-	assert.Equal(t, []ImportedProfile{{ID: legacy, Name: "Moneyflow", ProviderKind: "local"}},
+	assert.Equal(t, []ImportedProfile{{ID: legacy, Name: "Local", ProviderKind: "local"}},
 		report.Imported)
 }
