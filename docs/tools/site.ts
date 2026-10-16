@@ -365,17 +365,7 @@ async function build() {
   await stagePages(
     resolve(docs, ".screenshots"),
     resolve(output, "screenshots"),
-    [
-      "tui-browse.svg",
-      "tui-detail.svg",
-      "tui-category.svg",
-      "tui-review.svg",
-      "tui-export.svg",
-      "web-browse.png",
-      "web-edit.png",
-      "web-phone.png",
-      "web-review.png",
-    ],
+    ["tui-browse.svg", "web-browse.png"],
   );
   await cp(resolve(docs, "CNAME"), resolve(output, "CNAME"));
   await writeFile(resolve(output, ".nojekyll"), "");

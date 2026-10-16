@@ -178,7 +178,7 @@ case-insensitive regular expression, and the results update as you type.
 
 Product names from an [Amazon import](amazon-mode.md#match-bank-charges-to-products) also match
 the bank charges they belong to. MCP search works differently: it matches literal text,
-ignoring case, in merchant, category, and notes. See [MCP](mcp.md#read-and-write-policy).
+ignoring case, in merchant, category, and notes. See [MCP](mcp.md#read-and-write-access).
 
 To limit dates, hidden transactions, or transfers, use [filters](filters.md).
 

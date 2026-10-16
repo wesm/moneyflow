@@ -1,25 +1,21 @@
-# Go releases
+# Releases
 
-No Go release has been published yet. Users [build from source](../getting-started/installation.md),
-and the Python 0.11.1 package on PyPI is the legacy app. This page describes how the release
-workflow builds, checks, and publishes Go releases once maintainers cut one. A release will ship
-one binary with the web app embedded, so end users will not need Python, Go, Bun, or a separate
-web server. Nix packaging has been removed.
+A Moneyflow release is one binary per platform with the web app embedded, so users need no
+Python, Go, Bun, or separate web server. This page covers what a release contains, how to
+rehearse one locally, and how to publish it.
 
-A local build does not prove that a release was published or tested on every operating system.
-Use preview releases while validating the replacement. Follow the
-[transition policy](../getting-started/transition.md) before recommending a full switch;
-provider reconnection and Amazon reimport alone do not preserve local-only edits.
+A local build doesn't prove a release was published or tested on every operating system. Use
+`-rc.N` preview tags to validate a release before the stable tag.
 
-SimpleFIN will ship as **experimental**. Its automated adapter, storage, CLI, TUI, web, and MCP
-gates are required; live-bank testing is pending and does not block a preview. Request community
-validation through the [SimpleFIN guide](../guide/simplefin.md#help-validate-an-institution).
-Public-demo success is not bank validation. Maintainers must review institution evidence before
-removing the experimental label; the label does not replace the automated release gates.
+SimpleFIN ships as **experimental**. Its automated adapter, storage, CLI, TUI, web, and MCP
+gates are required. Live-bank testing doesn't block a release; request community validation
+through the [SimpleFIN guide](../guide/simplefin.md#help-validate-an-institution). Public-demo
+success is not bank validation. Maintainers review institution evidence before removing the
+experimental label.
 
 ## Release contents
 
-Every release will contain six archives, `SHA256SUMS`, `install.sh`, and `install.ps1`:
+Every release contains six archives, `SHA256SUMS`, `install.sh`, and `install.ps1`:
 
 | Platform | Architectures | Archive |
 | --- | --- | --- |
@@ -107,9 +103,8 @@ That workflow builds and deploys the Markdown from that tag. Prereleases leave t
 site unchanged. A manual docs deployment requires a stable tag; it does not deploy the
 working branch. See [documentation maintenance](https://github.com/wesm/moneyflow/blob/main/docs/README.md).
 
-The Python application and its PyPI publishing scripts are retired from this checkout.
-Do not update the old `stable` branch or publish a Python package to release Go.
-Historical Python versions remain in existing releases and Git history.
+The Python application and its PyPI publishing scripts are gone. Do not update the old
+`stable` branch or publish a Python package to release Go.
 
 Before deleting an old installed application or profile, follow
 [moving to Go](../getting-started/transition.md). Publication never authorizes deleting user data.

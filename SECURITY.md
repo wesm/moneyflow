@@ -30,7 +30,7 @@ are not a replacement for authentication. See [web deployment](docs/config/advan
 
 MCP HTTP is a separate loopback-only, bearer-authenticated endpoint. The token grants
 access to the selected profile; `--allow-write` also registers mutation tools.
-See [MCP transport and token handling](docs/guide/mcp.md#streamable-http).
+See [MCP transport and token handling](docs/guide/mcp.md#authenticated-http).
 Never publish query strings from either interface's access logs.
 
 ## Backups and upgrades

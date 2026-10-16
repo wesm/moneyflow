@@ -1,37 +1,36 @@
 # Moneyflow
 
-Moneyflow is a local-first tool for reviewing personal finance transactions. One Go binary
-serves a browser app, a keyboard-driven terminal app (TUI), and an MCP server for assistants,
-all over the same saved profiles. Group spending, drill into purchases, fix merchants and
-categories in bulk, and review every pending change before you commit it.
+Moneyflow shows where your money goes and lets you clean up merchants and categories in bulk.
+Edits wait until you review and commit them. Use it in a browser, in a terminal, or from an AI
+assistant through MCP. Your data stays in a local SQLite profile.
 
 - **Docs:** [moneyflow.dev/docs](https://moneyflow.dev/docs/)
-- **For agents:** `https://moneyflow.dev/llms.txt` lists every page, and each page has a
-  Markdown copy at its source path, such as `https://moneyflow.dev/docs/guide/web.md`.
+- **For agents:** [`moneyflow.dev/llms.txt`](https://moneyflow.dev/llms.txt) lists every page,
+  and each page has a Markdown copy, such as `https://moneyflow.dev/docs/guide/web.md`.
 
-No Go release has been published yet; build from source. Check
-[GitHub Releases](https://github.com/wesm/moneyflow/releases) for released binaries. The
-older PyPI package is the retired Python application.
+## Install
+
+On Linux or macOS:
+
+```bash
+curl -fsSL https://github.com/wesm/moneyflow/releases/latest/download/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+For Windows, manual downloads, and building from source, see
+[installation](docs/getting-started/installation.md). Coming from Python Moneyflow? Read
+[moving to Go](docs/getting-started/transition.md) first.
 
 ## Try it
 
-Install [mise](https://mise.jdx.dev/getting-started.html) and Make, then use the pinned tools:
-
 ```bash
-mise trust
-mise install
-mise exec -- make web-install build
+moneyflow web --demo   # in your browser
+moneyflow tui --demo   # in your terminal
 ```
 
-Follow [development setup](docs/development/developing.md) for the private temporary directory
-that Unix demos need, then run `mise exec -- make web-demo` or `mise exec -- make tui-demo`.
-Demo data is synthetic and temporary. To keep your own data, run `./bin/moneyflow web` or
-`./bin/moneyflow tui` and choose **Add profile**.
-
-For binaries, installers, updates, and Windows instructions, see
-[installation](docs/getting-started/installation.md).
-If you used Python Moneyflow, read [moving to Go](docs/getting-started/transition.md)
-before connecting accounts. Local-only Python edits do not transfer automatically.
+The demo uses made-up data and needs no account. To use your own data, run `moneyflow web` or
+`moneyflow tui` and choose **Add profile**.
 
 ## Connect your data
 
@@ -45,8 +44,8 @@ before connecting accounts. Local-only Python edits do not transfer automaticall
 
 Use the same profiles in the [browser](docs/guide/web.md), the
 [terminal](docs/getting-started/go.md), and the [MCP server](docs/guide/mcp.md).
-Edits and undo/redo history survive restart. Review changes before committing them.
-Money is stored exactly as signed integer minor units, never floating point.
+Pending edits and undo history survive a restart. Amounts are exact integers in each
+currency's smallest unit, never floating point.
 
 ## Find your next step
 
@@ -60,5 +59,5 @@ Money is stored exactly as signed integer minor units, never floating point.
 - [Development](docs/development/developing.md): build, run with live reload, and verify changes.
 - [Documentation maintenance](docs/README.md): writing rules, ownership, and publishing.
 
-Moneyflow is MIT-licensed. The website is [moneyflow.dev](https://moneyflow.dev); it follows
-stable Go releases after cutover, not every change on `main`.
+Moneyflow is MIT-licensed. The website, [moneyflow.dev](https://moneyflow.dev), is published
+from each stable release, so it can lag behind `main`.

@@ -1,32 +1,18 @@
-# Model Context Protocol Server
+# MCP server
 
-`moneyflow mcp` serves one saved profile to an assistant through the Model Context Protocol
-(MCP). The assistant can search and summarize transactions, read chart data, preview and stage
-edits, and, when you allow it, commit the revision you reviewed. The server uses the same
-application service, exact integer money, pending journal, revision checks, and provider
-lifecycle as the browser and the TUI.
+`moneyflow mcp` lets an AI assistant such as Claude work with one of your profiles through the
+Model Context Protocol (MCP). The assistant can search and summarize transactions, read chart
+data, and export. If you allow writes, it can also preview and stage edits, and commit the
+revision you reviewed. It uses the same exact money, pending edits, and provider writes as the
+browser and the terminal.
 
-The server is read-only by default. It does not refresh providers on a schedule or resume an
-ownerless provider write batch merely because it is running. [Agents](agents.md) covers the
-rules an assistant must follow.
+The server is read-only unless you pass `--allow-write`. It never refreshes providers on a
+schedule, and it doesn't resume an unfinished provider write just because it started.
+[Use Moneyflow with an agent](agents.md) covers the rules an assistant must follow.
+[Install Moneyflow](../getting-started/installation.md) and
+[create a profile](../getting-started/quickstart.md#add-your-data) first.
 
-This guide describes the Go binary, not the Python `moneyflow-mcp` entry point; the Python
-package does not launch the Go binary. [Install or build](../getting-started/installation.md)
-the binary and [create a profile](../getting-started/quickstart.md#add-your-data) first.
-
-## Protocol contract
-
-Moneyflow targets the [2026-07-28 MCP contract][mcp-spec] using the official Go SDK v1.7.0.
-Current clients use `server/discover` and per-request protocol metadata over stdio or HTTP.
-HTTP clients also send `Mcp-Protocol-Version`, `Mcp-Method`, and, where required, the
-operation's `Mcp-Name`. The SDK handles protocol negotiation; Moneyflow adds no separate
-legacy adapter.
-
-Profile tool and resource metadata uses private cache scope with zero lifetime. HTTP responses
-stay `no-store`. Moneyflow's structured financial documents carry their own `version: "1"`,
-which is not the MCP protocol date.
-
-## Standard Input and Output
+## Connect a client
 
 Select a profile by its exact display name or opaque profile ID:
 
@@ -71,7 +57,7 @@ replacing its vault needs another explicit unlock. `--unlock` is not an onboardi
 connect an unbound profile with `moneyflow provider connect ynab` first. A missing vault, an
 incorrect password, or a mismatched plan binding stops startup.
 
-## Read and Write Policy
+## Read and write access
 
 The default server registers the read tools below, the [export tools](#server-side-export),
 and five resources. Results use exact decimal strings plus signed integer minor units; they
@@ -96,7 +82,7 @@ the server opened; any other value fails with `profile_not_found`.
 | `get_transaction_details` | Return committed details for one transaction. |
 | `review_changes` | Return bounded active and redo journal summaries. |
 | `get_commit_status` | Return the durable provider-write status without provider I/O. |
-| `refresh_data` | Start one explicit provider refresh when available; see [refresh](#explicit-provider-refresh). |
+| `refresh_data` | Start one explicit provider refresh when available; see [refresh](#refresh-provider-data). |
 | `get_refresh_status` | Return process-local provider refresh status. |
 | `confirm_refresh_deletions` | Confirm one process-local provider deletion candidate. |
 
@@ -311,7 +297,7 @@ merchant over August:
 
 The result has the standard header and revision, plus `currency`, `scale`, `today`, `latest`,
 `ranges`, `summary`, and `series`. The server derives every range from the dates and its
-clock, following the web's [range rules](web.md#ranges-and-comparisons); a year scope, for
+clock, following the web's [chart](web.md#charts) and [comparison](web.md#compare-with-the-previous-period) rules; a year scope, for
 example, charts one period per year. `ranges.context` lists the chart periods, and cash-flow
 and series values follow its order. Each amount is a money object with `amount`,
 `amount_minor`, `currency`, and `scale`. The server computes changes such as `net_change` and
@@ -405,7 +391,7 @@ If a reply is lost after publication, the file remains; check the server's expor
 before retrying. These are transaction exports, not restorable profile backups with
 credentials or journal history.
 
-## Explicit Provider Refresh
+## Refresh provider data
 
 `refresh_data` is available in read-only and write-enabled modes for a bound Monarch, unlocked
 YNAB, or connected SimpleFIN profile. It starts one explicit refresh and returns a
@@ -470,7 +456,7 @@ HTTP requests must use the exact endpoint path and canonical host. A browser req
 `Origin` header must match the configured canonical origin exactly. The server sets
 `no-store`, issues no cookies, and does not enable Cross-Origin Resource Sharing (CORS).
 
-## Caddy and a Private Network
+## Caddy and a private network
 
 To publish the endpoint through an existing private Caddy proxy, keep Moneyflow on loopback and
 set one canonical external URL whose path matches the base path:
@@ -496,7 +482,7 @@ Replace the reserved example host with a private name. Caddy supplies transport 
 any extra access policy. Moneyflow still requires its bearer token and the exact canonical
 authority, and rejects direct requests to the loopback listener while `--external-url` is set.
 
-## Operational Limits
+## Limits
 
 - One MCP process serves one explicit saved profile. It never creates a profile implicitly.
 - Transaction windows hold at most 1,000 rows.
@@ -517,12 +503,24 @@ authority, and rejects direct requests to the loopback listener while `--externa
 Use `moneyflow tui` or `moneyflow web` for profile creation, provider onboarding, interactive
 Amazon imports, and visual review of large edit batches.
 
-[mcp-spec]: https://modelcontextprotocol.io/specification/2026-07-28
-
-## Experimental SimpleFIN
+## SimpleFIN (experimental)
 
 Connect through the CLI, TUI, or web app first; see the [SimpleFIN guide](simplefin.md).
 Cached MCP reads need no provider access. Explicit refresh imports newly observed posted
 transactions without overwriting local rows. The one-hour manual floor and any later rate-limit
 retry time still apply. With `--allow-write`, edits and reviewed commits use the shared local
 journal. Commit never writes to SimpleFIN or starts a bank-write batch.
+
+## Protocol details
+
+Moneyflow targets the [2026-07-28 MCP contract][mcp-spec] using the official Go SDK v1.7.0.
+Current clients use `server/discover` and per-request protocol metadata over stdio or HTTP.
+HTTP clients also send `Mcp-Protocol-Version`, `Mcp-Method`, and, where required, the
+operation's `Mcp-Name`. The SDK handles protocol negotiation; Moneyflow adds no separate
+legacy adapter.
+
+Profile tool and resource metadata uses private cache scope with zero lifetime. HTTP responses
+stay `no-store`. Moneyflow's structured financial documents carry their own `version: "1"`,
+which is not the MCP protocol date.
+
+[mcp-spec]: https://modelcontextprotocol.io/specification/2026-07-28

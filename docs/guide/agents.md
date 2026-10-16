@@ -13,9 +13,8 @@ experiment with synthetic data.
   `https://moneyflow.dev/docs/guide/agents.md`. Section index pages keep their file name:
   `/docs/` is `https://moneyflow.dev/docs/index.md`, and `/docs/architecture/` is
   `https://moneyflow.dev/docs/architecture/index.md`.
-- These pages describe the Go application on `main`. Command help belongs to the installed
-  binary, so check `moneyflow <command> --help` when the two disagree. See
-  [installation](../getting-started/installation.md) for release status.
+- The installed binary is the authority on its own commands. When a page and
+  `moneyflow <command> --help` disagree, trust the help.
 
 ## Connect through MCP
 
@@ -52,9 +51,9 @@ Two tools change the profile without `--allow-write`. `refresh_data` imports pro
 and `confirm_refresh_deletions` removes local transactions the provider no longer lists.
 `export_transactions` writes a file in the profile's `exports/` directory on the server.
 
-The [MCP guide](mcp.md) owns the details: the [read and write policy](mcp.md#read-and-write-policy),
+The [MCP guide](mcp.md) owns the details: the [read and write policy](mcp.md#read-and-write-access),
 [chart insights](mcp.md#chart-insights), [server-side export](mcp.md#server-side-export),
-[refresh](mcp.md#explicit-provider-refresh), and [operational limits](mcp.md#operational-limits).
+[refresh](mcp.md#refresh-provider-data), and [operational limits](mcp.md#limits).
 A YNAB profile opens offline from saved data. To refresh or commit it, a person starts the
 [authenticated HTTP](mcp.md#authenticated-http) server with `--unlock`, enters the vault
 password at the terminal, and gives the client the endpoint and bearer token.

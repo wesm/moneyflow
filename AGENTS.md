@@ -65,14 +65,14 @@ Do not create a second assistant-specific instruction file or private project me
   Preserve lasting rationale and active exceptions in the owning guide. Describe unbuilt
   work as limitations. Do not check in planning archives, execution logs, or parity corpora;
   use Git history for implementation chronology.
-- Keep the website, its Markdown sources, README, and command help consistent. Distinguish
-  the latest release from newer `main` functionality and unreleased branch work.
+- Keep the website, its Markdown sources, README, and command help consistent. The website is
+  published from stable releases; write it for the next release.
 - Follow [docs/README.md](docs/README.md) for publishing layout and checks. Python and uv
   are documentation-build tools only; they are not application or test dependencies.
 
 ## Development
 
-Stay on the branch the user selected. The replacement is developed on `go-port`.
+Stay on the branch the user selected.
 Use `mise trust` and `mise install` to select the tools pinned in `mise.toml`, including
 Go 1.27.1 and Bun 1.3.14. Run commands through `mise exec --` when shell activation is absent.
 Do not work around toolchain selection with shell-specific Go version exports.

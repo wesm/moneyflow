@@ -1,9 +1,8 @@
 # Go cutover
 
 The repository contains one application, written in Go. The Python implementation and Nix
-packaging are gone, but published Python packages remain available and the
-[frozen archive](/legacy/v1/) documents them. This page lists what Go already covers and what
-still blocks recommending a full switch from Python.
+packaging are gone; published Python packages remain on PyPI. This page lists what Go covers
+and what still blocks recommending a full switch from Python.
 
 ## What works now?
 
@@ -14,7 +13,7 @@ still blocks recommending a full switch from Python.
   overlapping and corrected files.
 - SimpleFIN: additive imports and local edits. It stays experimental pending live-bank testing.
 - [Release machinery](../development/releases.md) that builds archives with embedded web
-  assets, plus installers. No Go release has been published yet; users build from source.
+  assets, plus installers.
 
 A source build or a passing synthetic test does not show that a stable release was published or
 that a live account was validated.

@@ -25,13 +25,11 @@ copying details. Keep exact commands, limits, failure behavior, and authorizatio
 
 `docs/site-manifest.json` selects published pages. `docs/zensical.toml` defines current
 navigation; list every current page there so `/llms.txt`, which agents read, covers it. The
-combined site includes the homepage, walkthrough, current guides with their Markdown twins,
-and a frozen Python v1 archive. See [website operation](architecture/website.md) for layout
+combined site includes the homepage, the guides, their Markdown copies, and `/llms.txt`. See [website operation](architecture/website.md) for layout
 and capture tools. README and command help must agree with the current guides.
 
-The checked-out docs describe that revision. Mark unreleased behavior clearly; a change on
-`main` is not proof that the latest release contains it. Stable Go releases
-deploy docs from their tag after publication. Prereleases do not replace the public site.
+The docs describe the release they are published with. Stable releases deploy docs from their
+tag after publication, so write for the next release. Prereleases do not replace the public site.
 A manual deployment requires an explicit stable release tag.
 
 Keep current contracts and their rationale in the architecture and user guides. Use Git
