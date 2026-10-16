@@ -1438,7 +1438,7 @@ function stubController(projection = testProjection()): ViewController {
   }
 }
 
-/** A real provider controller whose refresh runs until it is canceled. */
+/** A real standalone provider controller whose refresh runs until it is canceled. */
 function blockedRefresh(projection: ViewProjection) {
   let signal: AbortSignal | undefined
   const status = vi.fn(async () =>
@@ -1458,6 +1458,7 @@ function blockedRefresh(projection: ViewProjection) {
       reload: vi.fn(async () => undefined),
       serially: (work) => work(),
     },
+    standalone: true,
   })
   provider.sync(projection)
   return { provider, status, aborted: () => signal?.aborted === true }

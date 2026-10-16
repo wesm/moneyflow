@@ -170,6 +170,13 @@ export interface ViewControllerOptions {
   readOnly?: boolean
   /** Lets provider status polls start a refresh that is due. */
   autoRefresh?: boolean
+  /**
+   * Standalone moneyflow, whose server ends a refresh when its request ends: Cancel stops a
+   * refresh, and another interface's refresh shows in a dialog. Off in a host, whose server runs
+   * a refresh on after its request ends: the status strip follows refreshes, and the refresh
+   * dialog offers Close.
+   */
+  standalone?: boolean
   instance?: string
   prefetch?: boolean
   recheckDebounceMillis?: number
@@ -300,6 +307,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   const provider = createProviderController({
     transport: { mutations: client.mutations, status: client.providerStatus },
     autoRefresh: options.autoRefresh === true,
+    standalone: options.standalone === true,
     host: {
       current: () => projection,
       accept: (next) => acceptProfileProjection(next, true),

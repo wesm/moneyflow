@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
 import { mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -305,6 +305,68 @@ describe('MoneyflowWorkspace', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // A host's server runs a refresh on after its request ends, so Cancel could not stop it.
+  describe('a refresh in a workspace that starts due refreshes', () => {
+    function embedded(status: Parameters<typeof testProviderStatus>[0]) {
+      const capabilities = [providerCapability(true)]
+      const refreshes: AbortSignal[] = []
+      const hostFetch = vi.fn<typeof fetch>(async (input, init) => {
+        const request = new Request(input, init)
+        const path = request.url.replace(`${api}profiles/${profileID}/`, '')
+        if (path === 'view') {
+          return Response.json(testProjection({ profile_kind: 'monarch', capabilities }))
+        }
+        if (path === 'provider/status') {
+          return Response.json(testProviderStatus({ provider_kind: 'monarch', ...status }))
+        }
+        if (path === 'provider/write-status') return Response.json(idle)
+        if (path === 'provider/refresh') {
+          refreshes.push(request.signal)
+          return await canceled(request.signal)
+        }
+        return Response.json(
+          { status: 404, code: 'not_found', detail: 'Not found.' },
+          { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+        )
+      })
+      render(MoneyflowWorkspace, {
+        apiBase: '/embedded/moneyflow/',
+        fetch: hostFetch,
+        profileID,
+        viewState: memoryViewState(),
+        autoRefresh: true,
+      })
+      return { refreshes }
+    }
+
+    it('offers Close, not Cancel, and the refresh runs on in the status strip', async () => {
+      const { refreshes } = embedded({ refresh_due: 'recent' })
+      const dialog = await appears(() =>
+        screen.queryByRole('dialog', { name: 'Refreshing from Monarch' }),
+      )
+
+      expect(within(dialog).queryByRole('button', { name: 'Cancel refresh' })).toBeNull()
+      await fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(document.body.textContent).not.toContain('Stopping the refresh…')
+      expect(refreshes.map(({ aborted }) => aborted)).toEqual([false])
+      expect(screen.getByRole('button', { name: 'Refreshing…' })).not.toBeNull()
+    })
+
+    it('follows another interface’s refresh in the status strip, without a dialog', async () => {
+      const { refreshes } = embedded({
+        refreshing: true,
+        refresh_due: 'recent',
+        owner_renderer: 'web',
+      })
+      await appears(() => screen.queryByRole('button', { name: 'Refreshing…' }))
+
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(refreshes).toEqual([])
+    })
   })
 
   it('leaves a provider write alone once the host removes it', async () => {

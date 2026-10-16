@@ -497,7 +497,11 @@ describe('provider controller', () => {
           sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
         ),
     )
-    const controller = createProviderController({ transport, host: hostStub(current) })
+    const controller = createProviderController({
+      transport,
+      host: hostStub(current),
+      standalone: true,
+    })
     controller.sync(current)
     await controller.poll()
     void controller.refresh()
@@ -516,7 +520,7 @@ describe('provider controller', () => {
 
   it('lets the user leave another interface refresh once status checks fail', async () => {
     const transport = transportStub({ status: providerStatus({ refreshing: true }) })
-    const controller = createProviderController({ transport, host: hostStub() })
+    const controller = createProviderController({ transport, host: hostStub(), standalone: true })
     await controller.poll()
     vi.mocked(transport.status).mockRejectedValue(new TypeError('Failed to fetch'))
     await controller.poll()
@@ -588,7 +592,11 @@ describe('provider controller', () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const earlier = { ...emptySummary(), imported_transactions: 40 }
     const transport = transportStub({ status: providerStatus({ summary: earlier }) })
-    const controller = createProviderController({ transport, host: hostStub(current) })
+    const controller = createProviderController({
+      transport,
+      host: hostStub(current),
+      standalone: true,
+    })
     controller.sync(current)
     await controller.poll()
     vi.mocked(transport.mutations.request).mockResolvedValueOnce(
@@ -796,7 +804,7 @@ describe('provider controller', () => {
     expect(controller.state.phase).toBe('idle')
   })
 
-  it('follows a refresh it did not start without a dialog when autoRefresh is off', async () => {
+  it('follows a refresh it did not start without a dialog in a host', async () => {
     vi.useFakeTimers()
     try {
       const current = testProjection({ capabilities: [capability(true)] })
@@ -825,7 +833,7 @@ describe('provider controller', () => {
     }
   })
 
-  it('opens no dialog for a refresh starting as its own ends, autoRefresh off', async () => {
+  it('opens no dialog for a refresh starting as its own ends, in a host', async () => {
     vi.useFakeTimers()
     try {
       const current = testProjection({ capabilities: [capability(true)] })
@@ -848,7 +856,7 @@ describe('provider controller', () => {
     }
   })
 
-  it('follows its own refresh past a 503 without status, autoRefresh off', async () => {
+  it('follows its own refresh past a 503 without status, in a host', async () => {
     vi.useFakeTimers()
     try {
       const current = testProjection({ capabilities: [capability(true)] })
@@ -891,7 +899,7 @@ describe('provider controller', () => {
     }
   })
 
-  it('keeps a refresh asked for before the first view in its dialog, autoRefresh off', async () => {
+  it('keeps a refresh asked for before the first view in its dialog, in a host', async () => {
     vi.useFakeTimers()
     try {
       const shown = vi.fn((): ViewProjection | undefined => undefined)
@@ -968,7 +976,7 @@ describe('provider controller', () => {
           503,
         ),
       })
-      const controller = createProviderController({ transport, host })
+      const controller = createProviderController({ transport, host, standalone: true })
       controller.sync(current)
 
       await controller.refresh()
@@ -1113,7 +1121,12 @@ describe('provider controller', () => {
         }),
       })
       let now = 1_000
-      const controller = createProviderController({ transport, host, now: () => now })
+      const controller = createProviderController({
+        transport,
+        host,
+        now: () => now,
+        standalone: true,
+      })
       controller.sync(current)
       if (code) {
         transport.mutations.request.mockResolvedValueOnce(problemResponse(code, 'Unavailable.'))
@@ -1275,7 +1288,7 @@ describe('provider controller', () => {
         status: providerStatus({ revision: '1' }),
         mutationResponse: problemResponse('provider_rate_limited', 'Rate limited.'),
       })
-      const controller = createProviderController({ transport, host })
+      const controller = createProviderController({ transport, host, standalone: true })
       controller.sync(current)
       await controller.poll()
       await controller.refresh()
@@ -1316,7 +1329,7 @@ describe('provider controller', () => {
     const reread = Promise.withResolvers<undefined>()
     host.reload.mockReturnValueOnce(reread.promise)
     const transport = transportStub({ status: providerStatus({ refreshing: true, revision: '1' }) })
-    const controller = createProviderController({ transport, host })
+    const controller = createProviderController({ transport, host, standalone: true })
     await controller.poll()
     transport.status.mockResolvedValue(providerStatus({ generation: '2', revision: '2' }))
     await controller.poll()
@@ -1381,7 +1394,7 @@ describe('provider controller', () => {
 
   it('accepts a slow poll while the following poll is still pending', async () => {
     const transport = transportStub({ status: providerStatus({ refreshing: true }) })
-    const controller = createProviderController({ transport, host: hostStub() })
+    const controller = createProviderController({ transport, host: hostStub(), standalone: true })
     await controller.poll()
     const first = Promise.withResolvers<ProviderStatus>()
     const second = Promise.withResolvers<ProviderStatus>()
@@ -1402,7 +1415,7 @@ describe('provider controller', () => {
     const reread = Promise.withResolvers<undefined>()
     host.reload.mockReturnValueOnce(reread.promise)
     const transport = transportStub({ status: providerStatus({ refreshing: true, revision: '1' }) })
-    const controller = createProviderController({ transport, host })
+    const controller = createProviderController({ transport, host, standalone: true })
     await controller.poll()
     transport.status.mockResolvedValue(providerStatus({ generation: '2', revision: '2' }))
     await controller.poll()
@@ -1427,7 +1440,7 @@ describe('provider controller', () => {
         refreshResponse(testProjection({ revision: '2' }), 'preserved'),
       ),
     })
-    const controller = createProviderController({ transport, host })
+    const controller = createProviderController({ transport, host, standalone: true })
     controller.sync(current)
     const refresh = controller.refresh()
     await settle()
@@ -1496,7 +1509,11 @@ describe('provider controller', () => {
       })
       const response = Promise.withResolvers<Response>()
       transport.mutations.request.mockReturnValueOnce(response.promise)
-      const controller = createProviderController({ transport, host: hostStub(current) })
+      const controller = createProviderController({
+        transport,
+        host: hostStub(current),
+        standalone: true,
+      })
       controller.sync(current)
       await controller.poll()
       const refresh = controller.refresh()
@@ -1768,7 +1785,7 @@ describe('provider controller', () => {
           sent?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
         ),
     )
-    const controller = createProviderController({ transport, host })
+    const controller = createProviderController({ transport, host, standalone: true })
     controller.sync(current)
     await controller.poll()
     vi.mocked(transport.status).mockResolvedValue(
@@ -1790,7 +1807,7 @@ describe('provider controller', () => {
 
   it('closes the dialog when another interface refresh stops without new data', async () => {
     const transport = transportStub({ status: providerStatus({ refreshing: true }) })
-    const controller = createProviderController({ transport, host: hostStub() })
+    const controller = createProviderController({ transport, host: hostStub(), standalone: true })
     await controller.poll()
     vi.mocked(transport.status).mockResolvedValueOnce(
       providerStatus({ code: 'provider_unavailable', last_success: '2026-10-03T12:00:00Z' }),

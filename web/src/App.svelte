@@ -62,6 +62,7 @@
       client: createMoneyflowClient(basePath, profileID, tokenFetch),
       viewState,
       autoRefresh: true,
+      standalone: true,
     })
   }
 

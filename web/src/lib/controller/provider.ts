@@ -62,8 +62,8 @@ export interface ProviderState {
 export interface ProviderController {
   readonly state: ProviderState
   /**
-   * Whether Cancel can stop this tab's refresh. With autoRefresh off, a host's server runs a
-   * refresh on after its request ends, so the dialog offers Close instead.
+   * Whether Cancel can stop this tab's refresh, as in standalone moneyflow. A host's server runs
+   * a refresh on after its request ends, so in a host the dialog offers Close instead.
    */
   readonly cancelable: boolean
   sync(projection: ViewProjection): void
@@ -112,6 +112,11 @@ interface ProviderControllerOptions {
   host: ProviderProjectionHost
   /** Whether a poll starts a refresh that is due. Default true. */
   autoRefresh?: boolean
+  /**
+   * Standalone moneyflow, whose server ends a refresh when its request ends: Cancel stops this
+   * tab's refresh, and another interface's refresh shows in a dialog. Default false.
+   */
+  standalone?: boolean
   now?: () => number
 }
 
@@ -137,10 +142,11 @@ interface RefreshRequest {
 export function createProviderController(options: ProviderControllerOptions): ProviderController {
   const now = options.now ?? Date.now
   /**
-   * With autoRefresh off, a host runs the refresh scheduler, and its server runs a refresh on after
-   * the request ends. Refreshes then show in the status strip, so no dialog blocks the host page.
+   * In a host, the server runs a refresh on after its request ends, so Cancel could not stop it.
+   * Refreshes show in the status strip instead, and no dialog blocks the host page.
    */
-  const hosted = options.autoRefresh === false
+  const hosted = options.standalone !== true
+  const autoRefresh = options.autoRefresh !== false
   let state: ProviderState = { phase: 'idle', announcement: '', capability: undefined }
   let inFlight = false
   /** A refresh asked for before the first view loaded; it starts with that view. */
@@ -671,11 +677,13 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   /**
    * Whether a poll leaves the refresh the server reports as due. The server's refresh_due already
    * waits out a failure's retry delay and stops for one that needs the user, so a failed last
-   * attempt does not block it.
+   * attempt does not block it. A refresh already running holds it too: in a host the status strip
+   * follows that refresh, and a request from this tab would open the refresh dialog over the page.
    */
   function holdsDueRefresh(status: ProviderStatus): boolean {
     return (
-      hosted ||
+      !autoRefresh ||
+      status.refreshing ||
       inFlight ||
       state.dialog !== undefined ||
       state.phase === 'reconnect' ||

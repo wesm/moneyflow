@@ -90,7 +90,7 @@ describe('RefreshDialog', () => {
   })
 
   it.each(['button', 'Escape'] as const)(
-    'closes with the %s, not Cancel, while the server runs the refresh on (autoRefresh off)',
+    'closes with the %s, not Cancel, while a host’s server runs the refresh on',
     async (closer) => {
       vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
       let sent: AbortSignal | undefined
