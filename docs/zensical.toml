@@ -74,10 +74,19 @@ custom_dir = "overrides"
 features = ["navigation.sections", "navigation.top", "content.code.copy"]
 font = false
 
-[project.theme.palette]
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "custom"
+accent = "custom"
+toggle = { icon = "lucide/moon", name = "Switch to dark mode" }
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
 scheme = "slate"
 primary = "custom"
 accent = "custom"
+toggle = { icon = "lucide/sun", name = "Switch to light mode" }
 
 [project.markdown_extensions]
 admonition = {}
