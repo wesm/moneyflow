@@ -588,10 +588,79 @@ func (supervisor *Supervisor) ConfirmRefresh(
 // come. The service no longer accepts the token then, so the stale token cannot keep a new attempt
 // from starting.
 func (supervisor *Supervisor) expireConfirmationLocked(attempt *supervisedAttempt) {
-	if attempt == nil || attempt.State != AttemptConfirmationRequired ||
-		supervisor.clock().Before(attempt.ConfirmationExpiresAt) {
-		return
+	if attempt.parked() && !supervisor.clock().Before(attempt.ConfirmationExpiresAt) {
+		attempt.expire()
 	}
+}
+
+// ExpireObsolete fails the parked refresh or reconcile that the profile's stored state, which it
+// reads through service, has moved past. Another process can refresh or edit the profile after a
+// refresh parked, and it can finish the write batch that a reconcile parked, or reconcile the batch
+// again. The service then refuses the parked attempt's token, so the attempt fails as an expired
+// one does: a start that follows neither joins it nor refuses because of it. Call it before
+// StartRefresh or StartReconcile, and before reading a parked reconcile to join it.
+func (supervisor *Supervisor) ExpireObsolete(ctx context.Context, service *app.Service) error {
+	stored, err := readStoredState(ctx, service)
+	if err != nil {
+		return err
+	}
+	supervisor.mu.Lock()
+	defer supervisor.mu.Unlock()
+	if refresh := supervisor.refreshNow; refresh.parked() && stored.movedPastRefresh(refresh) {
+		refresh.expire()
+	}
+	if reconcile := supervisor.reconcileNow; reconcile.parked() &&
+		stored.movedPastReconcile(reconcile) {
+		reconcile.expire()
+	}
+	return nil
+}
+
+// storedState is the part of a profile's stored state that a parked attempt depends on.
+type storedState struct {
+	revision, generation uint64
+	batchID              string
+	batchVersion         uint64
+}
+
+// readStoredState reads the profile's stored state through service, once service has loaded what
+// other processes changed.
+func readStoredState(ctx context.Context, service *app.Service) (storedState, error) {
+	if _, err := service.Refresh(ctx); err != nil {
+		return storedState{}, err
+	}
+	write, err := service.ProviderWriteStatus(ctx)
+	if err != nil {
+		return storedState{}, err
+	}
+	return storedState{
+		revision: service.Revision(), generation: write.Generation,
+		batchID: write.BatchID, batchVersion: write.Version,
+	}, nil
+}
+
+// movedPastRefresh reports whether a refresh folded, or an edit committed, after the parked
+// refresh read the provider. The counters only grow, and the state was read before the
+// supervisor's lock was taken, so a refresh that parked in between is newer, and it stays.
+func (stored storedState) movedPastRefresh(parked *supervisedAttempt) bool {
+	return stored.generation > parked.Generation || stored.revision > parked.Revision
+}
+
+// movedPastReconcile reports whether the write batch that the parked reconcile left is finished
+// or replaced, or has a later version, or whether the revision moved on. A reconcile that parked
+// after the state was read stays, as movedPastRefresh says.
+func (stored storedState) movedPastReconcile(parked *supervisedAttempt) bool {
+	return stored.batchID != parked.Write.BatchID || stored.batchVersion > parked.Write.Version ||
+		stored.revision > parked.Revision
+}
+
+// parked reports whether the attempt waits for confirmation.
+func (attempt *supervisedAttempt) parked() bool {
+	return attempt != nil && attempt.State == AttemptConfirmationRequired
+}
+
+// expire fails a parked attempt whose token the service no longer accepts.
+func (attempt *supervisedAttempt) expire() {
 	attempt.State = AttemptFailed
 	attempt.Code = string(app.AppProviderConfirmationInvalid)
 	attempt.ConfirmationToken = ""

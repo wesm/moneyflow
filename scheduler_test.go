@@ -424,6 +424,46 @@ func TestTheAPIConfirmsAParkedScheduledRefreshAndTheScheduleGoesOn(t *testing.T)
 	assert.Equal(t, mcp.AttemptCompleted, next.State)
 }
 
+// A scheduled refresh that waits for confirmation stops holding the schedule once another process
+// edits the profile: the next due refresh reads the provider instead of joining it.
+func TestTheScheduleDropsAParkedRefreshThatAnotherProcessMovedPast(t *testing.T) {
+	root, providerRoot := testRoot(t), t.TempDir()
+	acme := createMonarchProfile(t, root, "Acme", providerRoot)
+	source, err := uitest.OpenProvider(providerRoot)
+	require.NoError(t, err)
+	// Complete history is due, and its read drops most transactions.
+	require.NoError(t, source.Advance(31*24*time.Hour))
+	require.NoError(t, source.SetRefreshFault(uitest.RefreshRemove))
+	instance := openTestInstance(t, root, seams{
+		inspectSession: sessionPresent,
+		factories:      assembly.Factories{Monarch: sharedMonarch(source)},
+		now:            source.Now,
+	})
+	supervisor, err := instance.supervisor(acme)
+	require.NoError(t, err)
+	schedule(t, instance, acme)
+	parked, err := supervisor.RefreshStatus("")
+	require.NoError(t, err)
+	require.Equal(t, mcp.AttemptConfirmationRequired, parked.State)
+	// Another process edits the profile. Its refresh then fails and may be retried 5 minutes
+	// later, before the confirmation expires.
+	inAnotherProcess(t, instance, acme, providerRoot,
+		func(ctx context.Context, run *uitestruntime.Runtime) error {
+			if err := run.Stage(ctx, augustAndSeptember(t), "category", ""); err != nil {
+				return err
+			}
+			return failRefresh(ctx, run)
+		})
+	require.NoError(t, source.Advance(6*time.Minute))
+
+	schedule(t, instance, acme)
+
+	next, err := supervisor.RefreshStatus("")
+	require.NoError(t, err)
+	assert.NotEqual(t, parked.ID, next.ID)
+	assert.Equal(t, mcp.AttemptCompleted, next.State, next.Code)
+}
+
 // gatedReader sends the transaction window of each snapshot read on reads, then serves the read
 // as kindSource does once gate closes.
 type gatedReader struct {

@@ -70,6 +70,16 @@ nothing still reads. A refresh that waits for deletion confirmation has read wha
 refresh reads, so only a Monarch complete-history request replaces it. Shutdown drops a follow-up
 that has not started.
 
+Confirmation tokens are process-local, but another process can change the profile while a refresh
+or reconcile here waits for confirmation. Before a refresh or reconcile request joins, starts, or
+is refused because of a waiting attempt, the process compares that attempt with the profile's
+stored state. A waiting refresh is obsolete once the stored refresh generation or revision has
+moved past it, for example after another process refreshed or edited the profile. A waiting
+reconcile is obsolete once the stored write batch is a different one, or its version or the
+revision has moved past it, for example after another process finished the batch. The service
+would refuse an obsolete attempt's token, so the attempt fails with `provider_confirmation_invalid`,
+as it does at its deadline, and the request is handled as a new one.
+
 YNAB uses a six-hour cadence in long-lived TUI/web processes. SimpleFIN uses 24 hours and parks
 failed automatic attempts until explicit action. MCP refresh is explicit.
 Amazon and bank CSV have no network refresh scheduler.

@@ -17,13 +17,15 @@ type reconcileOutcome struct {
 	err    error
 }
 
-// StopAndReconcileProviderWrite answers once the profile's reconcile stops running. It joins a
-// parked reconcile when the request names the batch version that reconcile parked. Otherwise it
-// starts a reconcile keyed by the profile's revision and the request's batch version, or joins
-// the one with that key, as an MCP start with the same key does. A reconcile it started answers as
-// the service does; answerJoined answers one it joined. When ctx ends first, it answers
-// provider_write_in_progress, and the reconcile runs on. After Close, or once a removal stopped
-// the reconcile, it answers as busyIfStopped says.
+// StopAndReconcileProviderWrite answers once the profile's reconcile stops running. A parked
+// reconcile that the profile's stored state has moved past fails first, as
+// mcp.Supervisor.ExpireObsolete says. The call then joins a parked reconcile when the request
+// names the batch version that reconcile parked. Otherwise it starts a reconcile keyed by the
+// profile's revision and the request's batch version, or joins the one with that key, as an MCP
+// start with the same key does. A reconcile it started answers as the service does; answerJoined
+// answers one it joined. When ctx ends first, it answers provider_write_in_progress, and the
+// reconcile runs on. After Close, or once a removal stopped the reconcile, it answers as
+// busyIfStopped says.
 func (reconciler apiReconciler) StopAndReconcileProviderWrite(
 	ctx context.Context,
 	profileID string,
@@ -35,6 +37,9 @@ func (reconciler apiReconciler) StopAndReconcileProviderWrite(
 		return app.ProviderWriteResult{}, err
 	}
 	defer func() { err = instance.busyIfStopped(profileID, supervisor, err) }()
+	if err = instance.expireObsolete(ctx, profileID, supervisor); err != nil {
+		return app.ProviderWriteResult{}, err
+	}
 	if parked, ok := parkedAt(supervisor, request.ExpectedVersion); ok {
 		return reconciler.answerJoined(ctx, profileID, request, parked)
 	}

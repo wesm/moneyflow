@@ -25,6 +25,7 @@ import (
 	"github.com/wesm/moneyflow/internal/provider/simplefin"
 	"github.com/wesm/moneyflow/internal/simplefinonboarding"
 	"github.com/wesm/moneyflow/internal/uitest"
+	uitestruntime "github.com/wesm/moneyflow/internal/uitest/runtime"
 )
 
 // snapshotReads counts the snapshot reads the synthetic provider in providerRoot has served.
@@ -415,4 +416,73 @@ func TestAnAPIRefreshWhoseRequestEndsSaysTheRefreshRunsOn(t *testing.T) {
 	current, err := supervisor.RefreshStatus("")
 	require.NoError(t, err)
 	assert.Equal(t, mcp.AttemptRunning, current.State)
+}
+
+// refreshElsewhere refreshes the profile through the API of other, another process's instance.
+// Its provider read finds no removals, so the refresh moves the refresh generation on.
+func refreshElsewhere(t *testing.T, other *Instance, acme string) {
+	t.Helper()
+	refreshed := serveAPI(t, other, http.MethodPost,
+		"api/v1/profiles/"+acme+"/provider/refresh", encode(t, manualRefresh()))
+	require.Equal(t, http.StatusOK, refreshed.Code, refreshed.Body.String())
+}
+
+// parkRefreshInOneOfTwoProcesses opens a Monarch profile in two instances on one root, as in two
+// processes, and refreshes it through the API of the first one. The provider read finds most
+// transactions removed, so the refresh waits for the user to confirm the removals. It returns the
+// instances, the profile and the provider's root.
+func parkRefreshInOneOfTwoProcesses(t *testing.T) (*Instance, *Instance, string, string) {
+	t.Helper()
+	open, acme, providerRoot := removalProfile(t,
+		func(context.Context, *uitestruntime.Runtime) error { return nil })
+	here, other := open(), open()
+	parked := serveAPI(t, here, http.MethodPost,
+		"api/v1/profiles/"+acme+"/provider/refresh", encode(t, manualRefresh()))
+	require.Equal(t, http.StatusConflict, parked.Code, parked.Body.String())
+	require.Contains(t, parked.Body.String(), `"code":"provider_deletion_confirmation_required"`)
+	return here, other, acme, providerRoot
+}
+
+// Another process can make the provider read of a refresh that waits for confirmation here
+// obsolete: its refresh moves the refresh generation on, and its edit moves the revision on. The
+// next refresh here is then a new one, which reads the provider again, instead of answering the
+// obsolete confirmation.
+func TestAnAPIRefreshDropsAParkedRefreshThatAnotherProcessMovedPast(t *testing.T) {
+	cases := map[string]func(t *testing.T, other *Instance, acme, providerRoot string){
+		"another process refreshed": func(t *testing.T, other *Instance, acme, _ string) {
+			refreshElsewhere(t, other, acme)
+		},
+		"another process staged an edit": func(t *testing.T, other *Instance, acme, providerRoot string) {
+			inAnotherProcess(t, other, acme, providerRoot,
+				func(ctx context.Context, run *uitestruntime.Runtime) error {
+					return run.Stage(ctx, uitestruntime.FilteredSession(), "category", "")
+				})
+		},
+	}
+	for name, moveOn := range cases {
+		t.Run(name, func(t *testing.T) {
+			here, other, acme, providerRoot := parkRefreshInOneOfTwoProcesses(t)
+			moveOn(t, other, acme, providerRoot)
+
+			refreshed := serveAPI(t, here, http.MethodPost,
+				"api/v1/profiles/"+acme+"/provider/refresh", encode(t, manualRefresh()))
+
+			assert.Equal(t, http.StatusOK, refreshed.Code, refreshed.Body.String())
+		})
+	}
+}
+
+func TestMCPRefreshDropsAParkedRefreshThatAnotherProcessFolded(t *testing.T) {
+	here, other, acme, _ := parkRefreshInOneOfTwoProcesses(t)
+	refreshElsewhere(t, other, acme)
+	tools := connectTools(t, here, ToolOptions{Classes: []Class{ClassRead, ClassStage}})
+
+	started, startError := callTool(t, tools, "refresh_data", map[string]any{"profile": acme})
+
+	require.False(t, startError, started)
+	supervisor, err := here.supervisor(acme)
+	require.NoError(t, err)
+	finished, err := supervisor.WaitRefresh(t.Context(), started["attempt_id"].(string))
+	require.NoError(t, err)
+	assert.Equal(t, mcp.AttemptCompleted, finished.State, finished.Code)
 }

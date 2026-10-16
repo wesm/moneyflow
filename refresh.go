@@ -23,12 +23,13 @@ type refreshOutcome struct {
 
 // RefreshProvider starts the profile's refresh, or joins one that reads at least what the request
 // asks for, as mcp.Supervisor.StartRefresh says, and answers once that refresh stops running. A
-// refresh that ran this call's request answers as the service does; answerJoined answers any
-// other, from the outcome of the refresh the call waited for. Either answer keeps selected the
-// rows that the request's selection held when the call arrived, as
-// app.Service.PinRefreshSelection says. When ctx ends first, it answers
-// provider_refresh_in_progress, and the refresh goes on, even one that is still queued. After
-// Close, or once a removal stopped the refresh, it answers as busyIfStopped says.
+// parked refresh that the profile's stored state has moved past fails first, as
+// mcp.Supervisor.ExpireObsolete says, so the call does not join it. A refresh that ran this
+// call's request answers as the service does; answerJoined answers any other, from the outcome of
+// the refresh the call waited for. Either answer keeps selected the rows that the request's
+// selection held when the call arrived, as app.Service.PinRefreshSelection says. When ctx ends
+// first, it answers provider_refresh_in_progress, and the refresh goes on, even one that is still
+// queued. After Close, or once a removal stopped the refresh, it answers as busyIfStopped says.
 func (refresher apiRefresher) RefreshProvider(
 	ctx context.Context,
 	profileID string,
@@ -42,6 +43,9 @@ func (refresher apiRefresher) RefreshProvider(
 	defer func() { err = instance.busyIfStopped(profileID, supervisor, err) }()
 	request, scope, err := instance.pinSelection(ctx, profileID, request)
 	if err != nil {
+		return app.ProviderRefreshResult{}, err
+	}
+	if err = instance.expireObsolete(ctx, profileID, supervisor); err != nil {
 		return app.ProviderRefreshResult{}, err
 	}
 	own := make(chan refreshOutcome, 1)
@@ -201,6 +205,21 @@ func (instance *Instance) revision(ctx context.Context, profileID string) (uint6
 	}
 	defer func() { _ = lease.Release() }()
 	return lease.Service().Revision(), nil
+}
+
+// expireObsolete fails the profile's parked refresh or reconcile that the profile's stored state
+// has moved past, as mcp.Supervisor.ExpireObsolete says, under its own lease.
+func (instance *Instance) expireObsolete(
+	ctx context.Context,
+	profileID string,
+	supervisor *mcp.Supervisor,
+) error {
+	lease, err := instance.registry.Acquire(ctx, profileID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lease.Release() }()
+	return supervisor.ExpireObsolete(ctx, lease.Service())
 }
 
 // apiSupervisor returns the profile's supervisor for an API refresh or reconcile. After Close it

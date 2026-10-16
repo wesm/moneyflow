@@ -176,8 +176,18 @@ func useSources(
 
 // commitRejected stages an edit that the provider rejects when the profile commits it.
 func commitRejected(ctx context.Context, run *uitestruntime.Runtime) error {
-	session := uitestruntime.FilteredSession()
-	if err := run.Stage(ctx, session, "hide", ""); err != nil {
+	return commitRejectedEdit(ctx, run, uitestruntime.FilteredSession(), "hide")
+}
+
+// commitRejectedEdit stages an edit of kind for the Example Shop rows that session shows and
+// commits it while the provider rejects the first update. The batch then waits for a reconcile.
+func commitRejectedEdit(
+	ctx context.Context,
+	run *uitestruntime.Runtime,
+	session app.Session,
+	kind string,
+) error {
+	if err := run.Stage(ctx, session, kind, ""); err != nil {
 		return err
 	}
 	if err := run.Provider.SetFault(uitest.FaultReject); err != nil {

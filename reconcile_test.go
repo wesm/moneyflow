@@ -3,6 +3,7 @@ package moneyflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -17,8 +18,10 @@ import (
 	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/assembly"
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/mcp"
 	"github.com/wesm/moneyflow/internal/uitest"
+	uitestruntime "github.com/wesm/moneyflow/internal/uitest/runtime"
 )
 
 // openRemovalProfile opens a profile whose provider write failed. Its next reconcile finds most
@@ -26,19 +29,201 @@ import (
 // profile's supervisor runs on the provider's clock, which sets the confirmation's deadline.
 func openRemovalProfile(t *testing.T) (*Instance, *mcpsdk.ClientSession, string) {
 	t.Helper()
-	root, providerRoot := testRoot(t), t.TempDir()
-	acme := createDrivenMonarchProfile(t, root, "Acme", providerRoot, commitRejected)
-	source, err := uitest.OpenProvider(providerRoot)
-	require.NoError(t, err)
-	require.NoError(t, source.SetRefreshFault(uitest.RefreshRemove))
-	instance := openTestInstance(t, root, seams{
-		inspectSession: sessionPresent,
-		factories:      assembly.Factories{Monarch: syntheticMonarch(providerRoot)},
-		now:            source.Now,
-	})
+	open, acme, _ := removalProfile(t, commitRejected)
+	instance := open()
 	tools := connectTools(t, instance,
 		ToolOptions{Classes: []Class{ClassRead, ClassStage, ClassCommit}})
 	return instance, tools, acme
+}
+
+// removalProfile creates a Monarch profile that drive prepares and makes the provider's next read
+// drop most transactions, so the next refresh or reconcile waits for the user to confirm the
+// removals. It returns a function that opens the profile's root in a new instance, as each process
+// that uses the root does, then the profile and the provider's root. Each instance runs on the
+// provider's clock, which sets the confirmation's deadline.
+func removalProfile(
+	t *testing.T,
+	drive func(context.Context, *uitestruntime.Runtime) error,
+) (func() *Instance, string, string) {
+	t.Helper()
+	root, providerRoot := testRoot(t), t.TempDir()
+	acme := createDrivenMonarchProfile(t, root, "Acme", providerRoot, drive)
+	source, err := uitest.OpenProvider(providerRoot)
+	require.NoError(t, err)
+	require.NoError(t, source.SetRefreshFault(uitest.RefreshRemove))
+	open := func() *Instance {
+		return openTestInstance(t, root, seams{
+			inspectSession: sessionPresent,
+			factories:      assembly.Factories{Monarch: syntheticMonarch(providerRoot)},
+			now:            source.Now,
+		})
+	}
+	return open, acme, providerRoot
+}
+
+// inAnotherProcess lets drive change the profile and the provider through a profile service of its
+// own, as another process does.
+func inAnotherProcess(
+	t *testing.T,
+	instance *Instance,
+	acme, providerRoot string,
+	drive func(context.Context, *uitestruntime.Runtime) error,
+) {
+	t.Helper()
+	entry, err := instance.lookup(t.Context(), acme)
+	require.NoError(t, err)
+	run, err := uitestruntime.OpenProfile(t.Context(), entry.ProfilePaths(), providerRoot, "tui")
+	require.NoError(t, err)
+	require.NoError(t, errors.Join(drive(t.Context(), run), run.Close()))
+}
+
+// reconcileInTwoProcesses is the profile of openRemovalProfile, open in two instances on one root
+// as in two processes. A reconcile through the API of here waits for confirmation.
+type reconcileInTwoProcesses struct {
+	here, other  *Instance
+	tools        *mcpsdk.ClientSession // the MCP tools of here
+	acme         string
+	providerRoot string
+	// parkedVersion is the version at which the reconcile left the write batch.
+	parkedVersion string
+}
+
+func parkInOneOfTwoProcesses(t *testing.T) reconcileInTwoProcesses {
+	t.Helper()
+	open, acme, providerRoot := removalProfile(t, commitRejected)
+	scene := reconcileInTwoProcesses{
+		here: open(), other: open(), acme: acme, providerRoot: providerRoot,
+	}
+	scene.tools = connectTools(t, scene.here,
+		ToolOptions{Classes: []Class{ClassRead, ClassStage, ClassCommit}})
+	_, version := writeStatus(t, scene.tools, acme)
+	status, answer := postReconcile(t, scene.here, acme, "reconcile",
+		reconcileBody(projectView(t, scene.here, acme), version))
+	require.Equal(t, http.StatusConflict, status, answer)
+	require.Equal(t, "provider_deletion_confirmation_required", answer["code"])
+	_, scene.parkedVersion = writeStatus(t, scene.tools, acme)
+	return scene
+}
+
+// finishElsewhere reconciles the parked write batch through the API of other. Its provider read
+// finds no removals, so the reconcile finishes the batch.
+func (scene reconcileInTwoProcesses) finishElsewhere(t *testing.T) {
+	t.Helper()
+	status, answer := postReconcile(t, scene.other, scene.acme, "reconcile",
+		reconcileBody(projectView(t, scene.other, scene.acme), scene.parkedVersion))
+	require.Equal(t, http.StatusOK, status, answer)
+}
+
+// commitElsewhere lets drive commit a new write batch in another process and returns the batch's
+// version.
+func (scene reconcileInTwoProcesses) commitElsewhere(
+	t *testing.T,
+	drive func(context.Context, *uitestruntime.Runtime) error,
+) string {
+	t.Helper()
+	inAnotherProcess(t, scene.here, scene.acme, scene.providerRoot, drive)
+	_, version := writeStatus(t, scene.tools, scene.acme)
+	return version
+}
+
+// augustAndSeptember shows the four Example Shop rows of August and September 2026, hidden ones
+// included.
+func augustAndSeptember(t *testing.T) app.Session {
+	t.Helper()
+	session := uitestruntime.FilteredSession()
+	start, err := domain.ParseDate("2026-08-01")
+	require.NoError(t, err)
+	session.DateRange = &domain.DateRange{Start: start, End: session.DateRange.End}
+	session.ShowHidden = true
+	return session
+}
+
+// Another process can finish, or park again, the write batch that a reconcile here waits on. The
+// service then refuses the parked reconcile's token, so the parked reconcile stops holding the
+// profile: a reconcile of the parked version or of a later batch is a new one, before the
+// confirmation expires.
+func TestAnAPIReconcileDropsAParkedReconcileThatAnotherProcessMovedPast(t *testing.T) {
+	cases := map[string]struct {
+		// moveOn changes the write batch in other processes and returns the batch version that the
+		// client names next.
+		moveOn func(*testing.T, reconcileInTwoProcesses) string
+		status int
+		code   string
+	}{
+		"another process finished the batch, and the client names the parked version": {
+			moveOn: func(t *testing.T, scene reconcileInTwoProcesses) string {
+				scene.finishElsewhere(t)
+				return scene.parkedVersion
+			},
+			// No write batch is left to reconcile.
+			status: http.StatusConflict, code: "provider_write_stale",
+		},
+		"another process finished the batch and committed one at the parked version": {
+			moveOn: func(t *testing.T, scene reconcileInTwoProcesses) string {
+				scene.finishElsewhere(t)
+				// The provider rejects one of four updates, so the batch stops at version 5.
+				version := scene.commitElsewhere(t,
+					func(ctx context.Context, run *uitestruntime.Runtime) error {
+						return commitRejectedEdit(ctx, run, augustAndSeptember(t), "category")
+					})
+				require.Equal(t, scene.parkedVersion, version)
+				return version
+			},
+			status: http.StatusOK,
+		},
+		"another process finished the batch and committed one at another version": {
+			moveOn: func(t *testing.T, scene reconcileInTwoProcesses) string {
+				scene.finishElsewhere(t)
+				return scene.commitElsewhere(t, commitRejected)
+			},
+			status: http.StatusOK,
+		},
+		"another process parked the batch again": {
+			moveOn: func(t *testing.T, scene reconcileInTwoProcesses) string {
+				source, err := uitest.OpenProvider(scene.providerRoot)
+				require.NoError(t, err)
+				require.NoError(t, source.SetRefreshFault(uitest.RefreshRemove))
+				_, answer := postReconcile(t, scene.other, scene.acme, "reconcile",
+					reconcileBody(projectView(t, scene.other, scene.acme), scene.parkedVersion))
+				require.Equal(t, "provider_deletion_confirmation_required", answer["code"], answer)
+				_, version := writeStatus(t, scene.tools, scene.acme)
+				return version
+			},
+			status: http.StatusOK,
+		},
+	}
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			scene := parkInOneOfTwoProcesses(t)
+			version := test.moveOn(t, scene)
+
+			status, answer := postReconcile(t, scene.here, scene.acme, "reconcile",
+				reconcileBody(projectView(t, scene.here, scene.acme), version))
+
+			assert.Equal(t, test.status, status, answer)
+			code, _ := answer["code"].(string)
+			assert.Equal(t, test.code, code)
+			assert.Empty(t, answer["provider_write_confirmation_token"])
+		})
+	}
+}
+
+func TestMCPReconcileDropsAParkedReconcileWhoseBatchAnotherProcessFinished(t *testing.T) {
+	scene := parkInOneOfTwoProcesses(t)
+	scene.finishElsewhere(t)
+	scene.commitElsewhere(t, commitRejected)
+	revision, version := writeStatus(t, scene.tools, scene.acme)
+
+	started, startError := callTool(t, scene.tools, "stop_and_reconcile", map[string]any{
+		"profile": scene.acme, "expected_revision": revision, "batch_version": version,
+	})
+
+	require.False(t, startError, started)
+	supervisor, err := scene.here.supervisor(scene.acme)
+	require.NoError(t, err)
+	finished, err := supervisor.WaitReconcile(t.Context(), started["attempt_id"].(string))
+	require.NoError(t, err)
+	assert.Equal(t, mcp.AttemptCompleted, finished.State, finished.Code)
 }
 
 // writeStatus returns the profile's revision and its write batch's version, as get_commit_status

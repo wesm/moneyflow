@@ -82,7 +82,22 @@ func (instance *Instance) scheduleRefresh(ctx context.Context, profileID string)
 		!refreshAvailable(ctx, service) {
 		return
 	}
+	instance.startDueRefresh(ctx, profileID, service)
+}
+
+// startDueRefresh starts the scheduled refresh of a profile whose refresh is due, or joins a
+// refresh that reads at least as much. A parked refresh that the profile's stored state has moved
+// past fails first, as mcp.Supervisor.ExpireObsolete says. When that state cannot be read, the
+// profile waits for the next pass.
+func (instance *Instance) startDueRefresh(
+	ctx context.Context,
+	profileID string,
+	service *app.Service,
+) {
 	supervisor, err := instance.supervisor(profileID)
+	if err == nil {
+		err = supervisor.ExpireObsolete(ctx, service)
+	}
 	if err != nil {
 		return
 	}
