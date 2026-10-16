@@ -408,6 +408,40 @@ test('Day columns name the month and year where they change', async ({ page, ser
   expect(labels.slice(1).every((label) => /^(\d+|Jan 2026)$/.test(label))).toBe(true)
 })
 
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [1000, 2200]) {
+    test(`${theme} Day labels across a new year stay apart and inside the chart at ${width} px`, async ({
+      page,
+      server,
+    }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
+      // The chart starts on Dec 31, so "Dec 31" and "Jan 2026" are the widest neighbors.
+      await openMoneyflow(page, server, 'cur=USD%3A2&from=2025-12-31&to=2026-01-31&v=1')
+      await page.keyboard.press('t')
+      await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveText('Days')
+      const ticks = cashflow(page).locator('.mf-cashflow__tick')
+      await expect(ticks.filter({ hasText: 'Jan 2026' })).toHaveCount(1)
+      const plot = (await cashflow(page).boundingBox())!
+      const shown = await ticks.evaluateAll((spans) =>
+        spans
+          .filter((span) => span.textContent !== '')
+          .map((span) => {
+            const { left, right } = span.getBoundingClientRect()
+            return { text: span.textContent, left, right }
+          }),
+      )
+      expect(shown.length).toBeGreaterThan(2)
+      for (const [index, label] of shown.entries()) {
+        expect(label.left, label.text!).toBeGreaterThanOrEqual(plot.x - 1)
+        expect(label.right, label.text!).toBeLessThanOrEqual(plot.x + plot.width + 1)
+        const next = shown[index + 1]
+        if (next) expect(next.left - label.right, `${label.text} → ${next.text}`).toBeGreaterThan(4)
+      }
+    })
+  }
+}
+
 test('a drag across cash-flow columns sets a custom range', async ({ page, server }) => {
   await openMoneyflow(page, server)
   await column(page, 'Jul 2026').hover()

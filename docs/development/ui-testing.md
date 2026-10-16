@@ -154,6 +154,11 @@ with the month where it changes and the year where that changes, as `Jan 1`, `10
 and `Jan 2025`. The button name shows the date, as `Sep 15, 2026, in …`. Month and year
 labels come from the server.
 
+When labels would crowd, the axis labels every few columns. It picks the smallest step at
+which each label, measured in the axis font, keeps 6 px from the next and stays inside the
+chart; a label at an edge moves inward. Month steps divide twelve, and day steps count from
+the first day of a new year, so the label that names the year always shows.
+
 A double-click on a composition bar drills into its row. The performance spec times that
 drill and the cursor's move to a new cash-flow column; their limits are in
 `web/budgets.json`. That spec runs with Playwright tracing off, because tracing snapshots the

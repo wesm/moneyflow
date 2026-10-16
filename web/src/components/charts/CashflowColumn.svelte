@@ -2,7 +2,7 @@
   import { Tooltip } from '@kenn-io/kit-ui'
 
   import CashflowTooltip from './CashflowTooltip.svelte'
-  import type { ColumnGeometry, CursorBar, RowAmounts } from '../../lib/charts/cashflow'
+  import type { AxisLabel, ColumnGeometry, CursorBar, RowAmounts } from '../../lib/charts/cashflow'
 
   interface Props {
     column: ColumnGeometry
@@ -13,7 +13,7 @@
     cursor?: CursorBar | undefined
     row?: RowAmounts | undefined
     /** The axis label; empty where a crowded chart labels only every few columns. */
-    tick: string
+    tick: AxisLabel
     /** The chart's one Tab stop. */
     active: boolean
     /** Inside a drag's range. */
@@ -86,7 +86,9 @@
         />
       {/if}
     </svg>
-    <span class="mf-cashflow__tick" aria-hidden="true">{tick}</span>
+    <span class="mf-cashflow__tick" aria-hidden="true" style:translate={`${tick.offset}px`}
+      >{tick.text}</span
+    >
   </button>
   {#if described && row}
     <span {id} class="kit-sr-only">{row.label}, in {row.in}, out {row.out}</span>
