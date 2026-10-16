@@ -187,9 +187,11 @@ func (session *Session) SwitchAccounts() {
 	session.clearSelections()
 }
 
-// ToggleTimeGranularity cycles year, month, and day aggregation and marks the unit chosen.
+// ToggleTimeGranularity cycles year, month, and day aggregation, marks the unit chosen, and
+// clears the selection, whose rows the new unit no longer lists.
 func (session *Session) ToggleTimeGranularity() {
 	session.TimeGranularityChosen = true
+	session.clearSelections()
 	switch session.TimeGranularity {
 	case domain.TimeGranularityYear:
 		session.TimeGranularity = domain.TimeGranularityMonth

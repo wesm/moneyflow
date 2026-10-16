@@ -143,6 +143,29 @@ func TestWebChosenTimeUnitLastsUntilThePeriodChanges(t *testing.T) {
 	assert.Equal(t, 10, projection.TotalRows)
 }
 
+func TestWebToggleTimeClearsTheSelection(t *testing.T) {
+	t.Parallel()
+
+	service := workedExampleService(t, "2024-01-01")
+	merchants := timeGroupingState()
+	merchants.Current.Dimension = domain.DimensionMerchant
+	merchants.Current.Sort = amountDescending()
+	state, months := toggleWebTime(t, service, merchants)
+	require.Equal(t, domain.TimeGranularityMonth, state.Current.TimeGranularity)
+	require.NotEmpty(t, months.AggregateRows)
+	selection, err := service.ToggleSelection(
+		state.Current, EmptySelection(), IdentityAggregate, months.AggregateRows[0].Identity,
+	)
+	require.NoError(t, err)
+
+	next, nextSelection, days, err := service.TransitionView(state, selection,
+		TransitionRequest{Action: ActionToggleTime}, WindowRequest{Limit: MaxWindowLimit})
+	require.NoError(t, err)
+	assert.Equal(t, domain.TimeGranularityDay, next.Current.TimeGranularity)
+	assert.Equal(t, EmptySelection(), nextSelection, "a month selection names no day row")
+	assert.Zero(t, days.SelectionCount)
+}
+
 func TestWebToggleTimeInsideATimeDrillIsNoChange(t *testing.T) {
 	t.Parallel()
 
