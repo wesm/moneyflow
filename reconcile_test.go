@@ -454,37 +454,48 @@ func TestAnAPIReconcileAtTheParkedBatchVersionJoinsMCPsReconcile(t *testing.T) {
 	assert.Equal(t, "completed", after["state"], after)
 }
 
-// A parked reconcile whose confirmation expired has stopped holding the profile's reconcile, so an
-// API reconcile at its batch version starts a new reconcile instead of answering the expired one.
+// A parked reconcile holds the profile's reconcile until its confirmation deadline, while the
+// profile's stored state still matches it. At the deadline it stops holding it, so an API
+// reconcile at its batch version starts a new reconcile instead of answering the expired one.
 func TestAnAPIReconcileAtAnExpiredReconcilesBatchVersionStartsANewOne(t *testing.T) {
 	root, providerRoot := testRoot(t), t.TempDir()
-	acme := createMonarchProfile(t, root, "Acme", providerRoot)
+	acme := createDrivenMonarchProfile(t, root, "Acme", providerRoot, commitRejected)
+	source, err := uitest.OpenProvider(providerRoot)
+	require.NoError(t, err)
+	require.NoError(t, source.SetRefreshFault(uitest.RefreshRemove))
+	// The provider runtime and the supervisor share one clock, which sets and checks the deadline.
 	instance := openTestInstance(t, root, seams{
 		inspectSession: sessionPresent,
-		factories:      assembly.Factories{Monarch: syntheticMonarch(providerRoot)},
+		factories:      assembly.Factories{Monarch: sharedMonarch(source)},
+		now:            source.Now,
 	})
+	tools := connectTools(t, instance,
+		ToolOptions{Classes: []Class{ClassRead, ClassStage, ClassCommit}})
+	_, version := writeStatus(t, tools, acme)
+	status, parked := postReconcile(t, instance, acme, "reconcile",
+		reconcileBody(projectView(t, instance, acme), version))
+	require.Equal(t, http.StatusConflict, status, parked)
+	require.Equal(t, "provider_deletion_confirmation_required", parked["code"])
+	_, parkedVersion := writeStatus(t, tools, acme)
+	body := reconcileBody(projectView(t, instance, acme), parkedVersion)
+	status, joined := postReconcile(t, instance, acme, "reconcile", body)
+	require.Equal(t, http.StatusConflict, status, joined)
+	require.Equal(t, parked["provider_write_confirmation_token"],
+		joined["provider_write_confirmation_token"])
 	supervisor, err := instance.supervisor(acme)
 	require.NoError(t, err)
-	expired, err := supervisor.StartReconcile(1, 1,
-		func(context.Context) (app.ProviderWriteResult, error) {
-			return app.ProviderWriteResult{
-				Status: app.ProviderWriteStatus{Version: 3}, ConfirmationToken: "expired-token",
-				ConfirmationExpiresAt: time.Now().Add(-time.Minute),
-			}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired}
-		})
+	expired, err := supervisor.ReconcileStatus("")
 	require.NoError(t, err)
-	_, err = supervisor.WaitReconcile(t.Context(), expired.ID)
-	require.NoError(t, err)
+	require.NoError(t, source.Advance(10*time.Minute))
 
-	status, answer := postReconcile(t, instance, acme, "reconcile",
-		reconcileBody(projectView(t, instance, acme), "3"))
+	status, answer := postReconcile(t, instance, acme, "reconcile", body)
 
-	// The profile has no write batch, so the new reconcile finds nothing to reconcile.
-	assert.Equal(t, http.StatusConflict, status, answer)
-	assert.Equal(t, "provider_write_stale", answer["code"])
+	// The new reconcile reads the provider again and finds no removals, so it finishes the batch.
+	assert.Equal(t, http.StatusOK, status, answer)
 	current, err := supervisor.ReconcileStatus("")
 	require.NoError(t, err)
 	assert.NotEqual(t, expired.ID, current.ID)
+	assert.Equal(t, mcp.AttemptCompleted, current.State, current.Code)
 }
 
 func TestAnAPIReconcileAnswersOnceTheReconcileItJoinedStops(t *testing.T) {
