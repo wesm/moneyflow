@@ -43,6 +43,50 @@ async function visibleRowIndexes(page: Page): Promise<number[]> {
   })
 }
 
+/**
+ * Turns the mouse wheel over the table until the workspace has scrolled by `deltaY` pixels.
+ * Firefox scrolls at most a page for one wheel event, and joins wheel events that queue up, so
+ * the wheel turns again after each scroll until the distance is covered. The mouse moves there
+ * directly: `hover()` first scrolls its target into view, which in Firefox centers the tall grid.
+ */
+async function wheel(page: Page, deltaY: number): Promise<void> {
+  const box = (await workspace(page).boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  let top = (await scrollState(page)).top
+  const target = top + deltaY
+  while (Math.abs(target - top) >= 1) {
+    await page.mouse.wheel(0, target - top)
+    top = await workspace(page).evaluate(scrollFrom, top)
+  }
+}
+
+/** Resolves with the scroller's `scrollTop` once it leaves `from`, or fails after five seconds. */
+function scrollFrom(scroller: Element, from: number): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      scroller.removeEventListener('scroll', settle)
+      reject(new Error(`The wheel left the workspace at scrollTop ${from}`))
+    }, 5000)
+    function settle(): void {
+      if (scroller.scrollTop === from) return
+      clearTimeout(timer)
+      scroller.removeEventListener('scroll', settle)
+      resolve(scroller.scrollTop)
+    }
+    scroller.addEventListener('scroll', settle)
+    settle()
+  })
+}
+
+/** Turns the mouse wheel until the workspace shows the end of the result. */
+async function wheelToEnd(page: Page): Promise<void> {
+  const rest = await workspace(page).evaluate(
+    (scroller) => scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
+  )
+  await wheel(page, rest)
+  expect((await scrollState(page)).atEnd).toBe(true)
+}
+
 test('the mouse wheel reaches the last row of a long result and j moves from the top row', async ({
   page,
   server,
@@ -53,9 +97,7 @@ test('the mouse wheel reaches the last row of a long result and j moves from the
   const total = Number(await grid(page).getAttribute('aria-rowcount')) - 1
   expect(total).toBeGreaterThan(200)
 
-  await grid(page).hover()
-  await page.mouse.wheel(0, total * 100)
-  await expect.poll(async () => (await scrollState(page)).atEnd).toBe(true)
+  await wheelToEnd(page)
 
   const last = grid(page).locator(`[role="row"][aria-rowindex="${total + 1}"]`)
   await expect(last).toBeInViewport({ ratio: 1 })
@@ -88,7 +130,7 @@ test('the mouse wheel reaches the last row of a long result and j moves from the
   await expect.poll(async () => (await scrollState(page)).top).toBe(0)
 })
 
-test('the cursor follows a wheel scroll inside the loaded rows, so j moves on from the screen', async ({
+test('@smoke the cursor follows a wheel scroll inside the loaded rows, so j moves on from the screen', async ({
   page,
   server,
 }) => {
@@ -99,9 +141,7 @@ test('the cursor follows a wheel scroll inside the loaded rows, so j moves on fr
   const total = Number(await grid(page).getAttribute('aria-rowcount')) - 1
   expect(total).toBeLessThanOrEqual(200)
 
-  await grid(page).hover()
-  await page.mouse.wheel(0, total * 100)
-  await expect.poll(async () => (await scrollState(page)).atEnd).toBe(true)
+  await wheelToEnd(page)
   const first = await firstVisibleRowIndex(page)
   expect(first).toBeGreaterThan(2)
   await expect.poll(() => activeRowIndex(page)).toBe(first)
@@ -112,7 +152,7 @@ test('the cursor follows a wheel scroll inside the loaded rows, so j moves on fr
 
   // Scrolling up a screen leaves the cursor below it, so the cursor moves to the last row shown.
   const height = await workspace(page).evaluate((scroller) => scroller.clientHeight)
-  await page.mouse.wheel(0, -height)
+  await wheel(page, -height)
   await expect.poll(async () => (await scrollState(page)).top).toBe(before - height)
   const last = Math.max(...(await visibleRowIndexes(page)))
   expect(last).toBeGreaterThan(1)
@@ -152,10 +192,7 @@ test('the cursor follows the scroll below a write banner that appeared later', a
   release()
   await expect(page.getByText(/Editing is locked until the write finishes/)).toBeVisible()
 
-  const total = Number(await grid(page).getAttribute('aria-rowcount')) - 1
-  await grid(page).hover()
-  await page.mouse.wheel(0, total * 100)
-  await expect.poll(async () => (await scrollState(page)).atEnd).toBe(true)
+  await wheelToEnd(page)
   const first = await firstVisibleRowIndex(page)
   await expect.poll(() => activeRowIndex(page)).toBe(first)
   const before = (await scrollState(page)).top
@@ -220,9 +257,7 @@ test('the selection bar never covers the last row or the cursor row', async ({ p
   expect(await overlap(page, 42)).toBeGreaterThan(-30)
 
   const total = Number(await grid(page).getAttribute('aria-rowcount')) - 1
-  await grid(page).hover()
-  await page.mouse.wheel(0, total * 100)
-  await expect.poll(async () => (await scrollState(page)).atEnd).toBe(true)
+  await wheelToEnd(page)
   await expect(grid(page).locator(`[role="row"][aria-rowindex="${total + 1}"]`)).toBeVisible()
   expect(await overlap(page, total + 1)).toBeLessThanOrEqual(0.5)
 })
