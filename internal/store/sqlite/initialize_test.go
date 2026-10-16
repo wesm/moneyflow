@@ -3,7 +3,9 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -252,6 +254,9 @@ func TestOpenWaitsBeyondMutationTimeoutAndRechecksInstalledSchema(t *testing.T) 
 	options := DefaultOptions
 	options.MutationBusyTimeout = 20 * time.Millisecond
 	options.StartupDeadline = time.Second
+	waiting := make(chan struct{})
+	var signalWaiting sync.Once
+	options.startupWaiting = func() { signalWaiting.Do(func() { close(waiting) }) }
 	database, connection := lockedEmptyDatabase(t, paths, options)
 	// Another opener installs the schema while holding the lock, so Open only waits and rechecks.
 	_, err := connection.ExecContext(context.Background(), currentProfileSchema)
@@ -266,16 +271,21 @@ func TestOpenWaitsBeyondMutationTimeoutAndRechecksInstalledSchema(t *testing.T) 
 		opened, openErr := Open(context.Background(), paths, options)
 		resultChannel <- result{profile: opened, err: openErr}
 	}()
-	time.Sleep(75 * time.Millisecond)
+	// Commit only once Open is retrying behind the lock, after its 20 ms busy timeout expired.
+	select {
+	case <-waiting:
+	case openResult := <-resultChannel:
+		t.Fatalf("Open returned before waiting for the schema lock: %v", openResult.err)
+	}
 	_, err = connection.ExecContext(context.Background(), "COMMIT")
 	require.NoError(t, err)
-	require.NoError(t, connection.Close())
-	require.NoError(t, database.Close())
 
 	openResult := <-resultChannel
-	require.NoError(t, openResult.err)
+	require.NoError(t, openResult.err, "cause: %v", errors.Unwrap(openResult.err))
 	require.NotNil(t, openResult.profile)
 	require.NoError(t, openResult.profile.Close())
+	require.NoError(t, connection.Close())
+	require.NoError(t, database.Close())
 }
 
 func TestFailedCurrentSchemaInstallRollsBack(t *testing.T) {
