@@ -37,7 +37,7 @@ func TestTUICommitsThroughActualEventLoop(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, driver.Close()) }()
 	waitFor(t, driver, "Example Shop")
-	require.NoError(t, driver.Key("t"))
+	require.NoError(t, driver.Key("p"))
 	waitFor(t, driver, "Choose time")
 	require.NoError(t, driver.Text("2026-09"))
 	require.NoError(t, driver.Key("enter"))

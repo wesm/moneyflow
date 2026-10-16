@@ -9,6 +9,7 @@ const hintCapabilities = [
   'view.drill',
   'view.cycle-grouping',
   'overlay.search',
+  'time.toggle-granularity',
   'time.choose',
   'overlay.help',
   'transaction.edit-merchant',
@@ -43,12 +44,13 @@ function projection(overrides: Partial<ViewProjection> = {}): ViewProjection {
 }
 
 describe('keyHints', () => {
-  it('offers open, group, search, period, and help in a grouped view', () => {
+  it('offers open, group, time, search, period, and help in a grouped view', () => {
     expect(keyHints(projection({ view: view('aggregate') }), false)).toEqual([
       { key: '↵', label: 'Open' },
       { key: 'g', label: 'Group' },
+      { key: 't', label: 'Time' },
       { key: '/', label: 'Search' },
-      { key: 't', label: 'Period' },
+      { key: 'p', label: 'Period' },
       { key: '?', label: 'Help' },
     ])
   })
@@ -57,8 +59,9 @@ describe('keyHints', () => {
     expect(keyHints(projection({ view: view('detail', 'category') }), false)).toEqual([
       { key: '↵', label: 'Open' },
       { key: 'g', label: 'Break down' },
+      { key: 't', label: 'Time' },
       { key: '/', label: 'Search' },
-      { key: 't', label: 'Period' },
+      { key: 'p', label: 'Period' },
       { key: '?', label: 'Help' },
     ])
   })
@@ -88,7 +91,7 @@ describe('keyHints', () => {
       view: view('aggregate'),
       capabilities: capabilities(['view.drill']).filter(({ id }) => id !== 'time.choose'),
     })
-    expect(keyHints(grouped, false).map(({ key }) => key)).toEqual(['g', '/', '?'])
+    expect(keyHints(grouped, false).map(({ key }) => key)).toEqual(['g', 't', '/', '?'])
 
     const selected = projection({
       view: view('aggregate'),
@@ -123,7 +126,7 @@ describe('keyHints', () => {
         },
         statistics: [],
       })
-      expect(keyHints(empty, false).map(({ key }) => key)).toEqual(['g', '/', 't', '?'])
+      expect(keyHints(empty, false).map(({ key }) => key)).toEqual(['g', 't', '/', 'p', '?'])
     }
   })
 

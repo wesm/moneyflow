@@ -4,7 +4,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wesm/moneyflow/internal/app"
-	"github.com/wesm/moneyflow/internal/domain"
 )
 
 type amazonImportRequestedMsg struct{}
@@ -176,10 +175,7 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 	case app.ActionChooseTime:
 		model.openTimeChooser()
 	case app.ActionToggleTime:
-		if model.visibleMode() == domain.ResultModeAggregate && model.timeContext() {
-			model.session.ToggleTimeGranularity()
-			model.resetAndRefresh()
-		} else if model.session.JumpToTime(app.ViewPosition{Cursor: model.cursor, Scroll: model.scroll}) {
+		if model.session.ToggleTime(app.ViewPosition{Cursor: model.cursor, Scroll: model.scroll}) {
 			model.resetAndRefresh()
 		}
 	case app.ActionClearTime:
@@ -389,11 +385,4 @@ func (model *Model) resetAndRefresh() {
 		model.clearSessionSelection()
 		model.status = safeInteractionMessage(err)
 	}
-}
-
-func (model Model) timeContext() bool {
-	if model.session.SubGrouping != nil {
-		return *model.session.SubGrouping == domain.DimensionTime
-	}
-	return model.session.Dimension == domain.DimensionTime
 }

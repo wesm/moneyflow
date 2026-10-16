@@ -20,7 +20,8 @@ const capabilities = [
   ['time.clear-period', 'a'],
   ['time.previous-period', '←'],
   ['time.next-period', '→'],
-  ['time.choose', 't'],
+  ['time.choose', 'p'],
+  ['time.toggle-granularity', 't'],
   ['sort.cycle', 's'],
   ['sort.reverse', 'v'],
   ['selection.toggle', 'space'],
@@ -71,6 +72,7 @@ describe('Moneyflow browser shortcuts', () => {
       'ArrowLeft',
       'ArrowRight',
       't',
+      'p',
       's',
       'v',
       ' ',
@@ -168,7 +170,7 @@ describe('Moneyflow browser shortcuts', () => {
     }
   })
 
-  it('moves the cursor with the TUI paging keys, and t still opens the period chooser', () => {
+  it('moves the cursor with the TUI paging keys, and p opens the period chooser', () => {
     const handlers = { local: vi.fn(), apply: vi.fn() }
     const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
     const presses = [
@@ -178,7 +180,7 @@ describe('Moneyflow browser shortcuts', () => {
       [keyboard('B', { shiftKey: true }), 'cursor.end'],
       [keyboard('PageUp'), 'cursor.page-up'],
       [keyboard('PageDown'), 'cursor.page-down'],
-      [keyboard('t'), 'time.choose'],
+      [keyboard('p'), 'time.choose'],
     ] as const
     for (const [event, action] of presses) {
       expect(handleMoneyflowKeydown(shortcuts.manager, event)).toBe(true)
@@ -191,11 +193,14 @@ describe('Moneyflow browser shortcuts', () => {
     shortcuts.destroy()
   })
 
-  it('opens the period chooser locally with t', () => {
+  it('opens the period chooser locally with p and sends t to the server', () => {
     const handlers = { local: vi.fn(), apply: vi.fn() }
     const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
-    expect(shortcuts.manager.handleKeydown(keyboard('t'))).toBe(true)
+    expect(shortcuts.manager.handleKeydown(keyboard('p'))).toBe(true)
     expect(handlers.local).toHaveBeenCalledWith('time.choose')
+    expect(shortcuts.manager.handleKeydown(keyboard('t'))).toBe(true)
+    expect(handlers.apply).toHaveBeenCalledWith('time.toggle-granularity')
+    expect(handlers.local).toHaveBeenCalledTimes(1)
     expect(shortcuts.manager.handleKeydown(keyboard('t', { ctrlKey: true }))).toBe(false)
     shortcuts.destroy()
   })

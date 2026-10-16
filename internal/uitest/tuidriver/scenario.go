@@ -18,7 +18,7 @@ import (
 
 // Campaign records actual terminal input and explicit observation checkpoints.
 func Campaign(seed uint64) []scenario.Action {
-	actions := []scenario.Action{{Kind: "wait", Value: "Example Shop"}, {Kind: "key", Value: "t"}, {Kind: "wait", Value: "Choose time"}, {Kind: "text", Value: "2026-09"}, {Kind: "key", Value: "enter"}, {Kind: "wait", Value: "Sep 2026"}, {Kind: "key", Value: "f"}, {Kind: "wait", Value: "Show hidden"}}
+	actions := []scenario.Action{{Kind: "wait", Value: "Example Shop"}, {Kind: "key", Value: "p"}, {Kind: "wait", Value: "Choose time"}, {Kind: "text", Value: "2026-09"}, {Kind: "key", Value: "enter"}, {Kind: "wait", Value: "Sep 2026"}, {Kind: "key", Value: "f"}, {Kind: "wait", Value: "Show hidden"}}
 	for _, key := range []string{"tab", "tab", "space", "tab", "tab", "enter"} {
 		actions = append(actions, scenario.Action{Kind: "key", Value: key})
 	}

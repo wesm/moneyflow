@@ -209,12 +209,6 @@ func TestViewQueryRejectsMalformedInput(t *testing.T) {
 			"cur=EUR%3A2&drill=merchant%3AUSD%3A2%3Am&mode=detail&sort=date%3Adesc&v=1",
 			"drill-down currency differs from the currency scope",
 		},
-		{"time with currency", "cur=USD%3A2&time=month&v=1", "time granularity is derived"},
-		{
-			"return time with currency",
-			returnQuery(t, "navigation:cur=USD%3A2&time=day") + "&cur=USD%3A2&v=1",
-			"time granularity is derived",
-		},
 	}
 
 	for _, test := range tests {
@@ -309,6 +303,32 @@ func TestViewQueryOmitsTimeWithACurrency(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, encoded, canonical)
 	assert.Equal(t, domain.TimeGranularityYear, decoded.Current.TimeGranularity)
+}
+
+func TestViewQueryKeepsAChosenTimeUnitWithACurrency(t *testing.T) {
+	t.Parallel()
+
+	for _, granularity := range []domain.TimeGranularity{
+		domain.TimeGranularityYear, domain.TimeGranularityMonth, domain.TimeGranularityDay,
+	} {
+		state := withState(func(state *app.AnalyticalState) {
+			state.Dimension = domain.DimensionTime
+			state.Sort = domain.SortSpec{
+				Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc,
+			}
+			state.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+			state.TimeGranularity = granularity
+			state.TimeGranularityChosen = true
+		})
+		state.Returns = []app.ReturnFrame{{Kind: app.ReturnNavigation, State: state.Current}}
+		encoded, err := EncodeViewQuery(state)
+		require.NoError(t, err)
+		assert.Contains(t, encoded, "time="+string(granularity))
+		decoded, canonical, err := DecodeViewQuery(encoded)
+		require.NoError(t, err)
+		assert.Equal(t, encoded, canonical)
+		assert.Equal(t, state, decoded)
+	}
 }
 
 func TestViewQueryRoundTripProperty(t *testing.T) {

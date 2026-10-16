@@ -187,6 +187,8 @@ func decodeAnalytical(values url.Values) (app.AnalyticalState, error) {
 		return app.AnalyticalState{}, err
 	}
 	state.Currency = currency
+	_, timeSet := scalar(values, "time")
+	state.TimeGranularityChosen = timeSet && currency != nil
 	if value, ok := scalar(values, "q"); ok {
 		state.Search = value
 	}
@@ -216,15 +218,11 @@ func decodeAnalytical(values url.Values) (app.AnalyticalState, error) {
 	return state, nil
 }
 
-// decodeCurrency parses the optional currency scope. The service derives a currency-scoped
-// view's time granularity, so the two cannot both be present.
+// decodeCurrency parses the optional currency scope.
 func decodeCurrency(values url.Values) (*domain.CurrencyScope, error) {
 	value, ok := scalar(values, "cur")
 	if !ok {
 		return nil, nil
-	}
-	if _, hasTime := scalar(values, "time"); hasTime {
-		return nil, errors.New("time granularity is derived for a currency-scoped view")
 	}
 	scope, err := parseCurrencyScope(value)
 	if err != nil {
@@ -296,9 +294,12 @@ func encodeAnalytical(state app.AnalyticalState) (url.Values, error) {
 }
 
 // encodesTimeGranularity reports whether the granularity is view state. The service derives
-// a currency-scoped view's granularity, and Year is the default.
+// a currency-scoped view's granularity unless the user chose it, and Year is the default.
 func encodesTimeGranularity(state app.AnalyticalState) bool {
-	return state.Currency == nil && state.TimeGranularity != domain.TimeGranularityYear
+	if state.Currency != nil {
+		return state.TimeGranularityChosen
+	}
+	return state.TimeGranularity != domain.TimeGranularityYear
 }
 
 func validateFields(values url.Values, topLevel bool) error {

@@ -224,7 +224,7 @@ test('an empty month inside a merchant keeps the strip and chart row above the e
     .getByRole('radiogroup', { name: 'Period', exact: true })
     .getByRole('radio', { name: 'Month' })
     .click()
-  const period = page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')
+  const period = page.getByRole('banner').locator('button[aria-keyshortcuts="p"]')
   await expect(period).toHaveAccessibleName('Oct 2026')
   await page.getByRole('grid', { name: 'Financial results' }).focus()
   await page.keyboard.press('Enter')
@@ -305,7 +305,7 @@ async function backThroughComposition(page: Page): Promise<void> {
 }
 
 function periodControl(page: Page): Locator {
-  return page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')
+  return page.getByRole('banner').locator('button[aria-keyshortcuts="p"]')
 }
 
 test('a sort change keeps Trend, vs prior, and the charts without asking again', async ({

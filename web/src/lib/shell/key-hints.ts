@@ -23,8 +23,9 @@ function groupedHints(projection: ViewProjection): CandidateHint[] {
       key: 'g',
       label: projection.view.sub_grouping ? 'Break down' : 'Group',
     },
+    { capability: 'time.toggle-granularity', key: 't', label: 'Time' },
     { capability: 'overlay.search', key: '/', label: 'Search' },
-    { capability: 'time.choose', key: 't', label: 'Period' },
+    { capability: 'time.choose', key: 'p', label: 'Period' },
     helpHint,
   ]
 }

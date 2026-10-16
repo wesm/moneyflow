@@ -147,6 +147,39 @@ test('cycles every grouping, account direct view, detail, drill, subgroup, and b
   await expect(breakDownBy(page)).toHaveCount(0)
 })
 
+test('t groups by time, cycles the unit, and p opens the period chooser', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await expect(breadcrumb(page)).toHaveText('Merchants')
+  await page.keyboard.press('t')
+  await expect(breadcrumb(page)).toHaveText('Months')
+  const months = await page
+    .getByRole('grid', { name: 'Financial results' })
+    .getAttribute('aria-rowcount')
+  await page.keyboard.press('t')
+  await expect(breadcrumb(page)).toHaveText('Days')
+  await expect(page).toHaveURL(/[?&]time=day/)
+  await page.keyboard.press('t')
+  await expect(breadcrumb(page)).toHaveText('Years')
+  await page.keyboard.press('t')
+  await expect(breadcrumb(page)).toHaveText('Months')
+  await expect(page.getByRole('grid', { name: 'Financial results' })).toHaveAttribute(
+    'aria-rowcount',
+    months ?? '',
+  )
+
+  await page.keyboard.press('1')
+  await expect(breadcrumb(page)).toHaveText('Merchants')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('t')
+  await expect(breakDownBy(page).getByRole('radio', { name: 'Time' })).toBeChecked()
+
+  await page.keyboard.press('p')
+  await expect(page.getByRole('dialog', { name: 'Choose period' })).toBeVisible()
+})
+
 test('Break down by sub-groups a drill and returns to its transactions', async ({
   page,
   server,
@@ -305,7 +338,7 @@ test('x in a grouped view explains why it cannot delete', async ({ page, server 
   await expect(notice).toHaveText('', cleared)
   // The click scopes the table to September; its rows replace the ones read below.
   await expect(
-    page.getByRole('banner').locator('button[aria-keyshortcuts="t"]'),
+    page.getByRole('banner').locator('button[aria-keyshortcuts="p"]'),
   ).toHaveAccessibleName('Sep 2026')
   await page.keyboard.press('x')
   await expect(notice).toHaveText(reason)
@@ -700,7 +733,7 @@ test('Esc at the top level and a on All time change nothing and say nothing', as
   await openMoneyflow(page, server)
   await expect(breadcrumb(page)).toHaveText('Merchants')
   await expect(
-    page.getByRole('banner').locator('button[aria-haspopup="dialog"][aria-keyshortcuts="t"]'),
+    page.getByRole('banner').locator('button[aria-haspopup="dialog"][aria-keyshortcuts="p"]'),
   ).toHaveAccessibleName('All time')
 
   for (const key of ['Escape', 'a']) {

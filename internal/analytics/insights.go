@@ -29,6 +29,9 @@ type InsightsSpec struct {
 	// Keys are aggregate keys of the view's merchant, category, group, or account grouping.
 	Keys    []string
 	Summary bool
+	// TimeUnit, when set, is the unit a Time grouping's chart uses instead of the one its
+	// period gives, as the view's rows do.
+	TimeUnit domain.TimeGranularity
 	// SearchMatches, when non-nil, lists the IDs that satisfy Query.Search in place of the
 	// regular expression, for searches that also match Amazon product names.
 	SearchMatches map[string]struct{}
@@ -236,7 +239,7 @@ func (plan *insightsPlan) resolveRanges(scope *domain.DateRange, spec InsightsSp
 	var err error
 	plan.ranges, err = ResolveRanges(RangeInput{
 		Scope: scope, Today: spec.Today, First: plan.first, Latest: plan.latest,
-		TimeGrouping: plan.grouping == domain.DimensionTime,
+		TimeGrouping: plan.grouping == domain.DimensionTime, TimeUnit: spec.TimeUnit,
 	})
 	if err != nil || !spec.Summary {
 		return err

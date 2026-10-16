@@ -685,6 +685,10 @@ func (service *Service) applyAnalyticalTransition(
 		session.ShowAllDetail()
 	case ActionSwitchAccounts:
 		session.SwitchAccounts()
+	case ActionToggleTime:
+		if !session.ToggleTime(ViewPosition{}) {
+			return noChangeWeb(errors.New("view is drilled into a time period"))
+		}
 	case ActionDrill:
 		row, err := service.resolveAggregateTarget(*session, *transition.Target, currencies)
 		if err != nil {

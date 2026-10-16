@@ -61,14 +61,14 @@
     type="button"
     aria-haspopup="dialog"
     aria-expanded={chooserOpen}
-    aria-keyshortcuts="t"
-    title="{label} · Choose period · t"
+    aria-keyshortcuts="p"
+    title="{label} · Choose period · p"
     disabled={!currency}
     bind:this={labelButton}
     onclick={() => (chooserOpen ? onclose() : onchoose())}
   >
     <span class="mf-period__text">{label}</span>
-    <span class="mf-period__key" aria-hidden="true"><KbdBadge keys={['t']} /></span>
+    <span class="mf-period__key" aria-hidden="true"><KbdBadge keys={['p']} /></span>
   </button>
   <IconButton
     ariaLabel="Next period"

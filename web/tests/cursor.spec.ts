@@ -9,7 +9,7 @@ const cashflowColumn = (page: Page, label: string) =>
     .getByRole('group', { name: 'Cash flow' })
     .getByRole('button', { name: new RegExp(`^${label}, in [+-]`) })
 const periodControl = (page: Page) =>
-  page.getByRole('banner').locator('button[aria-haspopup="dialog"][aria-keyshortcuts="t"]')
+  page.getByRole('banner').locator('button[aria-haspopup="dialog"][aria-keyshortcuts="p"]')
 
 /** The active row's `aria-rowindex`, where row 1 of the result is 2, or -1 while it is not drawn. */
 async function activeRowIndex(page: Page): Promise<number> {

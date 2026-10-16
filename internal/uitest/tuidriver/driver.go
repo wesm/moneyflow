@@ -123,7 +123,7 @@ func (driver *Driver) Key(key string) error {
 		"enter": "\r", "esc": "\x1b", "tab": "\t", "space": " ",
 		"up": "\x1b[A", "down": "\x1b[B", "left": "\x1b[D", "right": "\x1b[C",
 		"home": "\x1b[H", "end": "\x1b[F", "backspace": "\x7f",
-		"ctrl+t": "\x14", "ctrl+a": "\x01", "ctrl+c": "\x03",
+		"ctrl+a": "\x01", "ctrl+c": "\x03",
 	}[key]
 	if !exists {
 		if len([]rune(key)) != 1 {

@@ -32,7 +32,7 @@ func TestEditorsRespectCurrentViewScope(t *testing.T) {
 				fixture := newFilteredEditModel(t)
 				model := fixture.model
 				if view == "time drilldown" {
-					model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+					model = press(t, model, keyRune('t'))
 					for index, row := range model.result.AggregateRows {
 						if row.Label == "2026" {
 							model.cursor = index
@@ -41,7 +41,7 @@ func TestEditorsRespectCurrentViewScope(t *testing.T) {
 					model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 					model = press(t, model, keyRune('g'))
 				} else {
-					model = press(t, model, keyRune('t'))
+					model = press(t, model, keyRune('p'))
 					model = typeText(t, model, "2026")
 					model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 				}
@@ -87,7 +87,7 @@ func TestEditorsRespectCurrentViewScope(t *testing.T) {
 func TestMerchantWholeEntityScopeRequiresExplicitChoice(t *testing.T) {
 	t.Parallel()
 	fixture := newFilteredEditModel(t)
-	model := press(t, fixture.model, keyRune('t'))
+	model := press(t, fixture.model, keyRune('p'))
 	model = typeText(t, model, "2026")
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = press(t, model, keyRune('m'))

@@ -255,6 +255,25 @@ func topLevelSort(
 	return sortForTopLevelTransition(dimension, current)
 }
 
+// TimeContext reports whether the visible rows are grouped by time.
+func (session Session) TimeContext() bool {
+	if session.SubGrouping != nil {
+		return *session.SubGrouping == domain.DimensionTime
+	}
+	return session.Mode == domain.ResultModeAggregate && session.Dimension == domain.DimensionTime
+}
+
+// ToggleTime is the time key's action. Rows already grouped by time cycle their unit through
+// year, month, and day. Otherwise it groups the view by time as JumpToTime does, and reports
+// false when a time drill-down rules that out.
+func (session *Session) ToggleTime(position ViewPosition) bool {
+	if session.TimeContext() {
+		session.ToggleTimeGranularity()
+		return true
+	}
+	return session.JumpToTime(position)
+}
+
 // JumpToTime groups the current scope by time without discarding filters.
 // A scope already drilled into a time period cannot group by time again.
 func (session *Session) JumpToTime(position ViewPosition) bool {
@@ -325,6 +344,16 @@ func (session *Session) applyTimeRange(dateRange *domain.DateRange) {
 		DateRange: dateRange, ShowHidden: session.ShowHidden, ShowTransfers: session.ShowTransfers,
 	})
 	session.dropTimeDrilldowns()
+	session.forgetChosenTimeGranularity()
+}
+
+// forgetChosenTimeGranularity lets the new period give the unit again, in the view and its
+// back history.
+func (session *Session) forgetChosenTimeGranularity() {
+	session.TimeGranularityChosen = false
+	for index := range session.history {
+		session.history[index].snapshot.timeChosen = false
+	}
 }
 
 // dropTimeDrilldowns removes time drill-downs from the view and its back history. A view
