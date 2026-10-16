@@ -54,7 +54,6 @@ nav = [
     { "UI testing" = "development/ui-testing.md" },
     { "Contributing" = "development/contributing.md" },
     { "Releases" = "development/releases.md" },
-    { "Architecture pointer" = "development/architecture.md" },
   ] },
   { "Architecture" = [
     { "Overview" = "architecture/index.md" },
