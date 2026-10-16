@@ -155,6 +155,7 @@ test('t groups by time, cycles the unit, and p opens the period chooser', async 
   await expect(breadcrumb(page)).toHaveText('Merchants')
   await page.keyboard.press('t')
   await expect(breadcrumb(page)).toHaveText('Months')
+  await expect(page.locator('.mf-status-line__hint', { hasText: 'Day' })).toBeVisible()
   const months = await page
     .getByRole('grid', { name: 'Financial results' })
     .getAttribute('aria-rowcount')
@@ -174,7 +175,12 @@ test('t groups by time, cycles the unit, and p opens the period chooser', async 
   await expect(breadcrumb(page)).toHaveText('Merchants')
   await page.keyboard.press('Enter')
   await page.keyboard.press('t')
-  await expect(breakDownBy(page).getByRole('radio', { name: 'Time' })).toBeChecked()
+  const time = breakDownBy(page).getByRole('radio', { name: 'Time, Month' })
+  await expect(time).toBeChecked()
+  await expect(time).toHaveText('Time · Month')
+  await expect(breadcrumb(page).getByRole('listitem').last()).toHaveText('› by Month')
+  await page.keyboard.press('t')
+  await expect(breadcrumb(page).getByRole('listitem').last()).toHaveText('› by Day')
 
   await page.keyboard.press('p')
   await expect(page.getByRole('dialog', { name: 'Choose period' })).toBeVisible()

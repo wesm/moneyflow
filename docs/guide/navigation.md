@@ -99,13 +99,14 @@ The browser's command bar starts with a breadcrumb trail, such as
 drill-downs started from: the grouping, with time grouping named by its unit (**Years**,
 **Months**, or **Days**), or **All transactions** for the `d` view. When the saved view does
 not record the unit, the crumb reads **Time**. Each drill-down adds a crumb, and a breakdown
-adds "by" and its dimension.
+adds "by" and its dimension. A Time breakdown names its unit instead, such as **by Month**.
 
 - Click an earlier crumb to return to that level in one step. It clears what pressing Esc
   repeatedly would clear on the way, and the browser's Back history stays one entry per view.
 - Inside a drill-down, **Break down by** lists **Transactions** and each dimension the
   drill-down has not used. Choosing a dimension breaks the rows down like `g`;
-  **Transactions** removes the breakdown.
+  **Transactions** removes the breakdown. A chosen Time breakdown shows its unit, such as
+  **Time · Day**.
 
 At 900 px and narrower, the menu button in the top bar opens the sidebar as a drawer. On
 screens 640 px wide or narrower, the period arrows stay in the command bar; **View** opens a
@@ -151,7 +152,8 @@ To browse grouped periods instead, press `t`. At the top level it groups by Time
 drill-down or breakdown it breaks the rows down by Time. In a Time view, each press cycles the
 unit through year, month, and day. A drill-down into a period cannot break down by Time
 again, so there `t` tells you to press Esc to go back to the time rows. `t` works the same way
-in the TUI and the browser.
+in the TUI and the browser. In a Time view, the key hint names the unit the next press shows,
+such as `t Month`.
 
 In the browser, `5` or **Time** in the sidebar also groups by Time. The browser picks the unit
 from the period: a day or month lists days, and a year lists months. All time lists months,

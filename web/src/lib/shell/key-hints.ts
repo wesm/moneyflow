@@ -15,6 +15,17 @@ interface CandidateHint extends KeyHint {
 
 const helpHint: CandidateHint = { capability: 'overlay.help', key: '?', label: 'Help' }
 
+const nextTimeUnit: Record<string, string> = { year: 'Month', month: 'Day', day: 'Year' }
+
+/** `t` groups by Time, or in a Time view names the unit its next press shows, as the TUI does. */
+function timeHint(projection: ViewProjection): string {
+  const { mode, grouping, sub_grouping, time_granularity } = projection.view
+  const timeView = sub_grouping
+    ? sub_grouping === 'time'
+    : mode === 'aggregate' && grouping === 'time'
+  return (timeView && nextTimeUnit[time_granularity]) || 'Time'
+}
+
 function groupedHints(projection: ViewProjection): CandidateHint[] {
   return [
     { capability: 'view.drill', key: '↵', label: 'Open' },
@@ -23,7 +34,7 @@ function groupedHints(projection: ViewProjection): CandidateHint[] {
       key: 'g',
       label: projection.view.sub_grouping ? 'Break down' : 'Group',
     },
-    { capability: 'time.toggle-granularity', key: 't', label: 'Time' },
+    { capability: 'time.toggle-granularity', key: 't', label: timeHint(projection) },
     { capability: 'overlay.search', key: '/', label: 'Search' },
     { capability: 'time.choose', key: 'p', label: 'Period' },
     helpHint,

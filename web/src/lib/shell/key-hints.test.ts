@@ -66,6 +66,25 @@ describe('keyHints', () => {
     ])
   })
 
+  it('names the next Time unit in a Time view', () => {
+    for (const [unit, next] of [
+      ['year', 'Month'],
+      ['month', 'Day'],
+      ['day', 'Year'],
+    ]) {
+      const timeView = { ...view('aggregate'), grouping: 'time', time_granularity: unit! }
+      expect(keyHints(projection({ view: timeView }), false)).toContainEqual({
+        key: 't',
+        label: next,
+      })
+      const breakdown = { ...view('detail', 'time'), time_granularity: unit! }
+      expect(keyHints(projection({ view: breakdown }), false)).toContainEqual({
+        key: 't',
+        label: next,
+      })
+    }
+  })
+
   it('offers row edits, selection, and information in a transaction view', () => {
     expect(keyHints(projection({ view: view('detail') }), false)).toEqual([
       { key: 'm', label: 'Merchant' },
