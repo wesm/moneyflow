@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/wesm/moneyflow/internal/access"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/diagnostic"
 )
 
 // ProfileArgument selects the profile one tool call reads or changes.
@@ -54,9 +56,24 @@ var (
 	ErrProfileNotFound = errors.New("profile not found")
 	// ErrProfileUnavailable reports a profile that exists but cannot open.
 	ErrProfileUnavailable = errors.New("profile is unavailable")
-
-	errToolPanicked = errors.New("MCP tool stopped unexpectedly") //nolint:revive // product name
+	// ErrToolPanicked reports a tool call that panicked. A Profiles implementation that recovers a
+	// panic logs it with LogToolPanic and returns this error; the call answers mcp_internal_error.
+	ErrToolPanicked = errors.New("MCP tool stopped unexpectedly") //nolint:revive // product name
 )
+
+// LogToolPanic records a panic that a tool call recovered as the event tool_call_panicked, with
+// the panic text and frames and never argument values. Call it while the panic is being recovered.
+// A nil logger discards the record.
+func LogToolPanic(ctx context.Context, logger *slog.Logger, value any) {
+	if logger == nil {
+		return
+	}
+	logger.LogAttrs(ctx, slog.LevelError, "moneyflow MCP tool call panicked",
+		slog.String(LogEventKey, "tool_call_panicked"), slog.String(LogCauseKey, "internal_error"),
+		slog.String("panic", diagnostic.PanicText(value)),
+		slog.String("frames", diagnostic.PanicFrames()),
+	)
+}
 
 // UnavailableError reports a profile that cannot open for a reason that is safe to show to the
 // client, such as the catalog's "profile_busy: …". It matches ErrProfileUnavailable.
@@ -268,7 +285,7 @@ func (server *Server) callTool(
 		}
 		return held.Service, releaseHeld, nil
 	}
-	document, err := runRecovered(dependencies, run)
+	document, err := runRecovered(ctx, dependencies, run)
 	revision := serviceRevision(dependencies.Service)
 	if err != nil {
 		return failureDocument(ctx, err, revision, internalErrorDetail), true
@@ -279,23 +296,24 @@ func (server *Server) callTool(
 	return document, false
 }
 
+// runRecovered runs a tool body and turns a panic into ErrToolPanicked after logging it through
+// the profile's logger.
 func runRecovered(
+	ctx context.Context,
 	dependencies Dependencies,
 	run func(Dependencies) (any, error),
 ) (document any, err error) {
 	defer func() {
-		if recover() != nil {
-			document, err = nil, errToolPanicked
+		if value := recover(); value != nil {
+			LogToolPanic(ctx, dependencies.Logger, value)
+			document, err = nil, ErrToolPanicked
 		}
 	}()
 	return run(dependencies)
 }
 
 func (server *Server) profileErrorDocument(err error) ErrorDocument {
-	hint := ""
-	if server.classes != nil {
-		hint = " Pass profile with an ID from " + server.prefix + "list_profiles."
-	}
+	hint := server.profileHint()
 	header := NewHeader(StatusError, 0)
 	switch {
 	case errors.Is(err, ErrProfileRequired):
@@ -308,6 +326,8 @@ func (server *Server) profileErrorDocument(err error) ErrorDocument {
 			Header: header, Code: "profile_not_found",
 			Detail: "No profile matches the profile argument." + hint,
 		}
+	case errors.Is(err, ErrToolPanicked):
+		return internalErrorDocument(0)
 	default:
 		detail := "The profile could not be opened."
 		var unavailable UnavailableError
@@ -316,6 +336,15 @@ func (server *Server) profileErrorDocument(err error) ErrorDocument {
 		}
 		return ErrorDocument{Header: header, Code: "profile_unavailable", Detail: detail}
 	}
+}
+
+// profileHint tells the client of a host's tools where profile IDs come from. A standalone server
+// serves one profile, so its documents carry no hint.
+func (server *Server) profileHint() string {
+	if server.classes == nil {
+		return ""
+	}
+	return " Pass profile with an ID from " + server.prefix + "list_profiles."
 }
 
 const internalErrorDetail = "The Moneyflow MCP request could not be completed."

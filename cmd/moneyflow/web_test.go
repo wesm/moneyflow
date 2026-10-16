@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/assembly"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 	"github.com/wesm/moneyflow/internal/profilepool"
@@ -39,7 +40,7 @@ func TestBuildWebDependenciesOrdinaryStartupDoesNotOpenProfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, opened)
 	assert.NotNil(t, dependencies.Catalog)
-	_, protectedRecovery := dependencies.Catalog.(amazonMatchingProfileLifecycle)
+	_, protectedRecovery := dependencies.Catalog.(assembly.AmazonMatchingLifecycle)
 	assert.True(t, protectedRecovery)
 	assert.NotNil(t, dependencies.Registry)
 	assert.NotNil(t, dependencies.Onboarding)
@@ -67,8 +68,8 @@ func TestBrowserRecoveryRunsInsideAmazonMatchingInvalidation(t *testing.T) {
 	application, err := webserver.NewServer(webserver.ServerConfig{
 		Resolver: dependencies.Registry, BasePath: "/", Version: "test",
 		Origin: origin, Security: security,
-		Catalog: amazonMatchingProfileLifecycle{
-			ProfileCatalog: catalog, matcher: invalidator,
+		Catalog: assembly.AmazonMatchingLifecycle{
+			ProfileCatalog: catalog, Matcher: invalidator,
 		},
 		Evictor: webRecoveryEvictor{},
 	})

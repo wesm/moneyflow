@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -175,4 +176,50 @@ func TestNewRefusesARemoverWithoutAnEvictor(t *testing.T) {
 		Resolver: resolverForService(testProfileID, service), Remover: &apiRemoverFake{},
 	})
 	require.EqualError(t, err, "new API server: profile removal requires an evictor")
+}
+
+func TestRemoveProfileLogsWhyTheRemovalFailed(t *testing.T) {
+	t.Parallel()
+	cases := map[string]struct {
+		err    error
+		status int
+		logged string
+	}{
+		"a removal that failed": {
+			err: fmt.Errorf("synthetic move failure: %w",
+				&profilecatalog.Error{Code: profilecatalog.CodeProfileInvalid}),
+			status: http.StatusUnprocessableEntity,
+			logged: "remove profile " + testProfileID + ": synthetic move failure",
+		},
+		"a busy profile": {
+			err:    &profilecatalog.Error{Code: profilecatalog.CodeProfileBusy},
+			status: http.StatusServiceUnavailable,
+		},
+	}
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var calls []string
+			service, err := app.NewService(nil)
+			require.NoError(t, err)
+			server, logged := newLoggedServer(t, Config{
+				Resolver: resolverForService(testProfileID, service), BasePath: "/embedded/",
+				HostAdmission: true, Catalog: &apiCatalogFake{},
+				Evictor: &apiEvictorFake{calls: &calls},
+				Remover: &apiRemoverFake{calls: &calls, err: test.err},
+			})
+
+			response := requestJSON(t, server,
+				"/embedded/api/v1/profiles/"+testProfileID+"/remove",
+				ProfileRemoveBody{Version: ProfileCatalogSchemaVersion})
+
+			assert.Equal(t, test.status, response.Code, response.Body.String())
+			assert.NotContains(t, response.Body.String(), "synthetic move failure")
+			if test.logged == "" {
+				assert.Empty(t, logged.String())
+			} else {
+				assert.Contains(t, logged.String(), test.logged)
+			}
+		})
+	}
 }

@@ -108,7 +108,18 @@ type providerStatusInput struct {
 type providerStatusOutput struct{ Body ProviderStatusResponse }
 type providerRefreshOutput struct{ Body ProviderRefreshResponse }
 
-func (server *Server) registerProviderEndpoints(_ Config) {
+// ProviderRefresher runs a profile's refresh and confirmation through refresh state that a host
+// shares with its scheduler and MCP servers.
+type ProviderRefresher interface {
+	RefreshProvider(
+		ctx context.Context, profileID string, request app.ProviderRefreshRequest,
+	) (app.ProviderRefreshResult, error)
+	ConfirmProviderRefresh(
+		ctx context.Context, profileID string, request app.ProviderRefreshRequest,
+	) (app.ProviderRefreshResult, error)
+}
+
+func (server *Server) registerProviderEndpoints(config Config) {
 	statusPath := server.profilePath("provider/status")
 	refreshPath := server.profilePath("provider/refresh")
 	confirmationPath := server.profilePath("provider/refresh/confirm")
@@ -136,62 +147,81 @@ func (server *Server) registerProviderEndpoints(_ Config) {
 		return &providerStatusOutput{Body: body}, nil
 	})
 
-	registerRefresh := func(
-		operationID string,
-		path string,
-		confirm bool,
-	) {
-		if confirm {
-			huma.Register(server.api, huma.Operation{
-				OperationID: operationID, Method: http.MethodPost, Path: path,
-				Summary: "Confirm one suspicious provider refresh candidate",
-				Errors:  []int{400, 403, 409, 413, 422, 500, 503, 504},
-			}, func(ctx context.Context, input *providerConfirmationInput) (*providerRefreshOutput, error) {
-				service := profileService(ctx)
-				ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)
-				defer cancel()
-				body := input.Body
-				request, err := providerRefreshRequest(body.ProviderRefreshBody)
-				if err != nil {
-					return nil, problemFromError(ctx, err)
-				}
-				request.Manual = body.Manual
-				request.ConfirmationToken = body.ConfirmationToken
-				result, err := service.ConfirmProviderRefresh(ctx, request)
-				if err != nil {
-					return nil, problemFromProviderError(
-						ctx, err, result, providerRefreshCapability(service),
-					)
-				}
-				return providerRefreshOutputFor(ctx, result, providerRefreshCapability(service))
-			})
-			return
-		}
-		huma.Register(server.api, huma.Operation{
-			OperationID: operationID, Method: http.MethodPost, Path: path,
-			Summary: "Refresh one complete provider snapshot",
-			Errors:  []int{400, 403, 409, 413, 422, 500, 503, 504},
-		}, func(ctx context.Context, input *providerRefreshInput) (*providerRefreshOutput, error) {
-			service := profileService(ctx)
-			ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)
-			defer cancel()
-			request, err := providerRefreshRequest(input.Body)
-			if err != nil {
-				return nil, problemFromError(ctx, err)
-			}
-			request.Manual = input.Body.Manual
-			request.CompleteHistory = input.Body.CompleteHistory
-			result, err := service.RefreshProvider(ctx, request)
-			if err != nil {
-				return nil, problemFromProviderError(
-					ctx, err, result, providerRefreshCapability(service),
-				)
-			}
-			return providerRefreshOutputFor(ctx, result, providerRefreshCapability(service))
-		})
+	huma.Register(server.api, huma.Operation{
+		OperationID: "refreshProvider", Method: http.MethodPost, Path: refreshPath,
+		Summary: "Refresh one complete provider snapshot",
+		Errors:  []int{400, 403, 409, 413, 422, 500, 503, 504},
+	}, func(ctx context.Context, input *providerRefreshInput) (*providerRefreshOutput, error) {
+		return refreshProvider(ctx, config.Refresher, input)
+	})
+	huma.Register(server.api, huma.Operation{
+		OperationID: "confirmProviderRefresh", Method: http.MethodPost, Path: confirmationPath,
+		Summary: "Confirm one suspicious provider refresh candidate",
+		Errors:  []int{400, 403, 409, 413, 422, 500, 503, 504},
+	}, func(ctx context.Context, input *providerConfirmationInput) (*providerRefreshOutput, error) {
+		return confirmProviderRefresh(ctx, config.Refresher, input)
+	})
+}
+
+// refreshProvider runs one refresh through the host's refresher, or through the profile's service
+// when the host set none.
+func refreshProvider(
+	ctx context.Context,
+	refresher ProviderRefresher,
+	input *providerRefreshInput,
+) (*providerRefreshOutput, error) {
+	service := profileService(ctx)
+	ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)
+	defer cancel()
+	request, err := providerRefreshRequest(input.Body)
+	if err != nil {
+		return nil, problemFromError(ctx, err)
 	}
-	registerRefresh("refreshProvider", refreshPath, false)
-	registerRefresh("confirmProviderRefresh", confirmationPath, true)
+	request.Manual = input.Body.Manual
+	request.CompleteHistory = input.Body.CompleteHistory
+	var result app.ProviderRefreshResult
+	if refresher != nil {
+		result, err = refresher.RefreshProvider(ctx, input.ProfileID, request)
+	} else {
+		result, err = service.RefreshProvider(ctx, request)
+	}
+	if err != nil {
+		return nil, problemFromProviderError(
+			ctx, err, result, providerRefreshCapability(service),
+		)
+	}
+	return providerRefreshOutputFor(ctx, result, providerRefreshCapability(service))
+}
+
+// confirmProviderRefresh folds one parked refresh candidate through the host's refresher, or
+// through the profile's service when the host set none.
+func confirmProviderRefresh(
+	ctx context.Context,
+	refresher ProviderRefresher,
+	input *providerConfirmationInput,
+) (*providerRefreshOutput, error) {
+	service := profileService(ctx)
+	ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)
+	defer cancel()
+	body := input.Body
+	request, err := providerRefreshRequest(body.ProviderRefreshBody)
+	if err != nil {
+		return nil, problemFromError(ctx, err)
+	}
+	request.Manual = body.Manual
+	request.ConfirmationToken = body.ConfirmationToken
+	var result app.ProviderRefreshResult
+	if refresher != nil {
+		result, err = refresher.ConfirmProviderRefresh(ctx, input.ProfileID, request)
+	} else {
+		result, err = service.ConfirmProviderRefresh(ctx, request)
+	}
+	if err != nil {
+		return nil, problemFromProviderError(
+			ctx, err, result, providerRefreshCapability(service),
+		)
+	}
+	return providerRefreshOutputFor(ctx, result, providerRefreshCapability(service))
 }
 
 func providerRefreshRequest(body ProviderRefreshBody) (app.ProviderRefreshRequest, error) {

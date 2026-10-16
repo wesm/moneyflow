@@ -14,6 +14,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/diagnostic"
 	"github.com/wesm/moneyflow/internal/exporter"
 )
 
@@ -148,7 +149,7 @@ func (server *Server) registerExportEndpoints() {
 				address := stream.URL()
 				server.errorLog.Printf(
 					"%s %s: the export download stopped after %d of %d bytes: %s",
-					stream.Method(), address.Path, written, download.Size, describeCause(copyErr),
+					stream.Method(), address.Path, written, download.Size, diagnostic.DescribeCause(copyErr),
 				)
 			}
 		}}, nil

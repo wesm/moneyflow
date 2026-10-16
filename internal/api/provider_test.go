@@ -885,3 +885,55 @@ func windowedAPISnapshot(
 	snapshot.Transactions = rows
 	return snapshot
 }
+
+// recordingRefresher records each refresh and confirmation it runs and answers every one with
+// a stale-refresh failure.
+type recordingRefresher struct{ calls *[]string }
+
+func (refresher recordingRefresher) RefreshProvider(
+	_ context.Context,
+	profileID string,
+	request app.ProviderRefreshRequest,
+) (app.ProviderRefreshResult, error) {
+	*refresher.calls = append(*refresher.calls,
+		fmt.Sprintf("refresh %s manual=%t complete_history=%t",
+			profileID, request.Manual, request.CompleteHistory))
+	return app.ProviderRefreshResult{}, &app.AppError{Code: app.AppProviderRefreshStale}
+}
+
+func (refresher recordingRefresher) ConfirmProviderRefresh(
+	_ context.Context,
+	profileID string,
+	request app.ProviderRefreshRequest,
+) (app.ProviderRefreshResult, error) {
+	*refresher.calls = append(*refresher.calls,
+		fmt.Sprintf("confirm %s token=%s", profileID, request.ConfirmationToken))
+	return app.ProviderRefreshResult{}, &app.AppError{Code: app.AppProviderRefreshStale}
+}
+
+func TestAHostRefresherRunsTheRefreshAndConfirmOperations(t *testing.T) {
+	t.Parallel()
+	service, err := app.NewService([]domain.Transaction{apiTransaction(t)})
+	require.NoError(t, err)
+	var calls []string
+	server, err := New(Config{
+		Resolver: resolverForService(testProfileID, service), BasePath: "/", Version: "test",
+		HostAdmission: true, Refresher: recordingRefresher{calls: &calls},
+	})
+	require.NoError(t, err)
+	path := "/api/v1/profiles/" + testProfileID + "/provider/refresh"
+
+	completeHistory := manualRefreshBody()
+	completeHistory.CompleteHistory = true
+	refreshed := requestJSON(t, server, path, completeHistory)
+	confirmed := requestJSON(t, server, path+"/confirm", ProviderConfirmationBody{
+		ProviderRefreshBody: manualRefreshBody(), ConfirmationToken: "token-example",
+	})
+
+	assert.Equal(t, http.StatusConflict, refreshed.Code, refreshed.Body.String())
+	assert.Equal(t, http.StatusConflict, confirmed.Code, confirmed.Body.String())
+	assert.Equal(t, []string{
+		"refresh " + testProfileID + " manual=true complete_history=true",
+		"confirm " + testProfileID + " token=token-example",
+	}, calls)
+}

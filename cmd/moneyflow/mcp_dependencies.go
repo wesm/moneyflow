@@ -6,9 +6,11 @@ import (
 	"errors"
 	"time"
 
+	"github.com/wesm/moneyflow/internal/assembly"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/mcp"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
+	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
 // MCPDependencies owns one selected profile and its process-scoped MCP server.
@@ -63,7 +65,7 @@ func buildMCPDependencies(
 	if err != nil {
 		return MCPDependencies{}, closeOpenedProfile(opened, err)
 	}
-	matcher, err := newCatalogAmazonMatcher(catalog)
+	matcher, err := assembly.NewAmazonMatcher(catalog.List, catalog.Resolve, sqlite.DefaultOptions)
 	if err != nil {
 		return MCPDependencies{}, closeOpenedProfile(opened, err)
 	}

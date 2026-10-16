@@ -2263,3 +2263,45 @@ func (writer *scriptedProviderWriter) maxConcurrency() int {
 	defer writer.mu.Unlock()
 	return writer.maximum
 }
+
+func TestProjectionOnlyReconcileAnswersFromLocalData(t *testing.T) {
+	t.Parallel()
+
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 29, 15, 0, 0, 0, time.UTC)
+	identity := provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"}
+	source := &fakeProviderSource{
+		identity: identity, snapshot: providerSnapshot(t, now, 3), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "projection-instance")
+	refresh := app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	}
+	_, err := service.RefreshProvider(t.Context(), refresh)
+	require.NoError(t, err)
+	// Another process refreshes the profile, so this service's copy of the data is out of date.
+	other, err := app.NewProfileService(t.Context(), profileHandle)
+	require.NoError(t, err)
+	later := now.Add(time.Minute)
+	configureProviderRefreshService(t, other, &fakeProviderSource{
+		identity: identity, snapshot: providerSnapshot(t, later, 4), fingerprint: "session-a",
+	}, later, "other-instance")
+	changed, err := other.RefreshProvider(t.Context(), refresh)
+	require.NoError(t, err)
+	window := app.WindowRequest{Limit: 2}
+	want, err := other.ProjectView(app.DefaultViewState(), app.EmptySelection(), window)
+	require.NoError(t, err)
+
+	// The profile has no write batch, so a reconcile that read the provider would fail.
+	projected, err := service.StopAndReconcileProviderWrite(t.Context(),
+		app.ProviderWriteReconcileRequest{
+			ProjectionOnly: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+			Window: window,
+		})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, source.fetchCalls())
+	assert.Equal(t, changed.Revision, projected.Revision)
+	assert.Equal(t, app.SelectionPreserved, projected.SelectionDisposition)
+	assert.Equal(t, want, projected.Projection)
+}

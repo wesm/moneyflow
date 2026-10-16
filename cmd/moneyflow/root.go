@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/assembly"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/tui"
 	"github.com/wesm/moneyflow/internal/version"
@@ -36,9 +37,9 @@ type IOStreams struct {
 	// OpenProfile owns persistent and demo SQLite lifecycle at the command boundary.
 	OpenProfile ProfileOpener
 	// Concrete provider factories and Prompt are lifecycle seams overridden in tests.
-	OpenMonarch   MonarchCommandFactory
-	OpenYNAB      YNABCommandFactory
-	OpenSimpleFIN SimpleFINCommandFactory
+	OpenMonarch   assembly.MonarchFactory
+	OpenYNAB      assembly.YNABFactory
+	OpenSimpleFIN assembly.SimpleFINFactory
 	ImportAmazon  AmazonCommandImporter
 	Prompt        PromptFunc
 	// Listen, OpenBrowser, and SignalContext are production lifecycle seams overridden in tests.

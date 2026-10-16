@@ -8,10 +8,12 @@ import (
 
 	"github.com/wesm/moneyflow/internal/amazonimport"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/assembly"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/importer/amazon"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/simplefinonboarding"
+	"github.com/wesm/moneyflow/internal/store/sqlite"
 	"github.com/wesm/moneyflow/internal/tui"
 )
 
@@ -37,11 +39,12 @@ func buildTUIShellDependencies(
 	if err != nil {
 		return tui.ShellDependencies{}, err
 	}
-	amazonMatcher, err := newCatalogAmazonMatcher(catalog)
+	amazonMatcher, err := assembly.NewAmazonMatcher(
+		catalog.List, catalog.Resolve, sqlite.DefaultOptions)
 	if err != nil {
 		return tui.ShellDependencies{}, err
 	}
-	instanceID, err := newProviderInstanceID("tui")
+	instanceID, err := assembly.NewInstanceID("tui")
 	if err != nil {
 		return tui.ShellDependencies{}, err
 	}
@@ -86,7 +89,7 @@ func buildTUIShellDependencies(
 		Runtime: func(paths home.Paths) (simplefinonboarding.Runtime, error) {
 			factory := streams.OpenSimpleFIN
 			if factory == nil {
-				factory = defaultSimpleFINCommandFactory
+				factory = assembly.NewSimpleFINRuntime
 			}
 			runtime, runtimeErr := factory(paths)
 			runtime.InstanceID = instanceID + "-simplefin"
@@ -109,7 +112,7 @@ func buildTUIShellDependencies(
 			if entry.ProviderKind != "amazon" {
 				return amazonimport.Target{}, errors.New("selected profile is not an Amazon profile")
 			}
-			return openAmazonImportTarget(targetContext, catalog, entry)
+			return assembly.OpenAmazonImportTarget(targetContext, catalog, entry, sqlite.DefaultOptions)
 		},
 	})
 	if err != nil {
@@ -118,11 +121,12 @@ func buildTUIShellDependencies(
 	}
 	dependencies := tui.ShellDependencies{
 		Catalog:    catalog,
-		Profiles:   amazonMatchingProfileLifecycle{ProfileCatalog: catalog, matcher: amazonMatcher},
+		Profiles:   assembly.AmazonMatchingLifecycle{ProfileCatalog: catalog, Matcher: amazonMatcher},
 		Onboarding: coordinator, AmazonImports: amazonCoordinator,
 		SimpleFINOnboarding: simplefinCoordinator,
 		LoadAmazonTaxonomy: func(loadContext context.Context, selector string) (*app.TaxonomyClone, error) {
-			return loadAmazonTaxonomyClone(loadContext, catalog, selector)
+			return assembly.LoadAmazonTaxonomyClone(
+				loadContext, catalog.Resolve, selector, sqlite.DefaultOptions)
 		},
 		OpenProfile: func(openContext context.Context, selector string) (tui.ShellOpenedProfile, error) {
 			opened, openErr := rawOpen(openContext, selector)

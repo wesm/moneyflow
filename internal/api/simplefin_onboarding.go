@@ -236,7 +236,7 @@ func problemFromSimpleFINOnboardingError(err error) *Problem {
 	case "store_error":
 		return newProblem(status, "internal_error", detail).withCause(err)
 	default:
-		return newProblem(status, "internal_error", detail).withCause(err)
+		return problemFromUncodedSetupError(err, status, detail)
 	}
 	return newProblem(status, string(code), detail)
 }

@@ -93,7 +93,7 @@ type amazonUploadInput struct {
 }
 
 func (server *Server) registerAmazonImportEndpoints(config Config) {
-	huma.Register(server.api, huma.Operation{OperationID: "startAmazonImport", Method: http.MethodPost, Path: server.profilePath("amazon-import/start"), Summary: "Start Amazon import", Errors: []int{400, 404, 409, 413, 422, 500}}, func(ctx context.Context, input *amazonStartInput) (*amazonImportOutput, error) {
+	huma.Register(server.api, huma.Operation{OperationID: "startAmazonImport", Method: http.MethodPost, Path: server.profilePath("amazon-import/start"), Summary: "Start Amazon import", Errors: []int{400, 404, 409, 413, 422, 500, 503}}, func(ctx context.Context, input *amazonStartInput) (*amazonImportOutput, error) {
 		if config.AmazonImports == nil {
 			return nil, amazonImportUnavailable()
 		}
@@ -118,7 +118,7 @@ func (server *Server) registerAmazonImportEndpoints(config Config) {
 		}
 		return amazonSnapshotOutput(snapshot, nil), nil
 	})
-	huma.Register(server.api, huma.Operation{OperationID: "stageAmazonImportFiles", Method: http.MethodPost, Path: server.profilePath("amazon-import/{attempt_id}/files"), Summary: "Stage Amazon import files", Errors: []int{400, 404, 409, 413, 422, 500}}, func(ctx context.Context, input *amazonUploadInput) (*amazonImportOutput, error) {
+	huma.Register(server.api, huma.Operation{OperationID: "stageAmazonImportFiles", Method: http.MethodPost, Path: server.profilePath("amazon-import/{attempt_id}/files"), Summary: "Stage Amazon import files", Errors: []int{400, 404, 409, 413, 422, 500, 503}}, func(ctx context.Context, input *amazonUploadInput) (*amazonImportOutput, error) {
 		if config.AmazonImports == nil {
 			return nil, amazonImportUnavailable()
 		}
@@ -144,7 +144,7 @@ func (server *Server) registerAmazonImportEndpoints(config Config) {
 		}
 		return amazonSnapshotOutput(snapshot, nil), nil
 	})
-	huma.Register(server.api, huma.Operation{OperationID: "executeAmazonImport", Method: http.MethodPost, Path: server.profilePath("amazon-import/{attempt_id}/execute"), Summary: "Execute Amazon import", Errors: []int{400, 404, 409, 413, 422, 500}}, func(ctx context.Context, input *amazonAttemptInput) (*amazonImportOutput, error) {
+	huma.Register(server.api, huma.Operation{OperationID: "executeAmazonImport", Method: http.MethodPost, Path: server.profilePath("amazon-import/{attempt_id}/execute"), Summary: "Execute Amazon import", Errors: []int{400, 404, 409, 413, 422, 500, 503}}, func(ctx context.Context, input *amazonAttemptInput) (*amazonImportOutput, error) {
 		if config.AmazonImports == nil {
 			return nil, amazonImportUnavailable()
 		}
@@ -162,7 +162,7 @@ func (server *Server) registerAmazonImportEndpoints(config Config) {
 		}
 		return amazonSnapshotOutput(snapshot, nil), nil
 	})
-	huma.Register(server.api, huma.Operation{OperationID: "readAmazonImportStatus", Method: http.MethodGet, Path: server.profilePath("amazon-import/{attempt_id}/status"), Summary: "Read Amazon import status", Errors: []int{404, 500}}, func(ctx context.Context, input *amazonStatusInput) (*amazonImportOutput, error) {
+	huma.Register(server.api, huma.Operation{OperationID: "readAmazonImportStatus", Method: http.MethodGet, Path: server.profilePath("amazon-import/{attempt_id}/status"), Summary: "Read Amazon import status", Errors: []int{404, 500, 503}}, func(ctx context.Context, input *amazonStatusInput) (*amazonImportOutput, error) {
 		if config.AmazonImports == nil {
 			return nil, amazonImportUnavailable()
 		}
@@ -172,7 +172,7 @@ func (server *Server) registerAmazonImportEndpoints(config Config) {
 		}
 		return amazonSnapshotOutput(snapshot, nil), nil
 	})
-	huma.Register(server.api, huma.Operation{OperationID: "cancelAmazonImport", Method: http.MethodPost, Path: server.profilePath("amazon-import/{attempt_id}/cancel"), Summary: "Cancel Amazon import", Errors: []int{400, 404, 409, 500}}, func(ctx context.Context, input *amazonAttemptInput) (*amazonImportOutput, error) {
+	huma.Register(server.api, huma.Operation{OperationID: "cancelAmazonImport", Method: http.MethodPost, Path: server.profilePath("amazon-import/{attempt_id}/cancel"), Summary: "Cancel Amazon import", Errors: []int{400, 404, 409, 500, 503}}, func(ctx context.Context, input *amazonAttemptInput) (*amazonImportOutput, error) {
 		if config.AmazonImports == nil {
 			return nil, amazonImportUnavailable()
 		}
@@ -261,9 +261,13 @@ var amazonImportProblems = map[amazonimport.Code]amazonProblem{
 	},
 }
 
-// amazonImportProblem names a coordinator failure. A failure without a code is unexpected, so
-// the browser gets a generic problem and the server log gets the cause.
+// amazonImportProblem names a coordinator failure. A profile that is closing or being recovered
+// answers 503 profile_busy, so a client retries. A failure without a code is unexpected, so the
+// browser gets a generic problem and the server log gets the cause.
 func amazonImportProblem(err error) *Problem {
+	if errors.Is(err, ErrProfileUnavailable) {
+		return problemFromProfileOpen(err)
+	}
 	known, ok := amazonImportProblems[amazonimport.CodeOf(err)]
 	if !ok {
 		return newProblem(
@@ -278,8 +282,12 @@ func amazonRequestInvalid() *Problem {
 	return newProblem(known.status, string(known.code), known.detail)
 }
 
-// amazonTaxonomyProblem says why the category source profile could not be copied.
+// amazonTaxonomyProblem says why the category source profile could not be copied. A profile that
+// is closing or being recovered answers 503 profile_busy, so a client retries.
 func amazonTaxonomyProblem(err error) *Problem {
+	if errors.Is(err, ErrProfileUnavailable) {
+		return problemFromProfileOpen(err)
+	}
 	switch profilecatalog.CodeOf(err) {
 	case profilecatalog.CodeProfileNotFound, profilecatalog.CodeProfileAmbiguous:
 		return newProblem(http.StatusUnprocessableEntity, string(CodeAmazonTaxonomySourceInvalid),

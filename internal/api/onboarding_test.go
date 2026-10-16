@@ -168,6 +168,25 @@ func TestOnboardingRejectsProtocolOneAndCrossProviderCredentialFields(t *testing
 	assert.Zero(t, coordinator.submits.Load())
 }
 
+func TestOnboardingStartAfterTheCoordinatorClosedAnswersProfileBusy(t *testing.T) {
+	t.Parallel()
+	coordinator, err := onboarding.NewCoordinator(onboarding.Config{InstanceID: "test-instance"})
+	require.NoError(t, err)
+	require.NoError(t, coordinator.Close(t.Context()))
+	server := newOnboardingAPIServer(t, coordinator)
+	path, err := ProfileAPIPath("/", testProfileID, "onboarding/start")
+	require.NoError(t, err)
+
+	response := requestScopedMutation(t, server, testProfileID, path, OnboardingStartBody{
+		ProtocolVersion: onboarding.ProtocolVersion,
+	})
+
+	assert.Equal(t, http.StatusServiceUnavailable, response.Code, response.Body.String())
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	assert.Equal(t, "profile_busy", problem.Code)
+}
+
 func TestOnboardingMutationRejectsAnotherProfileToken(t *testing.T) {
 	t.Parallel()
 	server := newOnboardingAPIServer(t, &apiOnboardingFake{})

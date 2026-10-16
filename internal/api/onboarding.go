@@ -2,12 +2,14 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/onboarding"
+	"github.com/wesm/moneyflow/internal/simplefinonboarding"
 )
 
 // OnboardingStartBody starts one profile-bound process-local attempt.
@@ -440,7 +442,17 @@ func problemFromOnboardingError(err error) *Problem {
 	case onboarding.CodeProviderConnectInProgress:
 		status, detail = http.StatusServiceUnavailable, "Another provider connection is in progress."
 	default:
-		return newProblem(status, "internal_error", detail).withCause(err)
+		return problemFromUncodedSetupError(err, status, detail)
 	}
 	return newProblem(status, string(code), detail)
+}
+
+// problemFromUncodedSetupError answers an onboarding or SimpleFIN setup error without a protocol
+// code. A setup coordinator closes while its host shuts down or restores, so its refusal reads as
+// busy and retryable, as a profile that is closing does.
+func problemFromUncodedSetupError(err error, status int, detail string) *Problem {
+	if errors.Is(err, onboarding.ErrClosed) || errors.Is(err, simplefinonboarding.ErrClosed) {
+		return problemFromProfileOpen(ErrProfileUnavailable)
+	}
+	return newProblem(status, "internal_error", detail).withCause(err)
 }

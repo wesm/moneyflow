@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/assembly"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/home"
@@ -717,13 +718,13 @@ func TestOpenMonarchCommandBuildsRuntimeWithBoundMoneyInterpretation(t *testing.
 	now := time.Date(2026, time.August, 15, 23, 40, 0, 0, time.UTC)
 	bindCommandProfile(t, root, now)
 	var got monarch.ImportConfig
-	streams := IOStreams{OpenMonarch: func(paths home.Paths, config monarch.ImportConfig) (MonarchCommandRuntime, error) {
+	streams := IOStreams{OpenMonarch: func(paths home.Paths, config monarch.ImportConfig) (assembly.MonarchRuntime, error) {
 		got = config
 		sessions, err := monarch.NewSessionStore(paths)
 		require.NoError(t, err)
 		vault, err := monarch.NewCredentialVault(paths)
 		require.NoError(t, err)
-		return MonarchCommandRuntime{
+		return assembly.MonarchRuntime{
 			Connector: &fakeMonarchConnector{}, Sessions: sessions, Credentials: vault,
 			ReadSource: &commandProviderSource{}, WriteSource: &commandProviderSource{},
 			InstanceID: "cli-test", Now: func() time.Time { return now },
@@ -844,14 +845,14 @@ func executeProviderCommandRaw(
 	var stderr bytes.Buffer
 	command := newRootCommand(IOStreams{
 		In: strings.NewReader(""), Out: &stdout, Err: &stderr, Prompt: prompt,
-		OpenMonarch: func(paths home.Paths, _ monarch.ImportConfig) (MonarchCommandRuntime, error) {
+		OpenMonarch: func(paths home.Paths, _ monarch.ImportConfig) (assembly.MonarchRuntime, error) {
 			sessions, err := monarch.NewSessionStore(paths)
 			if err != nil {
-				return MonarchCommandRuntime{}, err
+				return assembly.MonarchRuntime{}, err
 			}
 			credentials, err := monarch.NewCredentialVault(paths)
 			if err != nil {
-				return MonarchCommandRuntime{}, err
+				return assembly.MonarchRuntime{}, err
 			}
 			now := commandCredentialTime
 			if commandSource, ok := source.(*commandProviderSource); ok {
@@ -862,7 +863,7 @@ func executeProviderCommandRaw(
 					now = observedAt
 				}
 			}
-			return MonarchCommandRuntime{
+			return assembly.MonarchRuntime{
 				Connector: connector, Sessions: sessions, Credentials: credentials,
 				ReadSource: source, WriteSource: source,
 				InstanceID: "cli-test", Now: func() time.Time {
@@ -1198,3 +1199,28 @@ func assertOnboardingCommandCode(t testing.TB, err error, code onboarding.Code) 
 }
 
 var _ io.Reader = (*commandRandomReader)(nil)
+
+func TestCommandLineMonarchRefreshSchedulingUsesTheWallClock(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	boundAt := time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)
+	bindCommandProfile(t, root, boundAt)
+	opened, err := openProfile(context.Background(), ProfileOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, opened.Close()) })
+	openMonarch := func(home.Paths, monarch.ImportConfig) (assembly.MonarchRuntime, error) {
+		return assembly.MonarchRuntime{
+			ReadSource: &commandProviderSource{}, WriteSource: &commandProviderSource{},
+			InstanceID: "cli-test", Now: func() time.Time { return boundAt },
+		}, nil
+	}
+
+	err = configureOpenedProvider(
+		context.Background(), opened, IOStreams{OpenMonarch: openMonarch}, "mcp",
+	)
+	require.NoError(t, err)
+	status, err := opened.Service.ProviderStatus(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, app.ProviderRefreshFull, status.RefreshDue)
+}

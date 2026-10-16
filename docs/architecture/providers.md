@@ -51,6 +51,16 @@ plausibility within the window. A month-to-date first import passes its range as
 that one manual refresh, so the provider source keeps no range and later refreshes are not
 windowed.
 
+**Unreleased:** A process that serves MCP tools or embeds moneyflow's Go package runs one refresh
+at a time for each profile. A new request shares the running refresh when that refresh reads at
+least as much. From the same provider status, a scheduled request reads nothing or what a manual
+request reads, and complete history covers both. So a scheduled request shares any refresh, a
+manual request shares a manual or complete-history refresh, and a complete-history request shares
+only a complete-history refresh. Any other request waits for one follow-up refresh, which starts
+when the running refresh stops and reads the most that any of its requests asked for. A refresh
+that waits for deletion confirmation has read what a manual refresh reads, so only a
+complete-history request replaces it. Shutdown drops a follow-up that has not started.
+
 YNAB uses a six-hour cadence in long-lived TUI/web processes. SimpleFIN uses 24 hours and parks
 failed automatic attempts until explicit action. MCP refresh is explicit.
 Amazon and bank CSV have no network refresh scheduler.

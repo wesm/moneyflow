@@ -386,6 +386,13 @@ unlocked YNAB, or connected SimpleFIN profile. It
 starts one explicit refresh and returns a process-local attempt ID. **Unreleased:** For Monarch,
 it reads the last 90 days unless complete history is due, as `r` does; pass
 `complete_history: true` to read complete history. See [Monarch refresh](monarch.md#refresh-data).
+**Unreleased:** While a refresh runs, `refresh_data` returns that refresh's attempt ID when the
+refresh reads at least what the call asks for. A call that asks for more, such as
+`complete_history: true` during a refresh of the last 90 days, returns the ID of one follow-up
+refresh instead. The follow-up starts when the running refresh stops, later calls share it, and
+`get_refresh_status` reports it as running until then. A call during a refresh that waits for
+deletion confirmation returns that refresh, unless the call asks for more: then a new refresh
+replaces it, and its confirmation token stops working.
 `get_refresh_status` reports `fetched`, `total`, `verifying`, and `percent` while the refresh
 runs. Poll `get_refresh_status` for
 completion. If the deletion guard requires confirmation, retrieve the process-local token from the

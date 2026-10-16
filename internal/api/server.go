@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -51,6 +52,12 @@ type Config struct {
 	ReportFailure func(profileID string, err error)
 	// Remover enables the removeProfile operation. It requires Evictor.
 	Remover ProfileRemover
+	// Refresher runs the refreshProvider and confirmProviderRefresh operations when set. Nil
+	// calls the profile's service directly, as the standalone server does.
+	Refresher ProviderRefresher
+	// Reconciler runs the reconcileProviderWrite and confirmProviderWriteReconcile operations
+	// when set. Nil calls the profile's service directly, as the standalone server does.
+	Reconciler ProviderReconciler
 }
 
 // Health reports non-sensitive process and persistent-profile metadata.
@@ -86,6 +93,8 @@ type Server struct {
 	workMu        sync.Mutex
 	workClosed    bool
 	reportFailure func(string, error)
+	// admissionStopped makes every later request answer 503 profile_busy; see StopAdmitting.
+	admissionStopped atomic.Bool
 }
 
 type onboardingCompletion struct {
@@ -214,9 +223,22 @@ func New(config Config) (*Server, error) {
 	handler = legacyProfileRoutes(handler, basePath, config.LegacyProfileID)
 	handler = safeProblemResponses(handler, server.errorLog)
 	handler = recoverAPI(handler, server.errorLog)
+	handler = server.admitUntilStopped(handler)
 	handler = noStore(handler)
 	server.handler = handler
 	return server, nil
+}
+
+// admitUntilStopped answers every request with 503 profile_busy once StopAdmitting has run, before
+// any other check, so no request reads or opens a profile after that.
+func (server *Server) admitUntilStopped(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if server.admissionStopped.Load() {
+			writeProblem(response, problemFromProfileOpen(ErrProfileUnavailable))
+			return
+		}
+		next.ServeHTTP(response, request)
+	})
 }
 
 func strictProfileAPIPaths(next http.Handler, basePath string) http.Handler {
@@ -308,6 +330,11 @@ func profileMutationSecurity(
 func (server *Server) Handler() http.Handler {
 	return server.handler
 }
+
+// StopAdmitting makes every request that arrives later answer 503 profile_busy, as a profile that
+// is closing does, so a client retries. A request admitted earlier runs to its end. An embedded
+// instance calls it when its Close starts; the standalone server never does.
+func (server *Server) StopAdmitting() { server.admissionStopped.Store(true) }
 
 // OpenAPIJSON returns stable indented OpenAPI 3.1 JSON.
 func (server *Server) OpenAPIJSON() ([]byte, error) {
@@ -766,13 +793,23 @@ func problemFromProviderError(
 			providerRefreshTimeoutDetail,
 		)
 	}
-	problem := problemFromError(ctx, err)
+	problem := problemFromProviderWork(ctx, err)
 	if result.Status.Code != "" || result.Status.ConfirmationToken != "" {
 		status := providerStatusToWire(result.Status)
 		status.Capability = capability
 		problem.Provider = &status
 	}
 	return problem
+}
+
+// problemFromProviderWork explains a failed provider refresh, write or reconcile. A profile that
+// is closing or being removed answers 503 profile_busy, as a profile route does, so the client
+// retries.
+func problemFromProviderWork(ctx context.Context, err error) *Problem {
+	if errors.Is(err, ErrProfileUnavailable) {
+		return problemFromProfileOpen(err)
+	}
+	return problemFromError(ctx, err)
 }
 
 func selectionResetWarnings() []Warning {

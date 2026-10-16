@@ -84,6 +84,7 @@ func TestOnboardingImportsKeepMonarchAtTheCompositionBoundary(t *testing.T) {
 		// The browser integration binary is a non-production composition root that
 		// supplies the same typed runtime with an in-memory provider implementation.
 		filepath.Join(internalDir, "tools", "webtestserver", "main.go"): true,
+		filepath.Join(internalDir, "assembly", "provider.go"):           true,
 	}
 	for path := range compositionFiles {
 		_, statErr := os.Stat(path)
@@ -114,6 +115,7 @@ func TestOnboardingImportsKeepYNABAtTheCompositionBoundary(t *testing.T) {
 		filepath.Join(repoDir, "cmd", "moneyflow", "onboarding_presenter.go"): true,
 		filepath.Join(repoDir, "cmd", "moneyflow", "ynab_provider_test.go"):   true,
 		filepath.Join(internalDir, "tools", "webtestserver", "main.go"):       true,
+		filepath.Join(internalDir, "assembly", "provider.go"):                 true,
 		filepath.Join(internalDir, "tools", "webtestserver", "main_test.go"):  true,
 	}
 	allowed := func(path, imported string) bool {
@@ -223,6 +225,7 @@ func TestMCPDependencyBoundary(t *testing.T) {
 		if strings.HasPrefix(imported, "github.com/wesm/moneyflow/internal/") {
 			for _, allowed := range []string{
 				"access", "app", "domain", "provider", "httpsecurity", "home", "version", "exporter",
+				"diagnostic",
 			} {
 				if importsPackageTree(imported, "github.com/wesm/moneyflow/internal/"+allowed) {
 					return true

@@ -70,6 +70,9 @@ type ProviderWriteReconcileRequest struct {
 	State             ViewState
 	Selection         SelectionValue
 	Window            WindowRequest
+	// ProjectionOnly answers the request's view from local data without reading the provider or
+	// changing the batch, as a reconcile that another caller already settled does.
+	ProjectionOnly bool
 }
 
 // ProviderWriteResult is the renderer-neutral result of authoritative stop-and-reconcile.
@@ -1494,6 +1497,16 @@ func (service *Service) StopAndReconcileProviderWrite(
 	ctx context.Context,
 	request ProviderWriteReconcileRequest,
 ) (ProviderWriteResult, error) {
+	if request.ProjectionOnly {
+		return service.projectProviderWriteReconcile(ctx, request)
+	}
+	return service.stopAndReconcileProviderWrite(ctx, request)
+}
+
+func (service *Service) stopAndReconcileProviderWrite(
+	ctx context.Context,
+	request ProviderWriteReconcileRequest,
+) (ProviderWriteResult, error) {
 	if request.ExpectedRevision != 0 {
 		if _, refreshErr := service.Refresh(ctx); refreshErr != nil {
 			return ProviderWriteResult{}, refreshErr
@@ -1685,17 +1698,7 @@ func (service *Service) foldProviderWriteReconcile(
 	if err = service.reloadAfterAuditedCommit(ctx, commit.Revision, err); err != nil {
 		return ProviderWriteResult{}, mapAppError(err, service.Revision())
 	}
-	state := request.State
-	if state.Validate() != nil {
-		state = DefaultViewState()
-	}
-	selection := request.Selection
-	if selection == "" {
-		selection = EmptySelection()
-	}
-	mutation, err := service.mutationResult(
-		state, selection, SelectionPreserved, request.Window,
-	)
+	mutation, err := service.reconciledView(request)
 	if err != nil {
 		return ProviderWriteResult{}, err
 	}
@@ -1705,6 +1708,43 @@ func (service *Service) foldProviderWriteReconcile(
 		Selection: mutation.Selection, SelectionDisposition: mutation.SelectionDisposition,
 		Projection: mutation.Projection,
 	}, nil
+}
+
+// projectProviderWriteReconcile answers a projection-only reconcile with the request's view of
+// local data. It reads nothing from the provider and leaves the batch as it is.
+func (service *Service) projectProviderWriteReconcile(
+	ctx context.Context,
+	request ProviderWriteReconcileRequest,
+) (ProviderWriteResult, error) {
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
+	if _, err := service.refreshLocked(ctx); err != nil {
+		return ProviderWriteResult{}, err
+	}
+	mutation, err := service.reconciledView(request)
+	if err != nil {
+		return ProviderWriteResult{}, err
+	}
+	return ProviderWriteResult{
+		Revision: mutation.Revision, Selection: mutation.Selection,
+		SelectionDisposition: mutation.SelectionDisposition, Projection: mutation.Projection,
+	}, nil
+}
+
+// reconciledView projects the request's view after a reconcile and keeps its selection. Call it
+// while holding interactions.
+func (service *Service) reconciledView(
+	request ProviderWriteReconcileRequest,
+) (MutationResult, error) {
+	state := request.State
+	if state.Validate() != nil {
+		state = DefaultViewState()
+	}
+	selection := request.Selection
+	if selection == "" {
+		selection = EmptySelection()
+	}
+	return service.mutationResult(state, selection, SelectionPreserved, request.Window)
 }
 
 func (service *Service) parkProviderWriteReconcile(

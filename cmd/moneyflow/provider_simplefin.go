@@ -12,16 +12,13 @@ import (
 
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
-	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/assembly"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/simplefin"
 	"github.com/wesm/moneyflow/internal/simplefinonboarding"
 )
-
-// SimpleFINCommandFactory supplies provider dependencies below one selected profile root.
-type SimpleFINCommandFactory func(home.Paths) (simplefinonboarding.Runtime, error)
 
 func cliInputIsTerminal(command *cobra.Command) bool {
 	input, ok := command.InOrStdin().(interface{ Fd() uintptr })
@@ -83,50 +80,13 @@ func newSimpleFINConnectCommand(streams IOStreams) *cobra.Command {
 	return command
 }
 
-func defaultSimpleFINCommandFactory(paths home.Paths) (simplefinonboarding.Runtime, error) {
-	sessions, err := simplefin.NewSessionStore(paths)
-	if err != nil {
-		return simplefinonboarding.Runtime{}, err
-	}
-	id, err := newProviderInstanceID("simplefin")
-	if err != nil {
-		return simplefinonboarding.Runtime{}, err
-	}
-	return simplefinonboarding.Runtime{Sessions: sessions, InstanceID: id, Now: time.Now,
-		Claim: func(ctx context.Context, input string) (string, error) { return simplefin.Claim(ctx, input, nil) },
-		NewSource: func(connection app.ProviderConnectionState, session simplefin.Session) (provider.ReaderSource, error) {
-			currency, scale := session.Import.Currency, session.Import.Scale
-			if connection.Bound {
-				currency, scale = connection.Currency, connection.Scale
-			}
-			return simplefin.NewSource(simplefin.SourceOptions{ExpectedRemoteID: connection.RemoteProfileID, Currency: currency, Scale: scale}, sessions)
-		}}, nil
-}
-
-func configureOpenedSimpleFINProvider(opened OpenedProfile, streams IOStreams, renderer string, connection app.ProviderConnectionState) error {
-	factory := streams.OpenSimpleFIN
-	if factory == nil {
-		factory = defaultSimpleFINCommandFactory
-	}
-	runtime, err := factory(opened.Paths)
-	if err != nil || runtime.NewSource == nil {
-		return errors.New("SimpleFIN renderer dependencies are unavailable")
-	}
-	// Binding supplies settings and expected identity; the source loads credentials lazily.
-	source, err := runtime.NewSource(connection, simplefin.Session{})
-	if err != nil || source == nil {
-		return errors.New("SimpleFIN renderer source is unavailable")
-	}
-	return opened.Service.ConfigureProvider(app.ProviderRuntime{ReadSource: source, Provider: "simplefin", Currency: connection.Currency, Scale: connection.Scale, Renderer: renderer, InstanceID: runtime.InstanceID, Now: runtime.Now})
-}
-
 func runCLISimpleFINOnboarding(command *cobra.Command, streams IOStreams, opened OpenedProfile, settings simplefin.ImportConfig) (runErr error) {
 	if opened.ID == "" || opened.Close == nil || opened.Service == nil || opened.Paths.Root == "" {
 		return closeOpenedProfile(opened, errors.New("opened profile is incomplete"))
 	}
 	factory := streams.OpenSimpleFIN
 	if factory == nil {
-		factory = defaultSimpleFINCommandFactory
+		factory = assembly.NewSimpleFINRuntime
 	}
 	runtime, err := factory(opened.Paths)
 	if err != nil {

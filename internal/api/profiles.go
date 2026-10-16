@@ -9,6 +9,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/amazonimport"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/diagnostic"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
@@ -130,12 +131,14 @@ func resolveProfileRequests(
 		}
 		lease, err := resolver.Acquire(request.Context(), profileID)
 		if err != nil {
-			logger.Printf(
-				"%s %s: the profile could not be opened: %s",
-				request.Method, request.URL.Path, describeCause(err),
-			)
-		}
-		if err != nil {
+			// A profile that is closing or being recovered answers busy until it can open again,
+			// which is no failure to log.
+			if !errors.Is(err, ErrProfileUnavailable) {
+				logger.Printf(
+					"%s %s: the profile could not be opened: %s",
+					request.Method, request.URL.Path, diagnostic.DescribeCause(err),
+				)
+			}
 			writeProblem(response, problemFromProfileOpen(err))
 			return
 		}

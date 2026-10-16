@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"testing"
@@ -234,4 +235,57 @@ func TestProviderWriteStatusCarriesWhyABackgroundRunStopped(t *testing.T) {
 		Code: string(app.AppStoreBusy), Detail: "The profile is busy. Try again.",
 	}, *wire.RunFailure)
 	assert.Nil(t, providerWriteStatusToWire(7, 5, app.ProviderWriteStatus{}).RunFailure)
+}
+
+// recordingReconciler records each reconcile and confirmation it runs and answers every one with
+// a stale-write failure.
+type recordingReconciler struct{ calls *[]string }
+
+func (reconciler recordingReconciler) StopAndReconcileProviderWrite(
+	_ context.Context,
+	profileID string,
+	request app.ProviderWriteReconcileRequest,
+) (app.ProviderWriteResult, error) {
+	*reconciler.calls = append(*reconciler.calls,
+		fmt.Sprintf("reconcile %s version=%d", profileID, request.ExpectedVersion))
+	return app.ProviderWriteResult{}, &app.AppError{Code: app.AppProviderWriteStale}
+}
+
+func (reconciler recordingReconciler) ConfirmProviderWriteReconcile(
+	_ context.Context,
+	profileID string,
+	request app.ProviderWriteReconcileRequest,
+) (app.ProviderWriteResult, error) {
+	*reconciler.calls = append(*reconciler.calls, fmt.Sprintf("confirm %s version=%d token=%s",
+		profileID, request.ExpectedVersion, request.ConfirmationToken))
+	return app.ProviderWriteResult{}, &app.AppError{Code: app.AppProviderWriteStale}
+}
+
+func TestAHostReconcilerRunsTheReconcileAndConfirmOperations(t *testing.T) {
+	t.Parallel()
+	service, err := app.NewService([]domain.Transaction{apiTransaction(t)})
+	require.NoError(t, err)
+	var calls []string
+	server, err := New(Config{
+		Resolver: resolverForService(testProfileID, service), BasePath: "/", Version: "test",
+		HostAdmission: true, Reconciler: recordingReconciler{calls: &calls},
+	})
+	require.NoError(t, err)
+	path := "/api/v1/profiles/" + testProfileID + "/provider/write/reconcile"
+	body := ProviderWriteReconcileBody{
+		ProviderWriteControlBody: ProviderWriteControlBody{Version: "1", ExpectedBatchVersion: "7"},
+		Window:                   Window{Limit: 50},
+	}
+
+	reconciled := requestJSON(t, server, path, body)
+	confirmed := requestJSON(t, server, path+"/confirm", ProviderWriteConfirmationBody{
+		ProviderWriteReconcileBody: body, ConfirmationToken: "token-example",
+	})
+
+	assert.Equal(t, http.StatusConflict, reconciled.Code, reconciled.Body.String())
+	assert.Equal(t, http.StatusConflict, confirmed.Code, confirmed.Body.String())
+	assert.Equal(t, []string{
+		"reconcile " + testProfileID + " version=7",
+		"confirm " + testProfileID + " version=7 token=token-example",
+	}, calls)
 }

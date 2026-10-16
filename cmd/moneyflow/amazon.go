@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wesm/moneyflow/internal/amazonimport"
-	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/assembly"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/importer/amazon"
@@ -151,11 +151,16 @@ func runAmazonDirectoryImport(
 	if current != nil && options.CloneTaxonomyFrom != "" {
 		return result, errors.New("--clone-taxonomy-from is valid only when creating a profile")
 	}
-	clone, err := loadAmazonTaxonomyClone(ctx, catalog, options.CloneTaxonomyFrom)
+	clone, err := assembly.LoadAmazonTaxonomyClone(
+		ctx,
+		catalog.Resolve,
+		options.CloneTaxonomyFrom,
+		sqlite.DefaultOptions,
+	)
 	if err != nil {
 		return result, err
 	}
-	instanceID, err := newProviderInstanceID("amazon-cli")
+	instanceID, err := assembly.NewInstanceID("amazon-cli")
 	if err != nil {
 		return result, err
 	}
@@ -166,7 +171,7 @@ func runAmazonDirectoryImport(
 			if profileID != entry.ID {
 				return amazonimport.Target{}, errors.New("profile identity changed")
 			}
-			return openAmazonImportTarget(targetContext, catalog, entry)
+			return assembly.OpenAmazonImportTarget(targetContext, catalog, entry, sqlite.DefaultOptions)
 		},
 	})
 	if err != nil {
@@ -256,59 +261,4 @@ func resolveAmazonCommandSettings(
 		return amazon.Settings{}, errors.New("currency must have three letters and scale must be between 0 and 9")
 	}
 	return amazon.Settings{Currency: domain.Currency(currency), Scale: uint8(scale)}, nil
-}
-
-func loadAmazonTaxonomyClone(
-	ctx context.Context,
-	catalog *profilecatalog.Catalog,
-	selector string,
-) (*app.TaxonomyClone, error) {
-	if selector == "" {
-		return nil, nil
-	}
-	entry, err := catalog.Resolve(ctx, selector)
-	if err != nil {
-		return nil, fmt.Errorf("resolve taxonomy source: %w", err)
-	}
-	lock, err := home.TryLockExisting(entry.Root, home.LockProfile, home.LockShared)
-	if err != nil {
-		return nil, fmt.Errorf("open taxonomy source: %w", err)
-	}
-	defer func() { _ = lock.Release() }()
-	profile, err := sqlite.Open(ctx, entry.ProfilePaths(), sqlite.DefaultOptions)
-	if err != nil {
-		return nil, fmt.Errorf("open taxonomy source: %w", err)
-	}
-	defer func() { _ = profile.Close() }()
-	snapshot, err := profile.Load(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load taxonomy source: %w", err)
-	}
-	return &app.TaxonomyClone{SourceProfileID: entry.ID, Committed: snapshot.Committed}, nil
-}
-
-func openAmazonImportTarget(
-	_ context.Context,
-	catalog *profilecatalog.Catalog,
-	entry profilecatalog.Entry,
-) (amazonimport.Target, error) {
-	lifecycle, err := home.TryLockExisting(entry.Root, home.LockProfile, home.LockShared)
-	if err != nil {
-		return amazonimport.Target{}, err
-	}
-	if err = catalog.ValidateEntry(entry); err != nil {
-		_ = lifecycle.Release()
-		return amazonimport.Target{}, err
-	}
-	return amazonimport.Target{
-		ProfileID: entry.ID, Root: entry.Root, Close: lifecycle.Release,
-		Import: func(importContext context.Context, request app.AmazonImportRequest) (app.AmazonImportResult, error) {
-			profile, openErr := sqlite.Open(importContext, entry.ProfilePaths(), sqlite.DefaultOptions)
-			if openErr != nil {
-				return app.AmazonImportResult{}, openErr
-			}
-			defer func() { _ = profile.Close() }()
-			return app.ImportAmazonProfile(importContext, profile, request)
-		},
-	}, nil
 }

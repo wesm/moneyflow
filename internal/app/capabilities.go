@@ -1,6 +1,10 @@
 package app
 
-import "github.com/wesm/moneyflow/internal/domain"
+import (
+	"context"
+
+	"github.com/wesm/moneyflow/internal/domain"
+)
 
 // Capability describes whether one static action can run against the current profile state.
 type Capability struct {
@@ -28,6 +32,21 @@ func (service *Service) Capabilities() []Capability {
 		return nil
 	}
 	return service.capabilitiesForStateSnapshot(snapshot, DefaultViewState())
+}
+
+// ProviderRefreshCapability reports whether a provider refresh can run now. It first loads what
+// another process changed since the service last looked, such as a provider write that it
+// finished or reconciled, because Capabilities answers from what the service loaded.
+func (service *Service) ProviderRefreshCapability(ctx context.Context) (Capability, error) {
+	if _, err := service.Refresh(ctx); err != nil {
+		return Capability{}, err
+	}
+	for _, capability := range service.Capabilities() {
+		if capability.Action == ActionRefreshProvider {
+			return capability, nil
+		}
+	}
+	return Capability{Action: ActionRefreshProvider}, nil
 }
 
 // CapabilitiesForState returns action availability for one exact analytical state.

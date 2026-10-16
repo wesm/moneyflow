@@ -3,8 +3,10 @@ package mcp
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,7 +22,7 @@ import (
 
 func TestSupervisorUsesApplicationReservationAsWriteAuthority(t *testing.T) {
 	supervisor := NewSupervisor(context.Background(), time.Now,
-		strings.NewReader(strings.Repeat("w", 128)), nil)
+		strings.NewReader(strings.Repeat("w", 128)), nil, nil)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	first := &fakeWriteExecution{run: func(ctx context.Context) (app.ProviderWriteStatus, error) {
@@ -59,7 +61,7 @@ func TestSupervisorUsesApplicationReservationAsWriteAuthority(t *testing.T) {
 
 func TestSupervisorCloseCancelsBlockingWriteReservation(t *testing.T) {
 	supervisor := NewSupervisor(context.Background(), time.Now,
-		strings.NewReader(strings.Repeat("c", 128)), nil)
+		strings.NewReader(strings.Repeat("c", 128)), nil, nil)
 	started := make(chan struct{})
 	reservationDone := make(chan error, 1)
 	go func() {
@@ -80,7 +82,7 @@ func TestSupervisorCloseCancelsBlockingWriteReservation(t *testing.T) {
 func TestSupervisorReconcileAttemptIsRecoverableAndRequestIndependent(t *testing.T) {
 	now := time.Date(2026, time.August, 29, 13, 0, 0, 0, time.UTC)
 	supervisor := NewSupervisor(context.Background(), func() time.Time { return now },
-		strings.NewReader(strings.Repeat("r", 128)), nil)
+		strings.NewReader(strings.Repeat("r", 128)), nil, nil)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	requestContext, cancelRequest := context.WithCancel(context.Background())
@@ -139,11 +141,11 @@ func TestSupervisorReconcileAttemptIsRecoverableAndRequestIndependent(t *testing
 func TestSupervisorRefreshAttemptIsRecoverableAndSingleFlight(t *testing.T) {
 	now := time.Date(2026, time.August, 29, 13, 2, 0, 0, time.UTC)
 	supervisor := NewSupervisor(context.Background(), func() time.Time { return now },
-		strings.NewReader(strings.Repeat("f", 128)), nil)
+		strings.NewReader(strings.Repeat("f", 128)), nil, nil)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var runs atomic.Int32
-	attempt, err := supervisor.StartRefresh(func(ctx context.Context) (app.ProviderRefreshResult, error) {
+	attempt, err := supervisor.StartRefresh(RefreshManual, func(ctx context.Context) (app.ProviderRefreshResult, error) {
 		runs.Add(1)
 		close(started)
 		select {
@@ -158,7 +160,7 @@ func TestSupervisorRefreshAttemptIsRecoverableAndSingleFlight(t *testing.T) {
 	})
 	require.NoError(t, err)
 	<-started
-	duplicate, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+	duplicate, err := supervisor.StartRefresh(RefreshManual, func(context.Context) (app.ProviderRefreshResult, error) {
 		runs.Add(1)
 		return app.ProviderRefreshResult{}, nil
 	})
@@ -183,8 +185,8 @@ func TestSupervisorRefreshAttemptIsRecoverableAndSingleFlight(t *testing.T) {
 
 func TestSupervisorRefreshConfirmationIsProcessLocal(t *testing.T) {
 	supervisor := NewSupervisor(context.Background(), time.Now,
-		strings.NewReader(strings.Repeat("d", 128)), nil)
-	attempt, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+		strings.NewReader(strings.Repeat("d", 128)), nil, nil)
+	attempt, err := supervisor.StartRefresh(RefreshManual, func(context.Context) (app.ProviderRefreshResult, error) {
 		return app.ProviderRefreshResult{
 			Revision: 4, Generation: 2,
 			Status: app.ProviderStatus{
@@ -216,8 +218,8 @@ func TestSupervisorRefreshConfirmationIsProcessLocal(t *testing.T) {
 
 func TestSupervisorRefreshFailureKeepsAuthoritativeVersions(t *testing.T) {
 	supervisor := NewSupervisor(context.Background(), time.Now,
-		strings.NewReader(strings.Repeat("v", 128)), nil)
-	attempt, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+		strings.NewReader(strings.Repeat("v", 128)), nil, nil)
+	attempt, err := supervisor.StartRefresh(RefreshManual, func(context.Context) (app.ProviderRefreshResult, error) {
 		result := app.ProviderRefreshResult{
 			Status: app.ProviderStatus{
 				Generation: 12, ConfirmationToken: "confirm-v",
@@ -241,7 +243,7 @@ func TestSupervisorRefreshFailureKeepsAuthoritativeVersions(t *testing.T) {
 
 func TestSupervisorConfirmationUsesServerLifetimeAndCloseWaits(t *testing.T) {
 	supervisor := NewSupervisor(context.Background(), time.Now,
-		strings.NewReader(strings.Repeat("z", 128)), nil)
+		strings.NewReader(strings.Repeat("z", 128)), nil, nil)
 	attempt, err := supervisor.StartReconcile(8, 6, func(context.Context) (app.ProviderWriteResult, error) {
 		return app.ProviderWriteResult{
 			Revision: 8, ConfirmationToken: "confirmation-z",
@@ -276,9 +278,9 @@ func TestSupervisorConfirmationUsesServerLifetimeAndCloseWaits(t *testing.T) {
 
 func TestSupervisorRefreshShutdownCancelsAndWaits(t *testing.T) {
 	supervisor := NewSupervisor(context.Background(), time.Now,
-		strings.NewReader(strings.Repeat("x", 128)), nil)
+		strings.NewReader(strings.Repeat("x", 128)), nil, nil)
 	stopped := make(chan struct{})
-	_, err := supervisor.StartRefresh(func(ctx context.Context) (app.ProviderRefreshResult, error) {
+	_, err := supervisor.StartRefresh(RefreshManual, func(ctx context.Context) (app.ProviderRefreshResult, error) {
 		<-ctx.Done()
 		close(stopped)
 		return app.ProviderRefreshResult{}, ctx.Err()
@@ -294,7 +296,7 @@ func TestSupervisorRefreshShutdownCancelsAndWaits(t *testing.T) {
 
 func TestSupervisorShutdownCancelsAndWaitsForWork(t *testing.T) {
 	supervisor := NewSupervisor(context.Background(), time.Now,
-		strings.NewReader(strings.Repeat("s", 128)), nil)
+		strings.NewReader(strings.Repeat("s", 128)), nil, nil)
 	stopped := make(chan struct{})
 	_, err := supervisor.StartReconcile(1, 1, func(ctx context.Context) (app.ProviderWriteResult, error) {
 		<-ctx.Done()
@@ -316,7 +318,7 @@ func TestSupervisorShutdownCancelsAndWaitsForWork(t *testing.T) {
 
 func TestSupervisorRejectsUnknownAttempt(t *testing.T) {
 	supervisor := NewSupervisor(context.Background(), time.Now,
-		strings.NewReader(strings.Repeat("n", 128)), nil)
+		strings.NewReader(strings.Repeat("n", 128)), nil, nil)
 	_, err := supervisor.ReconcileStatus("missing")
 	assert.ErrorIs(t, err, ErrAttemptNotFound)
 	require.NoError(t, supervisor.Close(context.Background()))
@@ -325,7 +327,7 @@ func TestSupervisorRejectsUnknownAttempt(t *testing.T) {
 func TestSupervisorReservesOnlyMatchingReconcileConfirmation(t *testing.T) {
 	now := time.Date(2026, time.August, 29, 13, 5, 0, 0, time.UTC)
 	supervisor := NewSupervisor(context.Background(), func() time.Time { return now },
-		strings.NewReader(strings.Repeat("c", 128)), nil)
+		strings.NewReader(strings.Repeat("c", 128)), nil, nil)
 	attempt, err := supervisor.StartReconcile(8, 6, func(context.Context) (app.ProviderWriteResult, error) {
 		result := app.ProviderWriteResult{
 			Revision: 8, Generation: 4,
@@ -386,11 +388,11 @@ func (execution *fakeWriteExecution) Release() {
 }
 
 func TestSupervisorLogsAWriteRunThatStopped(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now,
-		strings.NewReader(strings.Repeat("l", 128)), nil)
 	var logged strings.Builder
 	var logMu sync.Mutex
-	supervisor.logger = slog.New(slog.NewTextHandler(&lockedWriter{mu: &logMu, out: &logged}, nil))
+	supervisor := NewSupervisor(context.Background(), time.Now,
+		strings.NewReader(strings.Repeat("l", 128)), nil,
+		slog.New(slog.NewTextHandler(&lockedWriter{mu: &logMu, out: &logged}, nil)))
 	execution := &fakeWriteExecution{run: func(context.Context) (app.ProviderWriteStatus, error) {
 		return app.ProviderWriteStatus{}, errors.New("synthetic store failure")
 	}}
@@ -427,15 +429,15 @@ func (writer *lockedWriter) Write(data []byte) (int, error) {
 func TestSupervisorTurnsAPanickingRefreshIntoAFailedAttempt(t *testing.T) {
 	failures := make(chan error, 1)
 	supervisor := NewSupervisor(context.Background(), time.Now,
-		strings.NewReader(strings.Repeat("p", 128)), func(err error) { failures <- err })
+		strings.NewReader(strings.Repeat("p", 128)), func(err error) { failures <- err }, nil)
 	t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 
-	started, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+	started, err := supervisor.StartRefresh(RefreshManual, func(context.Context) (app.ProviderRefreshResult, error) {
 		panic("synthetic refresh failure")
 	})
 
 	require.NoError(t, err)
-	assert.ErrorIs(t, <-failures, errWorkPanicked)
+	assert.ErrorIs(t, <-failures, ErrWorkPanicked)
 	supervisor.wait.Wait()
 	status, err := supervisor.RefreshStatus(started.ID)
 	require.NoError(t, err)
@@ -443,11 +445,76 @@ func TestSupervisorTurnsAPanickingRefreshIntoAFailedAttempt(t *testing.T) {
 	assert.Equal(t, "mcp_internal_error", status.Code)
 }
 
+// panickingRefreshStep and panickingWriteStep panic with synthetic values, so a test can find
+// their frames in a panic log.
+func panickingRefreshStep() { panic("synthetic refresh failure") }
+
+func panickingWriteStep() { panic("synthetic write failure") }
+
+// providerWritePanic returns what a provider write worker's panic in panickingWriteStep becomes:
+// the panic value and the worker's frames.
+func providerWritePanic() (failure *app.ProviderWritePanic) {
+	defer func() {
+		counters := make([]uintptr, 64)
+		failure = &app.ProviderWritePanic{
+			Value: recover(), Counters: counters[:runtime.Callers(1, counters)],
+		}
+	}()
+	panickingWriteStep()
+	return nil
+}
+
+func TestSupervisorLogsAPanicWithItsTextAndFrames(t *testing.T) {
+	workerPanic := providerWritePanic()
+	cases := map[string]struct {
+		panics      func()
+		text, frame string
+	}{
+		"a panic in supervised work": {
+			panics: panickingRefreshStep, text: "synthetic refresh failure",
+			frame: "panickingRefreshStep",
+		},
+		"a provider write worker's panic": {
+			panics: func() { panic(workerPanic) }, text: "synthetic write failure",
+			frame: "panickingWriteStep",
+		},
+	}
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			var logged strings.Builder
+			var logMu sync.Mutex
+			supervisor := NewSupervisor(context.Background(), time.Now,
+				strings.NewReader(strings.Repeat("p", 128)), nil,
+				slog.New(slog.NewJSONHandler(&lockedWriter{mu: &logMu, out: &logged}, nil)))
+			t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
+			started, err := supervisor.StartRefresh(RefreshManual,
+				func(context.Context) (app.ProviderRefreshResult, error) {
+					test.panics()
+					return app.ProviderRefreshResult{}, nil
+				})
+			require.NoError(t, err)
+
+			_, err = supervisor.WaitRefresh(t.Context(), started.ID)
+
+			require.NoError(t, err)
+			logMu.Lock()
+			defer logMu.Unlock()
+			var record map[string]any
+			require.NoError(t, json.Unmarshal([]byte(logged.String()), &record), logged.String())
+			assert.Equal(t, "background_work_panicked", record[LogEventKey])
+			assert.Equal(t, "internal_error", record[LogCauseKey])
+			assert.Equal(t, test.text, record["panic"])
+			assert.Contains(t, record["frames"], test.frame)
+		})
+	}
+}
+
 func TestSupervisorStopsWorkWhenItsParentEnds(t *testing.T) {
 	parent, cancel := context.WithCancel(context.Background())
-	supervisor := NewSupervisor(parent, time.Now, strings.NewReader(strings.Repeat("p", 128)), nil)
+	supervisor := NewSupervisor(parent, time.Now,
+		strings.NewReader(strings.Repeat("p", 128)), nil, nil)
 	t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
-	started, err := supervisor.StartRefresh(
+	started, err := supervisor.StartRefresh(RefreshManual,
 		func(ctx context.Context) (app.ProviderRefreshResult, error) {
 			<-ctx.Done()
 			return app.ProviderRefreshResult{}, ctx.Err()
@@ -465,10 +532,10 @@ func TestSupervisorStopsWorkWhenItsParentEnds(t *testing.T) {
 
 func TestSupervisorWaitRefreshReturnsOnceTheAttemptStopsRunning(t *testing.T) {
 	supervisor := NewSupervisor(context.Background(), time.Now,
-		strings.NewReader(strings.Repeat("a", 128)), nil)
+		strings.NewReader(strings.Repeat("a", 128)), nil, nil)
 	t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 	release := make(chan struct{})
-	started, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+	started, err := supervisor.StartRefresh(RefreshManual, func(context.Context) (app.ProviderRefreshResult, error) {
 		<-release
 		return app.ProviderRefreshResult{Revision: 3, Generation: 2}, nil
 	})
@@ -497,9 +564,9 @@ func TestSupervisorExpiresAParkedRefreshAtTheServiceDeadline(t *testing.T) {
 	var elapsed atomic.Int64
 	clock := func() time.Time { return parkedAt.Add(time.Duration(elapsed.Load())) }
 	supervisor := NewSupervisor(context.Background(), clock,
-		strings.NewReader(strings.Repeat("e", 128)), nil)
+		strings.NewReader(strings.Repeat("e", 128)), nil, nil)
 	t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
-	parked, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+	parked, err := supervisor.StartRefresh(RefreshManual, func(context.Context) (app.ProviderRefreshResult, error) {
 		return parkedRefresh(deadline)
 	})
 	require.NoError(t, err)
@@ -520,7 +587,7 @@ func TestSupervisorExpiresAParkedRefreshAtTheServiceDeadline(t *testing.T) {
 		func(context.Context) (app.ProviderRefreshResult, error) {
 			return app.ProviderRefreshResult{}, nil
 		})
-	next, startErr := supervisor.StartRefresh(
+	next, startErr := supervisor.StartRefresh(RefreshManual,
 		func(context.Context) (app.ProviderRefreshResult, error) {
 			return app.ProviderRefreshResult{Revision: 5}, nil
 		})
@@ -541,11 +608,11 @@ func TestSupervisorExpiresAParkedRefreshAtTheServiceDeadline(t *testing.T) {
 // starts before the waiter wakes.
 func TestSupervisorWaitRefreshReturnsItsRefreshAfterANewOneStarts(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil)
+		supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil, nil)
 		t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 		for range 100 {
 			release := make(chan struct{})
-			first, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+			first, err := supervisor.StartRefresh(RefreshManual, func(context.Context) (app.ProviderRefreshResult, error) {
 				<-release
 				return app.ProviderRefreshResult{Revision: 7}, nil
 			})
@@ -575,10 +642,10 @@ func TestSupervisorWaitRefreshReturnsItsRefreshAfterANewOneStarts(t *testing.T) 
 // ConfirmRefresh returns the confirmed refresh's outcome even when a new refresh starts the moment
 // the confirmation finishes.
 func TestSupervisorConfirmRefreshReturnsItsOutcomeAfterANewRefreshStarts(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil)
+	supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil, nil)
 	t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 	for range 100 {
-		parked, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+		parked, err := supervisor.StartRefresh(RefreshManual, func(context.Context) (app.ProviderRefreshResult, error) {
 			return parkedRefresh(time.Now().Add(time.Hour))
 		})
 		require.NoError(t, err)
@@ -611,7 +678,7 @@ func TestSupervisorConfirmRefreshReturnsItsOutcomeAfterANewRefreshStarts(t *test
 // ConfirmReconcile returns the fold's outcome even when a new reconcile replaces the attempt the
 // moment the fold ends.
 func TestSupervisorConfirmReconcileReturnsItsOutcomeAfterANewReconcileStarts(t *testing.T) {
-	supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil)
+	supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil, nil)
 	t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 	parked, err := supervisor.StartReconcile(8, 6,
 		func(context.Context) (app.ProviderWriteResult, error) {
@@ -625,7 +692,7 @@ func TestSupervisorConfirmReconcileReturnsItsOutcomeAfterANewReconcileStarts(t *
 	status, err := supervisor.ReconcileStatus(parked.ID)
 	require.NoError(t, err)
 	require.Equal(t, AttemptConfirmationRequired, status.State)
-	var next AttemptStatus
+	var next Attempt
 	afterReconcileFold = func() {
 		var startErr error
 		next, startErr = supervisor.StartReconcile(9, 7,
@@ -651,11 +718,11 @@ func TestSupervisorConfirmReconcileReturnsItsOutcomeAfterANewReconcileStarts(t *
 // startNextRefresh starts a refresh as soon as the refresh named current stops running.
 func startNextRefresh(supervisor *Supervisor, current string) (AttemptStatus, error) {
 	for {
-		next, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+		next, err := supervisor.StartRefresh(RefreshManual, func(context.Context) (app.ProviderRefreshResult, error) {
 			return app.ProviderRefreshResult{Revision: 8}, nil
 		})
 		if err != nil || next.ID != current {
-			return next, err
+			return next.AttemptStatus, err
 		}
 	}
 }
@@ -666,7 +733,7 @@ func TestSupervisorTurnsPanickingWorkIntoAFailedAttemptInEverySupervisedCall(t *
 	t.Run("write run", func(t *testing.T) {
 		failures := make(chan error, 1)
 		supervisor := NewSupervisor(context.Background(), time.Now,
-			strings.NewReader(strings.Repeat("w", 128)), func(err error) { failures <- err })
+			strings.NewReader(strings.Repeat("w", 128)), func(err error) { failures <- err }, nil)
 		t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 		execution := &fakeWriteExecution{run: func(context.Context) (app.ProviderWriteStatus, error) {
 			panic("synthetic write failure")
@@ -680,14 +747,14 @@ func TestSupervisorTurnsPanickingWorkIntoAFailedAttemptInEverySupervisedCall(t *
 
 		require.NoError(t, err)
 		assert.True(t, active)
-		assert.ErrorIs(t, <-failures, errWorkPanicked)
+		assert.ErrorIs(t, <-failures, ErrWorkPanicked)
 		supervisor.wait.Wait()
 		assert.False(t, supervisor.WriteActive())
 	})
 
 	t.Run("refresh confirmation", func(t *testing.T) {
 		supervisor := NewSupervisor(context.Background(), time.Now,
-			strings.NewReader(strings.Repeat("c", 128)), nil)
+			strings.NewReader(strings.Repeat("c", 128)), nil, nil)
 		t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 		parked := parkRefresh(t, supervisor)
 
@@ -696,14 +763,14 @@ func TestSupervisorTurnsPanickingWorkIntoAFailedAttemptInEverySupervisedCall(t *
 				panic("synthetic confirmation failure")
 			})
 
-		assert.ErrorIs(t, err, errWorkPanicked)
+		assert.ErrorIs(t, err, ErrWorkPanicked)
 		assert.Equal(t, AttemptFailed, confirmed.State)
 		assert.Equal(t, "mcp_internal_error", confirmed.Code)
 	})
 
 	t.Run("reconcile", func(t *testing.T) {
 		supervisor := NewSupervisor(context.Background(), time.Now,
-			strings.NewReader(strings.Repeat("r", 128)), nil)
+			strings.NewReader(strings.Repeat("r", 128)), nil, nil)
 		t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 
 		started, err := supervisor.StartReconcile(1, 1,
@@ -721,7 +788,7 @@ func TestSupervisorTurnsPanickingWorkIntoAFailedAttemptInEverySupervisedCall(t *
 
 	t.Run("reconcile confirmation", func(t *testing.T) {
 		supervisor := NewSupervisor(context.Background(), time.Now,
-			strings.NewReader(strings.Repeat("k", 128)), nil)
+			strings.NewReader(strings.Repeat("k", 128)), nil, nil)
 		t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 		started, err := supervisor.StartReconcile(8, 6,
 			func(context.Context) (app.ProviderWriteResult, error) {
@@ -741,7 +808,7 @@ func TestSupervisorTurnsPanickingWorkIntoAFailedAttemptInEverySupervisedCall(t *
 				panic("synthetic reconcile confirmation failure")
 			})
 
-		assert.ErrorIs(t, err, errWorkPanicked)
+		assert.ErrorIs(t, err, ErrWorkPanicked)
 		assert.Equal(t, AttemptFailed, confirmed.State)
 		assert.Equal(t, "mcp_internal_error", confirmed.Code)
 	})
@@ -756,7 +823,7 @@ func TestSupervisorExpiresAParkedRefreshOnTheFirstCallAtItsDeadline(t *testing.T
 		call func(t *testing.T, supervisor *Supervisor, parked AttemptStatus)
 	}{
 		{"StartRefresh", func(t *testing.T, supervisor *Supervisor, parked AttemptStatus) {
-			next, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+			next, err := supervisor.StartRefresh(RefreshManual, func(context.Context) (app.ProviderRefreshResult, error) {
 				return app.ProviderRefreshResult{Revision: 5}, nil
 			})
 
@@ -801,9 +868,9 @@ func TestSupervisorExpiresAParkedRefreshOnTheFirstCallAtItsDeadline(t *testing.T
 			deadline := startedAt.Add(10 * time.Minute)
 			var elapsed atomic.Int64
 			clock := func() time.Time { return startedAt.Add(time.Duration(elapsed.Load())) }
-			supervisor := NewSupervisor(context.Background(), clock, rand.Reader, nil)
+			supervisor := NewSupervisor(context.Background(), clock, rand.Reader, nil, nil)
 			t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
-			started, err := supervisor.StartRefresh(
+			started, err := supervisor.StartRefresh(RefreshManual,
 				func(context.Context) (app.ProviderRefreshResult, error) {
 					elapsed.Store(int64(fetchTime))
 					return parkedRefresh(deadline)
@@ -864,6 +931,17 @@ func TestSupervisorExpiresAParkedReconcileOnTheFirstCallAtItsDeadline(t *testing
 			assert.ErrorIs(t, err, ErrAttemptNotFound)
 			assert.False(t, ran)
 		}},
+		{"WaitReconcile", func(t *testing.T, supervisor *Supervisor, parked AttemptStatus) {
+			expired, err := supervisor.WaitReconcile(context.Background(), parked.ID)
+
+			require.NoError(t, err)
+			assert.Equal(t, AttemptFailed, expired.State)
+			assert.Empty(t, expired.ConfirmationToken)
+			var expiredErr *app.AppError
+			require.ErrorAs(t, expired.Err, &expiredErr)
+			assert.Equal(t, app.AppProviderConfirmationInvalid, expiredErr.Code)
+			assert.Equal(t, uint64(8), expiredErr.CurrentRevision)
+		}},
 	}
 	for _, first := range firstCalls {
 		t.Run(first.name, func(t *testing.T) {
@@ -872,7 +950,7 @@ func TestSupervisorExpiresAParkedReconcileOnTheFirstCallAtItsDeadline(t *testing
 				deadline := startedAt.Add(10 * time.Minute)
 				var elapsed atomic.Int64
 				clock := func() time.Time { return startedAt.Add(time.Duration(elapsed.Load())) }
-				supervisor := NewSupervisor(context.Background(), clock, rand.Reader, nil)
+				supervisor := NewSupervisor(context.Background(), clock, rand.Reader, nil, nil)
 				t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 				started, err := supervisor.StartReconcile(8, 6,
 					func(context.Context) (app.ProviderWriteResult, error) {
@@ -901,7 +979,7 @@ func TestSupervisorExpiresAParkedReconcileOnTheFirstCallAtItsDeadline(t *testing
 // instead of reading the parked state.
 func TestSupervisorWaitRefreshWaitsForAConfirmationToFinish(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil)
+		supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil, nil)
 		t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 		parked := parkRefresh(t, supervisor)
 		confirming := make(chan struct{})
@@ -945,10 +1023,10 @@ func TestSupervisorWaitRefreshWaitsForAConfirmationToFinish(t *testing.T) {
 // fetch parks is a new run, so a waiter of the fetch neither waits for it nor reads its outcome.
 func TestSupervisorWaitRefreshReturnsTheFetchThatParkedWhenAConfirmationStarts(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil)
+		supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil, nil)
 		t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
 		release := make(chan struct{})
-		started, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+		started, err := supervisor.StartRefresh(RefreshManual, func(context.Context) (app.ProviderRefreshResult, error) {
 			<-release
 			return parkedRefresh(time.Now().Add(time.Hour))
 		})
@@ -957,7 +1035,7 @@ func TestSupervisorWaitRefreshReturnsTheFetchThatParkedWhenAConfirmationStarts(t
 		finishFold := make(chan struct{})
 		confirmed := make(chan error, 1)
 		var confirmOnce sync.Once
-		afterWaitRefreshWakes = func() {
+		afterWaitWakes = func() {
 			confirmOnce.Do(func() {
 				go func() {
 					_, confirmErr := supervisor.ConfirmRefresh(started.ID, "refresh-confirmation",
@@ -971,7 +1049,7 @@ func TestSupervisorWaitRefreshReturnsTheFetchThatParkedWhenAConfirmationStarts(t
 				<-folding
 			})
 		}
-		t.Cleanup(func() { afterWaitRefreshWakes = nil })
+		t.Cleanup(func() { afterWaitWakes = nil })
 		waited := make(chan AttemptStatus, 1)
 		go func() {
 			status, waitErr := supervisor.WaitRefresh(context.Background(), started.ID)
@@ -994,10 +1072,121 @@ func TestSupervisorWaitRefreshReturnsTheFetchThatParkedWhenAConfirmationStarts(t
 	})
 }
 
+// WaitReconcile returns once the attempt stops running, with the error its work returned. A
+// parked attempt has stopped.
+func TestSupervisorWaitReconcileReturnsOnceTheAttemptStopsRunning(t *testing.T) {
+	stale := &app.AppError{Code: app.AppProviderWriteStale, CurrentRevision: 7}
+	outcomes := []struct {
+		name   string
+		result app.ProviderWriteResult
+		err    error
+		state  AttemptState
+	}{
+		{"completed", app.ProviderWriteResult{Revision: 9}, nil, AttemptCompleted},
+		{"failed", app.ProviderWriteResult{}, stale, AttemptFailed},
+		{"parked", parkedReconcile(), parkedReconcileErr, AttemptConfirmationRequired},
+	}
+	for _, outcome := range outcomes {
+		t.Run(outcome.name, func(t *testing.T) {
+			supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil, nil)
+			t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
+			release := make(chan struct{})
+			started, err := supervisor.StartReconcile(8, 6,
+				func(context.Context) (app.ProviderWriteResult, error) {
+					<-release
+					return outcome.result, outcome.err
+				})
+			require.NoError(t, err)
+			ended, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			_, endedErr := supervisor.WaitReconcile(ended, started.ID)
+			close(release)
+			finished, finishedErr := supervisor.WaitReconcile(context.Background(), started.ID)
+			_, unknownErr := supervisor.WaitReconcile(context.Background(), "unknown")
+
+			require.ErrorIs(t, endedErr, context.Canceled)
+			require.NoError(t, finishedErr)
+			assert.Equal(t, outcome.state, finished.State)
+			assert.Equal(t, outcome.result.Revision, finished.Revision)
+			assert.Equal(t, outcome.result.ConfirmationToken, finished.ConfirmationToken)
+			assert.Equal(t, outcome.err, finished.Err)
+			assert.ErrorIs(t, unknownErr, ErrAttemptNotFound)
+		})
+	}
+}
+
+// A confirmed reconcile runs again, so a waiter that joins it waits for the confirmation to finish
+// instead of reading the parked state.
+func TestSupervisorWaitReconcileWaitsForAConfirmationToFinish(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil, nil)
+		t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
+		started, err := supervisor.StartReconcile(8, 6,
+			func(context.Context) (app.ProviderWriteResult, error) {
+				return parkedReconcile(), parkedReconcileErr
+			})
+		require.NoError(t, err)
+		parked, err := supervisor.WaitReconcile(context.Background(), started.ID)
+		require.NoError(t, err)
+		require.Equal(t, AttemptConfirmationRequired, parked.State)
+		confirming := make(chan struct{})
+		release := make(chan struct{})
+		go func() {
+			_, err := supervisor.ConfirmReconcile(parked.ID, "reconcile-confirmation",
+				func(context.Context) (app.ProviderWriteResult, error) {
+					close(confirming)
+					<-release
+					return app.ProviderWriteResult{Revision: 9}, nil
+				})
+			assert.NoError(t, err)
+		}()
+		<-confirming
+		running, err := supervisor.ReconcileStatus(parked.ID)
+		require.NoError(t, err)
+		assert.Equal(t, AttemptRunning, running.State)
+		assert.NoError(t, running.Err)
+		waited := make(chan AttemptStatus, 1)
+		go func() {
+			status, err := supervisor.WaitReconcile(context.Background(), parked.ID)
+			assert.NoError(t, err)
+			waited <- status
+		}()
+		synctest.Wait()
+
+		select {
+		case status := <-waited:
+			t.Fatalf("WaitReconcile returned the %q state while the confirmation was running",
+				status.State)
+		default:
+		}
+		close(release)
+		status := <-waited
+
+		assert.Equal(t, AttemptCompleted, status.State)
+		assert.Equal(t, uint64(9), status.Revision)
+		assert.NoError(t, status.Err)
+	})
+}
+
+// parkedReconcileErr is the error of a reconcile that waits for confirmation.
+var parkedReconcileErr = &app.AppError{
+	Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 8,
+}
+
+// parkedReconcile is the result of a reconcile whose deletion candidate the service accepts as
+// "reconcile-confirmation" for an hour.
+func parkedReconcile() app.ProviderWriteResult {
+	return app.ProviderWriteResult{
+		Revision: 8, ConfirmationToken: "reconcile-confirmation",
+		ConfirmationExpiresAt: time.Now().Add(time.Hour),
+	}
+}
+
 // parkRefresh starts a refresh that waits for the confirmation "refresh-confirmation".
 func parkRefresh(t *testing.T, supervisor *Supervisor) AttemptStatus {
 	t.Helper()
-	started, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+	started, err := supervisor.StartRefresh(RefreshManual, func(context.Context) (app.ProviderRefreshResult, error) {
 		return parkedRefresh(time.Now().Add(time.Hour))
 	})
 	require.NoError(t, err)
@@ -1016,4 +1205,125 @@ func parkedRefresh(expiresAt time.Time) (app.ProviderRefreshResult, error) {
 	return result, &app.AppError{
 		Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 4,
 	}
+}
+
+// recordedRefresh is a refresh that waits for release and then sends revision on ran and
+// completes with it.
+func recordedRefresh(
+	revision uint64,
+	release <-chan struct{},
+	ran chan<- uint64,
+) func(context.Context) (app.ProviderRefreshResult, error) {
+	return func(context.Context) (app.ProviderRefreshResult, error) {
+		<-release
+		ran <- revision
+		return app.ProviderRefreshResult{Revision: revision}, nil
+	}
+}
+
+// A refresh joins the running refresh only when that refresh reads at least as much. Otherwise it
+// waits for one follow-up refresh, which later callers join and which runs the work of the caller
+// that asked for the most.
+func TestARefreshThatAsksForMoreWaitsForOneFollowUp(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil, nil)
+		t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
+		release, released := make(chan struct{}), make(chan struct{})
+		close(released)
+		ran := make(chan uint64, 8)
+		scheduled, err := supervisor.StartRefresh(RefreshDue, recordedRefresh(1, release, ran))
+		require.NoError(t, err)
+
+		sameScope, err := supervisor.StartRefresh(RefreshDue, recordedRefresh(2, released, ran))
+		require.NoError(t, err)
+		manual, err := supervisor.StartRefresh(RefreshManual, recordedRefresh(3, released, ran))
+		require.NoError(t, err)
+		laterManual, err := supervisor.StartRefresh(RefreshManual, recordedRefresh(4, released, ran))
+		require.NoError(t, err)
+		complete, err := supervisor.StartRefresh(RefreshCompleteHistory,
+			recordedRefresh(5, released, ran))
+		require.NoError(t, err)
+		laterScheduled, err := supervisor.StartRefresh(RefreshDue, recordedRefresh(6, released, ran))
+		require.NoError(t, err)
+		queued, err := supervisor.RefreshStatus(manual.ID)
+		require.NoError(t, err)
+		close(release)
+		followUp, err := manual.Wait(context.Background())
+		require.NoError(t, err)
+		synctest.Wait()
+
+		assert.Equal(t, scheduled.ID, sameScope.ID, "an equal scope joins the running refresh")
+		assert.Equal(t, scheduled.ID, laterScheduled.ID, "a scheduled refresh joins any refresh")
+		assert.NotEqual(t, scheduled.ID, manual.ID, "a broader scope waits for a follow-up")
+		assert.Equal(t, manual.ID, laterManual.ID, "a later caller joins the follow-up")
+		assert.Equal(t, manual.ID, complete.ID, "a broader later caller joins the follow-up")
+		assert.Equal(t, AttemptRunning, queued.State)
+		assert.Equal(t, AttemptCompleted, followUp.State)
+		assert.Equal(t, uint64(5), followUp.Revision, "the follow-up runs the broadest caller's work")
+		require.Len(t, ran, 2, "one read each for the running refresh and the follow-up")
+		assert.Equal(t, []uint64{1, 5}, []uint64{<-ran, <-ran})
+	})
+}
+
+func TestCloseDropsAFollowUpRefreshThatHasNotStarted(t *testing.T) {
+	supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil, nil)
+	_, err := supervisor.StartRefresh(RefreshDue,
+		func(ctx context.Context) (app.ProviderRefreshResult, error) {
+			<-ctx.Done()
+			return app.ProviderRefreshResult{}, ctx.Err()
+		})
+	require.NoError(t, err)
+	var ran atomic.Bool
+	followUp, err := supervisor.StartRefresh(RefreshManual,
+		func(context.Context) (app.ProviderRefreshResult, error) {
+			ran.Store(true)
+			return app.ProviderRefreshResult{}, nil
+		})
+	require.NoError(t, err)
+
+	require.NoError(t, supervisor.Close(context.Background()))
+	dropped, err := followUp.Wait(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, AttemptFailed, dropped.State)
+	assert.Equal(t, "mcp_server_closed", dropped.Code)
+	assert.False(t, ran.Load(), "the follow-up never ran")
+}
+
+// A refresh that waits for confirmation has read what a manual refresh reads, so only a refresh of
+// complete history replaces it.
+func TestOnlyARefreshThatAsksForMoreReplacesAParkedOne(t *testing.T) {
+	supervisor := NewSupervisor(context.Background(), time.Now, rand.Reader, nil, nil)
+	t.Cleanup(func() { require.NoError(t, supervisor.Close(context.Background())) })
+	started, err := supervisor.StartRefresh(RefreshDue,
+		func(context.Context) (app.ProviderRefreshResult, error) {
+			return parkedRefresh(time.Now().Add(time.Hour))
+		})
+	require.NoError(t, err)
+	parked, err := started.Wait(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, AttemptConfirmationRequired, parked.State)
+	joinedOnly := func(context.Context) (app.ProviderRefreshResult, error) {
+		return app.ProviderRefreshResult{}, errors.New("a refresh that joins the parked one ran")
+	}
+
+	scheduled, err := supervisor.StartRefresh(RefreshDue, joinedOnly)
+	require.NoError(t, err)
+	manual, err := supervisor.StartRefresh(RefreshManual, joinedOnly)
+	require.NoError(t, err)
+	complete, err := supervisor.StartRefresh(RefreshCompleteHistory,
+		func(context.Context) (app.ProviderRefreshResult, error) {
+			return app.ProviderRefreshResult{Revision: 6}, nil
+		})
+	require.NoError(t, err)
+	finished, err := complete.Wait(context.Background())
+	require.NoError(t, err)
+	_, confirmErr := supervisor.ConfirmRefresh(parked.ID, parked.ConfirmationToken, joinedOnly)
+
+	assert.Equal(t, parked.ID, scheduled.ID)
+	assert.Equal(t, parked.ID, manual.ID)
+	assert.NotEqual(t, parked.ID, complete.ID)
+	assert.Equal(t, AttemptCompleted, finished.State)
+	assert.Equal(t, uint64(6), finished.Revision)
+	assert.ErrorIs(t, confirmErr, ErrAttemptNotFound, "the replaced refresh can no longer be confirmed")
 }

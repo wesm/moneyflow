@@ -177,7 +177,7 @@ func stopAndReconcileDocument(
 	if err != nil {
 		return AttemptDocument{}, err
 	}
-	return attemptDocument(attempt, dependencies.Service.Revision(), false), nil
+	return attemptDocument(attempt.AttemptStatus, dependencies.Service.Revision(), false), nil
 }
 
 func reconcileStatusDocument(dependencies Dependencies, input ReconcileStatusInput) (any, error) {

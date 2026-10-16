@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wesm/moneyflow/internal/assembly"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/profilepool"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
@@ -55,12 +56,12 @@ func TestWebProfileOpenerOwnsProfileUntilProviderSetupCompletes(t *testing.T) {
 					return opened, nil
 				},
 				streams: IOStreams{
-					OpenMonarch: func(home.Paths, monarch.ImportConfig) (MonarchCommandRuntime, error) {
+					OpenMonarch: func(home.Paths, monarch.ImportConfig) (assembly.MonarchRuntime, error) {
 						factoryCalls++
 						if test.panicSetup {
 							panic("synthetic provider factory failure")
 						}
-						return MonarchCommandRuntime{
+						return assembly.MonarchRuntime{
 							ReadSource: &commandProviderSource{}, WriteSource: &commandProviderSource{},
 							InstanceID: "web-test",
 						}, test.setupErr

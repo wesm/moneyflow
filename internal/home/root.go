@@ -133,6 +133,41 @@ func PrepareDatabase(paths Paths) error {
 
 // PreparePrivateRoot validates the existing path chain before creating and restricting a root.
 func PreparePrivateRoot(root string) error {
+	if err := validatePrivateRootPath(root); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return fmt.Errorf("prepare private root: create: %w", err)
+	}
+	return enforcePrivateDirectory(root)
+}
+
+// CreatePrivateRoot creates root, which must not exist, as an owner-only directory. It checks the
+// path as PreparePrivateRoot does and creates missing ancestors, but it makes root itself with an
+// exclusive create. When anything exists at root, even a directory that appeared a moment ago, it
+// returns ErrPrivateDestinationExists and leaves that path as it was. It restricts only root, never
+// an ancestor that exists. A failure after it created root removes root again.
+func CreatePrivateRoot(root string) error {
+	if err := validatePrivateRootPath(root); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(filepath.Clean(root)), 0o700); err != nil {
+		return fmt.Errorf("prepare private root: create ancestors: %w", err)
+	}
+	if err := os.Mkdir(root, 0o700); errors.Is(err, os.ErrExist) {
+		return ErrPrivateDestinationExists
+	} else if err != nil {
+		return fmt.Errorf("prepare private root: create: %w", err)
+	}
+	if err := enforcePrivateDirectory(root); err != nil {
+		return errors.Join(err, os.Remove(root))
+	}
+	return nil
+}
+
+// validatePrivateRootPath checks that root is absolute and spelled canonically and that the path
+// chain down to its nearest existing ancestor is trusted. It changes nothing.
+func validatePrivateRootPath(root string) error {
 	if root == "" || !filepath.IsAbs(root) {
 		return errors.New("prepare private root: path must be absolute")
 	}
@@ -140,33 +175,33 @@ func PreparePrivateRoot(root string) error {
 	if err != nil {
 		return err
 	}
-	existing := filepath.Clean(root)
-	for {
-		if _, err = os.Lstat(existing); err == nil {
-			break
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("prepare private root: inspect ancestor: %w", err)
-		}
-		parent := filepath.Dir(existing)
-		if parent == existing {
-			return errors.New("prepare private root: no existing ancestor")
-		}
-		existing = parent
+	existing, err := nearestExistingPath(root)
+	if err != nil {
+		return err
 	}
 	if err = validateTrustedRootAncestors(existing, filepath.Clean(root)); err != nil {
 		return err
 	}
-	if err = validateRootSpelling(root, canonical); err != nil {
-		return err
+	return validateRootSpelling(root, canonical)
+}
+
+// nearestExistingPath returns root if it exists, and otherwise its deepest ancestor that does.
+func nearestExistingPath(root string) (string, error) {
+	existing := filepath.Clean(root)
+	for {
+		_, err := os.Lstat(existing)
+		if err == nil {
+			return existing, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("prepare private root: inspect ancestor: %w", err)
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return "", errors.New("prepare private root: no existing ancestor")
+		}
+		existing = parent
 	}
-	if err = os.MkdirAll(root, 0o700); err != nil {
-		return fmt.Errorf("prepare private root: create: %w", err)
-	}
-	if err = enforcePrivateDirectory(root); err != nil {
-		return err
-	}
-	return nil
 }
 
 // EnsurePrivateSubdirectory creates a fixed relative path without following an intermediate link.

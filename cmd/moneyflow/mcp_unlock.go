@@ -9,81 +9,8 @@ import (
 	"runtime"
 
 	"github.com/charmbracelet/x/term"
-	"github.com/wesm/moneyflow/internal/app"
-	"github.com/wesm/moneyflow/internal/home"
-	"github.com/wesm/moneyflow/internal/provider"
+	"github.com/wesm/moneyflow/internal/assembly"
 )
-
-// unlockMCPProvider only installs an unlocked runtime. Network work belongs to
-// explicit MCP tools, never to server startup or an automatic scheduler.
-func unlockMCPProvider(ctx context.Context, opened OpenedProfile, streams IOStreams) error {
-	connectLock, err := home.TryLock(opened.Paths.Root, home.LockProviderConnect, home.LockExclusive)
-	if err != nil {
-		return fmt.Errorf("unlock YNAB: another connection attempt may be active: %w", err)
-	}
-	defer func() { _ = connectLock.Release() }()
-	connection, err := opened.Service.ProviderConnection(ctx)
-	if err != nil {
-		return err
-	}
-	if !connection.Bound || connection.Kind != "ynab" {
-		return errors.New("--unlock requires a connected YNAB profile; connect it with moneyflow provider connect ynab first")
-	}
-	factory := streams.OpenYNAB
-	if factory == nil {
-		factory = defaultYNABCommandFactory
-	}
-	configured, err := factory(opened.Paths)
-	if err != nil {
-		return err
-	}
-	if configured.YNABVault == nil || configured.NewYNABSource == nil {
-		return errors.New("YNAB vault runtime is unavailable")
-	}
-	exists, err := configured.YNABVault.Exists()
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return errors.New("YNAB vault is missing; reconnect with moneyflow provider connect ynab --profile <name-or-id>")
-	}
-	prompt := streams.Prompt
-	if prompt == nil {
-		prompt = controllingTerminalPrompt
-	}
-	password, err := prompt(ctx, "Moneyflow account password", true)
-	if err != nil {
-		return err
-	}
-	secret := []byte(password)
-	defer clear(secret)
-	credentials, err := configured.YNABVault.Load(secret)
-	if err != nil {
-		return fmt.Errorf("unlock YNAB vault: %w", err)
-	}
-	if credentials.PlanID != connection.RemoteProfileID {
-		return provider.NewError(provider.CodeIdentityMismatch)
-	}
-	if credentials.Currency != connection.Currency || credentials.Scale != connection.Scale {
-		return provider.NewError(provider.CodeMoneyMismatch)
-	}
-	readSource, writeSource, err := configured.NewYNABSource(credentials, nil)
-	if err != nil {
-		return err
-	}
-	if readSource == nil || writeSource == nil {
-		return errors.New("YNAB provider source is unavailable")
-	}
-	instanceID, err := newProviderInstanceID("mcp")
-	if err != nil {
-		return err
-	}
-	return opened.Service.ConfigureProvider(app.ProviderRuntime{
-		ReadSource: readSource, WriteSource: writeSource, Provider: "ynab",
-		Currency: connection.Currency, Scale: connection.Scale,
-		Renderer: "mcp", InstanceID: instanceID, Now: configured.Now,
-	})
-}
 
 // Neither prompt output nor password input may use the MCP protocol streams.
 func controllingTerminalPrompt(ctx context.Context, label string, _ bool) (value string, err error) {
@@ -111,4 +38,29 @@ func controllingTerminalPrompt(ctx context.Context, label string, _ bool) (value
 		return "", err
 	}
 	return readMaskedSecret(input, bufio.NewReader(input), output)
+}
+
+// unlockMCPProvider only installs an unlocked runtime. Network work belongs to
+// explicit MCP tools, never to server startup or an automatic scheduler.
+func unlockMCPProvider(ctx context.Context, opened OpenedProfile, streams IOStreams) error {
+	prompt := streams.Prompt
+	if prompt == nil {
+		prompt = controllingTerminalPrompt
+	}
+	err := assembly.UnlockYNAB(ctx, assembly.UnlockRequest{
+		Service: opened.Service, Paths: opened.Paths, YNAB: streams.OpenYNAB, Renderer: "mcp",
+		Password: func(promptContext context.Context) (string, error) {
+			return prompt(promptContext, "Moneyflow account password", true)
+		},
+	})
+	switch {
+	case errors.Is(err, assembly.ErrNotYNAB):
+		return errors.New("--unlock requires a connected YNAB profile; " +
+			"connect it with moneyflow provider connect ynab first")
+	case errors.Is(err, assembly.ErrVaultMissing):
+		return errors.New("YNAB vault is missing; " +
+			"reconnect with moneyflow provider connect ynab --profile <name-or-id>")
+	default:
+		return err
+	}
 }

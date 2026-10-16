@@ -105,28 +105,31 @@ func refreshDataDocument(
 			"This provider has no MCP refresh operation.",
 		), nil
 	}
-	for _, capability := range dependencies.Service.Capabilities() {
-		if capability.Action == app.ActionRefreshProvider && !capability.Available {
-			return capabilityUnavailable(dependencies.Service, capability.Reason), nil
-		}
+	refresh, err := dependencies.Service.ProviderRefreshCapability(ctx)
+	if err != nil {
+		return nil, err
 	}
-	attempt, err := dependencies.Supervisor.StartRefresh(
+	if !refresh.Available {
+		return capabilityUnavailable(dependencies.Service, refresh.Reason), nil
+	}
+	request := app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		Window: app.WindowRequest{Limit: 1}, CompleteHistory: completeHistory,
+	}
+	attempt, err := dependencies.Supervisor.StartRefresh(RefreshScopeOf(request, connection.Kind),
 		func(workerContext context.Context) (app.ProviderRefreshResult, error) {
 			service, release, err := dependencies.Hold(workerContext)
 			if err != nil {
 				return app.ProviderRefreshResult{}, err
 			}
 			defer release()
-			return service.RefreshProvider(workerContext, app.ProviderRefreshRequest{
-				Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
-				Window: app.WindowRequest{Limit: 1}, CompleteHistory: completeHistory,
-			})
+			return service.RefreshProvider(workerContext, request)
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
-	return refreshAttemptDocument(attempt, dependencies.Service.Revision(), false), nil
+	return refreshAttemptDocument(attempt.AttemptStatus, dependencies.Service.Revision(), false), nil
 }
 
 func refreshStatusDocument(

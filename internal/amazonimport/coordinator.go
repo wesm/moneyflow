@@ -23,8 +23,16 @@ type Coordinator struct {
 	parse      ParseFunc
 
 	mu       sync.Mutex
+	closed   bool
 	attempts map[string]*attempt
 }
+
+// errClosed is the refusal of every request after Close.
+var errClosed = newError(CodeAttemptInvalid, errors.New("the Amazon import coordinator is closed"))
+
+// errAttemptPanicked is the failure an attempt records when its parse or install panics. It holds
+// no panic value; the caller's recovery logs the panic.
+var errAttemptPanicked = errors.New("the Amazon import stopped unexpectedly")
 
 // New validates and constructs an Amazon import coordinator.
 func New(config Config) (*Coordinator, error) {
@@ -47,6 +55,10 @@ func (coordinator *Coordinator) Start(ctx context.Context, request StartRequest)
 	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
+	if coordinator.closed {
+		closeTarget(target)
+		return Snapshot{}, errClosed
+	}
 	current := coordinator.attempts[target.ProfileID]
 	if current != nil && !current.running && coordinator.now().Sub(current.lastActivity) >= attemptIdleLimit {
 		coordinator.cleanupAttempt(current)
@@ -54,16 +66,12 @@ func (coordinator *Coordinator) Start(ctx context.Context, request StartRequest)
 		current = nil
 	}
 	if current != nil && (!terminal(current.state) || current.running) {
-		if target.Close != nil {
-			_ = target.Close()
-		}
+		closeTarget(target)
 		return Snapshot{}, newError(CodeImportBusy, errors.New("attempt already active"))
 	}
 	id, err := newAttemptID(coordinator.random)
 	if err != nil {
-		if target.Close != nil {
-			_ = target.Close()
-		}
+		closeTarget(target)
 		return Snapshot{}, newError(CodeImportInvalid, err)
 	}
 	value := &attempt{
@@ -91,14 +99,10 @@ func (coordinator *Coordinator) Stage(ctx context.Context, request StageRequest)
 		coordinator.mu.Unlock()
 		return Snapshot{}, newError(CodeAttemptInvalid, errors.New("attempt is not accepting files"))
 	}
-	lock, err := home.TryLockExisting(value.root, home.LockAmazonImport, home.LockExclusive)
-	if errors.Is(err, home.ErrLockBusy) {
-		coordinator.mu.Unlock()
-		return Snapshot{}, newError(CodeImportBusy, err)
-	}
+	lock, err := lockImport(value.root)
 	if err != nil {
 		coordinator.mu.Unlock()
-		return Snapshot{}, newError(CodeProfileInvalid, err)
+		return Snapshot{}, err
 	}
 	runContext, cancel := context.WithCancel(ctx)
 	value.lock = lock
@@ -113,6 +117,12 @@ func (coordinator *Coordinator) Stage(ctx context.Context, request StageRequest)
 	value.running = false
 	cancel()
 	value.cancel = nil
+	if coordinator.closed {
+		_ = removeStage(stageDir)
+		coordinator.cleanupAttempt(value)
+		delete(coordinator.attempts, value.profileID)
+		return Snapshot{}, errClosed
+	}
 	if value.cancelRequested || CodeOf(err) == CodeImportCanceled {
 		value.state = StateCanceled
 		value.version++
@@ -151,6 +161,7 @@ func (coordinator *Coordinator) Execute(ctx context.Context, request ExecuteRequ
 	settings, clone := value.settings, value.taxonomyClone
 	startedAt := value.lastActivity
 	coordinator.mu.Unlock()
+	defer coordinator.failPanickedAttempt(value)
 
 	candidate, runErr := coordinator.parse(runContext, files, settings, coordinator.limits, func(progress amazon.Progress) {
 		coordinator.updateProgress(value, progress)
@@ -227,19 +238,20 @@ func (coordinator *Coordinator) Cancel(_ context.Context, request CancelRequest)
 
 // ImportDirectory runs the synchronous directory workflow used by Cobra and the TUI.
 func (coordinator *Coordinator) ImportDirectory(ctx context.Context, request DirectoryRequest) (Snapshot, error) {
+	coordinator.mu.Lock()
+	closed := coordinator.closed
+	coordinator.mu.Unlock()
+	if closed {
+		return Snapshot{}, errClosed
+	}
 	target, err := coordinator.resolve(ctx, request.ProfileID)
 	if err != nil {
 		return Snapshot{}, newError(CodeProfileInvalid, err)
 	}
-	if target.Close != nil {
-		defer func() { _ = target.Close() }()
-	}
-	lock, err := home.TryLockExisting(target.Root, home.LockAmazonImport, home.LockExclusive)
-	if errors.Is(err, home.ErrLockBusy) {
-		return Snapshot{}, newError(CodeImportBusy, err)
-	}
+	defer closeTarget(target)
+	lock, err := lockImport(target.Root)
 	if err != nil {
-		return Snapshot{}, newError(CodeProfileInvalid, err)
+		return Snapshot{}, err
 	}
 	defer func() { _ = lock.Release() }()
 	started := coordinator.now().UTC()
@@ -265,6 +277,20 @@ func (coordinator *Coordinator) ImportDirectory(ctx context.Context, request Dir
 	return Snapshot{ProtocolVersion: ProtocolVersion, ProfileID: target.ProfileID, State: StateComplete, StateVersion: 1, Result: result}, nil
 }
 
+// Close refuses new work and cleans up every attempt that is not running. A running attempt cleans
+// up when it stops, whatever state it ends in.
+func (coordinator *Coordinator) Close() {
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	coordinator.closed = true
+	for profileID, value := range coordinator.attempts {
+		if !value.running {
+			coordinator.cleanupAttempt(value)
+			delete(coordinator.attempts, profileID)
+		}
+	}
+}
+
 func (coordinator *Coordinator) finish(value *attempt, runErr error) (Snapshot, error) {
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
@@ -287,6 +313,18 @@ func (coordinator *Coordinator) finish(value *attempt, runErr error) (Snapshot, 
 	return value.snapshot(), mapped
 }
 
+// failPanickedAttempt, deferred by Execute, fails the attempt when its parse or install panics,
+// so the attempt stops and releases its profile and import lock. It then panics again, so the
+// caller's recovery still logs the panic.
+func (coordinator *Coordinator) failPanickedAttempt(value *attempt) {
+	recovered := recover()
+	if recovered == nil {
+		return
+	}
+	_, _ = coordinator.finish(value, errAttemptPanicked)
+	panic(recovered)
+}
+
 func (coordinator *Coordinator) updateProgress(value *attempt, progress amazon.Progress) {
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
@@ -299,10 +337,8 @@ func (coordinator *Coordinator) cleanupAttempt(value *attempt) {
 	value.stageDir = ""
 	value.files = nil
 	coordinator.releaseAttemptLock(value)
-	if value.target.Close != nil {
-		_ = value.target.Close()
-		value.target.Close = nil
-	}
+	closeTarget(value.target)
+	value.target.Close = nil
 }
 
 func (coordinator *Coordinator) releaseAttemptLock(value *attempt) {
@@ -310,6 +346,26 @@ func (coordinator *Coordinator) releaseAttemptLock(value *attempt) {
 		_ = value.lock.Release()
 		value.lock = nil
 	}
+}
+
+// closeTarget closes a resolved target that the caller no longer needs.
+func closeTarget(target Target) {
+	if target.Close != nil {
+		_ = target.Close()
+	}
+}
+
+// lockImport takes a profile's exclusive Amazon import lock. A lock that another import holds
+// makes the import busy.
+func lockImport(root string) (*home.Lock, error) {
+	lock, err := home.TryLockExisting(root, home.LockAmazonImport, home.LockExclusive)
+	if errors.Is(err, home.ErrLockBusy) {
+		return nil, newError(CodeImportBusy, err)
+	}
+	if err != nil {
+		return nil, newError(CodeProfileInvalid, err)
+	}
+	return lock, nil
 }
 
 func terminal(state State) bool {
