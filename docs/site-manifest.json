@@ -4,6 +4,7 @@
     "getting-started/go.md",
     "getting-started/python-transition.md",
     "guide/mcp.md",
+    "guide/agents.md",
     "architecture/index.md",
     "architecture/state-and-storage.md",
     "architecture/providers.md",

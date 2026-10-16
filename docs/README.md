@@ -9,6 +9,8 @@ Follow the [documentation rules in AGENTS.md](https://github.com/wesm/moneyflow/
 | --- | --- |
 | What is Moneyflow? | [Overview](index.md); README routes to guides |
 | How do I install or update it? | [Installation](getting-started/installation.md) |
+| How do I use the browser, terminal, or MCP interface? | [Web](guide/web.md), [terminal](getting-started/go.md), and [MCP](guide/mcp.md) |
+| How does an agent read the docs or operate Moneyflow safely? | [Agents](guide/agents.md) |
 | What happens to my Python data? | [Moving to Go](getting-started/transition.md) |
 | How do I import and match Amazon purchases? | [Amazon](guide/amazon-mode.md) |
 | How does a provider connect, store credentials, or write changes? | Its guide under `guide/` |
@@ -22,12 +24,13 @@ copying details. Keep exact commands, limits, failure behavior, and authorizatio
 ## What gets published?
 
 `docs/site-manifest.json` selects published pages. `docs/zensical.toml` defines current
-navigation. The combined site includes the homepage, walkthrough, current guides, and a
-frozen Python v1 archive. See [website operation](architecture/website.md) for layout and
-capture tools. README and command help must agree with the current guides.
+navigation; list every current page there so `/llms.txt`, which agents read, covers it. The
+combined site includes the homepage, walkthrough, current guides with their Markdown twins,
+and a frozen Python v1 archive. See [website operation](architecture/website.md) for layout
+and capture tools. README and command help must agree with the current guides.
 
 The checked-out docs describe that revision. Mark unreleased behavior clearly; a change on
-`main` or `go-port` is not proof that the latest release contains it. Stable Go releases
+`main` is not proof that the latest release contains it. Stable Go releases
 deploy docs from their tag after publication. Prereleases do not replace the public site.
 A manual deployment requires an explicit stable release tag.
 
