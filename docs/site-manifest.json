@@ -35,6 +35,7 @@
     "development/developing.md",
     "development/ui-testing.md",
     "development/releases.md",
+    "development/embedding.md",
     "categories.md",
     "config/advanced.md",
     "config/caching.md",
