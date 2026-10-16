@@ -521,7 +521,7 @@ test('the View sheet changes the period and filters at phone width', async ({ pa
   expect(Math.round(filtersBox.width)).toBe(Math.round(currencyBox.width))
   await sheet.getByRole('radio', { name: 'Month' }).click()
   await expect(
-    bar.locator('button[aria-haspopup="dialog"][aria-keyshortcuts="t"]'),
+    bar.locator('button[aria-haspopup="dialog"][aria-keyshortcuts="p"]'),
   ).toHaveAccessibleName('Oct 2026')
   await expect(sheet.getByRole('radio', { name: 'Month' })).toBeChecked()
 
@@ -664,7 +664,7 @@ test('a cross-year period label shrinks to fit the phone command bar', async ({ 
   await openMoneyflow(page, server, 'cur=USD%3A2&from=2025-11-15&to=2026-02-14&v=1')
   const label = page
     .getByRole('region', { name: 'View controls' })
-    .locator('button[aria-keyshortcuts="t"]')
+    .locator('button[aria-keyshortcuts="p"]')
   await expect(label).toHaveAccessibleName('Nov 15, 2025 – Feb 14, 2026')
   await expect(label).toHaveAttribute('title', /^Nov 15, 2025 – Feb 14, 2026/)
   await expectNoHorizontalScroll(page)

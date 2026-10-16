@@ -218,7 +218,6 @@ func TestTransitionViewAppliesAnalyticalActionsAndPreservesPriorOnFailure(t *tes
 		ActionOpenFilters,
 		ActionQuit,
 		ActionEditMerchant,
-		ActionToggleTime,
 		ActionChooseTime,
 		"missing",
 	} {

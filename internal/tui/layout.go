@@ -150,7 +150,7 @@ func (model Model) actionHints() string {
 	if sortName != "" {
 		sortName = strings.ToUpper(sortName[:1]) + sortName[1:]
 	}
-	if model.visibleMode() == domain.ResultModeAggregate && model.timeContext() {
+	if model.session.TimeContext() {
 		toggle := "By Year"
 		switch model.session.TimeGranularity {
 		case domain.TimeGranularityYear:
@@ -158,7 +158,7 @@ func (model Model) actionHints() string {
 		case domain.TimeGranularityMonth:
 			toggle = "By Day"
 		}
-		return "Enter=Drill | Ctrl+t=" + toggle + " | s=Sort(" + sortName + ") | g=Group"
+		return "Enter=Drill | t=" + toggle + " | s=Sort(" + sortName + ") | g=Group"
 	}
 	if model.session.Mode == domain.ResultModeDetail {
 		back := "Group"

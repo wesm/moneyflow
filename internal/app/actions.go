@@ -54,7 +54,7 @@ const (
 	ActionBackTo ActionID = "view.back-to"
 	// ActionChooseTime opens the period chooser.
 	ActionChooseTime ActionID = "time.choose"
-	// ActionToggleTime cycles the active time granularity in the terminal.
+	// ActionToggleTime groups the view by time, or cycles the unit of rows grouped by time.
 	ActionToggleTime ActionID = "time.toggle-granularity"
 	// ActionClearTime removes the active time period.
 	ActionClearTime ActionID = "time.clear-period"
@@ -146,8 +146,8 @@ var readOnlyActions = []ActionDefinition{
 	{ActionDrill, []string{"enter"}, "enter", "Drill down into selected item", "Views", ScopeAnalytical, true, true},
 	{ActionBack, []string{"esc"}, "esc", "Go back (restores cursor and sort preferences)", "Views", ScopeAnalytical, true, true},
 	{ActionBackTo, nil, "", "Return to a breadcrumb level", "Views", ScopeAnalytical, true, true},
-	{ActionChooseTime, []string{"t"}, "t", "Choose a year, month, day, or all time", "Time", ScopeOverlay, true, true},
-	{ActionToggleTime, []string{"ctrl+t"}, "Ctrl+t", "Time view / cycle Year→Month→Day", "Time", ScopeAnalytical, true, false},
+	{ActionChooseTime, []string{"p"}, "p", "Choose a year, month, day, or all time", "Time", ScopeOverlay, true, true},
+	{ActionToggleTime, []string{"t"}, "t", "Group by time / cycle Year→Month→Day", "Time", ScopeAnalytical, true, true},
 	{ActionClearTime, []string{"a"}, "a", "Clear time period selection", "Time", ScopeAnalytical, true, true},
 	{ActionPreviousPeriod, []string{"left"}, "←", "Previous time period (when drilled into time)", "Time", ScopeAnalytical, true, true},
 	{ActionNextPeriod, []string{"right"}, "→", "Next time period (when drilled into time)", "Time", ScopeAnalytical, true, true},

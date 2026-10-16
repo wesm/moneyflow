@@ -23,7 +23,7 @@ func TestTimeChooserCalendarPresetsPreserveGrouping(t *testing.T) {
 			model := timeChooserModel(t)
 			model.session.Dimension = dimension
 			model.refresh()
-			model = press(t, model, keyRune('t'))
+			model = press(t, model, keyRune('p'))
 			assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "This month")
 			if last {
 				model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
@@ -48,13 +48,13 @@ func TestTimeChooserEmptyMonthAndYearBoundary(t *testing.T) {
 	t.Parallel()
 	model := timeChooserModel(t)
 	model.now = func() time.Time { return time.Date(2025, 1, 1, 0, 5, 0, 0, time.Local) }
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('p'))
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.NotNil(t, model.session.DateRange)
 	assert.Equal(t, "2025-01-01", model.session.DateRange.Start.String())
 	assert.Zero(t, model.result.FilteredCount)
 	assert.Contains(t, model.displayBreadcrumb(), "Jan 2025")
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('p'))
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.Equal(t, "2024-12-01", model.session.DateRange.Start.String())
@@ -65,7 +65,7 @@ func TestTimeChooserTypedMonthValidationAndCancel(t *testing.T) {
 	t.Parallel()
 	model := timeChooserModel(t)
 	before := model.session.QuerySpec()
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('p'))
 	for _, character := range "2024-13" {
 		model = press(t, model, keyRune(character))
 	}
@@ -82,7 +82,7 @@ func TestTimeChooserTypedMonthValidationAndCancel(t *testing.T) {
 	assert.Equal(t, "2024-02-29", model.session.DateRange.End.String())
 	assert.Equal(t, 2, model.result.FilteredCount)
 	before = model.session.QuerySpec()
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('p'))
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
 	assert.Equal(t, overlayNone, model.overlay)
@@ -103,7 +103,7 @@ func TestTimeChooserReplacesPeriodWithinAccountScope(t *testing.T) {
 	model = press(t, model, keyRune('g'))
 	model.session.SetSearch("Example")
 	model.refresh()
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('p'))
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	require.NotNil(t, model.session.DateRange)
@@ -118,7 +118,7 @@ func TestTimeChooserReplacesPeriodWithinAccountScope(t *testing.T) {
 	assert.Equal(t, domain.DimensionMerchant, model.session.QuerySpec().GroupBy)
 	model.session.SetSearch("Example")
 
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('p'))
 	model = press(t, model, keyRune('a'))
 	assert.Nil(t, model.session.DateRange)
 	assert.Equal(t, []domain.Drilldown{account}, model.session.Drilldowns)
@@ -134,7 +134,7 @@ func TestTimeChooserReplacesPeriodWithinAccountScope(t *testing.T) {
 func TestTimeChooserMonthNavigationAndClear(t *testing.T) {
 	t.Parallel()
 	model := timeChooserModel(t)
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('p'))
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyLeft})
 	require.NotNil(t, model.session.DateRange)
@@ -158,7 +158,7 @@ func TestClearAllTimePreservesPositionAndSelection(t *testing.T) {
 			if view != "summary" {
 				// Show all transactions from a time drill, leaving the time constraint
 				// only in history. Clearing the current all-time view is still a no-op.
-				model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+				model = press(t, model, keyRune('t'))
 				model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 				model = press(t, model, keyRune('g'))
 				model = press(t, model, keyRune('d'))
@@ -173,7 +173,7 @@ func TestClearAllTimePreservesPositionAndSelection(t *testing.T) {
 			require.Positive(t, scroll)
 			require.Equal(t, 1, selectedSessionCount(before))
 			if view == "chooser" {
-				model = press(t, model, keyRune('t'))
+				model = press(t, model, keyRune('p'))
 			}
 
 			model = press(t, model, keyRune('a'))
@@ -195,7 +195,7 @@ func TestTimeChooserMonthPersistsWhenReturningToSummary(t *testing.T) {
 	model.session.Dimension = domain.DimensionAccount
 	model.refresh()
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('p'))
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
 	require.NotNil(t, model.session.DateRange)
@@ -207,10 +207,10 @@ func TestTimeChooserMonthPersistsWhenReturningToSummary(t *testing.T) {
 func TestTimeChooserMonthNavigationReplacesIntersectingTimeDrill(t *testing.T) {
 	t.Parallel()
 	model := timeChooserModel(t)
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('p'))
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
-	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
-	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('t'))
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyRight})
 	require.Len(t, model.result.DetailRows, 1)
@@ -236,7 +236,7 @@ func TestTimeChooserResolutionShortcuts(t *testing.T) {
 		{"backward wrap", []tea.KeyPressMsg{{Code: tea.KeyTab, Mod: tea.ModShift}, {Code: tea.KeyTab, Mod: tea.ModShift}}, "2024-03-01", "2024-03-01", 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			model := press(t, timeChooserModel(t), keyRune('t'))
+			model := press(t, timeChooserModel(t), keyRune('p'))
 			for _, key := range test.keys {
 				model = press(t, model, key)
 			}
@@ -261,7 +261,7 @@ func TestTimeChooserTypingPreviewsAndAppliesPeriod(t *testing.T) {
 		{"2024-02-29", "Feb 29, 2024", "2024-02-29", "2024-02-29", 1},
 	} {
 		t.Run(test.input, func(t *testing.T) {
-			model := press(t, timeChooserModel(t), keyRune('t'))
+			model := press(t, timeChooserModel(t), keyRune('p'))
 			for _, character := range test.input {
 				model = press(t, model, keyRune(character))
 			}
@@ -287,7 +287,7 @@ func TestTimeChooserResolutionPreservesDateAnchor(t *testing.T) {
 	t.Parallel()
 	model := timeChooserModel(t)
 	model.now = func() time.Time { return time.Date(2025, 9, 30, 12, 0, 0, 0, time.Local) }
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('p'))
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown}) // 2024
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})  // September, not January
@@ -312,7 +312,7 @@ func TestTimeChooserPeriodNavigationAndBounds(t *testing.T) {
 		{"9999-12-31", "9999-12-30", "9999-12-30", "9999-12-31"},
 	} {
 		t.Run(test.input, func(t *testing.T) {
-			model := press(t, timeChooserModel(t), keyRune('t'))
+			model := press(t, timeChooserModel(t), keyRune('p'))
 			for _, character := range test.input {
 				model = press(t, model, keyRune(character))
 			}
@@ -343,7 +343,7 @@ func TestTimeChooserKeepsCalendarAnchorWithinShorterPeriods(t *testing.T) {
 		{"2024-02-29", []tea.KeyPressMsg{{Code: tea.KeyTab}, {Code: tea.KeyDown}, {Code: tea.KeyTab, Mod: tea.ModShift}}, "2023-02-28"},
 	} {
 		t.Run(test.input, func(t *testing.T) {
-			model := press(t, timeChooserModel(t), keyRune('t'))
+			model := press(t, timeChooserModel(t), keyRune('p'))
 			for _, character := range test.input {
 				model = press(t, model, keyRune(character))
 			}
@@ -362,7 +362,7 @@ func TestTimeChooserInvalidTypedPeriodsDoNotApply(t *testing.T) {
 	t.Parallel()
 	for _, input := range []string{"0000", "2023-02-29", "2024-02-", "2024-13-01"} {
 		t.Run(input, func(t *testing.T) {
-			model := press(t, timeChooserModel(t), keyRune('t'))
+			model := press(t, timeChooserModel(t), keyRune('p'))
 			before := model.session.QuerySpec()
 			for _, character := range input {
 				model = press(t, model, keyRune(character))

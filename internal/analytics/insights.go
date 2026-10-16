@@ -29,6 +29,9 @@ type InsightsSpec struct {
 	// Keys are aggregate keys of the view's merchant, category, group, or account grouping.
 	Keys    []string
 	Summary bool
+	// TimeUnit, when set, is the unit a Time grouping's chart uses instead of the one its
+	// period gives, as the view's rows do.
+	TimeUnit domain.TimeGranularity
 	// SearchMatches, when non-nil, lists the IDs that satisfy Query.Search in place of the
 	// regular expression, for searches that also match Amazon product names.
 	SearchMatches map[string]struct{}
@@ -165,6 +168,7 @@ func ComputeInsights(transactions []domain.Transaction, spec InsightsSpec) (Insi
 	if err != nil {
 		return Insights{}, fmt.Errorf("insights: %w", err)
 	}
+	plan.dropEmptyContextPeriods(&crossTab)
 	result := Insights{
 		Currency: spec.Query.Currency.Currency, Scale: spec.Query.Currency.Scale,
 		Today: spec.Today, Latest: plan.latest, Ranges: plan.ranges,
@@ -236,7 +240,7 @@ func (plan *insightsPlan) resolveRanges(scope *domain.DateRange, spec InsightsSp
 	var err error
 	plan.ranges, err = ResolveRanges(RangeInput{
 		Scope: scope, Today: spec.Today, First: plan.first, Latest: plan.latest,
-		TimeGrouping: plan.grouping == domain.DimensionTime,
+		TimeGrouping: plan.grouping == domain.DimensionTime, TimeUnit: spec.TimeUnit,
 	})
 	if err != nil || !spec.Summary {
 		return err
@@ -317,6 +321,24 @@ func currencyBounds(
 		}
 	}
 	return first, latest
+}
+
+// dropEmptyContextPeriods leaves the periods without transactions out of a Time grouping's
+// chart when ListsEmptyPeriods says its rows do, so the chart and the rows agree.
+func (plan *insightsPlan) dropEmptyContextPeriods(crossTab *CrossTab) {
+	if plan.grouping != domain.DimensionTime || ListsEmptyPeriods(plan.ranges.ContextGranularity) {
+		return
+	}
+	frame := &crossTab.Frames[frameContext]
+	periods := make([]PeriodRange, 0, len(plan.ranges.Context))
+	totals := make([]CrossTabCell, 0, len(frame.Totals))
+	for index, period := range plan.ranges.Context {
+		if frame.Totals[index].Count > 0 {
+			periods = append(periods, period)
+			totals = append(totals, frame.Totals[index])
+		}
+	}
+	plan.ranges.Context, frame.Totals = periods, totals
 }
 
 func (plan insightsPlan) crossTabSpec(spec InsightsSpec) CrossTabSpec {

@@ -78,7 +78,11 @@ func (service *Service) capabilitiesForStateSnapshot(
 	state ViewState,
 ) []Capability {
 	result := service.capabilitiesForSnapshot(snapshot)
-	detail := state.Validate() == nil && state.Current.Mode == domain.ResultModeDetail &&
+	valid := state.Validate() == nil
+	if valid {
+		result = append(result, toggleTimeCapability(sessionFromAnalyticalState(state.Current)))
+	}
+	detail := valid && state.Current.Mode == domain.ResultModeDetail &&
 		state.Current.SubGrouping == nil
 	if !detail {
 		for index := range result {
@@ -89,6 +93,14 @@ func (service *Service) capabilitiesForStateSnapshot(
 		}
 	}
 	return result
+}
+
+// toggleTimeCapability reports whether the time key can change session's view.
+func toggleTimeCapability(session Session) Capability {
+	if reason := session.ToggleTimeUnavailable(); reason != "" {
+		return Capability{Action: ActionToggleTime, Reason: reason}
+	}
+	return Capability{Action: ActionToggleTime, Available: true}
 }
 
 func (service *Service) capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Capability {

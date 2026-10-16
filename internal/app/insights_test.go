@@ -139,3 +139,28 @@ func merchantIdentity(key string) string {
 		Total: domain.Money{Currency: usdScope.Currency, Scale: usdScope.Scale},
 	})
 }
+
+func TestInsightsChartAChosenTimeUnit(t *testing.T) {
+	t.Parallel()
+	service := insightsService(t)
+	state := insightsState()
+	state.Dimension = domain.DimensionTime
+	state.Sort = domain.SortSpec{Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc}
+	start, err := domain.ParseDate("2026-08-01")
+	require.NoError(t, err)
+	end, err := domain.ParseDate("2026-08-31")
+	require.NoError(t, err)
+	state.DateRange = &domain.DateRange{Start: start, End: end}
+	derived, err := service.Insights(context.Background(), app.InsightsRequest{State: state})
+	require.NoError(t, err)
+	assert.Equal(t, domain.TimeGranularityDay, derived.Insights.Ranges.ContextGranularity)
+	assert.Len(t, derived.Insights.Ranges.Context, 1, "only the day with transactions")
+
+	state.TimeGranularity = domain.TimeGranularityMonth
+	state.TimeGranularityChosen = true
+	chosen, err := service.Insights(context.Background(), app.InsightsRequest{State: state})
+	require.NoError(t, err)
+	assert.Equal(t, domain.TimeGranularityMonth, chosen.Insights.Ranges.ContextGranularity)
+	require.Len(t, chosen.Insights.Ranges.Context, 1)
+	assert.Equal(t, domain.TimeGranularityMonth, chosen.Insights.Ranges.Context[0].Period.Granularity)
+}

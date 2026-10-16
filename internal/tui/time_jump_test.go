@@ -36,7 +36,7 @@ func TestTimeJumpFromEveryGroupingPreservesFilters(t *testing.T) {
 			model = press(t, model, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 			require.NotEmpty(t, model.session.SelectedAggregateKeys)
 
-			model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+			model = press(t, model, keyRune('t'))
 
 			require.NotEmpty(t, model.result.AggregateRows)
 			for _, row := range model.result.AggregateRows {
@@ -70,8 +70,8 @@ func TestTimeJumpFromSummaryToMonthAndBack(t *testing.T) {
 	model, err := NewModel(context.Background(), service, session, Options{ColorMode: ColorModeNone})
 	require.NoError(t, err)
 
-	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
-	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('t'))
 	require.Len(t, model.result.AggregateRows, 2)
 	assert.Equal(t, "Sep 2024", model.result.AggregateRows[0].Label)
 	assert.Equal(t, "Oct 2024", model.result.AggregateRows[1].Label)
@@ -98,19 +98,36 @@ func TestTimeJumpWithinDrilldownPreservesScopeAndBack(t *testing.T) {
 			model = press(t, model, keyRune('g'))
 		}
 
-		model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+		model = press(t, model, keyRune('t'))
 
 		require.NotEmpty(t, model.result.AggregateRows)
 		assert.Equal(t, domain.DimensionTime, model.result.AggregateRows[0].Dimension)
 		assert.Equal(t, before, model.result.Statistics)
 		assert.Equal(t, drilldowns, model.session.Drilldowns)
-		model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+		model = press(t, model, keyRune('t'))
 		assert.Equal(t, domain.TimeGranularityMonth, model.result.AggregateRows[0].Period.Granularity)
 		model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
 		require.NotEmpty(t, model.result.DetailRows)
 		assert.Equal(t, before, model.result.Statistics)
 		assert.Equal(t, drilldowns, model.session.Drilldowns)
 	}
+}
+
+const periodDrillReason = "Already inside one period. Press Esc to go back to the time rows."
+
+func TestTimeKeyExplainsWhyAPeriodCannotGroupByTime(t *testing.T) {
+	t.Parallel()
+	session := app.NewSession()
+	session.Dimension = domain.DimensionTime
+	model := newTestModel(t, session)
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, model.result.DetailRows)
+	before := model.session.QuerySpec()
+
+	model = press(t, model, keyRune('t'))
+
+	assert.Equal(t, before, model.session.QuerySpec())
+	assert.Equal(t, periodDrillReason, model.status)
 }
 
 func TestTimeJumpWithinSelectedPeriodKeepsCurrentGrouping(t *testing.T) {
@@ -123,9 +140,10 @@ func TestTimeJumpWithinSelectedPeriodKeepsCurrentGrouping(t *testing.T) {
 	model = press(t, model, keyRune('g'))
 	before := model.session.QuerySpec()
 
-	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	model = press(t, model, keyRune('t'))
 
 	assert.Equal(t, before, model.session.QuerySpec())
+	assert.Equal(t, periodDrillReason, model.status)
 	require.NotEmpty(t, model.result.AggregateRows)
 	assert.Equal(t, domain.DimensionMerchant, model.result.AggregateRows[0].Dimension)
 }
@@ -133,8 +151,8 @@ func TestTimeJumpWithinSelectedPeriodKeepsCurrentGrouping(t *testing.T) {
 func TestTimeJumpAfterClearingPeriodFromGroupedView(t *testing.T) {
 	t.Parallel()
 	model := newTestModel(t, app.NewSession())
-	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
-	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('t'))
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = press(t, model, keyRune('g'))
 	model = press(t, model, keyRune('a'))
@@ -142,7 +160,7 @@ func TestTimeJumpAfterClearingPeriodFromGroupedView(t *testing.T) {
 	require.Equal(t, domain.DimensionMerchant, model.result.AggregateRows[0].Dimension)
 	before := model.result.Statistics
 
-	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	model = press(t, model, keyRune('t'))
 
 	require.NotEmpty(t, model.result.AggregateRows)
 	assert.Equal(t, domain.DimensionTime, model.result.AggregateRows[0].Dimension)
@@ -173,7 +191,7 @@ func TestTimeJumpFromRootDetailRestoresList(t *testing.T) {
 	require.NotEmpty(t, before.SelectedTransactionIDs)
 	require.Empty(t, before.Drilldowns)
 
-	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	model = press(t, model, keyRune('t'))
 
 	require.NotEmpty(t, model.result.AggregateRows)
 	assert.Equal(t, domain.DimensionTime, model.result.AggregateRows[0].Dimension)
@@ -196,4 +214,36 @@ func TestTimeJumpFromRootDetailRestoresList(t *testing.T) {
 	assert.Empty(t, model.session.SelectedTransactionIDs, "Esc does not restore the selection")
 	assert.Equal(t, cursor, model.cursor)
 	assert.Equal(t, scroll, model.scroll)
+}
+
+func TestTimeKeyDayUnitListsOnlyDaysWithTransactions(t *testing.T) {
+	t.Parallel()
+	transactions := fixture.Generate(42, 3)
+	for index, date := range []string{"2024-09-01", "2024-09-30", "2024-11-02"} {
+		var err error
+		transactions[index].Date, err = domain.ParseDate(date)
+		require.NoError(t, err)
+		transactions[index].Amount = domain.Money{Minor: -100, Currency: "USD", Scale: 2}
+	}
+	service, err := app.NewService(transactions)
+	require.NoError(t, err)
+	session := app.NewSession()
+	session.ShowTransfers = true
+	model, err := NewModel(context.Background(), service, session, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+
+	for range 3 {
+		model = press(t, model, keyRune('t'))
+	}
+	require.Equal(t, domain.TimeGranularityDay, model.session.TimeGranularity)
+	labels := make([]string, len(model.result.AggregateRows))
+	for index, row := range model.result.AggregateRows {
+		labels[index] = row.Key
+	}
+	assert.Equal(t, []string{"2024-09-01", "2024-09-30", "2024-11-02"}, labels)
+
+	model = press(t, model, keyRune('t'))
+	model = press(t, model, keyRune('t'))
+	require.Equal(t, domain.TimeGranularityMonth, model.session.TimeGranularity)
+	assert.Len(t, model.result.AggregateRows, 3, "October stays as an empty month")
 }

@@ -47,6 +47,10 @@ type AnalyticalState struct {
 	ShowTransfers   bool                   `json:"show_transfers"`
 	Currency        *domain.CurrencyScope  `json:"currency,omitempty"`
 	Sort            domain.SortSpec        `json:"sort"`
+
+	// TimeGranularityChosen keeps TimeGranularity in a currency-scoped state instead of
+	// deriving it from the period. Only currency-scoped states carry it.
+	TimeGranularityChosen bool `json:"time_granularity_chosen,omitempty"`
 }
 
 // ReturnFrame contains one analytical parent without presentation or selection state.
@@ -186,7 +190,7 @@ func NewSessionFromViewState(state ViewState) (Session, error) {
 }
 
 func analyticalStateFromSession(session Session) AnalyticalState {
-	return AnalyticalState{
+	state := AnalyticalState{
 		Mode: session.Mode, Dimension: session.Dimension,
 		SubGrouping: cloneDimension(session.SubGrouping), TimeGranularity: session.TimeGranularity,
 		Drilldowns: stableDrilldowns(session.Drilldowns), DateRange: cloneDateRange(session.DateRange),
@@ -194,10 +198,12 @@ func analyticalStateFromSession(session Session) AnalyticalState {
 		ShowHidden: session.ShowHidden, ShowTransfers: session.ShowTransfers,
 		Currency: cloneCurrencyScope(session.Currency), Sort: session.Sort,
 	}
+	state.TimeGranularityChosen = session.TimeGranularityChosen && session.Currency != nil
+	return state
 }
 
 func analyticalStateFromSnapshot(snapshot sessionSnapshot) AnalyticalState {
-	return AnalyticalState{
+	state := AnalyticalState{
 		Mode: snapshot.mode, Dimension: snapshot.dimension,
 		SubGrouping: cloneDimension(snapshot.subGrouping), TimeGranularity: snapshot.timeGranularity,
 		Drilldowns: stableDrilldowns(snapshot.drilldowns), DateRange: cloneDateRange(snapshot.dateRange),
@@ -205,10 +211,12 @@ func analyticalStateFromSnapshot(snapshot sessionSnapshot) AnalyticalState {
 		ShowHidden: snapshot.showHidden, ShowTransfers: snapshot.showTransfers,
 		Currency: cloneCurrencyScope(snapshot.currency), Sort: snapshot.sort,
 	}
+	state.TimeGranularityChosen = snapshot.timeChosen && snapshot.currency != nil
+	return state
 }
 
 func sessionFromAnalyticalState(state AnalyticalState) Session {
-	return Session{
+	session := Session{
 		Mode: state.Mode, Dimension: state.Dimension,
 		SubGrouping: cloneDimension(state.SubGrouping), TimeGranularity: state.TimeGranularity,
 		Drilldowns: stableDrilldowns(state.Drilldowns), DateRange: cloneDateRange(state.DateRange),
@@ -218,10 +226,12 @@ func sessionFromAnalyticalState(state AnalyticalState) Session {
 		SelectedTransactionIDs: make(map[string]struct{}),
 		SelectedAggregateKeys:  make(map[string]struct{}),
 	}
+	session.TimeGranularityChosen = state.TimeGranularityChosen
+	return session
 }
 
 func snapshotFromAnalyticalState(state AnalyticalState) sessionSnapshot {
-	return sessionSnapshot{
+	snapshot := sessionSnapshot{
 		mode: state.Mode, dimension: state.Dimension,
 		subGrouping: cloneDimension(state.SubGrouping), timeGranularity: state.TimeGranularity,
 		drilldowns: stableDrilldowns(state.Drilldowns), dateRange: cloneDateRange(state.DateRange),
@@ -229,6 +239,8 @@ func snapshotFromAnalyticalState(state AnalyticalState) sessionSnapshot {
 		showHidden: state.ShowHidden, showTransfers: state.ShowTransfers,
 		currency: cloneCurrencyScope(state.Currency), sort: state.Sort,
 	}
+	snapshot.timeChosen = state.TimeGranularityChosen
+	return snapshot
 }
 
 func analyticalQuerySpec(state AnalyticalState) domain.QuerySpec {

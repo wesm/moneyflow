@@ -63,6 +63,9 @@ func (service *Service) deriveTimeRows(
 		return nil, fmt.Errorf("time rows: today: %w", err)
 	}
 	input := analytics.RangeInput{Scope: scope, Today: today, TimeGrouping: true}
+	if state.TimeGranularityChosen {
+		input.TimeUnit = state.TimeGranularity
+	}
 	input.First, input.Latest = currencyDates(currencies, *state.Currency)
 	granularity, periods, err := analytics.TimeRowPeriods(input)
 	if err != nil {
@@ -153,7 +156,8 @@ func mergeTimeRows(
 	state AnalyticalState, rows []domain.AggregateRow, periods []analytics.PeriodRange,
 ) []domain.AggregateRow {
 	query := analyticalQuerySpec(state)
-	if len(periods) == 0 || query.Mode != domain.ResultModeAggregate {
+	if len(periods) == 0 || query.Mode != domain.ResultModeAggregate ||
+		!analytics.ListsEmptyPeriods(state.TimeGranularity) {
 		return rows
 	}
 	empty := make([]domain.AggregateRow, len(periods))

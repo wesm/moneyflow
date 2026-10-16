@@ -143,7 +143,11 @@ func insightsSpec(request InsightsRequest) (analytics.InsightsSpec, error) {
 	if _, err := analytics.Filter(nil, query); err != nil {
 		return analytics.InsightsSpec{}, err
 	}
-	return analytics.InsightsSpec{Query: query, Keys: keys, Summary: request.Summary}, nil
+	spec := analytics.InsightsSpec{Query: query, Keys: keys, Summary: request.Summary}
+	if request.State.TimeGranularityChosen {
+		spec.TimeUnit = request.State.TimeGranularity
+	}
+	return spec, nil
 }
 
 // insightsInputs returns committed transactions and sets today's date. For Amazon profiles a

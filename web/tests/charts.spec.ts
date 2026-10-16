@@ -224,7 +224,7 @@ test('an empty month inside a merchant keeps the strip and chart row above the e
     .getByRole('radiogroup', { name: 'Period', exact: true })
     .getByRole('radio', { name: 'Month' })
     .click()
-  const period = page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')
+  const period = page.getByRole('banner').locator('button[aria-keyshortcuts="p"]')
   await expect(period).toHaveAccessibleName('Oct 2026')
   await page.getByRole('grid', { name: 'Financial results' }).focus()
   await page.keyboard.press('Enter')
@@ -305,7 +305,7 @@ async function backThroughComposition(page: Page): Promise<void> {
 }
 
 function periodControl(page: Page): Locator {
-  return page.getByRole('banner').locator('button[aria-keyshortcuts="t"]')
+  return page.getByRole('banner').locator('button[aria-keyshortcuts="p"]')
 }
 
 test('a sort change keeps Trend, vs prior, and the charts without asking again', async ({
@@ -395,6 +395,17 @@ test('a Year scope charts one column per year, and a year column scopes to it', 
   await expect(page).toHaveURL(/[?&]from=2025-01-01&to=2025-12-31/)
   await expect(ticks).toHaveText(['2024', '2025'])
   await expect(column(page, '2025')).toHaveClass(/mf-cashflow__column--scope/)
+})
+
+test('Day columns name the month and year where they change', async ({ page, server }) => {
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2025-12-15&to=2026-01-15&v=1')
+  await page.keyboard.press('t')
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveText('Days')
+  const ticks = cashflow(page).locator('.mf-cashflow__tick')
+  await expect(ticks.filter({ hasText: 'Jan 2026' })).toHaveCount(1)
+  const labels = (await ticks.allTextContents()).filter((label) => label !== '')
+  expect(labels[0]).toMatch(/^Dec \d+$/)
+  expect(labels.slice(1).every((label) => /^(\d+|Jan 2026)$/.test(label))).toBe(true)
 })
 
 test('a drag across cash-flow columns sets a custom range', async ({ page, server }) => {

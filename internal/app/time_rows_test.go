@@ -76,18 +76,18 @@ func TestSetPeriodListsTimeRowsFromTheRange(t *testing.T) {
 		firstKey    string
 		lastKey     string
 	}{
-		{"day", "2024-01-01", "2026-09-15", "2026-09-15", domain.TimeGranularityDay, 1,
-			"2026-09-15", "2026-09-15"},
-		{"month", "2024-01-01", "2026-09-01", "2026-09-30", domain.TimeGranularityDay, 30,
-			"2026-09-01", "2026-09-30"},
-		{"month through today", "2024-01-01", "2026-10-01", "2026-10-31",
-			domain.TimeGranularityDay, 8, "2026-10-01", "2026-10-08"},
+		{"day", "2024-01-01", "2026-10-07", "2026-10-07", domain.TimeGranularityDay, 1,
+			"2026-10-07", "2026-10-07"},
+		{"empty month", "2024-01-01", "2026-09-01", "2026-09-30", domain.TimeGranularityDay, 0,
+			"", ""},
+		{"month lists only days with transactions", "2024-01-01", "2026-10-01", "2026-10-31",
+			domain.TimeGranularityDay, 1, "2026-10-07", "2026-10-07"},
 		{"year", "2024-01-01", "2025-01-01", "2025-12-31", domain.TimeGranularityMonth, 12,
 			"2025-01", "2025-12"},
 		{"year through today", "2024-01-01", "2026-01-01", "2026-12-31",
 			domain.TimeGranularityMonth, 10, "2026-01", "2026-10"},
-		{"custom 62 days", "2024-01-01", "2026-03-01", "2026-05-01", domain.TimeGranularityDay, 62,
-			"2026-03-01", "2026-05-01"},
+		{"custom 62 days", "2024-01-01", "2026-08-07", "2026-10-07", domain.TimeGranularityDay, 1,
+			"2026-10-07", "2026-10-07"},
 		{"custom 3 months", "2024-01-01", "2026-01-01", "2026-03-31",
 			domain.TimeGranularityMonth, 3, "2026-01", "2026-03"},
 		{"all", "2024-01-01", "", "", domain.TimeGranularityMonth, 34, "2024-01", "2026-10"},
@@ -109,47 +109,46 @@ func TestSetPeriodListsTimeRowsFromTheRange(t *testing.T) {
 			keys := timeRowKeys(projection.AggregateRows)
 			require.Len(t, keys, test.count)
 			assert.Equal(t, test.count, projection.TotalRows)
+			if test.count == 0 {
+				return
+			}
 			assert.Equal(t, test.firstKey, keys[0])
 			assert.Equal(t, test.lastKey, keys[len(keys)-1])
 		})
 	}
 }
 
-func TestProjectViewListsEmptyTimePeriodsWithDataRows(t *testing.T) {
+func TestProjectViewListsEmptyMonthsWithDataRows(t *testing.T) {
 	t.Parallel()
 
 	service := timeRowsService(t,
-		appTransaction(t, "spend", "2026-09-02", "-50.00", "Example", "Category", "Group"),
-		appTransaction(t, "earn", "2026-09-03", "20.00", "Example", "Category", "Group"),
-		appTransaction(t, "future", "2026-10-20", "-1.00", "Example", "Category", "Group"),
+		appTransaction(t, "spend", "2026-02-02", "-50.00", "Example", "Category", "Group"),
+		appTransaction(t, "earn", "2026-03-03", "20.00", "Example", "Category", "Group"),
+		appTransaction(t, "future", "2026-12-20", "-1.00", "Example", "Category", "Group"),
 	)
 	state := timeGroupingState()
-	state.Current.DateRange = matrixRange(t, "2026-09-01", "2026-09-30")
-	state.Current.TimeGranularity = domain.TimeGranularityDay
+	state.Current.DateRange = matrixRange(t, "2026-01-01", "2026-12-31")
+	state.Current.TimeGranularity = domain.TimeGranularityMonth
 	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
 	require.NoError(t, err)
-	require.Len(t, projection.AggregateRows, 30)
-	assert.Equal(t, 30, projection.TotalRows)
+	keys := timeRowKeys(projection.AggregateRows)
+	assert.Equal(t, []string{
+		"2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06",
+		"2026-07", "2026-08", "2026-09", "2026-10", "2026-12",
+	}, keys, "months through today, then the future data row outside the listed periods")
+	assert.Equal(t, 11, projection.TotalRows)
 	empty := projection.AggregateRows[0].Row
-	assert.Equal(t, "2026-09-01", empty.Key)
-	assert.Equal(t, "2026-09-01", empty.Label)
 	assert.Equal(t, &domain.Period{
-		Granularity: domain.TimeGranularityDay, Year: 2026, Month: 9, Day: 1,
+		Granularity: domain.TimeGranularityMonth, Year: 2026, Month: 1,
 	}, empty.Period)
 	assert.Zero(t, empty.Count)
 	assert.Equal(t, domain.Money{Currency: "USD", Scale: 2}, empty.Total)
-	assert.Equal(t, 1000, projection.AggregateRows[1].Row.ShareTenths, "shares are unchanged")
+	assert.Equal(t, 980, projection.AggregateRows[1].Row.ShareTenths,
+		"empty rows leave the shares of spending alone: 50.00 of 51.00")
 	assert.Equal(t, 1000, projection.AggregateRows[2].Row.ShareTenths)
-
-	state.Current.DateRange = matrixRange(t, "2026-10-01", "2026-10-31")
-	projection, err = service.ProjectView(state, EmptySelection(), WindowRequest{})
-	require.NoError(t, err)
-	keys := timeRowKeys(projection.AggregateRows)
-	assert.Equal(t, "2026-10-01", keys[0], "the range lists days before the data")
-	assert.Equal(t, "2026-10-20", keys[len(keys)-1], "data rows outside the range stay")
 }
 
-func TestProjectViewListsNoEmptyDaysAfterToday(t *testing.T) {
+func TestProjectViewListsOnlyDaysWithTransactions(t *testing.T) {
 	t.Parallel()
 
 	service := timeRowsService(t,
@@ -160,33 +159,31 @@ func TestProjectViewListsNoEmptyDaysAfterToday(t *testing.T) {
 	state.Current.DateRange = matrixRange(t, "2026-10-01", "2026-10-31")
 	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, []string{
-		"2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05",
-		"2026-10-06", "2026-10-07", "2026-10-08", "2026-10-20",
-	}, timeRowKeys(projection.AggregateRows), "days through today, then the future data row")
-	assert.Equal(t, 9, projection.TotalRows)
+	assert.Equal(t, domain.TimeGranularityDay, projection.State.Current.TimeGranularity)
+	assert.Equal(t, []string{"2026-10-02", "2026-10-20"}, timeRowKeys(projection.AggregateRows))
+	assert.Equal(t, 2, projection.TotalRows)
 }
 
 func TestProjectViewSortsAndWindowsTimeRows(t *testing.T) {
 	t.Parallel()
 
 	service := timeRowsService(t,
-		appTransaction(t, "spend", "2026-09-02", "-50.00", "Example", "Category", "Group"),
-		appTransaction(t, "earn", "2026-09-03", "20.00", "Example", "Category", "Group"),
+		appTransaction(t, "spend", "2026-02-02", "-50.00", "Example", "Category", "Group"),
+		appTransaction(t, "earn", "2026-03-03", "20.00", "Example", "Category", "Group"),
 	)
 	state := timeGroupingState()
-	state.Current.DateRange = matrixRange(t, "2026-09-01", "2026-09-04")
-	state.Current.TimeGranularity = domain.TimeGranularityDay
+	state.Current.DateRange = matrixRange(t, "2026-01-01", "2026-04-30")
+	state.Current.TimeGranularity = domain.TimeGranularityMonth
 
 	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"},
+	assert.Equal(t, []string{"2026-01", "2026-02", "2026-03", "2026-04"},
 		timeRowKeys(projection.AggregateRows))
 
 	state.Current.Sort = amountDescending()
 	projection, err = service.ProjectView(state, EmptySelection(), WindowRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"2026-09-02", "2026-09-01", "2026-09-04", "2026-09-03"},
+	assert.Equal(t, []string{"2026-02", "2026-01", "2026-04", "2026-03"},
 		timeRowKeys(projection.AggregateRows), "Net sorts spending first, as for other rows")
 
 	projection, err = service.ProjectView(
@@ -195,7 +192,7 @@ func TestProjectViewSortsAndWindowsTimeRows(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 4, projection.TotalRows)
 	assert.Equal(t, Window{Offset: 1, Limit: 2, Count: 2}, projection.Window)
-	assert.Equal(t, []string{"2026-09-01", "2026-09-04"}, timeRowKeys(projection.AggregateRows))
+	assert.Equal(t, []string{"2026-01", "2026-04"}, timeRowKeys(projection.AggregateRows))
 	assert.Equal(t, 1, projection.AggregateRows[0].Index)
 }
 
@@ -252,7 +249,7 @@ func TestProjectViewSetsTimeRowSavingsRates(t *testing.T) {
 		rates[row.Row.Key] = row.SavingsRateTenths
 	}
 	assert.Equal(t, map[string]*int{
-		"2026-09-01": new(1), "2026-09-02": nil, "2026-09-03": nil,
+		"2026-09-01": new(1), "2026-09-02": nil,
 		"2026-09-04": new(-2000), "2026-09-05": new(-1),
 	}, rates, "Net ÷ In in tenths, half up, only when In is positive")
 
@@ -366,8 +363,9 @@ func TestCurrencyTimeViewsDeriveTheirGranularity(t *testing.T) {
 	stale.Current.DateRange = matrixRange(t, "2026-09-01", "2026-09-30")
 	projection, err = service.ProjectView(stale, EmptySelection(), WindowRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, domain.TimeGranularityDay, projection.State.Current.TimeGranularity)
-	assert.Len(t, projection.AggregateRows, 30, "a stored year granularity is replaced")
+	assert.Equal(t, domain.TimeGranularityDay, projection.State.Current.TimeGranularity,
+		"a stored year granularity is replaced")
+	assert.Empty(t, projection.AggregateRows, "days without transactions are left out")
 
 	noCurrency := timeGroupingState()
 	noCurrency.Current.Currency = nil
@@ -411,9 +409,8 @@ func TestTimeSubGroupingInsideATimeDrillUsesTheDrillPeriod(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, domain.TimeGranularityDay, projection.State.Current.TimeGranularity)
 	keys := timeRowKeys(projection.AggregateRows)
-	require.Len(t, keys, 30, "the rows cover the drilled month, not the year")
-	assert.Equal(t, "2026-09-01", keys[0])
-	assert.Equal(t, "2026-09-30", keys[29])
+	assert.Equal(t, []string{"2026-09-02", "2026-09-03"}, keys,
+		"the rows are the drilled month's days with transactions")
 }
 
 func TestBackDerivesTheGranularityOfTheRestoredView(t *testing.T) {
@@ -421,23 +418,23 @@ func TestBackDerivesTheGranularityOfTheRestoredView(t *testing.T) {
 
 	service := workedExampleService(t, "2024-01-01")
 	state := timeGroupingState()
-	state.Current.DateRange = matrixRange(t, "2026-09-01", "2026-09-30")
+	state.Current.DateRange = matrixRange(t, "2025-01-01", "2025-12-31")
 	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
 	require.NoError(t, err)
-	require.Len(t, projection.AggregateRows, 30)
+	require.Len(t, projection.AggregateRows, 12)
 	drilled, _, _, err := service.TransitionView(state, EmptySelection(), TransitionRequest{
 		Action: ActionDrill,
 		Target: &RowTarget{Kind: IdentityAggregate, Identity: projection.AggregateRows[6].Identity},
 	}, WindowRequest{})
 	require.NoError(t, err)
-	year, _ := setWebPeriod(t, service, drilled, matrixRange(t, "2025-01-01", "2025-12-31"))
+	month, _ := setWebPeriod(t, service, drilled, matrixRange(t, "2026-10-01", "2026-10-31"))
 	back, _, projection, err := service.TransitionView(
-		year, EmptySelection(), TransitionRequest{Action: ActionBack}, WindowRequest{},
+		month, EmptySelection(), TransitionRequest{Action: ActionBack}, WindowRequest{},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, domain.ResultModeAggregate, back.Current.Mode)
-	assert.Equal(t, domain.TimeGranularityMonth, back.Current.TimeGranularity)
-	assert.Len(t, projection.AggregateRows, 12)
+	assert.Equal(t, domain.TimeGranularityDay, back.Current.TimeGranularity)
+	assert.Equal(t, []string{"2026-10-07"}, timeRowKeys(projection.AggregateRows))
 }
 
 func TestTerminalPeriodChangesKeepTheGranularity(t *testing.T) {
@@ -511,31 +508,6 @@ func TestEmptyTimeRowsCanBeSelected(t *testing.T) {
 	for _, row := range projection.AggregateRows {
 		assert.True(t, row.Row.Flags.Selected, row.Row.Key)
 	}
-}
-
-func TestSelectAllOfAPartialMonthFollowsTheClock(t *testing.T) {
-	t.Parallel()
-
-	service := timeRowsService(t,
-		appTransaction(t, "early", "2026-10-02", "-10.00", "Example", "Category", "Group"),
-	)
-	service.SetClock(func() time.Time { return time.Date(2026, 10, 20, 12, 0, 0, 0, time.Local) })
-	state := timeGroupingState()
-	state.Current.DateRange = matrixRange(t, "2026-10-01", "2026-10-31")
-	state.Current.TimeGranularity = domain.TimeGranularityDay
-	_, selection, projection, err := service.TransitionView(state, EmptySelection(),
-		TransitionRequest{Action: ActionToggleSelectAll}, WindowRequest{})
-	require.NoError(t, err)
-	assert.Equal(t, 20, projection.SelectionCount, "October 1 through today")
-	document, err := decodeSelection(selection)
-	require.NoError(t, err)
-	require.Equal(t, selectionBaseAll, document.Base, "twenty rows store the view, not IDs")
-
-	service.SetClock(func() time.Time { return time.Date(2026, 10, 25, 12, 0, 0, 0, time.Local) })
-	projection, err = service.ProjectView(state, selection, WindowRequest{})
-	require.NoError(t, err)
-	assert.Equal(t, 25, projection.SelectionCount,
-		"a select-all selection covers the days the range lists now, so it grows with the clock")
 }
 
 func TestTimeRowsListEveryYearOfTheWidestRange(t *testing.T) {

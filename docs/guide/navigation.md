@@ -99,13 +99,14 @@ The browser's command bar starts with a breadcrumb trail, such as
 drill-downs started from: the grouping, with time grouping named by its unit (**Years**,
 **Months**, or **Days**), or **All transactions** for the `d` view. When the saved view does
 not record the unit, the crumb reads **Time**. Each drill-down adds a crumb, and a breakdown
-adds "by" and its dimension.
+adds "by" and its dimension. A Time breakdown names its unit instead, such as **by Month**.
 
 - Click an earlier crumb to return to that level in one step. It clears what pressing Esc
   repeatedly would clear on the way, and the browser's Back history stays one entry per view.
 - Inside a drill-down, **Break down by** lists **Transactions** and each dimension the
   drill-down has not used. Choosing a dimension breaks the rows down like `g`;
-  **Transactions** removes the breakdown.
+  **Transactions** removes the breakdown. A chosen Time breakdown shows its unit, such as
+  **Time · Day**.
 
 At 900 px and narrower, the menu button in the top bar opens the sidebar as a drawer. On
 screens 640 px wide or narrower, the period arrows stay in the command bar; **View** opens a
@@ -114,19 +115,19 @@ search icon shows or hides the search field, which stays open while a search app
 
 ## Choose a year, month, or day
 
-In this checkout's TUI, `t` opens a time chooser from a grouped view or transaction list:
+In this checkout's TUI, `p` opens a time chooser from a grouped view or transaction list:
 
 | Keys | Result |
 | --- | --- |
-| `t`, Enter | This calendar month |
-| `t`, Down, Enter | Last calendar month |
-| `t`, Shift+Tab, Enter | This calendar year |
-| `t`, Shift+Tab, Down, Enter | Last calendar year |
-| `t`, Tab, Enter | Today |
-| `t`, type `2025-09`, Enter | September 2025 |
-| `t`, type `2025`, Enter | The whole of 2025 |
-| `t`, type `2025-09-15`, Enter | September 15, 2025 |
-| `t`, `a` | All time |
+| `p`, Enter | This calendar month |
+| `p`, Down, Enter | Last calendar month |
+| `p`, Shift+Tab, Enter | This calendar year |
+| `p`, Shift+Tab, Down, Enter | Last calendar year |
+| `p`, Tab, Enter | Today |
+| `p`, type `2025-09`, Enter | September 2025 |
+| `p`, type `2025`, Enter | The whole of 2025 |
+| `p`, type `2025-09-15`, Enter | September 15, 2025 |
+| `p`, `a` | All time |
 
 The chooser opens at the current month using your computer's calendar. Tab cycles **Year,
 Month, Day**; Shift+Tab cycles backward. Down moves to the previous period; Up moves to the
@@ -147,11 +148,22 @@ After choosing a period, left and right move to adjacent years, months, or days 
 resolution; `a` returns to all time and removes any period drill-down.
 Enter still opens a selected group and Esc returns to its summary.
 
-To browse grouped periods instead, use `Ctrl+t` in the TUI to jump to Time grouping. Press
-it again to cycle year, month, and day. In the browser, press `5` or choose **Time** in the
-sidebar. The browser picks the unit from the period: a day or month lists days, and a year
-lists months. All time lists months, or years when your transactions span more than 60
-months. A custom range lists days up to 62 days, months up to 36 months, and years beyond.
+To browse grouped periods instead, press `t`. At the top level it groups by Time; inside a
+drill-down or breakdown it breaks the rows down by Time. In a Time view, each press cycles the
+unit through year, month, and day. A drill-down into a period cannot break down by Time
+again, so there `t` tells you to press Esc to go back to the time rows. `t` works the same way
+in the TUI and the browser. In a Time view, the key hint names the unit the next press shows,
+such as `t Month`.
+
+In the browser, `5` or **Time** in the sidebar also groups by Time. The browser picks the unit
+from the period: a day or month lists days, and a year lists months. All time lists months,
+or years when your transactions span more than 60 months. A custom range lists days up to 62
+days, months up to 36 months, and years beyond. A unit you choose with `t` lists the same
+dates in that unit and stays until you change the period. The TUI keeps the unit you chose.
+
+Days without transactions are left out, in the TUI and in the browser's table and cash-flow
+chart. Months and years without transactions stay listed so gaps are visible: the browser lists
+every one in the period, and the TUI lists those between your first and last transactions.
 
 When you have drilled into a period and no single year, month, or day is selected, left and
 right select the period next to that drill-down. Every period change, whether from these
@@ -171,7 +183,7 @@ The command bar's period control shows the current period, such as `‹ Sep 2026
   The segments are disabled when the selected currency has no transactions.
 - Inside the segments, Left and Right change the segment instead of moving the period.
 
-Click the label or press `t`, shown beside the label, to open the period chooser. Its tabs
+Click the label or press `p`, shown beside the label, to open the period chooser. Its tabs
 choose how to pick:
 
 | Tab | Key | Pick |

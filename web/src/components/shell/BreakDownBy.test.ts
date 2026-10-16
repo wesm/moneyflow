@@ -44,9 +44,21 @@ describe('BreakDownBy', () => {
   it('returns to the transactions from a breakdown', async () => {
     const ontransactions = vi.fn()
     render(BreakDownBy, { projection: drilled('time'), onbreakdown: vi.fn(), ontransactions })
-    expect(screen.getByRole('radio', { name: 'Time' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: 'Time, Year' }).getAttribute('aria-checked')).toBe(
+      'true',
+    )
     await fireEvent.click(screen.getByRole('radio', { name: 'Transactions' }))
     expect(ontransactions).toHaveBeenCalledOnce()
+  })
+
+  it('names the unit of a Time breakdown', () => {
+    const projection = drilled('time')
+    projection.view.time_granularity = 'day'
+    render(BreakDownBy, { projection, onbreakdown: vi.fn(), ontransactions: vi.fn() })
+    expect(radios()).toEqual(['Transactions', 'Category', 'Group', 'Account', 'Time · Day'])
+    expect(screen.getByRole('radio', { name: 'Time, Day' }).getAttribute('aria-checked')).toBe(
+      'true',
+    )
   })
 
   it('is hidden at the top level', () => {

@@ -33,6 +33,10 @@
       {options}
       value={projection.view.sub_grouping ?? 'transactions'}
       onchange={choose}
-    />
+    >
+      {#snippet segment(option)}
+        {options.find(({ value }) => value === option.value)?.text ?? option.label}
+      {/snippet}
+    </SegmentedControl>
   </div>
 {/if}

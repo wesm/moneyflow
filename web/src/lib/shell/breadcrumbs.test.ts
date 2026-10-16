@@ -83,6 +83,20 @@ describe('breadcrumbTrail', () => {
     ])
   })
 
+  it('names a Time breakdown by its unit', () => {
+    for (const [unit, label] of [
+      ['day', 'by Day'],
+      ['month', 'by Month'],
+      ['year', 'by Year'],
+    ]) {
+      const subGrouped = {
+        ...depthOne,
+        view: { ...depthOne.view, sub_grouping: 'time', time_granularity: unit! },
+      }
+      expect(breadcrumbTrail(subGrouped).at(-1)).toEqual({ label, current: true })
+    }
+  })
+
   it('names time grouping by its unit at the top level', () => {
     const months = testProjection({
       view: view({
@@ -139,7 +153,7 @@ describe('breadcrumbTrail', () => {
     })
     expect(breadcrumbTrail(detail)).toEqual([
       { label: 'All transactions', depth: 0, current: false },
-      { label: 'by Time', current: true },
+      { label: 'by Year', current: true },
     ])
   })
 
@@ -193,5 +207,19 @@ describe('breakDownOptions', () => {
       'account',
       'time',
     ])
+  })
+
+  it('names the unit of the chosen Time breakdown', () => {
+    const subGrouped = {
+      ...depthOne,
+      view: { ...depthOne.view, sub_grouping: 'time', time_granularity: 'day' },
+    }
+    expect(breakDownOptions(subGrouped).at(-1)).toEqual({
+      value: 'time',
+      label: 'Time, Day',
+      text: 'Time · Day',
+    })
+    const unchosen = { ...depthOne, view: { ...depthOne.view, time_granularity: 'day' } }
+    expect(breakDownOptions(unchosen).at(-1)).toEqual({ value: 'time', label: 'Time' })
   })
 })

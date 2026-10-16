@@ -67,6 +67,9 @@ type RangeInput struct {
 	First        domain.Date // first committed transaction in the currency; zero when none
 	Latest       domain.Date // newest committed transaction in the currency; zero when none
 	TimeGrouping bool
+	// TimeUnit, when set, is the unit a Time grouping's rows use instead of the one the scope
+	// gives. The rows still cover the same dates.
+	TimeUnit domain.TimeGranularity
 }
 
 // Ranges are the scope, chart context, trend, and comparison ranges of one view.
@@ -183,7 +186,8 @@ func contextPeriods(
 		periods, err := enumeratePeriods(*input.Scope, granularity, input.Today, true)
 		return granularity, periods, err
 	default:
-		return allTimePeriods(input)
+		input.TimeUnit = ""
+		return timeRowPeriods(kind, input)
 	}
 }
 
@@ -205,41 +209,56 @@ func yearContextPeriods(input RangeInput) ([]PeriodRange, error) {
 	)
 }
 
-// timeRowPeriods returns the Time grouping's rows, which are also its chart columns.
+// timeRowPeriods returns the Time grouping's rows, which are also its chart columns. A
+// chosen unit coarser than the scope, such as Year over one month, is clipped to the scope
+// so its periods hold only the selected dates.
 func timeRowPeriods(
 	kind ScopeKind, input RangeInput,
 ) (domain.TimeGranularity, []PeriodRange, error) {
-	switch kind {
-	case ScopeDay, ScopeMonth:
-		periods, err := enumeratePeriods(
-			throughToday(*input.Scope, input.Today), domain.TimeGranularityDay, input.Today, false,
-		)
-		return domain.TimeGranularityDay, periods, err
-	case ScopeYear:
-		periods, err := enumeratePeriods(
-			throughToday(*input.Scope, input.Today), domain.TimeGranularityMonth, input.Today, false,
-		)
-		return domain.TimeGranularityMonth, periods, err
-	case ScopeCustom:
-		granularity := customGranularity(*input.Scope)
-		periods, err := enumeratePeriods(*input.Scope, granularity, input.Today, true)
-		return granularity, periods, err
-	default:
-		return allTimePeriods(input)
+	bounds, granularity, clip := timeRowBounds(kind, input)
+	if input.TimeUnit != "" {
+		granularity = input.TimeUnit
 	}
+	if bounds == nil {
+		return granularity, nil, nil
+	}
+	periods, err := enumeratePeriods(*bounds, granularity, input.Today, clip)
+	if err != nil || input.TimeUnit == "" || input.Scope == nil {
+		return granularity, periods, err
+	}
+	for index := range periods {
+		periods[index] = clipPeriod(periods[index], *input.Scope)
+	}
+	return granularity, periods, nil
 }
 
-func allTimePeriods(input RangeInput) (domain.TimeGranularity, []PeriodRange, error) {
-	if input.First.IsZero() || input.Latest.IsZero() {
-		return domain.TimeGranularityMonth, nil, nil
+// timeRowBounds returns the dates a Time grouping's rows cover, the unit the scope gives
+// them, and whether periods that cross the bounds are clipped. All time without
+// transactions has no bounds.
+func timeRowBounds(
+	kind ScopeKind, input RangeInput,
+) (*domain.DateRange, domain.TimeGranularity, bool) {
+	switch kind {
+	case ScopeDay, ScopeMonth:
+		bounds := throughToday(*input.Scope, input.Today)
+		return &bounds, domain.TimeGranularityDay, false
+	case ScopeYear:
+		bounds := throughToday(*input.Scope, input.Today)
+		return &bounds, domain.TimeGranularityMonth, false
+	case ScopeCustom:
+		bounds := *input.Scope
+		return &bounds, customGranularity(bounds), true
+	default:
+		if input.First.IsZero() || input.Latest.IsZero() {
+			return nil, domain.TimeGranularityMonth, false
+		}
+		bounds := domain.DateRange{Start: input.First, End: input.Latest}
+		granularity := domain.TimeGranularityMonth
+		if monthsSpanned(bounds) > allTimeMonthLimit {
+			granularity = domain.TimeGranularityYear
+		}
+		return &bounds, granularity, false
 	}
-	bounds := domain.DateRange{Start: input.First, End: input.Latest}
-	granularity := domain.TimeGranularityMonth
-	if monthsSpanned(bounds) > allTimeMonthLimit {
-		granularity = domain.TimeGranularityYear
-	}
-	periods, err := enumeratePeriods(bounds, granularity, input.Today, false)
-	return granularity, periods, err
 }
 
 // throughToday ends a scope that contains today at today, so periods never extend past it.
@@ -284,13 +303,23 @@ func enumeratePeriods(
 			Period: period, Start: start, End: end,
 			Partial: contains(domain.DateRange{Start: start, End: end}, today) && today != end,
 		}
-		if clip && (start.Compare(bounds.Start) < 0 || end.Compare(bounds.End) > 0) {
-			value.Start, value.End = laterDate(start, bounds.Start), earlierDate(end, bounds.End)
-			value.Partial = true
+		if clip {
+			value = clipPeriod(value, bounds)
 		}
 		result = append(result, value)
 	}
 	return result, nil
+}
+
+// clipPeriod limits a period to the part inside bounds and marks a clipped period partial.
+func clipPeriod(period PeriodRange, bounds domain.DateRange) PeriodRange {
+	if period.Start.Compare(bounds.Start) >= 0 && period.End.Compare(bounds.End) <= 0 {
+		return period
+	}
+	period.Start = laterDate(period.Start, bounds.Start)
+	period.End = earlierDate(period.End, bounds.End)
+	period.Partial = true
+	return period
 }
 
 func trendPeriods(input RangeInput) ([]PeriodRange, error) {

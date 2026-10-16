@@ -251,18 +251,18 @@ func TestServerInsightsTimeGroupingHasPeriodCompositionAndNoSeries(t *testing.T)
 	var insights InsightsResponse
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &insights))
 	assert.Equal(t, "day", insights.Ranges.ContextGranularity)
-	require.Len(t, insights.Ranges.Context, 30)
+	require.Len(t, insights.Ranges.Context, 7, "only September's days with transactions")
 	summary := insights.Summary
 	require.NotNil(t, summary)
 	assert.Nil(t, summary.Composition)
-	require.Len(t, summary.PeriodComposition, 30)
+	require.Len(t, summary.PeriodComposition, 7)
 	first := summary.PeriodComposition[0]
 	require.Len(t, first.Spending, 1)
 	assert.Equal(t, InsightsCompositionEntry{
 		Key: "group-Rent", Label: "Rent", Net: "-215000", ShareTenths: 1000,
 	}, first.Spending[0])
 	assert.Empty(t, first.Income)
-	assert.Len(t, summary.Cashflow.Net, 30)
+	assert.Len(t, summary.Cashflow.Net, 7)
 }
 
 func TestServerInsightsOthersEntryLinksToNoRow(t *testing.T) {

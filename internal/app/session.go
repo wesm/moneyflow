@@ -50,6 +50,7 @@ type sessionSnapshot struct {
 	dimension       domain.Dimension
 	subGrouping     *domain.Dimension
 	timeGranularity domain.TimeGranularity
+	timeChosen      bool
 	drilldowns      []domain.Drilldown
 	dateRange       *domain.DateRange
 	search          string
@@ -77,6 +78,9 @@ type Session struct {
 	SelectedAggregateKeys  map[string]struct{}
 	history                []historyEntry
 	searchAnchor           *navigationMarker
+	// TimeGranularityChosen marks a unit chosen with ToggleTimeGranularity. A currency-scoped
+	// Time view then uses it instead of the unit its period gives, until the period changes.
+	TimeGranularityChosen bool
 }
 
 // NewSession returns the Python application's default visible state.
@@ -183,8 +187,11 @@ func (session *Session) SwitchAccounts() {
 	session.clearSelections()
 }
 
-// ToggleTimeGranularity cycles year, month, and day aggregation.
+// ToggleTimeGranularity cycles year, month, and day aggregation, marks the unit chosen, and
+// clears the selection, whose rows the new unit no longer lists.
 func (session *Session) ToggleTimeGranularity() {
+	session.TimeGranularityChosen = true
+	session.clearSelections()
 	switch session.TimeGranularity {
 	case domain.TimeGranularityYear:
 		session.TimeGranularity = domain.TimeGranularityMonth
@@ -219,6 +226,7 @@ func (session *Session) SetFilters(filters Filters) error {
 	session.applyFilters(filters)
 	if periodChanged {
 		session.dropTimeDrilldowns()
+		session.forgetChosenTimeGranularity()
 	}
 	return nil
 }
@@ -323,6 +331,7 @@ func (session *Session) snapshot() sessionSnapshot {
 		dimension:       session.Dimension,
 		subGrouping:     cloneDimension(session.SubGrouping),
 		timeGranularity: session.TimeGranularity,
+		timeChosen:      session.TimeGranularityChosen,
 		drilldowns:      cloneDrilldowns(session.Drilldowns),
 		dateRange:       cloneDateRange(session.DateRange),
 		search:          session.Search,
@@ -339,6 +348,7 @@ func (session *Session) restore(snapshot sessionSnapshot) {
 	session.Dimension = snapshot.dimension
 	session.SubGrouping = cloneDimension(snapshot.subGrouping)
 	session.TimeGranularity = snapshot.timeGranularity
+	session.TimeGranularityChosen = snapshot.timeChosen
 	session.Drilldowns = cloneDrilldowns(snapshot.drilldowns)
 	session.DateRange = cloneDateRange(snapshot.dateRange)
 	session.Search = snapshot.search

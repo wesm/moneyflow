@@ -149,9 +149,10 @@ tests compare them with literal synthetic values.
 | Composition | List named by its panel title, such as `Where it went`; one button per bar named `{label}, {share}, {net}`, where `{share}` ends in `%` and `{net}` is signed |
 | Heatmap | Group `Daily spending`; one cell per day named `{Mon D, YYYY}, out {out}`, with `, in {in}` added when In is not zero |
 
-Cash-flow labels for days are ISO dates in the response. The axis shows the day number
-and the button name shows the date, as `Sep 15, 2026, in …`. Month and year labels
-come from the server.
+Cash-flow labels for days are ISO dates in the response. The axis shows the day number,
+with the month where it changes and the year where that changes, as `Jan 1`, `10`, `Feb 2`,
+and `Jan 2025`. The button name shows the date, as `Sep 15, 2026, in …`. Month and year
+labels come from the server.
 
 A double-click on a composition bar drills into its row. The performance spec times that
 drill and the cursor's move to a new cash-flow column; their limits are in

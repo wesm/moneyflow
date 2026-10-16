@@ -16,8 +16,8 @@ capabilities can disable actions. Terminal shortcuts do not override your termin
 | `A` | Group by account |
 | Enter / Esc | Drill into a row, or in the browser open a transaction row's information / undo one step ([Esc order](navigation.md#go-back-with-esc)) |
 | `s` / `v` | Change sort field / reverse order |
-| `t` | Open the time chooser in the TUI or the [period chooser](navigation.md#choose-a-period-in-the-browser) in the browser |
-| `Ctrl+t` | In the TUI, jump to Time grouping; cycle year/month/day within Time |
+| `t` | Group by Time, or break a drill-down down by Time; in a Time view, cycle year/month/day ([grouped periods](navigation.md#choose-a-year-month-or-day)) |
+| `p` | Open the time chooser in the TUI or the [period chooser](navigation.md#choose-a-period-in-the-browser) in the browser |
 | Left / Right | Adjacent year, month, or day at the selected resolution, or the period next to a period drill-down |
 | `a` | Clear the time period and any period drill-down |
 | `/` / `f` | Search / filters; in the browser, focus the command bar's search field / open its Filters menu (below 640 px wide, in the **View** sheet) |

@@ -5,7 +5,7 @@ import { cell, expect, openMoneyflow, test } from './fixtures'
 
 const grid = (page: Page) => page.getByRole('grid', { name: 'Financial results' })
 const periodLabel = (page: Page) =>
-  page.getByRole('banner').locator('button[aria-haspopup="dialog"][aria-keyshortcuts="t"]')
+  page.getByRole('banner').locator('button[aria-haspopup="dialog"][aria-keyshortcuts="p"]')
 const segment = (page: Page, name: string) =>
   page.getByRole('radiogroup', { name: 'Period', exact: true }).getByRole('radio', { name })
 const chooser = (page: Page) => page.getByRole('dialog', { name: 'Choose period' })
@@ -39,7 +39,8 @@ test('the Month segment and ‹ move the scope and the grid follows', async ({ p
 
   await grid(page).focus()
   await page.keyboard.press('5')
-  await expect(grid(page)).toHaveAttribute('aria-rowcount', '31')
+  // The header row and the 29 days of September that have transactions; empty days are left out.
+  await expect(grid(page)).toHaveAttribute('aria-rowcount', '30')
 })
 
 test('arrows inside the Period segments change the kind without shifting it', async ({
@@ -57,20 +58,20 @@ test('arrows inside the Period segments change the kind without shifting it', as
   await expect(periodLabel(page)).toHaveAccessibleName('Oct 7, 2026')
 })
 
-test('the period label shows its t key', async ({ page, server }) => {
+test('the period label shows its p key', async ({ page, server }) => {
   await openMoneyflow(page, server)
   const badge = periodLabel(page).locator('kbd')
   await expect(badge).toBeVisible()
-  await expect(badge).toContainText('t')
+  await expect(badge).toContainText('p')
   await expect(periodLabel(page)).toHaveAccessibleName('All time')
 })
 
-test('t opens on the current month and arrows with Enter pick another', async ({
+test('p opens on the current month and arrows with Enter pick another', async ({
   page,
   server,
 }) => {
   await openMoneyflow(page, server)
-  await page.keyboard.press('t')
+  await page.keyboard.press('p')
   await expect(chooser(page)).toBeVisible()
   await expect(chooser(page).getByRole('button', { name: 'Oct 2026' })).toBeFocused()
   await page.keyboard.press('ArrowLeft')
@@ -87,7 +88,7 @@ test('y switches to Year and arrows with Enter pick a year; Esc returns to the l
   server,
 }) => {
   await openMoneyflow(page, server)
-  await page.keyboard.press('t')
+  await page.keyboard.press('p')
   await page.keyboard.press('y')
   await expect(chooser(page).getByRole('radio', { name: 'Year' })).toBeChecked()
   await expect(chooser(page).getByRole('button', { name: '2026' })).toBeFocused()
@@ -114,7 +115,7 @@ test('d moves into the calendar, where arrows cross into the previous month', as
   server,
 }) => {
   await openMoneyflow(page, server)
-  await page.keyboard.press('t')
+  await page.keyboard.press('p')
   await page.keyboard.press('d')
   await expect(chooser(page).getByRole('radio', { name: 'Day' })).toBeChecked()
   const latest = chooser(page).getByRole('button', { name: 'Oct 7, 2026', exact: true })
@@ -134,7 +135,7 @@ test('d moves into the calendar, where arrows cross into the previous month', as
 
 test('c picks custom endpoints with arrows and Enter', async ({ page, server }) => {
   await openMoneyflow(page, server)
-  await page.keyboard.press('t')
+  await page.keyboard.press('p')
   await page.keyboard.press('c')
   await expect(chooser(page).getByRole('radio', { name: 'Custom' })).toBeChecked()
   await expect(
@@ -157,7 +158,7 @@ test('a period before the data opens the chooser on the first year with data', a
   await openEmptyPeriod(page, server, '2020-03-01', '2020-03-31')
   await expect(periodLabel(page)).toHaveAccessibleName('Mar 2020')
   await periodLabel(page).focus()
-  await page.keyboard.press('t')
+  await page.keyboard.press('p')
   const focused = chooser(page).locator('button:focus')
   await expect(focused).toBeEnabled()
   await expect(focused).toHaveAccessibleName('Jan 2024')
@@ -175,7 +176,7 @@ test('a period before the data opens the chooser on the first year with data', a
 test('a period after the data opens the chooser on the latest month', async ({ page, server }) => {
   await openEmptyPeriod(page, server, '2030-05-01', '2030-05-31')
   await periodLabel(page).focus()
-  await page.keyboard.press('t')
+  await page.keyboard.press('p')
   await expect(chooser(page).getByRole('button', { name: 'Oct 2026' })).toBeFocused()
   await page.keyboard.press('d')
   await expect(
@@ -188,7 +189,7 @@ test('from the tabs, Left and Right switch and Down or Enter moves into the body
   server,
 }) => {
   await openMoneyflow(page, server)
-  await page.keyboard.press('t')
+  await page.keyboard.press('p')
   await page.keyboard.press('y')
   await page.keyboard.press('Shift+Tab')
   const kinds = chooser(page).getByRole('radiogroup', { name: 'Period type' })
@@ -279,7 +280,7 @@ test('Esc closes the chooser inside a drill, then a second Esc goes back', async
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/[?&]drill=merchant/)
   await periodLabel(page).focus()
-  await page.keyboard.press('t')
+  await page.keyboard.press('p')
   await expect(chooser(page)).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(chooser(page)).toBeHidden()

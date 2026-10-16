@@ -248,6 +248,9 @@ func aggregateTime(
 				rows = append(rows, value.finishedRow())
 				continue
 			}
+			if !ListsEmptyPeriods(granularity) {
+				continue
+			}
 			scope := domain.CurrencyScope{Currency: partition.currency, Scale: partition.scale}
 			rows = append(rows, EmptyTimeRow(period, scope))
 		}
@@ -256,6 +259,13 @@ func aggregateTime(
 		return nil, err
 	}
 	return rows, nil
+}
+
+// ListsEmptyPeriods reports whether Time rows and the Time cash-flow chart list periods
+// without transactions at granularity. Months and years keep them, so gaps stay visible.
+// Days leave them out: a long range of mostly empty days would bury the days with activity.
+func ListsEmptyPeriods(granularity domain.TimeGranularity) bool {
+	return granularity != domain.TimeGranularityDay
 }
 
 // EmptyTimeRow returns the Time-grouping row of a period without transactions. Its key and

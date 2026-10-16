@@ -9,7 +9,7 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
-func TestAggregateTimeFillsCalendarGaps(t *testing.T) {
+func TestAggregateTimeFillsMonthAndYearGaps(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
@@ -27,11 +27,6 @@ func TestAggregateTimeFillsCalendarGaps(t *testing.T) {
 			granularity: domain.TimeGranularityMonth,
 			firstDate:   "2024-01-31", lastDate: "2024-03-01",
 			wantKeys: []string{"2024-01", "2024-02", "2024-03"},
-		},
-		"day across leap day": {
-			granularity: domain.TimeGranularityDay,
-			firstDate:   "2024-02-28", lastDate: "2024-03-01",
-			wantKeys: []string{"2024-02-28", "2024-02-29", "2024-03-01"},
 		},
 	}
 	for name, test := range tests {
@@ -53,6 +48,28 @@ func TestAggregateTimeFillsCalendarGaps(t *testing.T) {
 			assert.Equal(t, domain.Money{Currency: "USD", Scale: 2}, rows[1].Out)
 		})
 	}
+}
+
+func TestAggregateTimeLeavesOutEmptyDays(t *testing.T) {
+	t.Parallel()
+
+	usd := testTransaction(t, "first", "2024-02-28", "-1.00", "Example", "Category", "Group")
+	last := testTransaction(t, "last", "2024-03-01", "-2.00", "Example", "Category", "Group")
+	eur := testTransaction(t, "eur", "2024-03-01", "-3.00", "Example", "Category", "Group")
+	eur.Amount.Currency = "EUR"
+	rows, err := Aggregate(
+		[]domain.Transaction{usd, last, eur}, domain.DimensionTime, domain.TimeGranularityDay,
+	)
+	require.NoError(t, err)
+	keys := make([]string, len(rows))
+	for index, row := range rows {
+		keys[index] = row.Key + " " + string(row.Total.Currency)
+		assert.Positive(t, row.Count)
+	}
+	assert.Equal(t, []string{"2024-02-28 USD", "2024-03-01 EUR", "2024-03-01 USD"}, keys)
+	assert.False(t, ListsEmptyPeriods(domain.TimeGranularityDay))
+	assert.True(t, ListsEmptyPeriods(domain.TimeGranularityMonth))
+	assert.True(t, ListsEmptyPeriods(domain.TimeGranularityYear))
 }
 
 func TestAggregateTimeOneRowAndEmpty(t *testing.T) {
