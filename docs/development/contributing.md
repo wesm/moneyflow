@@ -13,4 +13,4 @@ For a code change:
 5. Describe the user-visible result and any remaining limitations in the pull request.
 
 Keep changes scoped. Shared behavior belongs in the application service, not duplicated
-in TUI and web. Documentation changes follow [the publishing guide](https://github.com/wesm/moneyflow/blob/main/docs/README.md).
+in the browser, TUI, or MCP adapters. Documentation changes follow [the publishing guide](https://github.com/wesm/moneyflow/blob/main/docs/README.md).
