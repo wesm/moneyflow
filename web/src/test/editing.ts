@@ -58,6 +58,7 @@ export function testEditingController(
     redo: vi.fn(async () => true),
     commit: vi.fn(async () => true),
     catalog: vi.fn(async () => testCatalog),
+    stop: vi.fn(),
     previewMerchant: vi.fn(async () => ({
       version: '1',
       revision: '1',

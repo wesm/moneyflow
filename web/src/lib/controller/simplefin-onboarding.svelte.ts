@@ -51,13 +51,7 @@ export function createSimpleFINOnboardingTransport(
   upstream: typeof fetch = fetch,
 ): SimpleFINOnboardingTransport {
   const prefix = `api/v1/profiles/${profileID}/simplefin-onboarding/`
-  const mutations = createMutationFetch(
-    basePath,
-    upstream,
-    null,
-    Date.now,
-    `api/v1/profiles/${profileID}/bootstrap`,
-  )
+  const mutations = createMutationFetch(basePath, upstream)
   const mutation = <T>(path: string, body: unknown): Promise<T> =>
     requestProfileJSON<T>(mutations, `${prefix}${path}`, body)
 
@@ -65,7 +59,6 @@ export function createSimpleFINOnboardingTransport(
     const response = await upstream(apiURL(basePath, `${prefix}${path}`), {
       method: 'GET',
       cache: 'no-store',
-      credentials: 'omit',
       redirect: 'error',
       headers: { Accept: 'application/json' },
     })

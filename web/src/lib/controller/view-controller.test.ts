@@ -10,9 +10,12 @@ import {
 import { createViewController, type ViewController } from './view-controller.svelte'
 import type { SelectionValue } from '../api/client'
 import type { MoneyflowHistoryState } from './history'
+import { historyViewState, type ViewStateAdapter } from './view-state'
+import { testCapabilities } from '../../test/capabilities'
 import { testDuplicates } from '../../test/duplicates'
 import { notices } from '../../test/notices'
 import { testAggregateRow } from '../../test/projection'
+import { testProviderStatus } from '../../test/provider'
 
 describe('browser view controller', () => {
   beforeEach(() => history.replaceState(null, '', '/moneyflow/?hidden=1&v=1'))
@@ -299,6 +302,98 @@ describe('browser view controller', () => {
     await controller.apply({ action: 'view.back' })
     expect(go).not.toHaveBeenCalled()
     expect(window.location.search).toBe('?v=1')
+  })
+
+  it('leaves history alone once stopped, even for view changes asked for before', async () => {
+    const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+    const pushes = vi.spyOn(history, 'pushState')
+    const replaces = vi.spyOn(history, 'replaceState')
+    const controller = controllerFor(
+      clientWith({
+        transition: async (body) =>
+          projection(body.action === 'view.back' ? 'v=1' : 'v=1&group=category', 0, 2),
+      }),
+    )
+    await controller.hydrate()
+    await controller.apply({ action: 'view.cycle-grouping' })
+    go.mockClear()
+    pushes.mockClear()
+    replaces.mockClear()
+
+    // Asked for just before the workspace goes away, they run after the controller stopped.
+    const changes = [
+      controller.apply({ action: 'view.cycle-grouping' }),
+      controller.apply({ action: 'view.back' }),
+    ]
+    controller.stop()
+    await Promise.all(changes)
+
+    expect([go.mock.calls, pushes.mock.calls, replaces.mock.calls]).toEqual([[], [], []])
+  })
+
+  describe('stopping while a view load is on its way', () => {
+    const edited = () => {
+      const next = projection('v=1', 0, 3, '5')
+      return Response.json({
+        version: '1',
+        revision: '5',
+        canonical_query: 'v=1',
+        projection: next,
+        pending: next.pending,
+        selection: { kind: 'preserved', value: next.selection },
+      })
+    }
+    const refused = () =>
+      Response.json(
+        {
+          type: 'about:blank',
+          title: 'Conflict',
+          status: 409,
+          detail: 'The profile changed.',
+          code: 'revision_conflict',
+        },
+        { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+
+    it.each([
+      ['a recheck', edited, (controller: ViewController) => controller.recheck()],
+      ['an edit’s answer', edited, (controller: ViewController) => controller.editing.undo()],
+      ['an edit’s refusal', refused, (controller: ViewController) => controller.editing.undo()],
+    ])('ends %s that waits for the load', async (_name, answer, wait) => {
+      const client = clientWith({
+        view: vi
+          .fn()
+          .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+          // Like fetch, the load ends only when it is aborted.
+          .mockImplementationOnce(
+            (_body: ViewBody, signal: AbortSignal) =>
+              new Promise((_resolve, reject) =>
+                signal.addEventListener('abort', () =>
+                  reject(new DOMException('aborted', 'AbortError')),
+                ),
+              ),
+          )
+          .mockImplementation(async (body: ViewBody) => projection(body.query, 0, 3, '4')),
+        mutations: { request: vi.fn(async () => answer()) },
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      void controller.hydrate()
+      const waiting = wait(controller)
+      // An edit’s answer arrives while the load is still on its way.
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      const reads = vi.mocked(client.view).mock.calls.length
+
+      controller.stop()
+
+      // A wait that spins on the stopped load never yields to timers, so count microtasks.
+      const ended = await settlesWithin(waiting, 1000)
+      // A load that finishes ends the spin, so a failure cannot hang the run.
+      if (!ended) await controller.hydrate()
+      expect(ended).toBe(true)
+      expect(controller.loading).toBe(false)
+      expect(client.view).toHaveBeenCalledTimes(reads)
+    })
   })
 
   it('keeps one history entry per view when Esc returns after a selection change', async () => {
@@ -1098,6 +1193,29 @@ describe('browser view controller', () => {
       expect((history.state as MoneyflowHistoryState).cursorIndex).toBe(4)
     })
 
+    it('keeps a pending cursor for a later return when a flush finds a host page’s entry', async () => {
+      vi.useFakeTimers()
+      history.replaceState(null, '', '/moneyflow/?v=1')
+      const client = clientWith({
+        view: vi.fn(async (body) => projection(body.query, body.window.offset, 450)),
+      })
+      const controller = debouncedControllerFor(client)
+      await controller.hydrate()
+      const own = history.state as MoneyflowHistoryState
+      await controller.moveCursorTo(4)
+
+      history.pushState({ page: 'host' }, '', '/host')
+      controller.flushHistory()
+      expect(history.state).toEqual({ page: 'host' })
+
+      history.replaceState(own, '', '/moneyflow/?v=1')
+      await controller.restore(new PopStateEvent('popstate', { state: own }))
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(controller.cursorIndex).toBe(4)
+      expect((history.state as MoneyflowHistoryState).cursorIndex).toBe(4)
+    })
+
     it('forgets a left cursor once a new entry replaces the one Back left', async () => {
       vi.useFakeTimers()
       history.replaceState(null, '', '/moneyflow/?v=1')
@@ -1271,10 +1389,8 @@ describe('browser view controller', () => {
           .mockResolvedValueOnce(projection('v=1', 0, 3, '5')),
       })
       const controller = createViewController({
-        basePath: '/moneyflow/',
         client,
-        history,
-        location: window.location,
+        viewState: historyViewState('/moneyflow/'),
         instance: 'test-instance',
         prefetch: false,
         recheckDebounceMillis: 60_000,
@@ -2641,10 +2757,8 @@ describe('visible view failures', () => {
       .mockRejectedValueOnce(busy())
       .mockRejectedValueOnce(busy())
     const controller = createViewController({
-      basePath: '/moneyflow/',
       client: clientWith({ view }),
-      history,
-      location: window.location,
+      viewState: historyViewState('/moneyflow/'),
       instance: 'test-instance',
       prefetch: false,
       recheckDebounceMillis: 60_000,
@@ -3549,6 +3663,22 @@ describe('visible view failures', () => {
       expect(controller.duplicates.state.phase).toBe('idle')
     })
 
+    it('shows nothing once the workspace that sent it is gone too', async () => {
+      let answer!: (response: Response) => void
+      const controller = await openReview(
+        vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))),
+      )
+
+      const deleting = controller.duplicates.confirmDelete()
+      controller.duplicates.cancelDelete()
+      controller.duplicates.close()
+      controller.stop()
+      answer(refusal())
+      await expect(deleting).resolves.toBe(false)
+
+      expect(notices()).toEqual({ banners: [], status: '' })
+    })
+
     it('rereads the view after a conflict once review closed, and reports both failures', async () => {
       const conflict = Response.json(
         {
@@ -3644,14 +3774,152 @@ describe('visible view failures', () => {
       },
     ])
   })
+
+  it('shows nothing when transaction information fails after the controller stopped', async () => {
+    let fail!: (error: unknown) => void
+    const client = clientWith({
+      transactionInformation: vi.fn(() => new Promise<never>((_, reject) => (fail = reject))),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    const information = controller.transactionInformation?.('row-0')
+    controller.stop()
+    fail(busy())
+
+    await expect(information).resolves.toBeUndefined()
+    expect(notices()).toEqual({ banners: [], status: '' })
+  })
+})
+
+describe('view controller options', () => {
+  beforeEach(() => history.replaceState(null, '', '/moneyflow/?hidden=1&v=1'))
+
+  it('keeps its view in the adapter it is given and leaves the browser history alone', async () => {
+    const entries: Array<{ state: unknown; query: string }> = [
+      { state: null, query: 'group=category&v=1' },
+    ]
+    let index = 0
+    const viewState: ViewStateAdapter = {
+      get state() {
+        return entries[index]?.state ?? null
+      },
+      get query() {
+        return entries[index]?.query ?? ''
+      },
+      push(state, query) {
+        entries.splice(index + 1, entries.length, { state, query })
+        index += 1
+      },
+      replace(state, query) {
+        entries[index] = { state, query }
+      },
+      go(delta) {
+        index += delta
+      },
+      listen: () => () => undefined,
+    }
+    const client = clientWith({
+      transition: vi.fn(async (body) => projection('group=account&v=1', body.window.offset, 3)),
+    })
+    const controller = createViewController({
+      client,
+      viewState,
+      instance: 'test-instance',
+      prefetch: false,
+    })
+    const length = history.length
+
+    await controller.hydrate()
+    await controller.apply({ action: 'view.set-grouping', dimension: 'account' })
+
+    expect(vi.mocked(client.view).mock.calls[0]?.[0].query).toBe('group=category&v=1')
+    expect(entries.map(({ query }) => query)).toEqual(['v=1', 'group=account&v=1'])
+    expect((viewState.state as MoneyflowHistoryState).query).toBe('group=account&v=1')
+    expect(history.length).toBe(length)
+    expect(location.search).toBe('?hidden=1&v=1')
+  })
+
+  it('offers no change in read-only mode, even where the server allows one', async () => {
+    const client = clientWith({
+      view: vi.fn(async (body) => ({
+        ...projection('v=1', body.window.offset, 3),
+        capabilities: testCapabilities(['view.drill', 'transaction.delete']),
+      })),
+      // A write that no tab drives, which a full-access workspace resumes on its next poll.
+      providerWriteStatus: vi.fn(async () => ({
+        version: '1',
+        revision: '0',
+        generation: '1',
+        batch_version: '2',
+        phase: 'writing',
+        total: 2,
+        completed: 1,
+        failed: 0,
+        remaining: 1,
+        overrides: 0,
+        actions: ['resume'],
+      })),
+    })
+    const controller = createViewController({
+      client,
+      viewState: historyViewState('/moneyflow/'),
+      readOnly: true,
+      instance: 'test-instance',
+      prefetch: false,
+    })
+
+    await controller.hydrate()
+    await controller.providerWrite.poll()
+
+    expect(
+      controller.projection?.capabilities?.map(({ id, available, reason }) => [
+        id,
+        available,
+        reason,
+      ]),
+    ).toEqual([
+      ['view.drill', true, undefined],
+      ['transaction.delete', false, 'Read-only mode'],
+    ])
+    expect(controller.providerWrite.can('resume')).toBe(false)
+    expect(client.mutations.request).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['leaves a due refresh to the host by default', {}, []],
+    [
+      'starts a due refresh when autoRefresh is on',
+      { autoRefresh: true },
+      ['api/v1/provider/refresh'],
+    ],
+  ])('%s', async (_name, option, paths) => {
+    const client = clientWith({
+      view: vi.fn(async (body) => ({
+        ...projection('v=1', body.window.offset, 3),
+        capabilities: testCapabilities(['provider.refresh']),
+      })),
+      providerStatus: vi.fn(async () => testProviderStatus({ refresh_due: 'recent' })),
+    })
+    const controller = createViewController({
+      client,
+      viewState: historyViewState('/moneyflow/'),
+      ...option,
+      instance: 'test-instance',
+      prefetch: false,
+    })
+
+    await controller.hydrate()
+    await controller.provider.poll()
+
+    expect(vi.mocked(client.mutations.request).mock.calls.map(([path]) => path)).toEqual(paths)
+  })
 })
 
 function controllerFor(client: MoneyflowClient, prefetch = true) {
   return createViewController({
-    basePath: '/moneyflow/',
     client,
-    history,
-    location: window.location,
+    viewState: historyViewState('/moneyflow/'),
     instance: 'test-instance',
     prefetch,
     recheckDebounceMillis: 0,
@@ -3663,10 +3931,8 @@ function controllerFor(client: MoneyflowClient, prefetch = true) {
 /** A controller that defers cursor history writes, as the browser does. */
 function debouncedControllerFor(client: MoneyflowClient) {
   return createViewController({
-    basePath: '/moneyflow/',
     client,
-    history,
-    location: window.location,
+    viewState: historyViewState('/moneyflow/'),
     instance: 'test-instance',
     prefetch: false,
     recheckDebounceMillis: 0,
@@ -3685,6 +3951,17 @@ async function traverse(
   await vi.waitFor(() => expect(go.mock.calls.length).toBeGreaterThan(before), { interval: 1 })
   await controller.restore(new PopStateEvent('popstate', { state: target }))
   await done
+}
+
+/** Whether `promise` settles within `turns` microtask turns. */
+async function settlesWithin(promise: Promise<unknown>, turns: number): Promise<boolean> {
+  let settled = false
+  void promise.then(
+    () => (settled = true),
+    () => (settled = true),
+  )
+  for (let turn = 0; turn < turns && !settled; turn += 1) await Promise.resolve()
+  return settled
 }
 
 function clientWith(overrides: Partial<MoneyflowClient> = {}): MoneyflowClient {

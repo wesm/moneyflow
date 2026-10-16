@@ -68,7 +68,8 @@
   })
 
   function close(): void {
-    if (view === 'progress') controller.cancel()
+    if (view === 'progress' && controller.cancelable) controller.cancel()
+    else if (view === 'progress') controller.hide()
     else if (view === 'confirmation') controller.dismissConfirmation()
     else controller.continueStale()
   }
@@ -136,8 +137,12 @@
       <p class="kit-sr-only" aria-live="polite" data-testid="refresh-live">{spoken}</p>
     </div>
     {#snippet footer()}
-      {#if view === 'progress'}
+      {#if view === 'progress' && controller.cancelable}
         <Button ariaLabel="Cancel refresh" label="Cancel" onclick={() => controller.cancel()}>
+          {#snippet trailing()}<KbdBadge keys={['Esc']} />{/snippet}
+        </Button>
+      {:else if view === 'progress'}
+        <Button ariaLabel="Close" label="Close" onclick={() => controller.hide()}>
           {#snippet trailing()}<KbdBadge keys={['Esc']} />{/snippet}
         </Button>
       {:else if unchecked}

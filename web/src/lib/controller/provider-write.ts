@@ -4,6 +4,7 @@ import {
   MoneyflowProblem,
   requestProfileJSON,
   type MutationFetch,
+  type Problem,
   type ProviderWriteConfirmationBody,
   type ProviderWriteControlBody,
   type ProviderWriteReconcileBody,
@@ -39,6 +40,11 @@ export interface ProviderWriteController {
   reconcile(): Promise<boolean>
   confirm(): Promise<boolean>
   can(action: string): boolean
+  /**
+   * Stops for good, as when the workspace that showed this profile is gone. A status check or write
+   * request still on its way then shows nothing: no write request, no reread and no notice.
+   */
+  stop(): void
 }
 
 export interface ProviderWriteTransport {
@@ -60,6 +66,8 @@ interface ProviderWriteHost {
 interface ProviderWriteControllerOptions {
   transport: ProviderWriteTransport
   host: ProviderWriteHost
+  /** Offers no action, so polls never resume or reconcile a write. Default false. */
+  readOnly?: boolean
   visible?: () => boolean
   now?: () => number
 }
@@ -97,6 +105,7 @@ export function createProviderWriteController(
   // The run failure and status failure already shown, so a poll each second repeats neither.
   let shownRunFailure = ''
   let statusFailing = false
+  let stopped = false
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
     notify = update
@@ -121,15 +130,15 @@ export function createProviderWriteController(
       status.phase === 'reconcile_confirmation_required' &&
       state.status.batch_version === status.batch_version
     if (!retainConfirmation) confirmationToken = ''
-    const stopped = runFailureMessage(status)
+    const runFailure = runFailureMessage(status)
     setState({
       status,
       phase: phaseFor(status),
       announcement:
-        stopped ?? announcementFor(status, providerName(options.host.current()?.profile_kind)),
+        runFailure ?? announcementFor(status, providerName(options.host.current()?.profile_kind)),
     })
-    if (stopped && stopped !== shownRunFailure) showFailure(stopped)
-    shownRunFailure = stopped ?? ''
+    if (runFailure && runFailure !== shownRunFailure && !stopped) showFailure(runFailure)
+    shownRunFailure = runFailure ?? ''
   }
 
   // Polling an unchanged finished result must keep the announcement that completion chose.
@@ -147,6 +156,7 @@ export function createProviderWriteController(
 
   function can(action: string): boolean {
     subscribe()
+    if (options.readOnly) return false
     if (state.status?.phase === 'reconcile_confirmation_required') {
       if (action === 'confirm') return confirmationToken !== ''
       if (action === 'reconcile') return confirmationToken === ''
@@ -193,6 +203,7 @@ export function createProviderWriteController(
           await reconcile()
       }
     } catch {
+      if (stopped) return
       const announcement =
         'Provider write status is unavailable, so the progress shown may be out of date.'
       setState({ ...state, phase: 'failed', announcement })
@@ -253,6 +264,7 @@ export function createProviderWriteController(
     body: ProviderWriteControlBody | ProviderWriteReconcileBody | ProviderWriteConfirmationBody,
     confirming = false,
   ): Promise<boolean> {
+    if (stopped) return false
     inFlight = true
     const show = options.host.claim()
     const watched = state.status
@@ -277,30 +289,7 @@ export function createProviderWriteController(
       if (!response.status.phase) await complete(path.includes('/reconcile'), watched)
       return true
     } catch (error) {
-      if (error instanceof MoneyflowProblem) {
-        const problem = error.problem
-        if (
-          problem.code === 'provider_deletion_confirmation_required' &&
-          problem.provider_write &&
-          problem.provider_write_confirmation_token
-        ) {
-          confirmationToken = problem.provider_write_confirmation_token
-          setState({
-            phase: 'confirmation',
-            status: problem.provider_write,
-            announcement: problem.detail,
-          })
-          return false
-        }
-        if (confirming && problem.code === 'provider_confirmation_invalid') {
-          confirmationToken = ''
-          setState({ ...state, phase: 'failed', announcement: problem.detail })
-          return false
-        }
-        if (problem.provider_write) install(problem.provider_write)
-        setState({ ...state, phase: phaseForProblem(problem.code), announcement: problem.detail })
-        return false
-      }
+      if (error instanceof MoneyflowProblem) return rejected(error.problem, confirming)
       setState({ ...state, phase: 'failed', announcement: 'The provider write request failed.' })
       return false
     } finally {
@@ -308,9 +297,41 @@ export function createProviderWriteController(
     }
   }
 
+  /** Shows why the server refused a write request, or follows a write that runs on. */
+  function rejected(problem: Problem, confirming: boolean): boolean {
+    if (
+      problem.code === 'provider_deletion_confirmation_required' &&
+      problem.provider_write &&
+      problem.provider_write_confirmation_token
+    ) {
+      confirmationToken = problem.provider_write_confirmation_token
+      setState({
+        phase: 'confirmation',
+        status: problem.provider_write,
+        announcement: problem.detail,
+      })
+      return false
+    }
+    if (confirming && problem.code === 'provider_confirmation_invalid') {
+      confirmationToken = ''
+      setState({ ...state, phase: 'failed', announcement: problem.detail })
+      return false
+    }
+    if (problem.provider_write) install(problem.provider_write)
+    if (problem.code === 'provider_write_in_progress') {
+      // The write runs on after its request ended. A poll skips while this request is in flight,
+      // so it waits for a microtask.
+      queueMicrotask(() => void poll())
+      return false
+    }
+    setState({ ...state, phase: phaseForProblem(problem.code), announcement: problem.detail })
+    return false
+  }
+
   /** Reports a batch that is no longer active; `watched` is its last status seen running. */
   async function complete(reconciled = false, watched?: ProviderWriteStatus): Promise<void> {
     const refreshed = await refreshView()
+    if (stopped) return
     const finished = writeFinished(state.status, watched)
     const message = finishedMessage(finished, reconciled)
     setState({
@@ -340,6 +361,7 @@ export function createProviderWriteController(
 
   /** Rereads the view at the newest revision; false when that request fails. */
   async function refreshView(): Promise<boolean> {
+    if (stopped) return false
     try {
       await options.host.reload()
       return true
@@ -360,6 +382,9 @@ export function createProviderWriteController(
     reconcile,
     confirm,
     can,
+    stop: () => {
+      stopped = true
+    },
   }
 }
 

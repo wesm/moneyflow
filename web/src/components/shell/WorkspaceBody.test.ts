@@ -37,6 +37,7 @@ function bodyActions(
     controller,
     overlays: new OverlayState({ ...host, focusGrid: () => undefined, grid: () => undefined }),
     queue: async (work) => work(),
+    stopped: false,
     focusGrid: () => undefined,
     importAmazon: () => undefined,
     focusSearch: () => undefined,

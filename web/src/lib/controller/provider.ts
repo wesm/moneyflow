@@ -61,6 +61,11 @@ export interface ProviderState {
 
 export interface ProviderController {
   readonly state: ProviderState
+  /**
+   * Whether Cancel can stop this tab's refresh. With autoRefresh off, a host's server runs a
+   * refresh on after its request ends, so the dialog offers Close instead.
+   */
+  readonly cancelable: boolean
   sync(projection: ViewProjection): void
   poll(): Promise<void>
   /**
@@ -74,11 +79,18 @@ export interface ProviderController {
   reread(): Promise<void>
   /** Stops this tab's refresh; the dialog says Stopping… until the server has stopped it. */
   cancel(): void
+  /** Closes this tab's progress dialog; the refresh runs on, and the status strip shows it. */
+  hide(): void
   /**
    * Closes a failed refresh's dialog, or one that cannot follow a refresh because status checks
    * fail, and keeps the data shown under the stale banner.
    */
   continueStale(): void
+  /**
+   * Stops polling status for good, as when the workspace that showed this profile is gone. A refresh
+   * or status answer still on its way then shows nothing: no view, no reread and no notice.
+   */
+  stop(): void
 }
 
 export interface ProviderTransport {
@@ -98,6 +110,8 @@ interface ProviderProjectionHost {
 interface ProviderControllerOptions {
   transport: ProviderTransport
   host: ProviderProjectionHost
+  /** Whether a poll starts a refresh that is due. Default true. */
+  autoRefresh?: boolean
   now?: () => number
 }
 
@@ -122,10 +136,17 @@ interface RefreshRequest {
 
 export function createProviderController(options: ProviderControllerOptions): ProviderController {
   const now = options.now ?? Date.now
+  /**
+   * With autoRefresh off, a host runs the refresh scheduler, and its server runs a refresh on after
+   * the request ends. Refreshes then show in the status strip, so no dialog blocks the host page.
+   */
+  const hosted = options.autoRefresh === false
   let state: ProviderState = { phase: 'idle', announcement: '', capability: undefined }
   let inFlight = false
   /** A refresh asked for before the first view loaded; it starts with that view. */
   let pending: RefreshRequest | undefined
+  /** What the latest refresh asked for, so Retry asks again after a host closed its dialog. */
+  let latest: RefreshRequest | undefined
   let request: AbortController | undefined
   /** The data generation before the watched refresh; a newer one means a refresh committed. */
   let watched: string | undefined
@@ -149,6 +170,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   let rereads = 0
   let rereading: Promise<string> | undefined
   let refreshingPoll: ReturnType<typeof setInterval> | undefined
+  let stopped = false
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
     notify = update
@@ -170,7 +192,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     if (next.status && adopted) noteNewest(next.status)
     const current = viewShowsNewest()
     state = current ? { ...next, viewError: undefined, viewLoading: undefined } : next
-    const watching = state.phase === 'refreshing' || state.dialog?.view === 'stopping'
+    const watching = !stopped && (state.phase === 'refreshing' || state.dialog?.view === 'stopping')
     if (watching && refreshingPoll === undefined) {
       refreshingPoll = setInterval(() => void poll(), refreshingPollMillis)
     } else if (!watching && refreshingPoll !== undefined) {
@@ -291,7 +313,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       view,
       startedAt: state.dialog?.startedAt ?? now(),
       reason,
-      completeHistory: state.dialog?.completeHistory,
+      completeHistory: state.dialog?.completeHistory ?? latest?.completeHistory,
     }
   }
 
@@ -324,6 +346,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     }
     if (inFlight || pending !== undefined) return false
     if (asked.manual) automaticAfter = 0
+    latest = asked
     startAttempt()
     setState({
       ...state,
@@ -433,6 +456,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     finished: number,
     seen: number,
   ): void {
+    if (stopped) return
     const message = [completeMessage(status), ...viewNotes, status.warning]
       .filter(Boolean)
       .join(' ')
@@ -453,7 +477,8 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   }
 
   function leaveCompletedDialog(): void {
-    if (state.dialog?.view !== 'progress' && state.dialog?.view !== 'stopping') return
+    const view = state.dialog?.view
+    if (view !== 'progress' && view !== 'stopping') return
     const status = state.status
     if (!status) return
     if (status.refreshing) {
@@ -465,7 +490,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       ...state,
       phase,
       kind: undefined,
-      dialog: status.refreshing ? openDialog('other') : undefined,
+      dialog: status.refreshing && !hosted ? openDialog('other') : undefined,
       announcement: pollAnnouncement(status, phase, state),
     })
   }
@@ -491,6 +516,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
   }
 
   async function showSettled(projection: ViewProjection, sent: ViewProjection): Promise<string> {
+    if (stopped) return ''
     const shown = options.host.current()
     if (
       (shown && BigInt(shown.revision) > BigInt(projection.revision)) ||
@@ -518,6 +544,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     confirmation: boolean,
     before: ProviderStatus | undefined,
   ): Promise<boolean> {
+    if (stopped) return false
     if (!(error instanceof MoneyflowProblem)) {
       return failed(failureReason(error))
     }
@@ -550,12 +577,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       })
       return false
     }
-    if (problem.code === 'provider_refresh_in_progress') {
-      // The server read this status before the other refresh could commit.
-      watched = problem.provider?.generation
-      setState({ ...state, ...status, phase: 'refreshing', dialog: openDialog('other') })
-      return false
-    }
+    if (problem.code === 'provider_refresh_in_progress') return followRunning(reported)
     if (problem.code === 'provider_reconnect_required') return needsReconnect(problem.provider)
     if (confirmation && problem.code === 'provider_confirmation_invalid') {
       await refreshStatusAfterInvalidConfirmation(problem.detail)
@@ -563,6 +585,23 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     }
     setState({ ...state, ...status })
     return failed(problemReason(problem))
+  }
+
+  /**
+   * The server says a refresh is running: one this tab's request met or, in a host, this tab's
+   * own, which runs on after its request ended. A host keeps any open dialog on its progress view;
+   * standalone moneyflow shows the other refresh.
+   */
+  function followRunning(reported: ProviderStatus | undefined): boolean {
+    // The server read this status before the other refresh could commit.
+    watched = reported?.generation
+    setState({
+      ...state,
+      ...(reported === undefined ? {} : { status: reported }),
+      phase: 'refreshing',
+      dialog: hosted ? state.dialog : openDialog('other'),
+    })
+    return false
   }
 
   /** The banner offers Reconnect from the status code, so the status must carry it. */
@@ -599,7 +638,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     failed(reason)
     try {
       const status = await options.transport.status()
-      if (finished !== attempt || seen !== statusChanges) return
+      if (stopped || finished !== attempt || seen !== statusChanges) return
       setState({ ...state, capability: status.capability, status })
     } catch {
       // The failure dialog already explains what to do.
@@ -621,53 +660,52 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       return
     }
     // A refresh that finished meanwhile returned newer status than this poll read.
-    if (seen !== settled || order < appliedPoll || olderStatus(status)) return
+    if (stopped || seen !== settled || order < appliedPoll || olderStatus(status)) return
     appliedPoll = order
     observe(status)
     catchUpInBackground()
-    // The server's refresh_due already waits out a failure's retry delay and stops for one
-    // that needs the user, so a failed last attempt does not block it.
-    if (
+    if (holdsDueRefresh(status)) return
+    await refresh({ manual: false, completeHistory: false })
+  }
+
+  /**
+   * Whether a poll leaves the refresh the server reports as due. The server's refresh_due already
+   * waits out a failure's retry delay and stops for one that needs the user, so a failed last
+   * attempt does not block it.
+   */
+  function holdsDueRefresh(status: ProviderStatus): boolean {
+    return (
+      hosted ||
       inFlight ||
-      state.dialog ||
+      state.dialog !== undefined ||
       state.phase === 'reconnect' ||
       !status.capability.available ||
       status.refresh_due === 'none' ||
       now() < automaticAfter
     )
-      return
-    await refresh({ manual: false, completeHistory: false })
   }
 
   /** Applies one status answer: progress, another interface's refresh, or a refresh that ended. */
   function observe(status: ProviderStatus): void {
-    const dialog = state.dialog
+    const view = state.dialog?.view
+    const follows = following(view)
     // A running refresh has not committed yet, so its generation is the one before it.
-    // A running lease does not identify this tab's request. Only watch an external refresh.
-    if (status.refreshing && watched === undefined && dialog?.view === 'other') {
+    // A running lease does not identify this tab's request. Only watch a refresh it does not send.
+    if (status.refreshing && watched === undefined && follows && view !== 'stopping') {
       watched = status.generation
     }
     const base = { ...state, capability: status.capability, status, statusError: undefined }
-    if (dialog?.view === 'stopping' || dialog?.view === 'other') {
+    if (follows) {
       if (status.refreshing) return setState({ ...base, phase: 'refreshing' })
-      return finishWatched(status, dialog.view === 'stopping')
+      return finishWatched(status, view === 'stopping')
     }
     if (
       status.refreshing &&
       !inFlight &&
       pending === undefined &&
-      (!dialog || dialog.view === 'failed' || dialog.view === 'reconnect')
+      (!view || view === 'failed' || view === 'reconnect')
     ) {
-      attempt++
-      watched = status.generation
-      setState({
-        ...base,
-        phase: 'refreshing',
-        kind: undefined,
-        dialog: { view: 'other', startedAt: now() },
-        announcement: `${refreshOwner(status.owner_renderer)} is refreshing this profile.`,
-      })
-      return
+      return followOther(base, status)
     }
     const phase = statusPhase(status, inFlight || pending !== undefined)
     const elsewhere = refreshedElsewhere(status)
@@ -677,6 +715,29 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       kind: phase === 'refreshing' ? state.kind : undefined,
       announcement: pollAnnouncement(status, phase, state),
       ...(elsewhere ? { dialog: undefined, staleReason: undefined } : {}),
+    })
+  }
+
+  /**
+   * Whether status polls follow a refresh to its end: another interface's, this tab's after the
+   * user stopped it, or in a host any refresh that no request of this tab waits on.
+   */
+  function following(view: RefreshDialogView | undefined): boolean {
+    if (view === 'stopping' || view === 'other') return true
+    return hosted && state.phase === 'refreshing' && !inFlight && pending === undefined
+  }
+
+  /** Another interface, or a host's scheduler, started a refresh this tab now follows. */
+  function followOther(base: ProviderState, status: ProviderStatus): void {
+    attempt++
+    watched = status.generation
+    const owner = hosted ? 'Moneyflow' : refreshOwner(status.owner_renderer)
+    setState({
+      ...base,
+      phase: 'refreshing',
+      kind: undefined,
+      dialog: hosted ? undefined : { view: 'other', startedAt: now() },
+      announcement: `${owner} is refreshing this profile.`,
     })
   }
 
@@ -785,6 +846,17 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     }
   }
 
+  function hide(): void {
+    if (state.dialog?.view !== 'progress') return
+    setState({ ...state, dialog: undefined })
+  }
+
+  function stop(): void {
+    stopped = true
+    // Ends polling now: a stopped controller watches no refresh.
+    setState(state)
+  }
+
   function dismissConfirmation(): void {
     if (state.phase !== 'confirmation') return
     setState({
@@ -801,6 +873,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
       subscribe()
       return state
     },
+    cancelable: !hosted,
     sync,
     poll,
     reread: rereadOnRequest,
@@ -808,7 +881,9 @@ export function createProviderController(options: ProviderControllerOptions): Pr
     confirm,
     dismissConfirmation,
     cancel,
+    hide,
     continueStale,
+    stop,
   }
 }
 

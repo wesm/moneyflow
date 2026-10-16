@@ -25,9 +25,12 @@ export interface LocalActionContext {
   /**
    * Runs `work` after the queued view transitions, and holds later ones until it settles. An
    * edit or `i` then reads the projection they leave (the selection a quick Space made and the
-   * row the cursor moved to), and a staged edit cannot abort a transition queued after it.
+   * row the cursor moved to), and a staged edit cannot abort a transition queued after it. Once
+   * the shell is gone, work whose turn has not come runs `dropped` instead.
    */
-  queue(work: () => unknown): Promise<unknown>
+  queue(work: () => unknown, dropped?: () => unknown): Promise<unknown>
+  /** Whether the shell is gone, so that `queue` runs `dropped` in place of work. */
+  readonly stopped: boolean
   /** Returns focus to the table unless a dialog is open. */
   focusGrid(): void
   /** Opens Amazon order import, which the app shell owns. */
@@ -64,13 +67,18 @@ export async function moveCursor(
 
 /**
  * Queues `work` after view transitions, to run once the shell has drawn their result. It runs
- * after a queued newer-insights recheck that failed, too.
+ * after a queued newer-insights recheck that failed, too. A shell that goes while it draws runs
+ * `dropped` instead, as for work whose turn has not come.
  */
-function whenSettled(context: LocalActionContext, work: () => unknown): void {
+function whenSettled(
+  context: LocalActionContext,
+  work: () => unknown,
+  dropped?: () => unknown,
+): void {
   void context.queue(async () => {
     await tick()
-    await work()
-  })
+    await (context.stopped ? dropped?.() : work())
+  }, dropped)
 }
 
 /**
@@ -85,7 +93,13 @@ function queueEdit(context: LocalActionContext, work: () => unknown): void {
     status.notify(EDIT_IN_FLIGHT)
     return
   }
-  whenSettled(context, () => turn.run(work))
+  // A key the shell drops as it goes away gives up its turn, or a controller kept for the next
+  // workspace would refuse every dialog edit.
+  whenSettled(
+    context,
+    () => turn.run(work),
+    () => turn.run(() => undefined),
+  )
 }
 
 /**
@@ -164,13 +178,18 @@ function moveBy(controller: ViewController, move: CursorMove): Promise<void> {
   )
 }
 
-/** Opens a pointed row's editor after queued view transitions, as `m` and `c` do. */
+/**
+ * Opens a pointed row's editor after queued view transitions, as `m` and `c` do, if the view
+ * offers the edit then. A read-only view does not.
+ */
 export function openEditorWhenSettled(
   context: LocalActionContext,
   field: 'merchant' | 'category',
   target: FocusedRow,
 ): void {
-  whenSettled(context, () => openEditor(context, field, target))
+  whenSettled(context, () =>
+    ifOffered(context, `transaction.edit-${field}`, () => openEditor(context, field, target)),
+  )
 }
 
 /** Maps each browser-only shortcut to its handler. */
@@ -281,10 +300,12 @@ export async function hideRow(
 
 /**
  * Shows why an edit from a key, the row actions sheet, or the selection bar did not apply: no
- * dialog is open to show it.
+ * dialog is open to show it. A shell that is gone by then shows nothing; the banner or status
+ * notice would land on the page that replaced it.
  */
 async function reportEdit(context: LocalActionContext, edit: Promise<boolean>): Promise<void> {
   if (await edit) return
+  if (context.stopped) return
   const { phase, announcement } = context.controller.editing.state
   // Only an edit with no view loaded is refused without an announcement; no key reaches it.
   if (announcement === '') return

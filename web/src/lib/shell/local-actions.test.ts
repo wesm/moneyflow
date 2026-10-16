@@ -86,6 +86,7 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
     controller,
     overlays,
     queue: (work) => (tail = tail.then(work, work)),
+    stopped: false,
     focusGrid: vi.fn(),
     importAmazon: vi.fn(),
     focusSearch: vi.fn(),

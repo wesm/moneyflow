@@ -11,7 +11,7 @@
   import type { SearchCarry } from '../../lib/shell/search-carry'
 
   type SearchController = SearchHost<unknown> &
-    Pick<ViewController, 'projection' | 'hold' | 'opening' | 'settled'>
+    Pick<ViewController, 'projection' | 'hold' | 'opening' | 'settled' | 'viewState'>
 
   interface Props {
     controller: SearchController
@@ -26,9 +26,18 @@
     reveal?: () => void
     /** Settles once view changes queued before typing finish; the controller's by default. */
     settled?: () => Promise<void>
+    /** Whether the shell is gone; a controller the host keeps outlives it. */
+    stopped?: () => boolean
   }
 
-  let { controller, ondone, carry, reveal, settled = () => controller.settled() }: Props = $props()
+  let {
+    controller,
+    ondone,
+    carry,
+    reveal,
+    settled = () => controller.settled(),
+    stopped = () => false,
+  }: Props = $props()
   let wrapper = $state<HTMLDivElement>()
   // kit types `inputEl` without `| undefined`, so the binding below casts the unmounted field.
   let inputEl = $state<HTMLInputElement>()
@@ -53,9 +62,21 @@
     inputEl?.select()
   }
 
+  /**
+   * The controller as a search uses it. A search applied once the shell is gone, such as one
+   * whose field lost focus just before, restores the view it started from instead.
+   */
+  const host: SearchHost<unknown> = {
+    beginSearch: () => controller.beginSearch(),
+    previewSearch: (search) => controller.previewSearch(search),
+    commitSearch: (snapshot) =>
+      stopped() ? controller.restoreSearch(snapshot) : controller.commitSearch(snapshot),
+    restoreSearch: (snapshot) => controller.restoreSearch(snapshot),
+  }
+
   function begin(): SearchCoordinator {
     if (session) return session.search
-    session = attach(createSearchCoordinator(controller, applied))
+    session = attach(createSearchCoordinator(host, applied))
     return session.search
   }
 
@@ -177,11 +198,13 @@
     if (leavingSearch) leaving = controller.hold(leave(leavingSearch, draft))
   }
 
-  // Browser history replaced the view and dropped this search's starting point.
+  // Back or forward replaced the view and dropped this search's starting point.
   function historyChanged(): void {
     leavingSearch?.destroy()
     if (session) end()
   }
+
+  $effect(() => controller.viewState.listen(historyChanged))
 
   onMount(() => {
     session = resume()
@@ -193,8 +216,6 @@
     else search?.destroy()
   })
 </script>
-
-<svelte:window onpopstate={historyChanged} />
 
 <div
   class="mf-command-search"

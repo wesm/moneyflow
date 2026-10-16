@@ -8,12 +8,15 @@ import type {
   ViewProjection,
 } from '../lib/api/client'
 import { createProviderController } from '../lib/controller/provider'
+import { restrictCapabilities } from '../lib/controller/read-only'
 import type { ProviderWritePhase } from '../lib/controller/provider-write'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
+import { historyViewState } from '../lib/controller/view-state'
 import { testAggregateRow, testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
 import { testProviderWriteController } from '../test/provider-write'
 import { testInsights } from '../test/insights'
+import { appears } from '../test/dom'
 import { stubMedia } from '../test/media'
 import { testProviderStatus } from '../test/provider'
 import { status } from '../lib/shell/status.svelte'
@@ -904,6 +907,29 @@ describe('AppShell', () => {
     expect(screen.queryByRole('dialog', { name: 'Edit merchant' })).toBeNull()
   })
 
+  // Without layout, the grid has room only for its first columns, so both use Merchant's cell.
+  it.each([
+    [
+      'its pencil',
+      (cell: HTMLElement) =>
+        fireEvent.click(within(cell).getByRole('button', { name: 'Edit merchant' })),
+    ],
+    ['a double-click', (cell: HTMLElement) => fireEvent.doubleClick(cell)],
+  ])('refuses a merchant edit from %s in read-only mode, as m does', async (_name, edit) => {
+    const controller = stubController()
+    controller.projection!.capabilities = restrictCapabilities(controller.projection!).capabilities
+    render(AppShell, { controller })
+    await edit(document.querySelector<HTMLElement>('[role="gridcell"][data-column="merchant"]')!)
+
+    const notice = () => {
+      const element = screen.getByRole('status', { name: 'Notice' })
+      return element.textContent === 'Read-only mode' ? element : null
+    }
+    const editor = () => screen.queryByRole('dialog', { name: 'Edit merchant' })
+    const shown = await appears(() => editor() ?? notice())
+    expect(shown.getAttribute('role')).toBe('status')
+  })
+
   it('uses the profile-wide selection count when choosing merchant edit scope', async () => {
     const controller = stubController(testProjection({ selection_count: 1 }))
     render(AppShell, { controller })
@@ -1305,6 +1331,7 @@ function stubController(projection = testProjection()): ViewController {
           available: true,
         },
       },
+      cancelable: true,
       sync: vi.fn(),
       poll: vi.fn(),
       reread: vi.fn(),
@@ -1312,12 +1339,15 @@ function stubController(projection = testProjection()): ViewController {
       confirm: vi.fn(),
       dismissConfirmation: vi.fn(),
       cancel: vi.fn(),
+      hide: vi.fn(),
       continueStale: vi.fn(),
+      stop: vi.fn(),
     },
     providerWrite: testProviderWriteController({
       state: { phase: 'idle', announcement: '' },
       can: vi.fn(() => false),
     }),
+    viewState: historyViewState('/'),
     export: {
       state: {
         phase: 'ready',
@@ -1381,6 +1411,7 @@ function stubController(projection = testProjection()): ViewController {
       cancelDelete: vi.fn(),
       confirmDelete: vi.fn(async () => true),
       retry: vi.fn(async () => true),
+      stop: vi.fn(),
     },
     hydrate: vi.fn(),
     recheck: vi.fn(),
@@ -1401,6 +1432,7 @@ function stubController(projection = testProjection()): ViewController {
     settled: async () => undefined,
     restore: vi.fn(),
     flushHistory: vi.fn(),
+    stop: vi.fn(),
     retry: vi.fn(),
     reset: vi.fn(),
   }
@@ -1435,3 +1467,129 @@ function blockedRefresh(projection: ViewProjection) {
 function statusLine(): HTMLElement {
   return document.querySelector<HTMLElement>('.mf-status-line')!
 }
+
+describe('AppShell inside a host page', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('leaves landmarks and navigation to the host and keeps pending edits in view', () => {
+    render(AppShell, { controller: stubController(), chrome: false })
+
+    expect(screen.queryByRole('navigation', { name: 'Workspace' })).toBeNull()
+    expect(screen.queryByRole('main')).toBeNull()
+    expect(screen.queryByRole('banner')).toBeNull()
+    expect(screen.getByRole('region', { name: 'View controls' })).not.toBeNull()
+    expect(screen.getByRole('region', { name: 'Moneyflow workspace' })).not.toBeNull()
+    const pending = screen.getAllByText(/1 pending/)
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.closest('.mf-workspace-status')).not.toBeNull()
+  })
+
+  it('offers the last finished write from its pending card while nothing is pending', async () => {
+    const idle = stubController()
+    const finished = {
+      version: '1',
+      revision: '4',
+      generation: '1',
+      total: 2,
+      completed: 2,
+      failed: 0,
+      remaining: 0,
+      overrides: 0,
+      actions: [],
+      completed_at: '2026-01-15T12:00:00Z',
+    }
+    const controller = {
+      ...idle,
+      editing: testEditingController({
+        state: {
+          ...idle.editing.state,
+          pending: { active_operations: 0, inactive_operations: 0, affected_transactions: 0 },
+        },
+      }),
+      providerWrite: testProviderWriteController({
+        state: { phase: 'idle', announcement: '', status: finished },
+        can: vi.fn(() => false),
+      }),
+    }
+    render(AppShell, { controller, chrome: false })
+
+    const strip = document.querySelector<HTMLElement>('.mf-workspace-status')!
+    await fireEvent.click(within(strip).getByRole('button', { name: 'Last write' }))
+    expect(
+      await appears(() => screen.queryByRole('dialog', { name: 'Monarch write status' })),
+    ).not.toBeNull()
+  })
+
+  it('shows no sidebar or banner of its own while the first view loads', () => {
+    const loading = { ...stubController(), projection: undefined, loading: true }
+    render(AppShell, { controller: loading, chrome: false })
+
+    expect(screen.queryByRole('navigation')).toBeNull()
+    expect(screen.queryByRole('banner')).toBeNull()
+    const workspace = screen.getByRole('region', { name: 'Moneyflow workspace' })
+    expect(workspace.getAttribute('aria-busy')).toBe('true')
+  })
+
+  it('gives the grid focus with the first view while focus is on the page body', () => {
+    const loaded = stubController()
+    const rendered = render(AppShell, {
+      controller: { ...loaded, projection: undefined, loading: true },
+      chrome: false,
+    })
+    expect(document.activeElement).toBe(document.body)
+
+    rendered.rerender({ controller: loaded })
+    expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' }))
+  })
+
+  it('leaves focus on a host control the user moved to while the first view loaded', () => {
+    const control = document.body.appendChild(document.createElement('button'))
+    onTestFinished(() => control.remove())
+    const loaded = stubController()
+    const rendered = render(AppShell, {
+      controller: { ...loaded, projection: undefined, loading: true },
+      chrome: false,
+    })
+    control.focus()
+
+    rendered.rerender({ controller: loaded })
+    expect(screen.getByRole('grid', { name: 'Financial results' })).not.toBeNull()
+    expect(document.activeElement).toBe(control)
+  })
+
+  it('opens views by ID and reports the active explore view', async () => {
+    const controller = stubController()
+    const onlocation = vi.fn()
+    const { component } = render(AppShell, { controller, chrome: false, onlocation })
+    expect(onlocation).toHaveBeenLastCalledWith('detail')
+
+    const applied = Promise.withResolvers<unknown>()
+    vi.mocked(controller.apply).mockImplementation(async (request) => {
+      applied.resolve(request)
+      return true
+    })
+    component.open('category')
+    expect(await applied.promise).toEqual({ action: 'view.set-grouping', dimension: 'category' })
+    // This view offers no All transactions entry, so opening it changes nothing.
+    component.open('detail')
+    await tick()
+    expect(controller.apply).toHaveBeenCalledTimes(1)
+  })
+
+  it('takes keys only from inside the views without global keys', async () => {
+    const target = document.body.appendChild(document.createElement('div'))
+    target.className = 'mf-views'
+    onTestFinished(() => target.remove())
+    const controller = stubController(twoRows(testProjection()))
+    render(AppShell, { target, props: { controller, chrome: false, globalKeys: false } })
+
+    await fireEvent.keyDown(document.body, { key: 'j' })
+    expect(controller.moveCursor).not.toHaveBeenCalled()
+    await fireEvent.keyDown(screen.getByRole('region', { name: 'Moneyflow workspace' }), {
+      key: 'j',
+    })
+    expect(controller.moveCursor).toHaveBeenCalledWith(1)
+  })
+})

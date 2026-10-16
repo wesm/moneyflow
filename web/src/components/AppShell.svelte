@@ -2,9 +2,11 @@
   import { FlashBanner, MEDIA } from '@kenn-io/kit-ui'
   import { MediaQuery } from 'svelte/reactivity'
   import { onMount, tick, untrack } from 'svelte'
+  import ProviderStatus from './ProviderStatus.svelte'
   import RefreshDialog from './RefreshDialog.svelte'
   import CommandBar from './shell/CommandBar.svelte'
   import LoadingSidebar from './shell/LoadingSidebar.svelte'
+  import PendingCard from './shell/PendingCard.svelte'
   import ShellAnnouncements from './shell/ShellAnnouncements.svelte'
   import ShellCommandBar from './shell/ShellCommandBar.svelte'
   import ShellOverlays from './shell/ShellOverlays.svelte'
@@ -20,6 +22,7 @@
   import { writeNeedsUser, writeSaved } from '../lib/controller/provider-write'
   import type { TransitionAction, ViewController } from '../lib/controller/view-controller.svelte'
   import { providerName } from '../lib/provider-name'
+  import { availableCapabilities } from '../lib/shell/capabilities'
   import { ChartState } from '../lib/shell/chart-state.svelte'
   import { trackTop } from '../lib/shell/flash-top'
   import { keyHints } from '../lib/shell/key-hints'
@@ -31,17 +34,31 @@
     type LocalActionContext,
   } from '../lib/shell/local-actions'
   import { inSearch } from '../lib/shell/layout'
-  import type { NavRun } from '../lib/shell/nav-items'
+  import { hasProviderStatus, navItems, type NavRun } from '../lib/shell/nav-items'
   import { OverlayState } from '../lib/shell/overlay-state.svelte'
   import { pendingText } from '../lib/shell/pending'
   import { connectionState, status, writeProgress } from '../lib/shell/status.svelte'
   import { TransitionQueue } from '../lib/shell/transition-queue'
+  import type { ViewID } from '../lib/views/views'
   interface Props {
     controller: ViewController
     onreconnect?: (() => void) | undefined
     onamazonimport?: (() => void) | undefined
+    /** Renders moneyflow's sidebar and page landmarks. Without it, the host page has them. */
+    chrome?: boolean
+    /** Handles moneyflow's keys anywhere on the page. Without it, only inside `.mf-views`. */
+    globalKeys?: boolean
+    /** Reports the active explore view after each change. */
+    onlocation?: ((view: ViewID | undefined) => void) | undefined
   }
-  let { controller, onreconnect, onamazonimport }: Props = $props()
+  let {
+    controller,
+    onreconnect,
+    onamazonimport,
+    chrome = true,
+    globalKeys = true,
+    onlocation,
+  }: Props = $props()
   let grid = $state<HTMLElement | undefined>()
   /** Where the workspace starts below the command bar; failure banners sit there. */
   let workspaceTop = $state(0)
@@ -66,6 +83,10 @@
   })
   const charts = new ChartState({ compact: () => compact.current, pushScope })
   const write = $derived(writeProgress(controller.providerWrite.state.status))
+  const entries = $derived(projection ? navItems(projection) : undefined)
+  const location = $derived(
+    entries?.explore.find((entry) => entry.active)?.id as ViewID | undefined,
+  )
   /** A running write's progress, which the status bar shows in place of the key hints. */
   const writing = $derived(
     controller.providerWrite.state.phase === 'active' && write && projection
@@ -78,7 +99,10 @@
       return controller
     },
     overlays,
-    queue: (work) => transitions.run(work),
+    queue: (work, dropped) => transitions.run(work, dropped),
+    get stopped() {
+      return transitions.stopped
+    },
     focusGrid,
     importAmazon: () => onamazonimport?.(),
     focusSearch: () => void commandBar?.focusSearch(),
@@ -92,6 +116,18 @@
       return openTransactionInformation(actions, focused.identity)
     if (focused) return send({ action, target: focused })
     await send({ action, ...(dimension === undefined ? {} : { dimension }) })
+  }
+  /** Shows a view as its sidebar entry does. An unavailable view says why in the status line. */
+  export function open(view: ViewID): void {
+    const entry = [...(entries?.explore ?? []), ...(entries?.maintain ?? [])].find(
+      (item) => item.id === view,
+    )
+    if (!entry) return
+    if (!entry.available) {
+      if (entry.reason) status.notify(entry.reason)
+      return
+    }
+    run(entry.run)
   }
   function run(entry: NavRun): void {
     if (entry.kind === 'local') local(entry.action)
@@ -127,6 +163,7 @@
     const table = grid?.querySelector<HTMLElement>('[role="grid"], .mf-table-empty')
     table?.focus({ preventScroll: true })
   }
+  $effect(() => onlocation?.(location))
   $effect(() => {
     if (compact.current) return
     if (charts.dialogOpen) charts.setDialog(false)
@@ -171,19 +208,29 @@
   $effect(() => {
     if (writeStarted) status.clear()
   })
-  /** The grid takes focus once, when the first view arrives. */
+  /**
+   * The grid takes focus once, when the first view arrives. In a host page it takes focus only
+   * from the page body, so a host control the user moved to while the view loaded keeps it.
+   */
   const loaded = $derived(projection !== undefined)
   $effect(() => {
-    if (loaded) untrack(() => focusGrid())
+    if (!loaded) return
+    untrack(() => {
+      if (chrome || document.activeElement === document.body) focusGrid()
+    })
   })
   onMount(() => {
-    const keydown = (event: KeyboardEvent) =>
-      shortcuts && !controller.provider.state.dialog
+    const keydown = (event: KeyboardEvent) => {
+      const inViews = event.target instanceof Element && event.target.closest('.mf-views')
+      if (!globalKeys && !inViews) return false
+      return shortcuts && !controller.provider.state.dialog
         ? handleMoneyflowKeydown(shortcuts.manager, event)
         : false
+    }
     window.addEventListener('keydown', keydown)
     return () => {
       window.removeEventListener('keydown', keydown)
+      transitions.stop()
       overlays.destroy()
       charts.destroy()
     }
@@ -191,7 +238,7 @@
 </script>
 
 <div class="app-shell" inert={refreshing}>
-  {#if projection}
+  {#if chrome && projection}
     <Sidebar
       {projection}
       pending={controller.editing.state.pending}
@@ -204,7 +251,7 @@
       {onreconnect}
       onfooter={(footer) => (sidebarFooter = footer)}
     />
-  {:else}
+  {:else if chrome}
     <LoadingSidebar />
   {/if}
   <div class="app-shell__column">
@@ -217,25 +264,44 @@
         {charts}
         compact={compact.current}
         queue={transitions}
+        banner={chrome}
         onfocusgrid={focusGrid}
       />
     {:else}
-      <CommandBar>{#snippet leading()}{/snippet}</CommandBar>
+      <CommandBar banner={chrome}>{#snippet leading()}{/snippet}</CommandBar>
     {/if}
-    <main
+    <svelte:element
+      this={chrome ? 'main' : 'section'}
       class="app-shell__main"
       aria-label="Moneyflow workspace"
       aria-busy={projection ? undefined : 'true'}
-      use:trackTop={(top) => (workspaceTop = top)}
+      use:trackTop={(top: number) => (workspaceTop = top)}
     >
-      <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
+      <svelte:element this={chrome ? 'h1' : 'h2'} class="kit-sr-only">
+        Moneyflow transaction workspace
+      </svelte:element>
       <div class="app-shell__table" bind:this={grid}>
         {#if projection}
           <WorkspaceBody {projection} {actions} onapply={queueSend} {charts} {onreconnect} />
         {/if}
       </div>
-    </main>
+    </svelte:element>
     <ShellAnnouncements {controller} />
+    {#if !chrome && projection}
+      <div class="mf-workspace-status">
+        <PendingCard
+          pending={controller.editing.state.pending}
+          reviewAvailable={availableCapabilities(projection).has('changes.review')}
+          {write}
+          lastWrite={writeSaved(controller.providerWrite.state)}
+          onreview={() => local('edit.review')}
+          onwrite={() => overlays.open('write')}
+        />
+        {#if hasProviderStatus(projection.profile_kind)}
+          <ProviderStatus controller={controller.provider} {onreconnect} />
+        {/if}
+      </div>
+    {/if}
     <StatusLine
       hints={projection
         ? keyHints(projection, overlays.current !== undefined || charts.dialogOpen)
@@ -243,7 +309,7 @@
       connection={connectionState(controller.problem, controller.loading)}
       revision={projection ? controller.editing.state.revision.toString(10) : undefined}
       {activity}
-      pending={!projection || sidebarFooter
+      pending={!projection || sidebarFooter || !chrome
         ? undefined
         : pendingText(controller.editing.state.pending)}
       compact={compact.current}

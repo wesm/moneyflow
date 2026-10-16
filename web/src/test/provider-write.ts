@@ -30,6 +30,7 @@ export function testProviderWriteController(
     reconcile: vi.fn(async () => true),
     confirm: vi.fn(async () => true),
     can: vi.fn((action: string) => action === 'pause'),
+    stop: vi.fn(),
     ...overrides,
   }
 }

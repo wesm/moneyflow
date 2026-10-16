@@ -257,7 +257,7 @@ export class GridScroll {
   #reveal(index: number): void {
     const source = this.#source
     // In a short window the charts scroll away above the table; bring the table back into view.
-    source.scroller?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    if (source.scroller) revealInBody(source.scroller)
     const gridTop = source.grid?.offsetTop ?? 0
     const port = { scrollTop: source.scrollTop, viewport: source.viewport, gridTop }
     let next = revealScrollTop(index, { ...port, rowHeight: source.rowHeight })
@@ -270,4 +270,20 @@ export class GridScroll {
     this.#ownTop = next
     source.scrollTop = next
   }
+}
+
+/**
+ * Scrolls the workspace body, which holds the banners and charts above the table, just enough to
+ * show the table's scroller. Unlike `scrollIntoView`, it scrolls nothing outside the body: a host
+ * page around the views keeps its scroll position.
+ */
+function revealInBody(scroller: HTMLElement): void {
+  const body = scroller.closest<HTMLElement>('.mf-workspace-body')
+  if (!body) return
+  const port = body.getBoundingClientRect().top + body.clientTop
+  const box = scroller.getBoundingClientRect()
+  const top = box.top - port
+  const bottom = box.bottom - port
+  if (top < 0) body.scrollTop += top
+  else if (bottom > body.clientHeight) body.scrollTop += Math.min(top, bottom - body.clientHeight)
 }

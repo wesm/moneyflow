@@ -52,6 +52,26 @@ test('@smoke tabbing back to the grid shows its focus ring', async ({ page, serv
   await expect.poll(() => gridRing(page)).toBe('solid')
 })
 
+test('in a host page, the grid focus ring waits for the first key, then shows', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  // Standalone moneyflow wraps the workspace in a views root of its own, and a host page does not.
+  // Drop that outer root's class but keep its layout, so the workspace's root is the only one.
+  const roots = await page.getByRole('grid', { name: 'Financial results' }).evaluate((grid) => {
+    const outer = grid.closest('.mf-views')!.parentElement!.closest<HTMLElement>('.mf-views')!
+    outer.classList.remove('mf-views')
+    outer.style.display = 'contents'
+    return document.querySelectorAll('.mf-views').length
+  })
+  expect(roots).toBe(1)
+  expect(await gridRing(page)).toBe('none')
+
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => gridRing(page), { timeout: 0 }).toBe('solid')
+})
+
 test('the active row stays fully visible while moving past the fold and back', async ({
   page,
   server,

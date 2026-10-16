@@ -143,12 +143,12 @@ for (const viewport of viewports) {
   }
 }
 
-/** The computed color of a theme custom property, such as `--mf-cursor`. */
+/** The computed color of a views custom property, such as `--mf-cursor`. */
 async function themeColor(page: Page, property: string): Promise<string> {
   return await page.evaluate((name) => {
     const probe = document.createElement('div')
     probe.style.backgroundColor = `var(${name})`
-    document.body.append(probe)
+    document.querySelector('.mf-views')!.append(probe)
     const color = getComputedStyle(probe).backgroundColor
     probe.remove()
     return color
@@ -331,3 +331,19 @@ for (const theme of themes) {
     })
   }
 }
+
+test('the views style only what sits inside their root', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const display = await page.evaluate(() => {
+    const outside = document.body.appendChild(document.createElement('div'))
+    outside.className = 'app-shell'
+    const inside = document.querySelector('.mf-views .app-shell')!
+    const result = {
+      inside: getComputedStyle(inside).display,
+      outside: getComputedStyle(outside).display,
+    }
+    outside.remove()
+    return result
+  })
+  expect(display).toEqual({ inside: 'flex', outside: 'block' })
+})

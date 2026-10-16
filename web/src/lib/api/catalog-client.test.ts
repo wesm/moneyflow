@@ -35,50 +35,38 @@ describe('profile catalog client', () => {
     )
   })
 
-  it('activates a manifestless local profile with catalog authority', async () => {
-    const upstream = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json({
-          mutation_token: 'catalog-token',
-          token_expires_at: '2099-01-01T00:00:00Z',
-        }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          version: '1',
-          profile: {
-            key: profileID,
-            id: profileID,
-            display_name: 'Moneyflow',
-            provider_kind: 'monarch',
-            status: 'ready',
-          },
-        }),
-      )
-    const client = createCatalogClient('/moneyflow/', upstream, undefined)
+  it('activates a manifestless local profile with one JSON request', async () => {
+    const upstream = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      Response.json({
+        version: '1',
+        profile: {
+          key: profileID,
+          id: profileID,
+          display_name: 'Moneyflow',
+          provider_kind: 'monarch',
+          status: 'ready',
+        },
+      }),
+    )
+    const client = createCatalogClient('/moneyflow/', upstream)
 
     await expect(client.activate('legacy', 'monarch')).resolves.toMatchObject({ id: profileID })
-    expect(String(upstream.mock.calls[0]?.[0])).toContain('/moneyflow/api/v1/bootstrap')
-    const request = upstream.mock.calls[1]?.[1]
-    expect(request?.headers).toMatchObject({ 'X-Moneyflow-Mutation-Token': 'catalog-token' })
+    expect(upstream).toHaveBeenCalledTimes(1)
+    expect(String(upstream.mock.calls[0]?.[0])).toContain('/moneyflow/api/v1/profiles/activate')
+    const request = upstream.mock.calls[0]?.[1]
+    expect(request?.headers).toEqual({ 'Content-Type': 'application/json' })
     expect(request?.body).toBe('{"version":"1","key":"legacy","provider_kind":"monarch"}')
   })
 
-  it('cancels a newly created profile with catalog authority', async () => {
+  it('cancels a newly created profile with one request', async () => {
     const upstream = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json({
-          mutation_token: 'catalog-token',
-          token_expires_at: '2099-01-01T00:00:00Z',
-        }),
-      )
       .mockResolvedValueOnce(Response.json({ version: '1', removed: true }))
-    const client = createCatalogClient('/moneyflow/', upstream, undefined)
+    const client = createCatalogClient('/moneyflow/', upstream)
 
     await expect(client.cancelNew(profileID)).resolves.toBe(true)
 
-    expect(String(upstream.mock.calls[1]?.[0])).toContain(`/profiles/${profileID}/cancel`)
+    expect(upstream).toHaveBeenCalledTimes(1)
+    expect(String(upstream.mock.calls[0]?.[0])).toContain(`/profiles/${profileID}/cancel`)
   })
 })

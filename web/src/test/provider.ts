@@ -55,6 +55,7 @@ export function stubProvider(
       ),
       ...state,
     },
+    cancelable: true,
     sync: vi.fn(),
     poll: vi.fn(async () => undefined),
     reread: vi.fn(async () => undefined),
@@ -62,6 +63,8 @@ export function stubProvider(
     confirm: vi.fn(async () => true),
     dismissConfirmation: vi.fn(),
     cancel: vi.fn(),
+    hide: vi.fn(),
     continueStale: vi.fn(),
+    stop: vi.fn(),
   }
 }

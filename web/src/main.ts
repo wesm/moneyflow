@@ -10,14 +10,6 @@ const target = document.getElementById('app')
 if (!target) throw new Error('Moneyflow application mount is missing.')
 
 initMoneyflowTheme()
-// Marks the first key press, which reveals the focus ring the grid takes on load.
-addEventListener(
-  'keydown',
-  () => {
-    document.documentElement.dataset.keyboard = ''
-  },
-  { capture: true, once: true },
-)
 const basePath = readBasePath(document)
 const route = parseApplicationRoute(basePath, location)
 if (route.kind === 'profile') {

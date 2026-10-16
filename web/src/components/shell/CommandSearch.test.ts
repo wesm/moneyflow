@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import CommandSearch from './CommandSearch.svelte'
@@ -6,6 +7,7 @@ import { SearchCarry } from '../../lib/shell/search-carry'
 import CommandSearchSwap from '../../test/CommandSearchSwap.svelte'
 import type { SearchPreview } from '../../lib/controller/search'
 import { createViewController } from '../../lib/controller/view-controller.svelte'
+import { historyViewState, type ViewStateAdapter } from '../../lib/controller/view-state'
 import type { MoneyflowClient, TransitionBody } from '../../lib/api/client'
 import { testProjection } from '../../test/projection'
 
@@ -27,6 +29,7 @@ function host(search = '', valid = true) {
       return work
     },
     settled: async () => undefined,
+    viewState: historyViewState('/'),
   }
 }
 
@@ -186,6 +189,42 @@ describe('CommandSearch', () => {
     expect(controller.restoreSearch).not.toHaveBeenCalled()
   })
 
+  it('ends a search on back or forward from its view-state adapter, not on popstate', async () => {
+    const listeners = new Set<() => void>()
+    const viewState: ViewStateAdapter = {
+      state: null,
+      query: '',
+      push: vi.fn(),
+      replace: vi.fn(),
+      go: vi.fn(),
+      listen(restore) {
+        listeners.add(restore)
+        return () => listeners.delete(restore)
+      },
+    }
+    const controller = { ...host('noodle'), viewState }
+    const previewed = Promise.withResolvers<void>()
+    controller.previewSearch.mockImplementationOnce(async () => {
+      previewed.resolve()
+      return 'applied'
+    })
+    render(CommandSearch, { controller, ondone: vi.fn() })
+    await fireEvent.input(field(), { target: { value: 'pizza' } })
+    await previewed.promise
+
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    await tick()
+    expect(field().value).toBe('pizza')
+    for (const restore of listeners) restore()
+    await tick()
+
+    expect(field().value).toBe('noodle')
+    expect(controller.commitSearch).not.toHaveBeenCalled()
+    expect(controller.restoreSearch).not.toHaveBeenCalled()
+    cleanup()
+    expect(listeners.size).toBe(0)
+  })
+
   it('drops a search still applying after focus left when browser history changes the view', async () => {
     const controller = host()
     let release!: (outcome: SearchPreview) => void
@@ -233,6 +272,30 @@ describe('CommandSearch', () => {
     expect(controller.beginSearch).toHaveBeenCalledOnce()
     expect(controller.restoreSearch).toHaveBeenCalledWith({ id: 'snapshot' })
     expect(field().value).toBe('noodle')
+  })
+
+  it('applies a search left just before its field is replaced', async () => {
+    const controller = host()
+    const carry = new SearchCarry()
+    const previewing = Promise.withResolvers<void>()
+    let release!: (outcome: SearchPreview) => void
+    controller.previewSearch.mockImplementationOnce(() => {
+      previewing.resolve()
+      return new Promise<SearchPreview>((resolve) => (release = resolve))
+    })
+    const { rerender } = render(CommandSearchSwap, { controller, carry, wide: true })
+    field().focus()
+    await fireEvent.input(field(), { target: { value: 'noodle' } })
+    await previewing.promise
+    await fireEvent.focusOut(field(), { relatedTarget: document.body })
+
+    await rerender({ wide: false })
+    release('applied')
+    const [leaving] = controller.held.mock.calls[0] as [Promise<void>]
+    await leaving
+
+    expect(controller.commitSearch).toHaveBeenCalledOnce()
+    expect(controller.restoreSearch).not.toHaveBeenCalled()
   })
 
   it('gives focus to the replacing field when the search being typed had it', async () => {
@@ -313,8 +376,8 @@ describe('CommandSearch', () => {
     })
     const client = { view: vi.fn(async () => testProjection()), transition, mutations: {} }
     const controller = createViewController({
-      basePath: '/',
       client: client as unknown as MoneyflowClient,
+      viewState: historyViewState('/'),
       prefetch: false,
     })
     await controller.hydrate()

@@ -69,4 +69,23 @@ describe('TransitionQueue', () => {
 
     expect(host.apply).toHaveBeenCalledWith({ action: 'time.clear-period' })
   })
+
+  it('drops a change still being decided when it stops', async () => {
+    const host = controller()
+    const queue = new TransitionQueue(() => host)
+    const deciding = Promise.withResolvers<void>()
+    const settling = Promise.withResolvers<undefined>()
+    host.settled.mockImplementation(() => {
+      deciding.resolve()
+      return settling.promise
+    })
+
+    const applied = queue.apply(() => ({ action: 'time.clear-period' }))
+    await deciding.promise
+    queue.stop()
+    settling.resolve(undefined)
+    await applied
+
+    expect(host.apply).not.toHaveBeenCalled()
+  })
 })
