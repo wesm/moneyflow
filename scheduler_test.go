@@ -468,19 +468,27 @@ func openGatedInstance(
 	require.NoError(t, err)
 	// Past Monarch's 6-hour interval for recent data, well inside its 30 days for full history.
 	require.NoError(t, source.Advance(7*time.Hour))
-	reads := make(chan *domain.DateRange, 4)
+	monarchFactory, reads := gatedMonarch(source, gate)
 	testSeams.inspectSession = sessionPresent
-	testSeams.factories = assembly.Factories{
-		Monarch: func(home.Paths, monarch.ImportConfig) (assembly.MonarchRuntime, error) {
-			return assembly.MonarchRuntime{
-				ReadSource: gatedReader{
-					kindSource: kindSource{source, "monarch"}, reads: reads, gate: gate,
-				},
-				WriteSource: source, InstanceID: "test-" + cryptorand.Text(), Now: source.Now,
-			}, nil
-		},
-	}
+	testSeams.factories = assembly.Factories{Monarch: monarchFactory}
 	return openTestInstance(t, root, testSeams), acme, reads
+}
+
+// gatedMonarch serves Monarch profiles from source. Each snapshot read sends its transaction
+// window on the returned channel and waits until the test closes gate.
+func gatedMonarch(
+	source *uitest.Provider,
+	gate <-chan struct{},
+) (assembly.MonarchFactory, <-chan *domain.DateRange) {
+	reads := make(chan *domain.DateRange, 4)
+	return func(home.Paths, monarch.ImportConfig) (assembly.MonarchRuntime, error) {
+		return assembly.MonarchRuntime{
+			ReadSource: gatedReader{
+				kindSource: kindSource{source, "monarch"}, reads: reads, gate: gate,
+			},
+			WriteSource: source, InstanceID: "test-" + cryptorand.Text(), Now: source.Now,
+		}, nil
+	}, reads
 }
 
 // scheduleGatedRefresh opens an instance as openGatedInstance does, runs one scheduler pass and

@@ -510,6 +510,43 @@ func TestProfilesReportAWriteRunThatStoppedBeforeItsBatchParked(t *testing.T) {
 	assert.Equal(t, StateWriteAttention, profile.State)
 }
 
+func TestProfilesReportAnUnfinishedReconcileWhoseLeaseExpired(t *testing.T) {
+	root, providerRoot := testRoot(t), t.TempDir()
+	acme := createDrivenMonarchProfile(t, root, "Acme", providerRoot, commitRejected)
+	source, err := uitest.OpenProvider(providerRoot)
+	require.NoError(t, err)
+	gate := make(chan struct{})
+	monarchFactory, reads := gatedMonarch(source, gate)
+	writer := openTestInstance(t, root, seams{
+		inspectSession: sessionPresent, factories: assembly.Factories{Monarch: monarchFactory},
+	})
+	tools := connectTools(t, writer, ToolOptions{Classes: []Class{ClassRead, ClassCommit}})
+	revision, version := writeStatus(t, tools, acme)
+	reconciling, reconcileError := callTool(t, tools, "stop_and_reconcile", map[string]any{
+		"profile": acme, "expected_revision": revision, "batch_version": version,
+	})
+	require.False(t, reconcileError, reconciling)
+	// The reconcile waits in its provider read with the batch reconciling. The clock then passes
+	// the end of its lease, as when the process reconciling ends before the read returns.
+	<-reads
+	clock, err := uitest.OpenProvider(providerRoot)
+	require.NoError(t, err)
+	require.NoError(t, clock.Advance(time.Hour))
+	reader := openTestInstance(t, root, seams{
+		inspectSession: sessionPresent,
+		factories:      assembly.Factories{Monarch: syntheticMonarch(providerRoot)},
+	})
+
+	profile := currentProfile(t.Context(), reader, acme)
+
+	assert.Equal(t, StateWriteAttention, profile.State)
+	close(gate)
+	supervisor, err := writer.supervisor(acme)
+	require.NoError(t, err)
+	_, err = supervisor.WaitReconcile(t.Context(), reconciling["attempt_id"].(string))
+	require.NoError(t, err)
+}
+
 func TestAFailedRefreshReportsItsCode(t *testing.T) {
 	root, providerRoot := testRoot(t), t.TempDir()
 	acme := createDrivenMonarchProfile(t, root, "Acme", providerRoot, failRefresh)
