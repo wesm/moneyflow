@@ -1,4 +1,9 @@
 {% extends "base.html" %}
+{% block extrahead %}
+  {% if page.edit_url %}
+    <link rel="alternate" type="text/markdown" href="{{ base_url }}/{{ page.edit_url | split('/docs/') | last }}">
+  {% endif %}
+{% endblock %}
 {% block announce %}
   <a href="/">Moneyflow</a> · <a href="/guide/">Walkthrough</a> ·
   <a href="/docs/getting-started/go/">Go preview</a> · <a href="/legacy/v1/">Legacy Python v1</a>

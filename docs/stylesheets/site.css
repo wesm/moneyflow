@@ -29,3 +29,11 @@
   outline: 3px solid #eea17b;
   outline-offset: 3px;
 }
+.md-typeset .md-markdown-link {
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.6;
+  margin-top: 0.6rem;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
