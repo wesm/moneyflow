@@ -261,6 +261,30 @@ export function tickEvery(
   return monthSteps.find((candidate) => candidate >= step) ?? 12
 }
 
+/**
+ * The axis label under each column, or '' where thinning to every `every`th column hides it.
+ * Day labels name the month where it changes and the year where that changes since the
+ * previous label: `Jan 1`, `10`, `Feb 2`, `Jan 2025`.
+ */
+export function axisTicks(
+  columns: readonly ColumnGeometry[],
+  context: readonly ContextPeriod[],
+  every: number,
+): string[] {
+  let shown: ContextPeriod['period'] | undefined
+  return columns.map((column, index) => {
+    if (column.tickOrder % every !== 0) return ''
+    const period = context[index]?.period
+    if (period?.granularity !== 'day' || period.month === undefined) return column.tick
+    const previous = shown
+    shown = period
+    const name = MONTHS[period.month - 1]
+    if (previous !== undefined && previous.year !== period.year) return `${name} ${period.year}`
+    if (previous?.month !== period.month) return `${name} ${period.day}`
+    return column.tick
+  })
+}
+
 /** Whether two periods are the same day, month, or year. */
 export function samePeriod(left: ContextPeriod['period'], right: ContextPeriod['period']): boolean {
   return (

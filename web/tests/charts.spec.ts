@@ -397,6 +397,17 @@ test('a Year scope charts one column per year, and a year column scopes to it', 
   await expect(column(page, '2025')).toHaveClass(/mf-cashflow__column--scope/)
 })
 
+test('Day columns name the month and year where they change', async ({ page, server }) => {
+  await openMoneyflow(page, server, 'cur=USD%3A2&from=2025-12-15&to=2026-01-15&v=1')
+  await page.keyboard.press('t')
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveText('Days')
+  const ticks = cashflow(page).locator('.mf-cashflow__tick')
+  await expect(ticks.filter({ hasText: 'Jan 2026' })).toHaveCount(1)
+  const labels = (await ticks.allTextContents()).filter((label) => label !== '')
+  expect(labels[0]).toMatch(/^Dec \d+$/)
+  expect(labels.slice(1).every((label) => /^(\d+|Jan 2026)$/.test(label))).toBe(true)
+})
+
 test('a drag across cash-flow columns sets a custom range', async ({ page, server }) => {
   await openMoneyflow(page, server)
   await column(page, 'Jul 2026').hover()

@@ -1,6 +1,7 @@
 <script lang="ts">
   import CashflowColumn from './CashflowColumn.svelte'
   import {
+    axisTicks,
     cashflowGeometry,
     cursorGeometry,
     NET_DOT_RADIUS,
@@ -38,6 +39,7 @@
     tickEvery(columns.length, width, entry.response.ranges.context_granularity),
   )
   const context = $derived(entry.response.ranges.context)
+  const ticks = $derived(axisTicks(columns, context, every))
   /** The period that holds the Tab stop, while the same view is drawn. */
   let chosen = $state<{ query: string; period: string }>()
   const scoped = $derived(columns.findLastIndex((column) => column.inScope))
@@ -144,7 +146,7 @@
         height={drawn}
         cursor={bars?.[index]}
         row={rowAmounts(cursor, index, entry.response.scale)}
-        ticked={column.tickOrder % every === 0}
+        tick={ticks[index] ?? ''}
         active={index === active}
         dragged={dragged(index)}
         onclick={(event) => click(event, index)}

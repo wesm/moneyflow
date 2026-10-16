@@ -5,6 +5,7 @@ import type { InsightsEntry } from '../insights/cache.svelte'
 import { testInsights, testSeries } from '../../test/insights'
 import { testAggregateRow, testProjection } from '../../test/projection'
 import {
+  axisTicks,
   cashflowCursor,
   cashflowGeometry,
   cursorGeometry,
@@ -365,6 +366,45 @@ describe('tickEvery', () => {
     )
     const ticked = geometry.columns.filter((column) => column.tickOrder % 2 === 0)
     expect(ticked.map((column) => column.tick)).toEqual(['Nov', '2026'])
+  })
+})
+
+describe('axisTicks', () => {
+  function flat(context: Context): InsightsEntry {
+    const zero = context.map(() => '0')
+    return entry(context, { labels: context.map((p) => p.start), in: zero, out: zero, net: zero })
+  }
+
+  it('names the month where it changes and the year where that changes', () => {
+    const context = [
+      day(2024, 12, 30),
+      day(2024, 12, 31),
+      day(2025, 1, 1),
+      day(2025, 1, 10),
+      day(2025, 1, 21),
+      day(2025, 2, 2),
+    ]
+    const { columns } = cashflowGeometry(flat(context), 400, 100)
+    expect(axisTicks(columns, context, 1)).toEqual([
+      'Dec 30',
+      '31',
+      'Jan 2025',
+      '10',
+      '21',
+      'Feb 2',
+    ])
+  })
+
+  it('names a month that changes between thinned labels and keeps the hidden ones empty', () => {
+    const context = [day(2026, 1, 28), day(2026, 1, 30), day(2026, 2, 3), day(2026, 2, 9)]
+    const { columns } = cashflowGeometry(flat(context), 400, 100)
+    expect(axisTicks(columns, context, 2)).toEqual(['Jan 28', '', 'Feb 3', ''])
+  })
+
+  it('leaves month and year labels as they are', () => {
+    const context = [month(2025, 12), month(2026, 1), month(2026, 2)]
+    const { columns } = cashflowGeometry(flat(context), 400, 100)
+    expect(axisTicks(columns, context, 1)).toEqual(['Dec', '2026', 'Feb'])
   })
 })
 

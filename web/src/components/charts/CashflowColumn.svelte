@@ -12,8 +12,8 @@
     /** The cursor's share of this period, drawn solid over the column. */
     cursor?: CursorBar | undefined
     row?: RowAmounts | undefined
-    /** Shows the axis label; crowded charts label every few columns. */
-    ticked: boolean
+    /** The axis label; empty where a crowded chart labels only every few columns. */
+    tick: string
     /** The chart's one Tab stop. */
     active: boolean
     /** Inside a drag's range. */
@@ -31,7 +31,7 @@
     height,
     cursor,
     row,
-    ticked,
+    tick,
     active,
     dragged,
     onclick,
@@ -86,7 +86,7 @@
         />
       {/if}
     </svg>
-    <span class="mf-cashflow__tick" aria-hidden="true">{ticked ? column.tick : ''}</span>
+    <span class="mf-cashflow__tick" aria-hidden="true">{tick}</span>
   </button>
   {#if described && row}
     <span {id} class="kit-sr-only">{row.label}, in {row.in}, out {row.out}</span>
