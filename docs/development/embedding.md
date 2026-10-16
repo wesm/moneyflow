@@ -243,15 +243,15 @@ npm install "github:kenn-io/kit-ui#KIT_UI_COMMIT" \
 
 The package ships Svelte 5 and TypeScript source. It uses the host's `svelte`, `@lucide/svelte`,
 and kit-ui, at the ranges in its `peerDependencies`, so it follows the host's kit theme, and the
-host, kit-ui, and the views share one copy of the icons. Compile it as Moneyflow does. The views'
-Svelte files use TypeScript that only `vitePreprocess({ script: true })` compiles:
+host, kit-ui, and the views share one copy of the icons. Svelte compiles the views' TypeScript
+itself, so the host needs no preprocessor:
 
 ```ts
-import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte'
+import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [svelte({ preprocess: vitePreprocess({ script: true }) })],
+  plugins: [svelte()],
   optimizeDeps: { exclude: ['@kenn-io/kit-ui', 'moneyflow-views'] },
 })
 ```

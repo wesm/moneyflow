@@ -16,7 +16,7 @@
     "./styles.css": "./web/src/lib/views/views.css"
   },
   "peerDependencies": {
-    "svelte": "^5.56.3",
+    "svelte": "^5.56.9",
     "@lucide/svelte": "^1.21.0",
     "@kenn-io/kit-ui": "*"
   },

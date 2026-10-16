@@ -24,7 +24,7 @@
     "@kenn-io/kit-ui": "github:kenn-io/kit-ui#dc7a4184843343cb1fa639ea6e77b68d13e755af",
     "@lucide/svelte": "1.21.0",
     "openapi-fetch": "0.17.0",
-    "svelte": "5.56.3"
+    "svelte": "5.56.9"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.10.2",
