@@ -261,5 +261,20 @@ test("preview serves Markdown and llms.txt as UTF-8 text", async () => {
   expect(await markdown.text()).toBe("# Web");
   expect(await (await get("/docs/guide/web/")).text()).toBe("<h1>Web</h1>");
   expect((await get("/docs/missing.md")).status).toBe(404);
-  expect((await get("/../outside")).status).toBe(404);
+});
+
+test("preview never serves a file outside the site root", async () => {
+  const parent = await fixture({
+    "site/index.html": "<h1>Public</h1>",
+    "secret.txt": "private",
+  });
+  const get = (path: string) =>
+    previewResponse(
+      join(parent, "site"),
+      new Request(`http://127.0.0.1${path}`),
+    );
+  expect(await (await get("/")).text()).toBe("<h1>Public</h1>");
+  const escaped = await get("/..%2fsecret.txt");
+  expect(escaped.status).toBe(404);
+  expect(await escaped.text()).not.toContain("private");
 });
