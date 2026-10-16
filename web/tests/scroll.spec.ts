@@ -45,15 +45,24 @@ async function visibleRowIndexes(page: Page): Promise<number[]> {
 
 /**
  * Turns the mouse wheel over the table until the workspace has scrolled by `deltaY` pixels.
- * Firefox scrolls at most a page for one wheel event, and joins wheel events that queue up, so
- * the wheel turns again after each scroll until the distance is covered. The mouse moves there
- * directly: `hover()` first scrolls its target into view, which in Firefox centers the tall grid.
+ * The mouse moves there directly: `hover()` first scrolls its target into view, which in Firefox
+ * centers the tall grid.
+ *
+ * Browsers scroll a wheel event differently. Chromium and WebKit scroll the whole delta, and
+ * WebKit on Linux animates it over several frames, so the helper waits for it to land. Firefox
+ * scrolls at once but at most a page, and joins wheel events that queue up, so in Firefox the
+ * wheel turns again after each scroll until the distance is covered.
  */
 async function wheel(page: Page, deltaY: number): Promise<void> {
   const box = (await workspace(page).boundingBox())!
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   let top = (await scrollState(page)).top
   const target = top + deltaY
+  if (page.context().browser()?.browserType().name() !== 'firefox') {
+    await page.mouse.wheel(0, deltaY)
+    await expect.poll(async () => Math.abs((await scrollState(page)).top - target)).toBeLessThan(1)
+    return
+  }
   while (Math.abs(target - top) >= 1) {
     await page.mouse.wheel(0, target - top)
     top = await workspace(page).evaluate(scrollFrom, top)
