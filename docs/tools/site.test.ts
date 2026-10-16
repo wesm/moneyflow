@@ -44,8 +44,8 @@ test("staging copies only selected public sources and rejects escaping paths", a
 });
 
 test("static redirects offer a fallback and preserve incoming query and fragment", () => {
-  const html = redirectHTML("/legacy/v1/guide/ynab/");
-  expect(html).toContain('href="/legacy/v1/guide/ynab/"');
+  const html = redirectHTML("/docs/guide/ynab/");
+  expect(html).toContain('href="/docs/guide/ynab/"');
   const script = html.match(/<script>(.*?)<\/script>/s)![1];
   let redirected = "";
   new Function("location", script)({
@@ -55,7 +55,7 @@ test("static redirects offer a fallback and preserve incoming query and fragment
       redirected = url;
     },
   });
-  expect(redirected).toBe("/legacy/v1/guide/ynab/?source=bookmark#setup");
+  expect(redirected).toBe("/docs/guide/ynab/?source=bookmark#setup");
   expect(() => redirectHTML("//external.example/")).toThrow("redirect");
 });
 
@@ -160,9 +160,6 @@ test("llms.txt lists every nav section with each page's title and opening summar
     "## Interfaces\n\n- [Web interface](https://moneyflow.dev/docs/guide/web.md): Serve the `web` command.\n" +
       "- [Architecture](https://moneyflow.dev/docs/architecture/index.md): One service owns accounting.\n",
   );
-  expect(text).toContain(
-    "## Optional\n\n- [Legacy Python v1](https://moneyflow.dev/legacy/v1/):",
-  );
   expect(text).toMatch(/\.md`? twin|Markdown/);
   await expect(
     llmsText(
@@ -183,9 +180,9 @@ test("agent checks require a Markdown twin, matching links and resolvable llms.t
     "docs/architecture/index.html": docsPage("../architecture/index.md"),
     "docs/architecture/index.md": "# Architecture",
     "docs/404.html": "<h1>Not found</h1>",
-    "legacy/v1/index.html": "<h1>Archive</h1>",
     "llms.txt":
-      "# Moneyflow\n\n- [Web](https://moneyflow.dev/docs/guide/web.md): Web.\n- [Archive](https://moneyflow.dev/legacy/v1/): Old.\n",
+      "# Moneyflow\n\n- [Web](https://moneyflow.dev/docs/guide/web.md): Web.\n- [Home](https://moneyflow.dev/): Home.\n",
+    "index.html": "<h1>Home</h1>",
   };
   expect(await checkAgentDocs(await fixture(good))).toEqual([]);
 
@@ -232,29 +229,18 @@ test("every current Markdown page must appear in the nav", () => {
   ]);
 });
 
-test("metadata checks require canonical URLs and a noindex legacy archive", async () => {
+test("metadata checks require canonical URLs outside redirects", async () => {
   const canonical = (url: string) => `<link rel="canonical" href="${url}">`;
   const site = await fixture({
     "index.html": canonical("https://moneyflow.dev/"),
     "docs/index.html": canonical("https://moneyflow.dev/docs/"),
-    "legacy/v1/index.html":
-      canonical("https://moneyflow.dev/legacy/v1/") +
-      '<meta name="robots" content="noindex">',
     "old/index.html": "<p>Redirect</p>",
   });
   expect(await checkMetadata(site, new Set(["old/index.html"]))).toEqual([]);
-  await writeFile(
-    join(site, "legacy/v1/index.html"),
-    canonical("https://moneyflow.dev/legacy/v1/"),
-  );
   await writeFile(join(site, "docs/index.html"), canonical("/docs/"));
   expect(await checkMetadata(site, new Set(["old/index.html"]))).toEqual([
     "docs/index.html: incorrect canonical URL",
-    "legacy/v1/index.html: archive missing noindex",
   ]);
-  expect(
-    await checkMetadata(await fixture({ "index.html": "" }), new Set()),
-  ).toContain("legacy/v1/index.html: archive missing");
 });
 
 test("preview serves Markdown and llms.txt as UTF-8 text", async () => {

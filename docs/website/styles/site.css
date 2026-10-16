@@ -119,13 +119,6 @@ nav a {
 nav a[aria-current] {
   border-bottom-color: var(--accent);
 }
-.eyebrow {
-  margin: 0 0 14px;
-  font: 600 12px/1.5 var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--accent);
-}
 h1,
 h2 {
   font-family: var(--display);
@@ -266,48 +259,8 @@ section.band {
   max-width: 760px;
   margin-bottom: 36px;
 }
-.section-intro p:not(.eyebrow) {
+.section-intro p {
   color: var(--muted);
-}
-
-/* The review loop as key caps. */
-.keys {
-  list-style: none;
-  counter-reset: step;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  border-top: 1px solid var(--line);
-  border-left: 1px solid var(--line);
-}
-.keys li {
-  counter-increment: step;
-  padding: 20px 20px 24px;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  min-height: 128px;
-  align-content: flex-start;
-}
-.keys li::before {
-  content: counter(step, decimal-leading-zero);
-  flex-basis: 100%;
-  font: 12px var(--mono);
-  color: var(--accent);
-}
-.keys li span {
-  flex-basis: 100%;
-  font-size: 15px;
-  color: var(--muted);
-  margin-top: 4px;
-}
-.keys kbd {
-  font-size: 15px;
-  padding: 4px 10px;
 }
 kbd {
   display: inline-block;
@@ -424,9 +377,10 @@ pre code {
 
 .demo {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 48px;
-  align-items: center;
+  gap: 28px;
+}
+.demo > div {
+  max-width: 760px;
 }
 .demo p {
   color: var(--muted);
@@ -440,13 +394,6 @@ pre code {
   color: #eea17b;
   user-select: none;
 }
-.status-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 36px;
-  color: var(--muted);
-  font-size: 16px;
-}
 
 footer {
   border-top: 1px solid var(--line);
@@ -459,69 +406,6 @@ footer {
   gap: 24px;
   justify-content: space-between;
   flex-wrap: wrap;
-}
-
-/* Tour */
-.guide-head {
-  padding: 72px 0 48px;
-  max-width: 820px;
-}
-.step {
-  display: grid;
-  grid-template-columns: 80px minmax(0, 1fr) minmax(0, 1fr);
-  gap: 28px 36px;
-  padding: 56px 0;
-  border-top: 1px solid var(--line);
-}
-.step > .number {
-  font: 600 30px var(--mono);
-  color: var(--accent);
-}
-.step h2 {
-  font-size: clamp(26px, 2.6vw, 32px);
-}
-.step p,
-.step li {
-  font-size: 16px;
-}
-.step .lead > p {
-  color: var(--muted);
-}
-.step .lead > p strong {
-  color: var(--ink);
-}
-.step aside {
-  align-self: start;
-  background: var(--surface);
-  padding: 22px 24px;
-  border-radius: 6px;
-  font-size: 16px;
-}
-.step aside > :last-child {
-  margin-bottom: 0;
-}
-.step .pair {
-  grid-column: 2 / -1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 28px;
-  align-items: start;
-}
-.step .pair.phone {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 0.36fr);
-}
-.step pre {
-  margin: 12px 0 16px;
-}
-.step a.more {
-  font-size: 15px;
-  font-weight: 650;
-}
-.cta {
-  background: var(--surface);
-  padding: 48px;
-  border-radius: 8px;
-  margin: 24px auto 72px;
 }
 
 /* Lightbox (scripts/lightbox.js) */
@@ -603,23 +487,9 @@ footer {
 }
 
 @media (max-width: 900px) {
-  .keys {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .cards,
   .ledger {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-  .demo,
-  .status-grid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 24px;
-  }
-  .step {
-    grid-template-columns: 48px minmax(0, 1fr);
-  }
-  .step aside {
-    grid-column: 2;
   }
 }
 @media (max-width: 600px) {
@@ -655,10 +525,6 @@ footer {
   section.band {
     padding: 52px 0;
   }
-  .keys li {
-    min-height: 0;
-    padding: 16px;
-  }
   .cards,
   .ledger {
     grid-template-columns: minmax(0, 1fr);
@@ -680,25 +546,6 @@ footer {
   .demo pre {
     font-size: 14px;
     padding: 18px;
-  }
-  .cta {
-    padding: 26px;
-  }
-  .step {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
-    padding: 40px 0;
-  }
-  .step aside,
-  .step .pair {
-    grid-column: 1;
-  }
-  .step .pair,
-  .step .pair.phone {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .step .pair.phone .capture:last-child {
-    max-width: 260px;
   }
   .lightbox-toolbar {
     flex-wrap: wrap;

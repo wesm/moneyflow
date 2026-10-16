@@ -14,7 +14,6 @@ nav = [
     { "Installation" = "getting-started/installation.md" },
     { "Quick start" = "getting-started/quickstart.md" },
     { "Moving to Go" = "getting-started/transition.md" },
-    { "Python v1" = "getting-started/python-transition.md" },
   ] },
   { "Interfaces" = [
     { "Web" = "guide/web.md" },

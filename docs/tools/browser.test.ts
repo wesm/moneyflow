@@ -18,10 +18,10 @@ afterAll(async () => {
   server.stop(true);
 });
 
-test("walkthrough captures open at full size and restore keyboard focus", async () => {
+test("homepage captures open at full size and restore keyboard focus", async () => {
   const page = await browser.newPage();
   try {
-    await page.goto(new URL("guide/", server.url).href);
+    await page.goto(server.url.href);
     const capture = page.locator("a[data-lightbox]").first();
     expect(await capture.count()).toBe(1);
     await capture.focus();
@@ -81,14 +81,14 @@ test("a docs page's Markdown link opens its source as text", async () => {
   }
 });
 
-test("homepage and tour fit a phone screen in both color schemes", async () => {
+test("homepage and docs fit a phone screen in both color schemes", async () => {
   for (const colorScheme of ["light", "dark"] as const) {
     const page = await browser.newPage({
       viewport: { width: 390, height: 844 },
       colorScheme,
     });
     try {
-      for (const path of ["", "guide/"]) {
+      for (const path of ["", "docs/"]) {
         await page.goto(new URL(path, server.url).href);
         expect(
           await page.evaluate(

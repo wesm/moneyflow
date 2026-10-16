@@ -40,10 +40,10 @@ export function redirectHTML(destination: string): string {
   }
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="robots" content="noindex"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Documentation moved · Moneyflow</title><link rel="canonical" href="${origin}${destination}">
+<title>Page moved · Moneyflow</title><link rel="canonical" href="${origin}${destination}">
 <script>location.replace(${JSON.stringify(destination)} + location.search + location.hash)</script>
-</head><body><h1>Documentation moved</h1><p>This page describes the legacy Python application.</p>
-<p><a href="${destination}">Continue to the archived documentation</a></p></body></html>`;
+</head><body><h1>Page moved</h1><p><a href="${destination}">Continue to the documentation</a></p>
+</body></html>`;
 }
 
 type Page = {
@@ -212,8 +212,6 @@ export async function llmsText(
       ...[...sections].map(
         ([section, entries]) => `## ${section}\n\n${entries.join("\n")}`,
       ),
-      `## Optional\n\n- [Legacy Python v1](${origin}/legacy/v1/): ` +
-        "Frozen documentation for the retired Python application. It does not describe the Go application.",
     ].join("\n\n") + "\n"
   );
 }
@@ -270,17 +268,12 @@ export async function checkMetadata(
   redirects: Set<string>,
 ): Promise<string[]> {
   const errors: string[] = [];
-  if (!(await Bun.file(resolve(root, "legacy/v1/index.html")).exists()))
-    errors.push("legacy/v1/index.html: archive missing");
   for await (const name of new Bun.Glob("**/*.html").scan(root)) {
     if (name.endsWith("404.html") || redirects.has(name)) continue;
     const page = await inspectHTML(resolve(root, name));
     const expected = `${origin}/${name.replace(/index\.html$/, "")}`;
     if (page.canonical !== expected)
       errors.push(`${name}: incorrect canonical URL`);
-    if (name.startsWith("legacy/v1/") && !page.robots?.includes("noindex")) {
-      errors.push(`${name}: archive missing noindex`);
-    }
   }
   return errors.sort();
 }
@@ -344,43 +337,21 @@ async function build() {
   const manifest: Manifest = await Bun.file(
     resolve(docs, "site-manifest.json"),
   ).json();
-  const archive: { files: { path: string }[] } = await Bun.file(
-    resolve(docs, "legacy/v1/manifest.json"),
-  ).json();
   await cleanOwned(work);
-  for (const [tier, paths, source] of [
-    ["current", manifest.current, docs],
-    [
-      "legacy",
-      archive.files.map((file) => file.path),
-      resolve(docs, "legacy/v1"),
-    ],
-  ] as const) {
-    const staging = resolve(work, tier, "pages");
-    await stagePages(source, staging, paths);
-    if (tier === "legacy")
-      await stagePages(docs, staging, ["stylesheets/site.css"]);
-    const config = resolve(
-      docs,
-      tier === "current" ? "zensical.toml" : "zensical-legacy.toml",
-    );
-    await command([
-      "uv",
-      "run",
-      "--project",
-      docs,
-      "--frozen",
-      "zensical",
-      "build",
-      "-f",
-      config,
-    ]);
-  }
+  await stagePages(docs, resolve(work, "current/pages"), manifest.current);
+  await command([
+    "uv",
+    "run",
+    "--project",
+    docs,
+    "--frozen",
+    "zensical",
+    "build",
+    "-f",
+    resolve(docs, "zensical.toml"),
+  ]);
   await cleanOwned(output);
   await cp(resolve(work, "current/site"), resolve(output, "docs"), {
-    recursive: true,
-  });
-  await cp(resolve(work, "legacy/site"), resolve(output, "legacy/v1"), {
     recursive: true,
   });
   const pages = resolve(work, "current/pages");
