@@ -26,8 +26,8 @@ const (
 	// StateRefreshFailed means the last refresh failed; Error says why.
 	StateRefreshFailed ProfileState = "refresh_failed"
 	// StateWriteAttention means a commit to the provider stopped and waits for the user: it is
-	// paused, was rate limited, stopped on a local failure such as a busy database, or needs a
-	// decision.
+	// paused, was rate limited, stopped on a local failure such as a busy database, was left
+	// unfinished by a process that ended, or needs a decision.
 	StateWriteAttention ProfileState = "write_attention"
 	// StateError means the profile cannot open; Error says why.
 	StateError ProfileState = "error"
@@ -97,6 +97,11 @@ func (instance *Instance) describe(ctx context.Context, entry profilecatalog.Ent
 	account, err := service.AccountProjection(ctx, app.AccountProjectionRequest{
 		Partitions: app.CollectionWindowRequest{Limit: 1},
 	})
+	if err == nil {
+		// The projection's write status keeps the owner of an expired lease. ProviderWriteStatus,
+		// which the API reads, drops it, so statusState can tell when nothing is writing a batch.
+		account.Write, err = service.ProviderWriteStatus(ctx)
+	}
 	if err != nil {
 		profile.State, profile.Error = StateError, err.Error()
 		return profile
@@ -138,7 +143,10 @@ func statusState(status app.ProviderStatus, account app.AccountProjection) Profi
 		account.Write.Phase == store.WritePhaseRateLimited,
 		account.Write.Phase == store.WritePhaseAttentionRequired,
 		account.Write.Phase == store.WritePhaseReconcileConfirmationRequired,
-		account.Write.RunFailure != nil:
+		account.Write.RunFailure != nil,
+		// Nothing resumes a batch that no live process owns, as after the one writing it ended.
+		account.Write.OwnerInstanceID == "" && (account.Write.Phase == store.WritePhaseWriting ||
+			account.Write.Phase == store.WritePhaseReconciling):
 		return StateWriteAttention
 	case account.Provider.Code != "":
 		return StateRefreshFailed

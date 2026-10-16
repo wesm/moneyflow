@@ -195,8 +195,9 @@ func expectFailure(err error) error {
 	return nil
 }
 
-// pauseWrite stages and commits an edit, then pauses its provider write before it runs.
-func pauseWrite(ctx context.Context, run *uitestruntime.Runtime) error {
+// commitWithoutWriting stages and commits an edit and returns before its provider write runs. A
+// profile that closes then holds a batch that is writing under the lease of a process that ended.
+func commitWithoutWriting(ctx context.Context, run *uitestruntime.Runtime) error {
 	session := uitestruntime.FilteredSession()
 	if err := run.Stage(ctx, session, "hide", ""); err != nil {
 		return err
@@ -209,7 +210,21 @@ func pauseWrite(ctx context.Context, run *uitestruntime.Runtime) error {
 		ExpectedRevision: review.Revision, ReviewedRevision: review.Revision,
 		State: session.ViewState(), Selection: app.EmptySelection(),
 	})
-	if err != nil {
+	return err
+}
+
+// abandonWrite leaves a committed write unfinished, then moves the clock past the end of its
+// lease, which nothing renewed.
+func abandonWrite(ctx context.Context, run *uitestruntime.Runtime) error {
+	if err := commitWithoutWriting(ctx, run); err != nil {
+		return err
+	}
+	return run.Provider.Advance(time.Hour)
+}
+
+// pauseWrite stages and commits an edit, then pauses its provider write before it runs.
+func pauseWrite(ctx context.Context, run *uitestruntime.Runtime) error {
+	if err := commitWithoutWriting(ctx, run); err != nil {
 		return err
 	}
 	status, err := run.Service.ProviderWriteStatus(ctx)
@@ -429,6 +444,12 @@ func TestProfilesReportWhatAProviderProfileNeeds(t *testing.T) {
 		"a rejected commit":                   {drive: commitRejected, want: StateWriteAttention},
 		"a paused commit":                     {drive: pauseWrite, want: StateWriteAttention},
 		"a reconcile that needs confirmation": {drive: reconcileWithRemovals, want: StateWriteAttention},
+		// Until its lease expires, the process that committed may still be writing.
+		"a commit whose writer still holds its lease": {drive: commitWithoutWriting, want: StateReady},
+		// Nothing in an instance resumes a write whose lease expired; a client must ask for it.
+		"a commit whose writer ended and whose lease expired": {
+			drive: abandonWrite, want: StateWriteAttention,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			root, providerRoot := testRoot(t), t.TempDir()
