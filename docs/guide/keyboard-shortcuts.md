@@ -1,13 +1,13 @@
 # Keyboard shortcuts
 
-The terminal application (TUI) and the browser share one set of keys. Both read them from the
-same action list, so a key does the same thing in either interface unless a row below says
-otherwise. Press `?` in either one for the keys available in the current view. A key that is
-unavailable, for example because the provider does not support the edit, shows the reason.
+Use these keys in the terminal application (TUI) and in the browser. A key does the same thing
+in both unless the table says otherwise. Press `?` to see the keys for the current view. If an
+action is not available, for example because the provider does not support that edit, the key
+shows the reason.
 
 ## Main view
 
-| Key | Action | Browser control or difference |
+| Key | Action | In the browser |
 | --- | --- | --- |
 | ↑ / `k`, ↓ / `j` | Move up or down one row | Click a row |
 | Page Up / Page Down | Move one page | A page is the rows fully on screen |
@@ -26,7 +26,7 @@ unavailable, for example because the provider does not support the edit, shows t
 | `s` | Change the sort field | Click a column header |
 | `v` | Reverse the sort order | Click the sorted column header again |
 | `/` | [Search](navigation.md#search) | Focuses the command bar's search field |
-| `f` | [Filters](filters.md) | Opens the command bar's **Filters** menu. Below 640 px, it is in the **View** sheet |
+| `f` | [Filters](filters.md) | Opens the **Filters** menu |
 | `i` | Transaction information | Double-click a cell other than Merchant or Category |
 | `D` | Find possible [duplicates](editing.md#review-possible-duplicates) | **Duplicates** in the sidebar |
 | Space | Select or clear the cursor row | Click the row's box |
@@ -47,16 +47,12 @@ unavailable, for example because the provider does not support the edit, shows t
 | `q` | Quit. Confirm with Enter or `y`; Esc, `n`, or `q` stays | TUI only |
 | Ctrl+C | Quit at once | TUI only |
 
-In the browser, these keys do nothing while focus is in a text field. A focused button or link
-takes Enter and Space itself. Open dialogs and menus take their own keys first.
-
 Read [editing](editing.md) before bulk changes. A grouped edit may affect many transactions.
 
 ## Charts
 
-In the browser, the columns, bars, or days of each chart form one Tab stop. Tab or Shift+Tab
-moves into a chart, and these keys act on the focused column, bar, or day. See
-[charts](web.md#charts). The TUI has no charts.
+In the browser, press Tab to move into a chart, then use these keys. See [charts](web.md#charts).
+The TUI has no charts.
 
 | Chart | Key | Action |
 | --- | --- | --- |
@@ -74,7 +70,7 @@ In the phone layout's **Visualizations** drawer, Esc closes the drawer instead.
 
 ## Dialogs
 
-Each dialog shows its own controls. Keys that are documented with their workflow:
+Keys for these dialogs are with their workflows:
 
 | Dialog | Keys |
 | --- | --- |
@@ -100,15 +96,16 @@ The TUI's remaining dialogs use these keys:
 | Export | Enter | Export |
 | Export | Esc | Close, or cancel a running export |
 
-In the browser, the Filters menu, export dialog, and information drawer are ordinary controls:
-Tab moves between them, Enter or Space activates the focused one, and Esc closes. In the export
-dialog, Enter exports unless a button has focus.
+In the browser, use Tab, Enter, and Esc in these dialogs. In the export dialog, Enter exports
+unless a button has focus.
 
-## Terminal conflicts
+## If a key does nothing
 
-TUI shortcuts do not override your terminal or tmux bindings. If one is intercepted, use the
-alternative in the table, such as `j`/`k` for arrows or `T`/`B` for Home and End.
+In the terminal, your terminal or tmux may take the key first. Use the other key in the table,
+such as `j`/`k` for the arrows or `T`/`B` for Home and End.
 
-Esc closes a dialog or returns to the parent view. Pending edits stay stored when you quit. An
-interrupted provider write may need [explicit recovery](editing.md#recover-an-interrupted-provider-write)
-next time. The browser controls closing its own tab.
+In the browser, shortcuts do nothing while you type in a text field, such as search. A focused
+button or link takes Enter and Space. Press Esc or click the table, then try again.
+
+Pending edits stay saved when you quit. An interrupted provider write may need
+[recovery](editing.md#recover-an-interrupted-provider-write) the next time you open the profile.
