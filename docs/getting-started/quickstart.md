@@ -1,8 +1,8 @@
 # Quick start
 
-Try Moneyflow on synthetic data, make a reviewed edit, then add your own profile. The browser
-and the terminal app (TUI) open the same profiles and use the same keys, so pick either one.
-[Install a binary or build from source](installation.md) first.
+Try Moneyflow on made-up data, make an edit and commit it, then add your own data. The browser
+and the terminal app (TUI) use the same keys and open the same profiles, so pick either one.
+[Install Moneyflow](installation.md) first.
 
 ## Try the demo
 
@@ -65,6 +65,6 @@ Use a unique profile name or its ID. Use the selector when you are unsure.
 
 ## Next steps
 
-- [Web interface](../guide/web.md) and [terminal interface](go.md): what each screen shows.
+- [Web interface](../guide/web.md) and [terminal interface](go.md).
 - [MCP server](../guide/mcp.md): let an assistant read and stage edits.
 - [Keyboard shortcuts](../guide/keyboard-shortcuts.md): every key in both interfaces.

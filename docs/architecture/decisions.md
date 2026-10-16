@@ -24,7 +24,7 @@ limitations.
 | JSONL into fresh profiles, no database migrations | Preserve committed data without rewriting the source database; [transition](../getting-started/transition.md) |
 | Source claims and sticky local CSV overrides | Corrected exports can retire obsolete rows without erasing user edits or resurrecting deletions; [CSV](providers.md#bank-csv-import) |
 | One current Go site and a frozen Python archive | Readers need instructions for the application they installed; [publishing](website.md) |
-| One currency per web view, with no conversion | Sums stay exact; mixing currencies would need exchange rates that Moneyflow does not keep; [web](../guide/web.md#currencies) |
+| One currency per web view, with no conversion | Sums stay exact; mixing currencies would need exchange rates that Moneyflow does not keep; [web](../guide/web.md#more-than-one-currency) |
 | Charts read committed insights through one `Service.Insights` | The web and MCP get the same chart data, and pending edits never move a chart before commit; [interfaces](interfaces.md#web) |
 | Hand-written charts instead of a chart library | LayerChart and its d3 dependencies shipped about 116 KB brotli of lazy chunks, more than the rest of the app, when measured before the redesign; [interfaces](interfaces.md#web) |
 | One embeddable Go package beside the CLI | A host program gets the same API, MCP tools, and refresh schedule without running a second process; [embedding](interfaces.md#embed-moneyflow-in-another-program) |

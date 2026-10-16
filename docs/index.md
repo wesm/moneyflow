@@ -1,17 +1,20 @@
 # Moneyflow
 
-Moneyflow is a local-first tool for reviewing personal finance transactions. One binary
-serves three interfaces over the same saved profiles: a browser app, a terminal app (TUI),
-and an MCP server for assistants. Group spending, drill into purchases, rename merchants and
-recategorize in bulk, then review every pending change before you commit it.
+Moneyflow shows where your money goes and lets you clean up merchants and categories in bulk.
+Edits wait until you review and commit them. Use it in a browser, in a terminal, or from an AI
+assistant through MCP. All three open the same profiles and share the same pending edits.
 
-Money is stored as exact signed integers in minor units, never floating point. Your data
-stays in a SQLite profile on your machine. Monarch and YNAB edits reach the provider only
-after you review and commit them. Amazon, bank CSV, and SimpleFIN edits stay local.
+- Your data stays in a SQLite profile on your machine.
+- Monarch and YNAB receive your edits only after you commit them. Amazon, bank CSV, and
+  SimpleFIN edits stay local.
+- Amounts are exact integers in each currency's smallest unit, so totals never pick up
+  rounding errors.
 
-These pages describe the Go application at this revision. See
-[installation](getting-started/installation.md) for the difference between source builds,
-preview binaries, and the latest stable release.
+## Get started
+
+1. [Install Moneyflow](getting-started/installation.md).
+2. [Try the demo, then add your data](getting-started/quickstart.md).
+3. Coming from Python Moneyflow? Read [moving to Go](getting-started/transition.md) first.
 
 ## Pick an interface
 
@@ -19,33 +22,26 @@ preview binaries, and the latest stable release.
 | --- | --- | --- |
 | Browser | `moneyflow web` | [Web interface](guide/web.md) |
 | Terminal | `moneyflow tui` | [Terminal interface](getting-started/go.md) |
-| MCP client | `moneyflow mcp --profile "Example Profile"` | [MCP server](guide/mcp.md) |
+| AI assistant | `moneyflow mcp --profile "Example Profile"` | [MCP server](guide/mcp.md) |
 
-The browser and terminal share keys and workflows. Pending edits made in one interface show
-up in the others, and they survive restart.
+## Find a task
 
-## What do you want to do?
-
-- [Try the demo or connect an account](getting-started/quickstart.md).
-- [Move from Python without deleting your data](getting-started/transition.md).
-- [Import Amazon purchases and match bank charges](guide/amazon-mode.md).
-- [Import Chase bank CSV files](guide/bank-csv.md).
-- [Connect Monarch Money](guide/monarch.md), [YNAB](guide/ynab.md), or
-  [experimental SimpleFIN](guide/simplefin.md).
-- [Move through and search transactions](guide/navigation.md),
-  [edit them](guide/editing.md), or [export them](guide/export.md).
-- [Connect an assistant through MCP](guide/mcp.md).
-- [Build and contribute](development/developing.md).
-
-Each provider guide owns its limitations, credential storage, and refresh behavior.
+- Connect [Monarch Money](guide/monarch.md), [YNAB](guide/ynab.md), or
+  [SimpleFIN](guide/simplefin.md) (experimental).
+- Import [Amazon orders](guide/amazon-mode.md) and match them to bank charges.
+- Import [Chase bank CSV files](guide/bank-csv.md).
+- [Find transactions](guide/navigation.md), [edit them](guide/editing.md), or
+  [export them](guide/export.md).
+- Look up a [command or flag](reference/cli.md).
+- [Build Moneyflow and contribute](development/developing.md).
 
 ## For agents
 
-Coding and assistant agents should start with [Use Moneyflow with an agent](guide/agents.md).
-It covers MCP setup, safe commands, and the rules an agent must follow.
+Start with [Use Moneyflow with an agent](guide/agents.md). It covers MCP setup, safe commands,
+and what an agent must not do.
 
-Every page is also published as Markdown at its source path. The web guide
-`https://moneyflow.dev/docs/guide/web/` is at `https://moneyflow.dev/docs/guide/web.md`.
-Section index pages keep their file name: this page is `https://moneyflow.dev/docs/index.md`,
-and `/docs/architecture/` is `/docs/architecture/index.md`. The index of all pages is
-`https://moneyflow.dev/llms.txt`.
+Every page is also published as Markdown. Replace the trailing `/` with `.md`:
+`https://moneyflow.dev/docs/guide/web/` becomes `https://moneyflow.dev/docs/guide/web.md`.
+Section front pages keep their file name: this page is `https://moneyflow.dev/docs/index.md`,
+and `/docs/architecture/` is `/docs/architecture/index.md`. `https://moneyflow.dev/llms.txt`
+lists every page.
