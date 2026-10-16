@@ -87,7 +87,10 @@ async function inspectHTML(path: string): Promise<Page> {
         }
         if (
           element.tagName === "a" &&
-          element.getAttribute("class")?.split(/\s+/).includes("md-markdown-link")
+          element
+            .getAttribute("class")
+            ?.split(/\s+/)
+            .includes("md-markdown-link")
         ) {
           page.markdownLink = element.getAttribute("href") ?? undefined;
         }
@@ -196,21 +199,23 @@ export async function llmsText(
       .get(section)!
       .push(`- [${title}](${origin}/docs/${path}): ${description}`);
   }
-  return [
-    "# Moneyflow",
-    `> ${config.project.site_description}`,
-    `Every documentation page has a Markdown twin at its source path. ` +
-      `${origin}/docs/guide/web/ is ${origin}/docs/guide/web.md, ` +
-      `${origin}/docs/architecture/ is ${origin}/docs/architecture/index.md, ` +
-      `and ${origin}/docs/ is ${origin}/docs/index.md. ` +
-      "The links below point to the Markdown. Relative links inside each file resolve " +
-      "against its own URL. For the HTML page, drop `.md` (or `index.md`) and end the path with `/`.",
-    ...[...sections].map(
-      ([section, entries]) => `## ${section}\n\n${entries.join("\n")}`,
-    ),
-    `## Optional\n\n- [Legacy Python v1](${origin}/legacy/v1/): ` +
-      "Frozen documentation for the retired Python application. It does not describe the Go application.",
-  ].join("\n\n") + "\n";
+  return (
+    [
+      "# Moneyflow",
+      `> ${config.project.site_description}`,
+      `Every documentation page has a Markdown twin at its source path. ` +
+        `${origin}/docs/guide/web/ is ${origin}/docs/guide/web.md, ` +
+        `${origin}/docs/architecture/ is ${origin}/docs/architecture/index.md, ` +
+        `and ${origin}/docs/ is ${origin}/docs/index.md. ` +
+        "The links below point to the Markdown. Relative links inside each file resolve " +
+        "against its own URL. For the HTML page, drop `.md` (or `index.md`) and end the path with `/`.",
+      ...[...sections].map(
+        ([section, entries]) => `## ${section}\n\n${entries.join("\n")}`,
+      ),
+      `## Optional\n\n- [Legacy Python v1](${origin}/legacy/v1/): ` +
+        "Frozen documentation for the retired Python application. It does not describe the Go application.",
+    ].join("\n\n") + "\n"
+  );
 }
 
 function resolveLink(root: string, base: string, link: string) {
@@ -296,7 +301,10 @@ export async function previewResponse(
     const file = Bun.file(contained(root, name));
     if (!(await file.exists())) throw new Error("missing");
     const type = textTypes[extname(name)];
-    return new Response(file, type ? { headers: { "content-type": type } } : {});
+    return new Response(
+      file,
+      type ? { headers: { "content-type": type } } : {},
+    );
   } catch {
     return new Response("Not found", { status: 404 });
   }

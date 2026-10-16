@@ -128,8 +128,10 @@ test("llms.txt lists every nav section with each page's title and opening summar
   const pages = await fixture({
     "index.md":
       "# Moneyflow overview\n\nReview transactions in a\n[terminal](guide/tui.md) or **browser**.\n\nMore.\n",
-    "guide/web.md": "# Web interface\n\n!!! note\n    Aside.\n\nServe the `web` command.\n",
-    "architecture/index.md": "# Architecture\n\nOne [service][source-1] owns accounting.\n\n[source-1]: https://example.com\n",
+    "guide/web.md":
+      "# Web interface\n\n!!! note\n    Aside.\n\nServe the `web` command.\n",
+    "architecture/index.md":
+      "# Architecture\n\nOne [service][source-1] owns accounting.\n\n[source-1]: https://example.com\n",
   });
   const text = await llmsText(
     {
@@ -164,7 +166,9 @@ test("llms.txt lists every nav section with each page's title and opening summar
   expect(text).toMatch(/\.md`? twin|Markdown/);
   await expect(
     llmsText(
-      { project: { site_description: "x", nav: [{ S: [{ Gone: "gone.md" }] }] } },
+      {
+        project: { site_description: "x", nav: [{ S: [{ Gone: "gone.md" }] }] },
+      },
       pages,
     ),
   ).rejects.toThrow("gone.md");
@@ -200,7 +204,8 @@ test("agent checks require a Markdown twin, matching links and resolvable llms.t
         "../../guide/web.md",
         "../../index.md",
       ),
-      "llms.txt": "# Moneyflow\n\n- [Gone](https://moneyflow.dev/docs/gone.md): No.\n",
+      "llms.txt":
+        "# Moneyflow\n\n- [Gone](https://moneyflow.dev/docs/gone.md): No.\n",
     }),
   );
   expect(errors).toEqual([
@@ -247,9 +252,9 @@ test("metadata checks require canonical URLs and a noindex legacy archive", asyn
     "docs/index.html: incorrect canonical URL",
     "legacy/v1/index.html: archive missing noindex",
   ]);
-  expect(await checkMetadata(await fixture({ "index.html": "" }), new Set())).toContain(
-    "legacy/v1/index.html: archive missing",
-  );
+  expect(
+    await checkMetadata(await fixture({ "index.html": "" }), new Set()),
+  ).toContain("legacy/v1/index.html: archive missing");
 });
 
 test("preview serves Markdown and llms.txt as UTF-8 text", async () => {
