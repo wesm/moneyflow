@@ -11,8 +11,8 @@ type Cashflow = NonNullable<InsightsResponse['summary']>['cashflow']
 /** Room above and below the plot, so the Net line's dots are never clipped. */
 const inset = 4
 const basisPoints = 10000
-/** The narrowest room an axis label needs, in pixels. */
-const tickRoom = 40
+/** The room between neighboring axis labels, in pixels. */
+const tickGap = 6
 
 /** One chart-context period: its slot, its bars, and its Net dot, in pixels. */
 export interface ColumnGeometry {
@@ -38,7 +38,10 @@ export interface ColumnGeometry {
   label: string
   /** The axis label: the day number, the month's short name, or the year. */
   tick: string
-  /** Shows `tick` when divisible by `tickEvery`'s step; months count from year zero. */
+  /**
+   * Shows `tick` when divisible by the axis step. Months count from year zero, and days from
+   * the chart's first day of a new year, so a thinned axis still names the year.
+   */
   tickOrder: number
   in: string
   out: string
@@ -108,10 +111,18 @@ function tickOf(period: ContextPeriod, label: string): string {
   return label
 }
 
-function tickOrderOf(period: ContextPeriod, index: number): number {
+function tickOrderOf(period: ContextPeriod, index: number, yearStart: number): number {
   const { granularity, year, month } = period.period
   if (granularity === 'month' && month !== undefined) return year * 12 + month - 1
-  return granularity === 'year' ? year : index
+  return granularity === 'year' ? year : index - yearStart
+}
+
+/** The index of the chart's first period in a new year, or 0 when every period shares one. */
+function yearStartOf(context: readonly ContextPeriod[]): number {
+  const start = context.findIndex(
+    (period, index) => index > 0 && period.period.year !== context[index - 1]?.period.year,
+  )
+  return Math.max(start, 0)
 }
 
 function meetsScope(period: ContextPeriod, ranges: InsightsResponse['ranges']): boolean {
@@ -145,12 +156,13 @@ interface Layout {
   digits: number
   scale: Scale
   slot: number
+  yearStart: number
   /** The server's date, which tells a period in progress from a clipped edge. */
   today: string
 }
 
 function columnAt(layout: Layout, period: ContextPeriod, index: number): ColumnGeometry {
-  const { cashflow, ranges, digits, scale, slot, today } = layout
+  const { cashflow, ranges, digits, scale, slot, yearStart, today } = layout
   const rising = valueAt(cashflow.in, index)
   const falling = valueAt(cashflow.out, index)
   const net = valueAt(cashflow.net, index)
@@ -176,7 +188,7 @@ function columnAt(layout: Layout, period: ContextPeriod, index: number): ColumnG
     name: `${label}, in ${amounts.in}, out ${amounts.out}, net ${amounts.net}`,
     label,
     tick: tickOf(period, server),
-    tickOrder: tickOrderOf(period, index),
+    tickOrder: tickOrderOf(period, index, yearStart),
     ...amounts,
   }
 }
@@ -198,7 +210,8 @@ export function cashflowGeometry(
   const count = ranges.context.length
   const scale = scaleOf(cashflow, height)
   const slot = count === 0 ? 0 : width / count
-  const layout = { cashflow, ranges, digits, scale, slot, today }
+  const yearStart = yearStartOf(ranges.context)
+  const layout = { cashflow, ranges, digits, scale, slot, yearStart, today }
   const columns = ranges.context.map((period, index) => columnAt(layout, period, index))
   return { columns, zeroY: scale.zeroY, netPath: netPath(columns) }
 }
@@ -244,27 +257,99 @@ export function scopeFromColumns(
 }
 
 /** Steps that divide a year, so thinned month labels always include January. */
-const monthSteps = [1, 2, 3, 4, 6, 12]
+const monthSteps = [1, 2, 3, 4, 6]
+
+/** The steps to try between labeled columns, smallest first. */
+function* tickSteps(count: number, granularity: InsightsResponse['ranges']['context_granularity']) {
+  if (granularity === 'month') {
+    yield* monthSteps
+    for (let step = 12; step < count + 12; step += 12) yield step
+    return
+  }
+  for (let step = 1; step <= count; step++) yield step
+}
+
+/** An axis label and where it starts, in pixels from its column's left edge. */
+export interface AxisLabel {
+  text: string
+  offset: number
+}
+
+/** How wide an axis label draws, in pixels. */
+export type LabelWidth = (text: string) => number
 
 /**
- * The step between labeled columns, so each label keeps its room in `width` pixels. Month
- * steps divide twelve, and a column is labeled when its `tickOrder` is a multiple of the step.
+ * Measures labels as `ruler`, a hidden element in the axis font, draws them, and remembers
+ * each width. Every label measures 0 without a ruler, as before the chart mounts.
  */
-export function tickEvery(
-  count: number,
+export function measuredOn(ruler: HTMLElement | undefined): LabelWidth {
+  const widths = new Map<string, number>()
+  return (text) => {
+    let width = widths.get(text)
+    if (width === undefined && ruler) {
+      const sample = ruler.textContent
+      ruler.textContent = text
+      width = ruler.getBoundingClientRect().width
+      ruler.textContent = sample
+      widths.set(text, width)
+    }
+    return width ?? 0
+  }
+}
+
+/**
+ * Places `ticks` under their columns in a `width`-pixel chart, centered and moved inward at an
+ * edge, or returns undefined when two labels come within `tickGap` of each other.
+ */
+function placeTicks(
+  columns: readonly ColumnGeometry[],
+  ticks: readonly string[],
   width: number,
-  granularity: InsightsResponse['ranges']['context_granularity'],
-): number {
-  if (count === 0 || width <= 0) return 1
-  const step = Math.max(1, Math.ceil((count * tickRoom) / width))
-  if (granularity !== 'month') return step
-  return monthSteps.find((candidate) => candidate >= step) ?? 12
+  measure: LabelWidth,
+): AxisLabel[] | undefined {
+  const labels: AxisLabel[] = []
+  let clear = -Infinity
+  for (const [index, column] of columns.entries()) {
+    const text = ticks[index] ?? ''
+    if (text === '') {
+      labels.push({ text, offset: 0 })
+      continue
+    }
+    const size = measure(text)
+    const left = Math.max(0, Math.min(column.x + (column.width - size) / 2, width - size))
+    if (left < clear) return undefined
+    clear = left + size + tickGap
+    labels.push({ text, offset: left - column.x })
+  }
+  return labels
+}
+
+/**
+ * The axis label under each column of a `width`-pixel chart, at the smallest step that keeps
+ * every label, as wide as `measure` finds it, `tickGap` from the next and inside the chart.
+ * Month steps divide twelve and day steps count from a new year, so the year stays named.
+ * A column the step skips gets ''; so does every column when no step fits.
+ */
+export function axisLabels(
+  columns: readonly ColumnGeometry[],
+  ranges: InsightsResponse['ranges'],
+  width: number,
+  measure: LabelWidth,
+): AxisLabel[] {
+  if (width > 0) {
+    for (const every of tickSteps(columns.length, ranges.context_granularity)) {
+      const labels = placeTicks(columns, axisTicks(columns, ranges.context, every), width, measure)
+      if (labels) return labels
+    }
+  }
+  return columns.map(() => ({ text: '', offset: 0 }))
 }
 
 /**
  * The axis label under each column, or '' where thinning to every `every`th column hides it.
  * Day labels name the month where it changes and the year where that changes since the
- * previous label: `Jan 1`, `10`, `Feb 2`, `Jan 2025`.
+ * previous label, or for the first label since the chart's first day: `Jan 1`, `10`, `Feb 2`,
+ * `Jan 2025`.
  */
 export function axisTicks(
   columns: readonly ColumnGeometry[],
@@ -279,7 +364,8 @@ export function axisTicks(
     const previous = shown
     shown = period
     const name = MONTHS[period.month - 1]
-    if (previous !== undefined && previous.year !== period.year) return `${name} ${period.year}`
+    const since = previous ?? context[0]?.period
+    if (since !== undefined && since.year !== period.year) return `${name} ${period.year}`
     if (previous?.month !== period.month) return `${name} ${period.day}`
     return column.tick
   })

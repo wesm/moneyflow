@@ -1,14 +1,14 @@
 <script lang="ts">
   import CashflowColumn from './CashflowColumn.svelte'
   import {
-    axisTicks,
+    axisLabels,
     cashflowGeometry,
     cursorGeometry,
+    measuredOn,
     NET_DOT_RADIUS,
     rangeAnchor,
     rowAmounts,
     scopeFromColumns,
-    tickEvery,
     type CashflowCursor,
   } from '../../lib/charts/cashflow'
   import type { InsightsEntry } from '../../lib/insights/cache.svelte'
@@ -35,11 +35,16 @@
   const geometry = $derived(cashflowGeometry(entry, width, drawn))
   const columns = $derived(geometry.columns)
   const bars = $derived(cursor && cursorGeometry(entry, cursor, drawn))
-  const every = $derived(
-    tickEvery(columns.length, width, entry.response.ranges.context_granularity),
-  )
+  /** Draws a sample label in the axis font, so its size changes when that font does. */
+  let ruler = $state<HTMLElement>()
+  let rulerWidth = $state(0)
+  const measure = $derived.by(() => {
+    // A new ruler width means a new axis font, as when it loads or the theme switches.
+    void rulerWidth
+    return measuredOn(ruler)
+  })
   const context = $derived(entry.response.ranges.context)
-  const ticks = $derived(axisTicks(columns, context, every))
+  const labels = $derived(axisLabels(columns, entry.response.ranges, width, measure))
   /** The period that holds the Tab stop, while the same view is drawn. */
   let chosen = $state<{ query: string; period: string }>()
   const scoped = $derived(columns.findLastIndex((column) => column.inScope))
@@ -146,7 +151,7 @@
         height={drawn}
         cursor={bars?.[index]}
         row={rowAmounts(cursor, index, entry.response.scale)}
-        tick={ticks[index] ?? ''}
+        tick={labels[index] ?? { text: '', offset: 0 }}
         active={index === active}
         dragged={dragged(index)}
         onclick={(event) => click(event, index)}
@@ -156,6 +161,12 @@
         onfocus={() => hold(index)}
       />
     {/each}
+    <span
+      class="mf-cashflow__ruler"
+      aria-hidden="true"
+      bind:this={ruler}
+      bind:offsetWidth={rulerWidth}>Jan 2026</span
+    >
     {#if width > 0}
       <svg class="mf-cashflow__lines" {width} height={drawn} aria-hidden="true">
         <line class="mf-cashflow__zero" x2={width} y1={geometry.zeroY} y2={geometry.zeroY} />

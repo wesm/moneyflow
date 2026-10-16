@@ -5,6 +5,7 @@ import type { InsightsEntry } from '../insights/cache.svelte'
 import { testInsights, testSeries } from '../../test/insights'
 import { testAggregateRow, testProjection } from '../../test/projection'
 import {
+  axisLabels,
   axisTicks,
   cashflowCursor,
   cashflowGeometry,
@@ -12,7 +13,7 @@ import {
   rangeAnchor,
   rowAmounts,
   scopeFromColumns,
-  tickEvery,
+  type AxisLabel,
 } from './cashflow'
 
 type Ranges = InsightsResponse['ranges']
@@ -342,30 +343,125 @@ describe('scopeFromColumns', () => {
   })
 })
 
-describe('tickEvery', () => {
-  it('labels every column when they fit and thins the labels when they do not', () => {
-    expect(tickEvery(13, 650, 'month')).toBe(1)
-    expect(tickEvery(30, 300, 'day')).toBe(4)
-    expect(tickEvery(5, 0, 'year')).toBe(1)
+describe('axisLabels', () => {
+  /** Measures a label as six pixels per character. */
+  const measure = (text: string) => 6 * text.length
+
+  function chart(context: Context, width: number, granularity: Ranges['context_granularity']) {
+    const zero = context.map(() => '0')
+    const flow = { labels: context.map((p) => p.start), in: zero, out: zero, net: zero }
+    const drawn = entry(context, flow, { context_granularity: granularity })
+    const { columns } = cashflowGeometry(drawn, width, 100)
+    return { columns, labels: axisLabels(columns, drawn.response.ranges, width, measure) }
+  }
+
+  function days(from: Context[number], count: number): Context {
+    const first = Date.parse(`${from.start}T00:00:00Z`)
+    return Array.from({ length: count }, (_, index) => {
+      const date = new Date(first + index * 86_400_000)
+      return day(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate())
+    })
+  }
+
+  function texts(labels: AxisLabel[]): string[] {
+    return labels.map((label) => label.text)
+  }
+
+  it('labels every column when the measured labels fit', () => {
+    const { labels } = chart(days(day(2026, 1, 10), 11), 440, 'day')
+    expect(texts(labels)).toEqual([
+      'Jan 10',
+      '11',
+      '12',
+      '13',
+      '14',
+      '15',
+      '16',
+      '17',
+      '18',
+      '19',
+      '20',
+    ])
   })
 
-  it('thins month labels to a step that divides the year, so January keeps its label', () => {
-    expect(tickEvery(34, 680, 'month')).toBe(2)
-    expect(tickEvery(34, 300, 'month')).toBe(6)
-    expect(tickEvery(60, 100, 'month')).toBe(12)
-    const months = [month(2025, 11), month(2025, 12), month(2026, 1), month(2026, 2)]
-    const geometry = cashflowGeometry(
-      entry(months, {
-        labels: ['Nov 2025', 'Dec 2025', 'Jan 2026', 'Feb 2026'],
-        in: ['0', '0', '0', '0'],
-        out: ['0', '0', '0', '0'],
-        net: ['0', '0', '0', '0'],
-      }),
-      400,
-      100,
+  it('thins Day labels so a year label wider than its column keeps clear of its neighbors', () => {
+    // 42 px columns, but "Dec 31" and "Jan 2026" are 36 and 48 px wide side by side.
+    const { labels } = chart([day(2025, 12, 31), ...days(day(2026, 1, 1), 12)], 13 * 42, 'day')
+    expect(texts(labels)).toEqual([
+      '',
+      'Jan 2026',
+      '',
+      '3',
+      '',
+      '5',
+      '',
+      '7',
+      '',
+      '9',
+      '',
+      '11',
+      '',
+    ])
+  })
+
+  it('moves a label at either edge inside the chart instead of cutting it off', () => {
+    const first = chart(days(day(2026, 1, 1), 20), 400, 'day').labels[0]
+    expect(first).toEqual({ text: 'Jan 1', offset: 0 })
+    const { labels } = chart([day(2025, 12, 30), day(2025, 12, 31), day(2026, 1, 1)], 120, 'day')
+    // Centered, "Jan 2026" would run from 76 to 124 px; it ends at the chart's 120 px edge.
+    expect(labels[2]).toEqual({ text: 'Jan 2026', offset: -8 })
+  })
+
+  it('keeps the year label and every label apart and inside the chart at any width', () => {
+    for (let length = 2; length <= 70; length += 3) {
+      const context = days(day(2025, 12, 32 - Math.min(length - 1, 31)), length)
+      for (let width = 60; width <= 1600; width += 23) {
+        const { columns, labels } = chart(context, width, 'day')
+        const shown = labels.flatMap((label, index) => {
+          if (label.text === '') return []
+          const left = (columns[index]?.x ?? NaN) + label.offset
+          return [{ text: label.text, left, right: left + measure(label.text) }]
+        })
+        const where = `${length} days at ${width} px`
+        expect(
+          shown.map((label) => label.text),
+          where,
+        ).toContain('Jan 2026')
+        for (const [index, label] of shown.entries()) {
+          expect(label.left, where).toBeGreaterThanOrEqual(0)
+          expect(label.right, where).toBeLessThanOrEqual(width)
+          const next = shown[index + 1]
+          if (next) expect(next.left - label.right, where).toBeGreaterThanOrEqual(6)
+        }
+      }
+    }
+  })
+
+  it('thins month labels to a step that divides the year, so January keeps its year', () => {
+    const months = Array.from({ length: 34 }, (_, index) =>
+      month(2025 + Math.floor((10 + index) / 12), ((10 + index) % 12) + 1),
     )
-    const ticked = geometry.columns.filter((column) => column.tickOrder % 2 === 0)
-    expect(ticked.map((column) => column.tick)).toEqual(['Nov', '2026'])
+    expect(texts(chart(months.slice(0, 13), 13 * 40, 'month').labels)).toEqual([
+      'Nov',
+      'Dec',
+      '2026',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+    ])
+    const thinned = texts(chart(months, 300, 'month').labels).filter((text) => text !== '')
+    expect(thinned).toEqual(['2026', 'May', 'Sep', '2027', 'May', 'Sep', '2028', 'May'])
+  })
+
+  it('draws no labels before the chart has a width', () => {
+    expect(texts(chart(days(day(2026, 1, 1), 3), 0, 'day').labels)).toEqual(['', '', ''])
   })
 })
 

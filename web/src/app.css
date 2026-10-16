@@ -1399,9 +1399,20 @@ input {
   white-space: nowrap;
   cursor: pointer;
 }
-/* Centered under its column and free to overflow into the unlabeled neighbors. */
+/* Starts at its column's left edge, moved by its offset into the unlabeled neighbors. */
 .mf-cashflow__tick {
-  justify-self: center;
+  justify-self: start;
+}
+/* Draws a sample axis label in the axis font, out of sight, to measure labels. */
+.mf-cashflow__ruler {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  font-size: var(--font-size-xs);
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
 }
 .mf-cashflow__column--scope {
   background: var(--bg-surface-hover);
