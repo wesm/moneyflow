@@ -3,10 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>The workflow — Moneyflow</title>
+    <meta name="color-scheme" content="light dark" />
+    <title>Tour · Moneyflow</title>
     <meta
       name="description"
-      content="Connect, explore, refine, review and commit with Moneyflow's shared terminal, web and MCP workflows."
+      content="One review loop in the browser and the terminal: start with the demo, group and drill, select and edit, review and commit, then export."
     />
     <link rel="canonical" href="https://moneyflow.dev/guide/" />
     <link rel="stylesheet" href="/styles/site.css" />
@@ -18,255 +19,311 @@
       <div class="wrap nav">
         <a class="brand" href="/">moneyflow<span>.</span></a>
         <nav aria-label="Main">
-          <a href="/guide/" aria-current="page">Walkthrough</a
-          ><a href="/docs/">Docs</a
-          ><a href="https://github.com/wesm/moneyflow/tree/go-port">GitHub ↗</a>
+          <a href="/docs/">Docs</a><a href="/guide/" aria-current="page">Tour</a
+          ><a href="https://github.com/wesm/moneyflow">GitHub</a>
         </nav>
       </div>
     </header>
     <main id="main" class="wrap">
       <div class="guide-head">
-        <p class="eyebrow">The Moneyflow workflow</p>
-        <h1>Less clicking around.<br />More <em>understanding.</em></h1>
+        <p class="eyebrow">Tour</p>
+        <h1>One review loop, in the browser and the terminal.</h1>
         <p class="lede">
-          Start broad. Find the rows that matter. Make the change deliberately.
+          Each step shows both interfaces on the same synthetic demo data. The
+          keys are the same in both; the browser adds clicks. Every image is a
+          capture of the running application, made without committing anything.
         </p>
       </div>
-      <section class="step" aria-labelledby="connect">
-        <span class="number">01</span>
-        <div>
-          <h2 id="connect">Choose your starting point.</h2>
+
+      <section class="step" aria-labelledby="start">
+        <span class="number" aria-hidden="true">01</span>
+        <div class="lead">
+          <h2 id="start">Start with the demo.</h2>
           <p>
-            Try a disposable demo first. Then add a profile for Monarch, YNAB,
-            Amazon or experimental SimpleFIN through the selector. For
-            <a href="/docs/guide/bank-csv/">bank CSV files</a>, run the import command first.
+            The demo opens a temporary household of about 2,000 transactions.
+            Edits work as usual and disappear when the process exits.
           </p>
           <p>
-            Each profile owns its data and durable pending work. Switching
-            interfaces does not create another copy of your edits.
+            For your own data, choose <strong>Add profile</strong> in either
+            interface and pick Monarch, YNAB, Amazon or SimpleFIN. Import
+            <a href="/docs/guide/bank-csv/">bank CSV files</a> with
+            <code>moneyflow provider import</code>.
           </p>
-          <a href="/docs/getting-started/go/">Quick start →</a>
+          <a class="more" href="/docs/getting-started/quickstart/"
+            >Quick start</a
+          >
         </div>
         <aside>
-          <strong>Start locally</strong>
-          <pre><code>./bin/moneyflow tui --demo
-./bin/moneyflow web --demo</code></pre>
+          <strong>Run either one</strong>
+          <pre><code>moneyflow web --demo
+moneyflow tui --demo</code></pre>
           <p>
-            Demo edits disappear when the process exits. Real profiles persist.
+            Both share profiles. Pending edits you stage in one appear in the
+            other.
           </p>
         </aside>
-        <figure class="capture">
-          <a data-lightbox href="/screenshots/web-browse.png"
-            ><img
-              src="/screenshots/web-browse.png"
-              alt="The browser interface on demo data: a strip of income, spending and net totals, a monthly cash-flow chart, the Where it went breakdown, and merchant rows below"
-              loading="lazy"
-          /></a>
-          <figcaption>
-            Start in the browser or terminal. The browser shows totals, the
-            cash-flow chart and where the money went. Every image here comes
-            from the running Go application. <span>Click to enlarge ↗</span>
-          </figcaption>
-        </figure>
+        <div class="pair">
+          <figure class="capture">
+            <a data-lightbox href="/screenshots/web-browse.png"
+              ><img
+                src="/screenshots/web-browse.png"
+                width="2880"
+                height="1800"
+                alt="The browser interface on demo data: income, spending and net totals, a monthly cash-flow chart, the Where it went breakdown, and merchant rows"
+                loading="lazy"
+            /></a>
+            <figcaption>
+              Browser: totals, the monthly cash-flow chart and where the money
+              went, above the merchant table.
+            </figcaption>
+          </figure>
+          <figure class="capture">
+            <a data-lightbox href="/screenshots/tui-browse.svg"
+              ><img
+                src="/screenshots/tui-browse.svg"
+                width="1024"
+                height="454"
+                alt="The terminal interface on the same demo data, grouped by merchant"
+                loading="lazy"
+            /></a>
+            <figcaption>Terminal: the same merchant totals.</figcaption>
+          </figure>
+        </div>
       </section>
+
       <section class="step" aria-labelledby="explore">
-        <span class="number">02</span>
-        <div>
-          <h2 id="explore">Ask a smaller question.</h2>
+        <span class="number" aria-hidden="true">02</span>
+        <div class="lead">
+          <h2 id="explore">Group, drill, search.</h2>
           <p>
-            Group by merchant, category, account or time with <kbd>g</kbd>.
-            Drill with Enter, search with <kbd>/</kbd>, and return with Esc.
+            <kbd>g</kbd> cycles the grouping through merchant, category, group,
+            account and time. In the browser, <kbd>1</kbd>–<kbd>5</kbd> or the
+            sidebar pick one directly.
           </p>
           <p>
-            On a transaction, <kbd>i</kbd> opens details. Use that context
-            before treating an unfamiliar amount as a mistake.
+            <kbd>Enter</kbd> drills into the rows behind a total and
+            <kbd>Esc</kbd> goes back. In the browser, double-click a group or
+            click an earlier breadcrumb. <kbd>/</kbd> searches merchant and
+            category names with a regular expression. <kbd>i</kbd> shows a
+            transaction's details.
           </p>
-          <a href="/docs/guide/navigation/">Navigation and search →</a>
+          <a class="more" href="/docs/guide/navigation/"
+            >Navigation and search</a
+          >
         </div>
         <aside>
-          <strong>Prefer an assistant?</strong>
+          <strong>From an assistant</strong>
           <p>
-            Use MCP to search transactions and inspect returned IDs. Its search
-            is literal and includes notes; the TUI/web search is a regular
-            expression over merchant and category names.
+            The MCP server's <code>search_transactions</code> matches literal
+            text, notes included. Results carry transaction IDs that the edit
+            tools accept.
           </p>
-          <a href="/docs/guide/mcp/">MCP setup and tool reference →</a>
+          <a class="more" href="/docs/guide/mcp/">MCP guide</a>
         </aside>
-        <figure class="capture">
-          <a data-lightbox href="/screenshots/tui-detail.svg"
-            ><img
-              src="/screenshots/tui-detail.svg"
-              alt="Drill into a merchant to inspect individual demo transactions"
-              loading="lazy"
-          /></a>
-          <figcaption>
-            Enter opens the transactions behind an aggregate. Esc takes you
-            back. <span>Click to enlarge ↗</span>
-          </figcaption>
-        </figure>
-        <figure class="capture">
-          <a data-lightbox href="/screenshots/web-phone.png"
-            ><img
-              src="/screenshots/web-phone.png"
-              alt="The browser interface on a phone in the dark theme: a menu button, a View button, and merchant rows with the net amount on each row"
-              loading="lazy"
-          /></a>
-          <figcaption>
-            On a phone, the sidebar becomes a menu and each row shows a
-            merchant with its net amount. <span>Click to enlarge ↗</span>
-          </figcaption>
-        </figure>
+        <div class="pair phone">
+          <figure class="capture">
+            <a data-lightbox href="/screenshots/tui-detail.svg"
+              ><img
+                src="/screenshots/tui-detail.svg"
+                width="1024"
+                height="454"
+                alt="The terminal after drilling into a merchant, listing its individual demo transactions"
+                loading="lazy"
+            /></a>
+            <figcaption>
+              Terminal: <kbd>Enter</kbd> on a merchant lists its transactions.
+            </figcaption>
+          </figure>
+          <figure class="capture">
+            <a data-lightbox href="/screenshots/web-phone.png"
+              ><img
+                src="/screenshots/web-phone.png"
+                width="1170"
+                height="2532"
+                alt="The browser interface on a phone in the dark theme: a menu button, a View button, and merchant rows with the net amount on each row"
+                loading="lazy"
+            /></a>
+            <figcaption>Phone: the sidebar becomes a menu.</figcaption>
+          </figure>
+        </div>
       </section>
+
       <section class="step" aria-labelledby="refine">
-        <span class="number">03</span>
-        <div>
-          <h2 id="refine">Select. Then stage.</h2>
+        <span class="number" aria-hidden="true">03</span>
+        <div class="lead">
+          <h2 id="refine">Select, then stage an edit.</h2>
           <p>
-            Space selects rows. Change a category with <kbd>c</kbd> or a
-            merchant with <kbd>m</kbd>. A bulk change is one undo unit, not a
-            pile of unrelated keystrokes.
+            <kbd>Space</kbd> selects rows; in the browser, click a row's box.
+            <kbd>c</kbd> changes the category and <kbd>m</kbd> renames the
+            merchant. In the browser, the selection bar's
+            <strong>Category</strong> and <strong>Merchant</strong> buttons do
+            the same, and double-clicking a cell edits it.
           </p>
           <p>
-            Use <kbd>u</kbd> to undo and <kbd>U</kbd> to redo. Provider-specific
-            availability tells you which changes can actually be committed.
+            A bulk edit is one undo step. <kbd>u</kbd> undoes and
+            <kbd>U</kbd> redoes. Some providers do not support every edit;
+            unavailable actions say why.
           </p>
+          <a class="more" href="/docs/guide/editing/">Editing</a>
         </div>
         <aside>
-          <strong>MCP follows the same boundary</strong>
+          <strong>Assistants stage edits too</strong>
           <p>
-            Enable write tools explicitly. Preview using <code>dry_run</code>,
-            then stage against the current revision. Reading data does not
-            authorize a provider write.
+            Start the MCP server with <code>--allow-write</code> to register the
+            edit tools. Preview with <code>dry_run</code>, then stage against
+            the current revision. Staged edits join the same pending queue you
+            review in the browser or terminal.
           </p>
-          <p>Pending edits are shared, durable and reviewable.</p>
         </aside>
-        <figure class="capture">
-          <a data-lightbox href="/screenshots/tui-category.svg"
-            ><img
-              src="/screenshots/tui-category.svg"
-              alt="Choose a category for two selected demo transactions in the terminal"
-              loading="lazy"
-          /></a>
-          <figcaption>
-            Space, ↓, Space, then c: one category change for the selection.
-            <span>Click to enlarge ↗</span>
-          </figcaption>
-        </figure>
-        <figure class="capture">
-          <a data-lightbox href="/screenshots/web-edit.png"
-            ><img
-              src="/screenshots/web-edit.png"
-              alt="Two selected transactions in the browser, with the Change category editor open at the lower right, above the selection bar, and Books typed in the Category box"
-              loading="lazy"
-          /></a>
-          <figcaption>
-            In the browser, press c. The editor opens at the lower right, above
-            the selection bar, over the rows below your selection. Type a
-            category, then stage the change.
-            <span>Click to enlarge ↗</span>
-          </figcaption>
-        </figure>
+        <div class="pair">
+          <figure class="capture">
+            <a data-lightbox href="/screenshots/web-edit.png"
+              ><img
+                src="/screenshots/web-edit.png"
+                width="2880"
+                height="1800"
+                alt="Two selected transactions in the browser, with the Change category editor open above the selection bar and Books typed in the Category box"
+                loading="lazy"
+            /></a>
+            <figcaption>
+              Browser: <kbd>c</kbd> with two rows selected. The editor opens
+              above the selection bar.
+            </figcaption>
+          </figure>
+          <figure class="capture">
+            <a data-lightbox href="/screenshots/tui-category.svg"
+              ><img
+                src="/screenshots/tui-category.svg"
+                width="1024"
+                height="454"
+                alt="The terminal category chooser for two selected demo transactions, with Books typed"
+                loading="lazy"
+            /></a>
+            <figcaption>
+              Terminal: <kbd>Space</kbd> <kbd>↓</kbd> <kbd>Space</kbd>
+              <kbd>c</kbd>, then type the category.
+            </figcaption>
+          </figure>
+        </div>
       </section>
+
       <section class="step" aria-labelledby="review">
-        <span class="number">04</span>
-        <div>
-          <h2 id="review">Review before it leaves the journal.</h2>
+        <span class="number" aria-hidden="true">04</span>
+        <div class="lead">
+          <h2 id="review">Review, then commit.</h2>
           <p>
-            Press <kbd>w</kbd> to review and Enter to begin the commit. A
-            changed revision asks you to review again instead of applying a
-            stale decision.
+            <kbd>w</kbd> opens the review of every pending edit and the rows it
+            affects. In the browser, the pending-edits card's
+            <strong>Review</strong> button opens it too. <kbd>Enter</kbd>
+            commits. If the profile changed since you reviewed, Moneyflow asks
+            you to review again.
           </p>
           <p>
-            In MCP, call <code>review_changes</code>, then
-            <code>commit_changes</code> for that revision and poll
+            From MCP, call <code>review_changes</code>, then
+            <code>commit_changes</code> with the reviewed revision, and poll
             <code>get_commit_status</code>.
           </p>
-          <a href="/docs/guide/editing/">Editing and recovery →</a>
+          <a class="more" href="/docs/guide/editing/#review-and-commit"
+            >Review and commit</a
+          >
         </div>
         <aside>
-          <strong>A remote commit is a process</strong>
+          <strong>Where a commit goes</strong>
           <p>
-            A provider batch can pause for rate limits, reconnect or attention.
-            Follow it to completion. Stop and reconcile keeps remote successes
-            and abandons failed or unsent intent.
+            Monarch and YNAB commits run as a durable write batch. It can pause
+            for rate limits or a reconnect. Each accepted change is saved as it
+            lands, so a restart does not lose progress.
+            <strong>Stop and reconcile</strong> keeps what the provider accepted
+            and drops the rest.
           </p>
-          <p>Local, Amazon, bank CSV and SimpleFIN commits stay local.</p>
+          <p>Amazon, bank CSV and SimpleFIN commits stay local.</p>
         </aside>
-        <figure class="capture">
-          <a data-lightbox href="/screenshots/tui-review.svg"
-            ><img
-              src="/screenshots/tui-review.svg"
-              alt="Review the staged category change and affected demo transactions before committing"
-              loading="lazy"
-          /></a>
-          <figcaption>
-            Nothing was committed to make this capture. The change is still
-            staged. <span>Click to enlarge ↗</span>
-          </figcaption>
-        </figure>
-        <figure class="capture">
-          <a data-lightbox href="/screenshots/web-review.png"
-            ><img
-              src="/screenshots/web-review.png"
-              alt="Review the same two-transaction category change in the Go web application"
-              loading="lazy"
-          /></a>
-          <figcaption>
-            The same workflow in a browser: inspect the pending change before
-            committing. <span>Click to enlarge ↗</span>
-          </figcaption>
-        </figure>
+        <div class="pair">
+          <figure class="capture">
+            <a data-lightbox href="/screenshots/web-review.png"
+              ><img
+                src="/screenshots/web-review.png"
+                width="2880"
+                height="1800"
+                alt="The browser review drawer listing the staged two-transaction category change"
+                loading="lazy"
+            /></a>
+            <figcaption>Browser: the review drawer.</figcaption>
+          </figure>
+          <figure class="capture">
+            <a data-lightbox href="/screenshots/tui-review.svg"
+              ><img
+                src="/screenshots/tui-review.svg"
+                width="1024"
+                height="454"
+                alt="The terminal review screen for the staged category change and its two demo transactions"
+                loading="lazy"
+            /></a>
+            <figcaption>Terminal: the same change, still staged.</figcaption>
+          </figure>
+        </div>
       </section>
+
       <section class="step" aria-labelledby="export">
-        <span class="number">05</span>
-        <div>
-          <h2 id="export">Keep an exact record.</h2>
+        <span class="number" aria-hidden="true">05</span>
+        <div class="lead">
+          <h2 id="export">Export committed data.</h2>
           <p>
-            Export Parquet, CSV or SQLite with <kbd>E</kbd>, or use MCP's export
-            tools. Choose the full profile or a filtered committed subset.
+            <kbd>E</kbd> exports Parquet, CSV or SQLite in either interface: the
+            whole profile or the filtered view. MCP has
+            <code>preview_export</code> and <code>export_transactions</code>.
           </p>
           <p>
-            Exports exclude pending edits. The file metadata records what was
-            captured, so “what I see” and “what I exported” need not be
-            confused.
+            Exports contain committed data only, never pending edits. Each
+            file's metadata counts the pending edits it left out. Exports are
+            unencrypted analysis files, not profile backups.
           </p>
-          <a href="/docs/guide/export/">Export semantics →</a>
+          <a class="more" href="/docs/guide/export/">Export</a>
         </div>
         <aside>
-          <strong>Coming from Python?</strong>
+          <strong>Coming from Python Moneyflow?</strong>
           <p>
-            The Go preview is the future application, not yet a drop-in data
-            migration. Preserve your original profiles.
+            Python data cannot move into Go yet. Keep your Python data until the
+            exporter exists.
           </p>
-          <a href="/docs/getting-started/python-transition/"
-            >Limitations and transition guidance →</a
+          <a class="more" href="/docs/getting-started/transition/"
+            >Moving to Go</a
           >
         </aside>
-        <figure class="capture">
-          <a data-lightbox href="/screenshots/tui-export.svg"
-            ><img
-              src="/screenshots/tui-export.svg"
-              alt="The terminal export chooser with format, scope and pending-edit guidance"
-              loading="lazy"
-          /></a>
-          <figcaption>
-            Export committed data, with the pending-edit boundary shown in the
-            chooser. <span>Click to enlarge ↗</span>
-          </figcaption>
-        </figure>
+        <div class="pair">
+          <figure class="capture">
+            <a data-lightbox href="/screenshots/tui-export.svg"
+              ><img
+                src="/screenshots/tui-export.svg"
+                width="1024"
+                height="454"
+                alt="The terminal export chooser with format, scope and pending-edit guidance"
+                loading="lazy"
+            /></a>
+            <figcaption>
+              Terminal: the export chooser, with the pending-edit note.
+            </figcaption>
+          </figure>
+        </div>
       </section>
-      <section class="cta">
-        <h2>Try the loop with synthetic data.</h2>
-        <p>Build the Go preview and explore without connecting a provider.</p>
-        <a class="button" href="/docs/getting-started/go/">Get started</a>
+
+      <section class="cta" aria-labelledby="next">
+        <h2 id="next">Run it on your machine.</h2>
+        <p>
+          Install or build Moneyflow, then run
+          <code>moneyflow web --demo</code> or
+          <code>moneyflow tui --demo</code>.
+        </p>
+        <a class="button" href="/docs/getting-started/installation/">Install</a>
       </section>
     </main>
     <footer>
       <div class="wrap footer-inner">
-        <span>Moneyflow · Open source · MIT</span
+        <span>Moneyflow · MIT license</span
         ><span
-          ><a href="/docs/">Documentation</a> ·
-          <a href="/legacy/v1/">Legacy Python v1</a></span
+          ><a href="/docs/">Docs</a> · <a href="/llms.txt">llms.txt</a> ·
+          <a href="/legacy/v1/">Python v1 archive</a> ·
+          <a href="https://github.com/wesm/moneyflow">Source</a></span
         >
       </div>
     </footer>

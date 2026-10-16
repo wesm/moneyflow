@@ -1,16 +1,13 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { chromium, type Browser } from "../../web/node_modules/playwright";
+import { previewResponse } from "./site";
 
 const root = resolve(import.meta.dir, "../../site");
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
-  fetch(request) {
-    let path = new URL(request.url).pathname;
-    if (path.endsWith("/")) path += "index.html";
-    return new Response(Bun.file(resolve(root, `.${path}`)));
-  },
+  fetch: (request) => previewResponse(root, request),
 });
 let browser: Browser;
 beforeAll(async () => {
@@ -67,5 +64,40 @@ test("walkthrough captures open at full size and restore keyboard focus", async 
     ).toBe(true);
   } finally {
     await page.close();
+  }
+});
+
+test("a docs page's Markdown link opens its source as text", async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(new URL("docs/guide/web/", server.url).href);
+    await page.getByRole("link", { name: "View as Markdown" }).click();
+    await page.waitForURL(/\/docs\/guide\/web\.md$/);
+    expect((await page.locator("body").innerText()).trimEnd()).toBe(
+      (await Bun.file(resolve(root, "docs/guide/web.md")).text()).trimEnd(),
+    );
+  } finally {
+    await page.close();
+  }
+});
+
+test("homepage and tour fit a phone screen in both color schemes", async () => {
+  for (const colorScheme of ["light", "dark"] as const) {
+    const page = await browser.newPage({
+      viewport: { width: 390, height: 844 },
+      colorScheme,
+    });
+    try {
+      for (const path of ["", "guide/"]) {
+        await page.goto(new URL(path, server.url).href);
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth - window.innerWidth,
+          ),
+        ).toBeLessThanOrEqual(0);
+      }
+    } finally {
+      await page.close();
+    }
   }
 });
