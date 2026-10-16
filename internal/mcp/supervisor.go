@@ -86,6 +86,10 @@ var afterReconcileFold func()
 // it reads that run's outcome. It is nil in production.
 var afterWaitWakes func()
 
+// afterStoredStateRead, when a test sets it, runs in ExpireObsolete after it reads the profile's
+// stored state and before it takes the supervisor's lock. It is nil in production.
+var afterStoredStateRead func()
+
 // Supervisor owns explicit MCP background work for one profile. It is not a scheduler.
 type Supervisor struct {
 	ctx       context.Context
@@ -599,21 +603,42 @@ func (supervisor *Supervisor) expireConfirmationLocked(attempt *supervisedAttemp
 // again. The parked attempt was computed before that change, so it fails as an expired one does:
 // a start that follows neither joins it nor refuses because of it. Call it before StartRefresh or
 // StartReconcile, and before reading a parked reconcile to join it.
+//
+// It judges only an attempt that was parked before it read the state, and only while the same run
+// still holds that attempt parked. An attempt that parks during the read, even for another write
+// batch, is newer than the state that was read, so it stays. When nothing is parked, it reads
+// nothing.
 func (supervisor *Supervisor) ExpireObsolete(ctx context.Context, service *app.Service) error {
+	supervisor.mu.Lock()
+	refresh, reconcile := supervisor.refreshNow.parkedRun(), supervisor.reconcileNow.parkedRun()
+	supervisor.mu.Unlock()
+	if refresh == nil && reconcile == nil {
+		return nil
+	}
 	stored, err := readStoredState(ctx, service)
 	if err != nil {
 		return err
 	}
+	if afterStoredStateRead != nil {
+		afterStoredStateRead()
+	}
 	supervisor.mu.Lock()
 	defer supervisor.mu.Unlock()
-	if refresh := supervisor.refreshNow; refresh.parked() && stored.movedPastRefresh(refresh) {
-		refresh.expire()
-	}
-	if reconcile := supervisor.reconcileNow; reconcile.parked() &&
-		stored.movedPastReconcile(reconcile) {
-		reconcile.expire()
-	}
+	expireIfMovedPast(supervisor.refreshNow, refresh, stored.movedPastRefresh)
+	expireIfMovedPast(supervisor.reconcileNow, reconcile, stored.movedPastReconcile)
 	return nil
+}
+
+// expireIfMovedPast fails attempt when run, which had parked it before the stored state was read,
+// still holds it parked and movedPast reports that the stored state has moved past it.
+func expireIfMovedPast(
+	attempt *supervisedAttempt,
+	run *attemptRun,
+	movedPast func(*supervisedAttempt) bool,
+) {
+	if run != nil && attempt.parkedRun() == run && movedPast(attempt) {
+		attempt.expire()
+	}
 }
 
 // storedState is the part of a profile's stored state that a parked attempt depends on.
@@ -640,15 +665,13 @@ func readStoredState(ctx context.Context, service *app.Service) (storedState, er
 }
 
 // movedPastRefresh reports whether a refresh folded, or an edit committed, after the parked
-// refresh read the provider. The counters only grow, and the state was read before the
-// supervisor's lock was taken, so a refresh that parked in between is newer, and it stays.
+// refresh read the provider.
 func (stored storedState) movedPastRefresh(parked *supervisedAttempt) bool {
 	return stored.generation > parked.Generation || stored.revision > parked.Revision
 }
 
 // movedPastReconcile reports whether the write batch that the parked reconcile left is finished
-// or replaced, or has a later version, or whether the revision moved on. A reconcile that parked
-// after the state was read stays, as movedPastRefresh says.
+// or replaced, or has a later version, or whether the revision moved on.
 func (stored storedState) movedPastReconcile(parked *supervisedAttempt) bool {
 	return stored.batchID != parked.Write.BatchID || stored.batchVersion > parked.Write.Version ||
 		stored.revision > parked.Revision
@@ -657,6 +680,16 @@ func (stored storedState) movedPastReconcile(parked *supervisedAttempt) bool {
 // parked reports whether the attempt waits for confirmation.
 func (attempt *supervisedAttempt) parked() bool {
 	return attempt != nil && attempt.State == AttemptConfirmationRequired
+}
+
+// parkedRun returns the run that parked the attempt, or nil when the attempt does not wait for
+// confirmation. A confirmation starts a new run, and a new attempt has its own, so the run names
+// one parked attempt and one park.
+func (attempt *supervisedAttempt) parkedRun() *attemptRun {
+	if !attempt.parked() {
+		return nil
+	}
+	return attempt.current
 }
 
 // expire fails a parked attempt whose confirmation deadline passed, or that the profile's stored

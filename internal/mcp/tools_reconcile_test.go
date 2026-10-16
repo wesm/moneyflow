@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,6 +78,58 @@ func TestMCPReconcileStartsAgainAfterItsConfirmationExpires(t *testing.T) {
 
 	assert.NotEqual(t, parked["attempt_id"], retried["attempt_id"])
 	assert.Equal(t, string(AttemptConfirmationRequired), retried["state"], "%v", retried)
+}
+
+// ExpireObsolete judges only the reconcile that was parked when it read the stored state. A newer
+// reconcile that parks another write batch before the check takes the supervisor's lock keeps its
+// confirmation, so the user does not have to reconcile again.
+func TestExpireObsoleteKeepsAReconcileThatParksDuringItsRead(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 10, "monarch")
+	t.Cleanup(closeProfile)
+	client, supervisor := connectSupervisedServer(t, service, time.Now)
+	commitRejectedDeletion(t, client, service, supervisor)
+	// Six of the ten transactions disappear, which needs confirmation.
+	source.setTransactionCount(4)
+	first := awaitReconcileTool(t, client, service, supervisor)
+	require.Equal(t, string(AttemptConfirmationRequired), first["state"])
+	read, resume := make(chan struct{}), make(chan struct{})
+	var held atomic.Bool
+	afterStoredStateRead = func() {
+		if held.CompareAndSwap(false, true) {
+			close(read)
+			<-resume
+		}
+	}
+	t.Cleanup(func() { afterStoredStateRead = nil })
+	checked := make(chan error, 1)
+	go func() { checked <- supervisor.ExpireObsolete(t.Context(), service) }()
+	select {
+	case <-read:
+	case err := <-checked:
+		require.FailNow(t, "the check returned without reading the stored state", "%v", err)
+	}
+	// The first reconcile is confirmed, the next batch fails, and its reconcile parks.
+	confirmed := callWriteTool(t, client, "confirm_reconcile",
+		reconcileArguments(t, service, map[string]any{
+			"attempt_id": first["attempt_id"], "confirmation_token": first["confirmation_token"],
+		}))
+	require.False(t, confirmed.IsError, "%v", confirmed.StructuredContent)
+	commitRejectedDeletion(t, client, service, supervisor)
+	source.setTransactionCount(0)
+	newer := awaitReconcileTool(t, client, service, supervisor)
+	require.Equal(t, string(AttemptConfirmationRequired), newer["state"])
+
+	close(resume)
+	require.NoError(t, <-checked)
+
+	kept := callRefreshTool(t, client, "get_reconcile_status",
+		map[string]any{"attempt_id": newer["attempt_id"]})
+	assert.Equal(t, string(AttemptConfirmationRequired), kept["state"], "%v", kept)
+	settled := callWriteTool(t, client, "confirm_reconcile",
+		reconcileArguments(t, service, map[string]any{
+			"attempt_id": newer["attempt_id"], "confirmation_token": newer["confirmation_token"],
+		}))
+	assert.False(t, settled.IsError, "%v", settled.StructuredContent)
 }
 
 // commitRejectedDeletion commits a deletion that the provider rejects and waits until the work of
