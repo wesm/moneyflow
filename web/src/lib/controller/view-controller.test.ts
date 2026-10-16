@@ -512,6 +512,8 @@ describe('browser view controller', () => {
   })
 
   describe('a history traversal that does not arrive in time', () => {
+    afterEach(() => vi.useRealTimers())
+
     async function timedOut() {
       vi.spyOn(history, 'go').mockImplementation(() => undefined)
       const client = clientWith({
@@ -572,6 +574,34 @@ describe('browser view controller', () => {
       await controller.restore(new PopStateEvent('popstate', { state: parent }))
 
       expect(client.view).toHaveBeenCalledTimes(2)
+    })
+
+    it('shows and sends nothing when the controller stops before the timeout', async () => {
+      vi.useFakeTimers()
+      const go = vi.spyOn(history, 'go').mockImplementation(() => undefined)
+      const returned: ViewProjection = {
+        ...projection('v=1', 0, 450),
+        warnings: [{ code: 'view_notice', detail: 'The selection changed and was cleared.' }],
+      }
+      const client = clientWith({
+        transition: async (body) =>
+          body.action === 'view.back' ? returned : projection('v=1&group=category', 0, 2),
+      })
+      const controller = controllerFor(client)
+      await controller.hydrate()
+      await controller.apply({ action: 'view.cycle-grouping' })
+      go.mockClear()
+      const back = controller.apply({ action: 'view.back' })
+      await vi.waitFor(() => expect(go).toHaveBeenCalled(), { interval: 1 })
+      const reads = vi.mocked(client.view).mock.calls.length
+
+      // The workspace goes before the traversal lands, so no popstate ever reaches the controller.
+      controller.stop()
+      await vi.advanceTimersByTimeAsync(1000)
+      await back
+
+      expect(notices()).toEqual({ banners: [], status: '' })
+      expect(client.view).toHaveBeenCalledTimes(reads)
     })
   })
 

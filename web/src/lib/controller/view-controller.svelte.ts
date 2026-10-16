@@ -150,8 +150,9 @@ export interface ViewController {
    * its way is canceled and its answer dropped. A transition, reload or reread waiting its turn,
    * or asked for later, sends nothing, and a transition resolves false. An edit, duplicate
    * change, transaction information, refresh, provider write or status answer still on its way
-   * changes nothing and shows nothing, and an export on its way is canceled. Refresh status
-   * polling ends, and history is left alone.
+   * changes nothing and shows nothing, and an export on its way is canceled. A return still
+   * waiting for its history traversal ends without showing its view. Refresh status polling
+   * ends, and history is left alone.
    */
   stop(): void
   retry(): Promise<void>
@@ -1095,6 +1096,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     // The request this cancels no longer owns `loading`, so it would never clear it, and every
     // wait for it would spin.
     loading = false
+    // The workspace stopped listening to history first, so a return waiting for its traversal
+    // would only end at its fallback, which shows the returned view's warnings on the page that
+    // replaced it. Settling the return cancels the fallback and frees the work waiting behind it.
+    returning?.settle()
+    returning = undefined
     provider.stop()
     providerWrite.stop()
     editing.stop()
