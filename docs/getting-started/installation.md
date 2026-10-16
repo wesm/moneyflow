@@ -1,21 +1,23 @@
 # Installation
 
-Install Moneyflow as one binary, or build it from this checkout. This branch contains the Go replacement;
-do not assume the latest published release already includes it. The old PyPI package installs Python Moneyflow.
-See [moving to Go](transition.md) before replacing a Python installation.
+Moneyflow is one binary with the web application built in. No Go release has been published
+yet, so [build from source](#build-from-source). The latest PyPI package, `moneyflow==0.11.1`,
+is the legacy Python application.
+Read [moving to Go](transition.md) before you replace a Python installation.
 
 ## Available releases
 
-The Go release pipeline builds standalone binaries for Linux, macOS, and Windows on AMD64 and ARM64.
-Prebuilt binaries include the web application and need no Python, Go, or Bun runtime.
+The Go release pipeline builds standalone binaries for Linux, macOS, and Windows on AMD64 and
+ARM64. Prebuilt binaries include the web application and need no Python, Go, or Bun runtime.
 
-When a Go preview is available on [GitHub Releases](https://github.com/wesm/moneyflow/releases), use its tagged installer
-below. Until then, [build from source](#build-from-source).
+When a Go preview is available on [GitHub Releases](https://github.com/wesm/moneyflow/releases),
+use its tagged installer below. Until then, [build from source](#build-from-source).
 
 ### Install a Tagged Preview
 
-Replace `vX.Y.Z-rc.N` with an actual Go preview tag from the release page. Download and inspect the installer from that
-same tag, then run it with `MONEYFLOW_VERSION` set. Preview releases are not selected by GitHub's `latest` release URL.
+Replace `vX.Y.Z-rc.N` with a real Go preview tag from the release page. Download the installer
+from that same tag, inspect it, then run it with `MONEYFLOW_VERSION` set. GitHub's `latest`
+release URL never selects a preview.
 
 === "Linux / macOS"
 
@@ -35,17 +37,20 @@ same tag, then run it with `MONEYFLOW_VERSION` set. Preview releases are not sel
     .\install.ps1
     ```
 
-The default install directory is `~/.local/bin` on Linux/macOS and `%LOCALAPPDATA%\Programs\moneyflow\bin` on Windows.
-Set `MONEYFLOW_INSTALL_DIR` before running the installer to choose another directory. Add that directory to your `PATH`
-if needed. If Python moneyflow is also installed, check which executable your shell selects before running it.
+The installer puts the binary in `~/.local/bin` on Linux and macOS, and in
+`%LOCALAPPDATA%\Programs\moneyflow\bin` on Windows. Set `MONEYFLOW_INSTALL_DIR` before running
+it to choose another directory. Add that directory to your `PATH` if needed. If Python
+Moneyflow is also installed, check which executable your shell selects before you run it.
 
-To update, close Moneyflow and rerun the installer for the desired release. Installation replaces the binary only;
-it does not remove profiles or resolve incompatible preview schemas. Keep a backup before opening data with a new version.
+To update, close Moneyflow and rerun the installer for the release you want. The installer
+replaces only the binary. It does not remove profiles or resolve incompatible preview schemas.
+Keep a backup before you open data with a new version.
 
 ### Install the Latest Stable Go Release
 
-Use these commands only after a stable Go release publishes the installer assets. Until then, use a tagged Go preview or
-build from source. Leave `MONEYFLOW_VERSION` unset to select the latest stable release.
+These commands work only after a stable Go release publishes its installer assets. Until then,
+use a tagged Go preview or build from source. Leave `MONEYFLOW_VERSION` unset to select the
+latest stable release.
 
 === "Linux / macOS"
 
@@ -76,37 +81,40 @@ Each Go release includes `SHA256SUMS`, `install.sh`, `install.ps1`, and these si
 | Windows | AMD64 | `moneyflow_<version>_windows_amd64.zip` |
 | Windows | ARM64 | `moneyflow_<version>_windows_arm64.zip` |
 
-Here `<version>` is the release tag without its leading `v`. Download the archive for your system and `SHA256SUMS` from
-the same release, verify the archive's SHA-256 checksum, then extract `moneyflow` or `moneyflow.exe` into a directory on
-your `PATH`.
+`<version>` is the release tag without its leading `v`. Download your archive and
+`SHA256SUMS` from the same release and verify the archive's SHA-256 checksum. Then extract
+`moneyflow` or `moneyflow.exe` into a directory on your `PATH`.
 
 ### Run the Go Application
 
 ```bash
 moneyflow version
-moneyflow tui --demo
 moneyflow web --demo
+moneyflow tui --demo
+moneyflow web
 moneyflow tui
 ```
 
-Demo profiles are temporary and need no financial account. Persistent Go profiles live under `~/.moneyflow` by default;
-set `MONEYFLOW_HOME` to use a different catalog directory. Moneyflow refuses a folder that holds
-Python app data.
+Demo profiles are temporary and need no financial account. Saved Go profiles live under
+`~/.moneyflow` by default. Set `MONEYFLOW_HOME` to use a different catalog directory.
+Moneyflow refuses a folder that holds Python app data.
 
 See [moving to Go](transition.md) for old Python data and incompatible Go preview profiles.
 
 ### Build from source
 
-Install [mise](https://mise.jdx.dev/getting-started.html) and `make`, then build from the `go-port` branch:
+Install [mise](https://mise.jdx.dev/getting-started.html) and `make`. Then clone the default
+`main` branch and build:
 
 ```bash
-git clone --branch go-port https://github.com/wesm/moneyflow.git
+git clone https://github.com/wesm/moneyflow.git
 cd moneyflow
 mise trust
 mise install
 mise exec -- make web-install build
 ```
 
-Windows builds produce `bin/moneyflow.exe`. The build generates and embeds the web assets before compiling the binary.
-Follow [development setup](../development/developing.md) before running tests or temporary demos on Unix.
-See the [Go release guide](../development/releases.md) for the distribution workflow.
+The build generates the web assets, embeds them, and compiles `bin/moneyflow`, or
+`bin/moneyflow.exe` on Windows. Follow [development setup](../development/developing.md)
+before running tests or temporary demos on Unix. The [Go release guide](../development/releases.md)
+covers the distribution workflow.
