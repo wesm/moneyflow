@@ -1,9 +1,12 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { startOnboardingE2EServer } from '../scripts/e2e-server'
 
 const amazonCSV = `Order ID,Order Date,Product Name,Quantity,Total Owed,Order Status,Shipment Status,ASIN,Currency,Unit Price
 order-example,2026-08-19,Example Product,1,12.34,Closed,Delivered,ASIN-EXAMPLE,USD,12.34
+`
+const cancelledCSV = `Order ID,Order Date,Product Name,Quantity,Total Owed,Order Status,Shipment Status,ASIN,Currency,Unit Price
+order-cancelled,2026-08-18,Example Product,1,12.34,Cancelled,Not Shipped,ASIN-EXAMPLE,USD,12.34
 `
 
 test('@smoke Amazon import preserves committed edits through reimport and reload', async ({
@@ -86,6 +89,35 @@ test('@smoke Amazon import preserves committed edits through reimport and reload
   }
 })
 
+test('a profile of cancelled orders opens in its currency once a reimport brings purchases', async ({
+  page,
+}) => {
+  const server = await startOnboardingE2EServer()
+  try {
+    await page.goto(server.url)
+    await page.keyboard.press('a')
+    await page.keyboard.press('a')
+    await page.getByLabel('Profile name').fill('Amazon Orders')
+    await page.getByLabel('Profile name').press('Enter')
+    await page.getByRole('button', { name: 'Continue' }).click()
+    await importOrders(page, cancelledCSV)
+    // A cancelled order is not a transaction, so the profile has no currency to chart yet.
+    await expect(page.getByRole('main', { name: 'Moneyflow workspace' })).toContainText(
+      'No transactions',
+    )
+    await expect(page.getByRole('region', { name: 'Charts' })).toHaveCount(0)
+
+    // Setup replaces the workspace, which comes back with the view it kept.
+    await page.getByRole('link', { name: 'Import Amazon orders' }).click()
+    await importOrders(page, amazonCSV)
+
+    await expect(page.getByRole('region', { name: 'Charts' })).toBeVisible()
+    await expect(page).toHaveURL(/[?&]cur=USD%3A2(&|$)/)
+  } finally {
+    await server.stop()
+  }
+})
+
 test('invalid Amazon rows show actionable coordinates to the initiating tab', async ({ page }) => {
   const server = await startOnboardingE2EServer()
   try {
@@ -107,3 +139,14 @@ test('invalid Amazon rows show actionable coordinates to the initiating tab', as
     await server.stop()
   }
 })
+
+async function importOrders(page: Page, csv: string): Promise<void> {
+  await page.getByLabel('Amazon CSV files').setInputFiles({
+    name: 'Retail.OrderHistory.1.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(csv),
+  })
+  await page.getByRole('button', { name: 'Import' }).click()
+  await expect(page.getByRole('heading', { name: 'Amazon import complete' })).toBeVisible()
+  await page.getByRole('button', { name: 'Open profile' }).click()
+}

@@ -82,6 +82,12 @@ export interface EditingController {
     scope: string,
     signal?: AbortSignal,
   ): Promise<MerchantPreview>
+  /**
+   * Stops for good, as when the workspace that sent the edits is gone. An edit still on its way
+   * finishes on the server, but its answer changes nothing and shows nothing. From then on, a
+   * merchant preview that fails is not sent again, and a failure that arrives changes nothing.
+   */
+  stop(): void
 }
 
 interface EditingControllerOptions {
@@ -131,6 +137,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
   let keyCalling = false
   // Whether the edit on its way was started by a key.
   let sentByKey = false
+  let stopped = false
 
   function holdForKey(): KeyTurn | undefined {
     if (state.phase === 'submitting' && !sentByKey) return undefined
@@ -271,13 +278,15 @@ export function createEditingController(options: EditingControllerOptions): Edit
         )
       } catch (error) {
         if (
+          stopped ||
           attempt !== 0 ||
           !(error instanceof MoneyflowProblem) ||
           !['selection_stale', 'revision_conflict'].includes(error.problem.code)
         )
           throw error
         await handleFailure(error, body.selection)
-        if (state.phase === 'failed') throw error
+        // The controller can stop while the failure's reread is on its way.
+        if (stopped || state.phase === 'failed') throw error
       }
     }
   }
@@ -304,6 +313,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
         selection,
       }
       const viewWarning = await show(projection, body.query, body.selection, install)
+      if (stopped) return false
       const warnings = projection.warnings ?? []
       const auditWarning = warnings.find((warning) => warning.code === auditWarningCode)?.detail
       const toasted = toast && toastMessage(response.operation, toast)
@@ -332,7 +342,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
       if (response.provider_write) options.onProviderWrite?.(response.provider_write)
       return true
     } catch (error) {
-      await handleFailure(error, body.selection)
+      if (!stopped) await handleFailure(error, body.selection)
       return false
     }
   }
@@ -466,6 +476,9 @@ export function createEditingController(options: EditingControllerOptions): Edit
     commit,
     catalog,
     previewMerchant,
+    stop: () => {
+      stopped = true
+    },
   }
 }
 

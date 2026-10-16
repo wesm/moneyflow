@@ -62,13 +62,7 @@ export function createOnboardingTransport(
   upstream: typeof fetch = fetch,
 ): OnboardingTransport {
   const prefix = `api/v1/profiles/${profileID}/onboarding/`
-  const mutations = createMutationFetch(
-    basePath,
-    upstream,
-    null,
-    Date.now,
-    `api/v1/profiles/${profileID}/bootstrap`,
-  )
+  const mutations = createMutationFetch(basePath, upstream)
 
   async function mutation<T>(path: string, body: unknown): Promise<T> {
     return requestProfileJSON<T>(mutations, `${prefix}${path}`, body)
@@ -90,7 +84,6 @@ export function createOnboardingTransport(
         {
           method: 'GET',
           cache: 'no-store',
-          credentials: 'omit',
           redirect: 'error',
           headers: { Accept: 'application/json' },
         },

@@ -185,13 +185,7 @@ export function createAmazonImportTransport(
   basePath: string,
   profileID: string,
   upstream: typeof fetch = fetch,
-  mutations: MutationFetch = createMutationFetch(
-    basePath,
-    upstream,
-    null,
-    Date.now,
-    `api/v1/profiles/${profileID}/bootstrap`,
-  ),
+  mutations: MutationFetch = createMutationFetch(basePath, upstream),
 ): AmazonImportTransport {
   const origin = globalThis.location?.origin ?? 'http://localhost'
   const profilePrefix = `api/v1/profiles/${profileID}/amazon-import/`
@@ -221,7 +215,6 @@ export function createAmazonImportTransport(
         {
           method: 'GET',
           cache: 'no-store',
-          credentials: 'omit',
           redirect: 'error',
           ...(signal === undefined ? {} : { signal }),
         },

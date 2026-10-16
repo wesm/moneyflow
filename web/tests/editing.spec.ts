@@ -462,7 +462,7 @@ test('a staged rename shows inline in gold while the grouped Net stays committed
     const colors = await staged.evaluate((element) => {
       const probe = document.createElement('span')
       probe.style.color = 'var(--mf-pending)'
-      document.body.append(probe)
+      element.closest('.mf-views')!.append(probe)
       const pending = getComputedStyle(probe).color
       probe.remove()
       return { staged: getComputedStyle(element).color, pending }

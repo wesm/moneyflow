@@ -1,35 +1,21 @@
 <script lang="ts">
-  import { Button, StatusBar, ThemeToggle, TopBar } from '@kenn-io/kit-ui'
   import { onMount, tick } from 'svelte'
 
   import { createMoneyflowClient } from './lib/api/client'
   import { createCatalogClient, type ProfileSummary } from './lib/api/catalog-client'
-  import AppShell from './components/AppShell.svelte'
-  import OnboardingWizard from './components/profiles/OnboardingWizard.svelte'
-  import SimpleFINOnboardingWizard from './components/profiles/SimpleFINOnboardingWizard.svelte'
-  import {
-    createSimpleFINOnboardingController,
-    createSimpleFINOnboardingTransport,
-    type SimpleFINOnboardingController,
-  } from './lib/controller/simplefin-onboarding.svelte'
-  import AmazonImportWizard from './components/profiles/AmazonImportWizard.svelte'
   import ProfileSelector from './components/profiles/ProfileSelector.svelte'
   import { createCatalogController, type CatalogController } from './lib/controller/catalog.svelte'
-  import {
-    createOnboardingController,
-    createOnboardingTransport,
-    type OnboardingController,
-  } from './lib/controller/onboarding.svelte'
   import {
     createViewController,
     type ViewController,
   } from './lib/controller/view-controller.svelte'
   import { profileApplicationPath } from './lib/controller/routing'
-  import {
-    createAmazonImportController,
-    createAmazonImportTransport,
-    type AmazonImportController,
-  } from './lib/controller/amazon-import.svelte'
+  import { historyViewState, type ViewStateAdapter } from './lib/controller/view-state'
+  import MoneyflowSetup from './lib/views/MoneyflowSetup.svelte'
+  import MoneyflowWorkspace from './lib/views/MoneyflowWorkspace.svelte'
+  import { createTokenFetch } from './standalone/token-fetch'
+
+  type SetupProvider = 'monarch' | 'ynab' | 'simplefin' | 'amazon'
 
   interface Props {
     basePath: string
@@ -46,30 +32,44 @@
     catalog: suppliedCatalog,
     onnavigate,
   }: Props = $props()
+  const tokenFetch = standaloneFetch()
+  const viewState = profileViewState()
   const controller = resolveController()
   const catalog = resolveCatalog()
-  let onboarding = $state<OnboardingController | undefined>()
-  let simplefinOnboarding = $state<SimpleFINOnboardingController | undefined>()
-  let onboardingProfileID = $state<string | undefined>()
-  let createdOnboardingProfileID = $state<string | undefined>()
-  let closingOnboarding = $state(false)
-  let amazonImport = $state<AmazonImportController | undefined>()
-  let amazonProfileID = $state<string | undefined>()
-  let createdAmazonProfileID = $state<string | undefined>()
+  let setupFlow = $state<{
+    provider: SetupProvider
+    profileID: string
+    amazonSettings?: { currency: string; scale: number }
+  }>()
+  /** A profile added in this tab whose setup has not finished; cancelling setup removes it. */
+  let createdProfileID: string | undefined
+  let closingSetup = false
+
+  /** Standalone moneyflow's server checks mutation tokens; this fetch adds them. */
+  function standaloneFetch(): typeof fetch {
+    return createTokenFetch(basePath)
+  }
+
+  function profileViewState(): ViewStateAdapter | undefined {
+    if (!profileID) return undefined
+    return historyViewState(profileApplicationPath(basePath, profileID))
+  }
 
   function resolveController(): ViewController | undefined {
     if (suppliedController) return suppliedController
-    if (!profileID) return undefined
+    if (!profileID || !viewState) return undefined
     return createViewController({
-      basePath: profileApplicationPath(basePath, profileID),
-      client: createMoneyflowClient(basePath, profileID),
+      client: createMoneyflowClient(basePath, profileID, tokenFetch),
+      viewState,
+      autoRefresh: true,
+      standalone: true,
     })
   }
 
   function resolveCatalog(): CatalogController | undefined {
     if (suppliedCatalog) return suppliedCatalog
     if (profileID || suppliedController) return undefined
-    return createCatalogController({ client: createCatalogClient(basePath) })
+    return createCatalogController({ client: createCatalogClient(basePath, tokenFetch) })
   }
 
   async function canonicalID(
@@ -105,87 +105,30 @@
     const profile = catalog?.state.profiles.find(
       (candidate) => candidate.id === selector || candidate.key === selector,
     )
-    const kind = profile?.provider_kind === 'ynab' ? 'ynab' : 'monarch'
-    const id = await canonicalID(selector, kind)
-    if (!id) return
-    onboarding?.destroy()
-    simplefinOnboarding?.destroy()
-    simplefinOnboarding = undefined
-    if (createdOnboardingProfileID !== id) createdOnboardingProfileID = undefined
-    onboardingProfileID = id
-    onboarding = createOnboardingController({
-      profileID: id,
-      transport: createOnboardingTransport(basePath, id),
-    })
+    await startSetup(selector, profile?.provider_kind === 'ynab' ? 'ynab' : 'monarch')
   }
 
-  async function setupSimpleFIN(selector: string): Promise<void> {
-    const id = await canonicalID(selector, 'simplefin')
-    if (!id) return
-    onboarding?.destroy()
-    onboarding = undefined
-    simplefinOnboarding?.destroy()
-    // A claimed connection must not be rolled back by generic catalog cancellation.
-    createdOnboardingProfileID = undefined
-    onboardingProfileID = id
-    simplefinOnboarding = createSimpleFINOnboardingController({
-      profileID: id,
-      transport: createSimpleFINOnboardingTransport(basePath, id),
-    })
-  }
-
-  async function setupAmazon(
+  async function startSetup(
     selector: string,
-    settings?: { currency: string; scale: number },
+    provider: SetupProvider,
+    amazonSettings?: { currency: string; scale: number },
   ): Promise<void> {
-    const id = await canonicalID(selector, 'amazon')
+    const id = await canonicalID(selector, provider)
     if (!id) return
-    amazonImport?.destroy()
-    if (createdAmazonProfileID !== id) createdAmazonProfileID = undefined
-    amazonProfileID = id
-    amazonImport = createAmazonImportController({
-      transport: createAmazonImportTransport(basePath, id),
-    })
-    if (settings) await amazonImport.start(settings.currency, settings.scale)
+    // A claimed SimpleFIN connection must not be rolled back by generic catalog cancellation.
+    if (createdProfileID !== id || provider === 'simplefin') createdProfileID = undefined
+    setupFlow = { provider, profileID: id, ...(amazonSettings ? { amazonSettings } : {}) }
   }
 
-  async function closeAmazonImport(): Promise<void> {
-    amazonImport?.destroy()
-    const createdProfileID = createdAmazonProfileID
-    amazonImport = undefined
-    amazonProfileID = undefined
-    createdAmazonProfileID = undefined
-    if (catalog && createdProfileID) await catalog.cancelNew(createdProfileID)
+  async function closeSetup(): Promise<void> {
+    if (closingSetup) return
+    closingSetup = true
+    const id = createdProfileID
+    createdProfileID = undefined
+    if (catalog && id) await catalog.cancelNew(id)
     else if (catalog) await catalog.load()
-  }
-
-  function completeAmazonImport(): void {
-    const id = amazonProfileID
-    const fromCatalog = catalog !== undefined
-    amazonImport?.destroy()
-    amazonImport = undefined
-    amazonProfileID = undefined
-    createdAmazonProfileID = undefined
-    if (fromCatalog && id) {
-      void navigate(id)
-      return
-    }
-    if (controller) void controller.recheck()
-  }
-
-  async function closeOnboarding(): Promise<void> {
-    if (closingOnboarding) return
-    closingOnboarding = true
-    onboarding?.destroy()
-    simplefinOnboarding?.destroy()
-    simplefinOnboarding = undefined
-    const createdProfileID = createdOnboardingProfileID
-    createdOnboardingProfileID = undefined
-    if (catalog && createdProfileID) await catalog.cancelNew(createdProfileID)
-    else if (catalog) await catalog.load()
-    onboarding = undefined
-    onboardingProfileID = undefined
-    closingOnboarding = false
+    setupFlow = undefined
+    closingSetup = false
     if (catalog) return
     if (controller) {
       void tick().then(() => {
@@ -198,44 +141,32 @@
     }
   }
 
+  function completeSetup(id: string): void {
+    createdProfileID = undefined
+    if (setupFlow?.provider === 'amazon') {
+      setupFlow = undefined
+      // From a profile's workspace, the workspace returns and rechecks its data.
+      if (!catalog) return
+    }
+    void navigate(id)
+  }
+
   async function createProfile(
     name: string,
     provider: 'monarch' | 'ynab' | 'simplefin' | 'amazon' | 'local',
   ): Promise<ProfileSummary | undefined> {
     if (!catalog) return undefined
     const created = await catalog.create(name, provider)
-    if ((provider === 'monarch' || provider === 'ynab') && created?.id) {
-      createdOnboardingProfileID = created.id
+    if ((provider === 'monarch' || provider === 'ynab' || provider === 'amazon') && created?.id) {
+      createdProfileID = created.id
     }
-    if (provider === 'amazon' && created?.id) createdAmazonProfileID = created.id
     return created
   }
 
-  function completeOnboarding(): void {
-    const id = onboardingProfileID
-    createdOnboardingProfileID = undefined
-    if (id) void navigate(id)
+  function reconnectProvider(current: ViewController): SetupProvider {
+    const kind = current.projection?.profile_kind
+    return kind === 'ynab' || kind === 'simplefin' ? kind : 'monarch'
   }
-
-  function pollProvider(): void {
-    if (
-      controller &&
-      document.visibilityState === 'visible' &&
-      controller.projection?.profile_kind !== 'amazon'
-    ) {
-      void controller.provider.poll().catch(() => undefined)
-      void controller.providerWrite.poll().catch(() => undefined)
-    }
-  }
-
-  // The first status check starts with the first view, not after the view settles in its
-  // currency, so a due refresh opens its dialog before the user works with stale data.
-  let firstPoll = false
-  $effect(() => {
-    if (firstPoll || !controller?.projection) return
-    firstPoll = true
-    pollProvider()
-  })
 
   /** The profile's display name for the load-failure page, once the catalog gives it. */
   let profileName = $state<string | undefined>()
@@ -258,7 +189,7 @@
    */
   async function nameProfile(id: string): Promise<void> {
     try {
-      const { profiles } = await createCatalogClient(basePath).list()
+      const { profiles } = await createCatalogClient(basePath, tokenFetch).list()
       const profile = profiles?.find((entry) => entry.id === id || entry.key === id)
       profileName = profile?.display_name || undefined
     } catch {
@@ -271,146 +202,50 @@
   }
 
   onMount(() => {
-    if (catalog) {
-      void catalog.load()
-      return () => {
-        onboarding?.destroy()
-        simplefinOnboarding?.destroy()
-        simplefinOnboarding = undefined
-        amazonImport?.destroy()
-      }
-    }
-    if (!controller) return
-    const restore = (event: PopStateEvent) => void controller.restore(event)
-    const recheck = () => {
-      void controller.recheck()
-      pollProvider()
-    }
-    const visible = () => {
-      if (document.visibilityState === 'visible') recheck()
-      else controller.flushHistory()
-    }
-    const leave = () => controller.flushHistory()
-    window.addEventListener('popstate', restore)
-    window.addEventListener('pagehide', leave)
-    window.addEventListener('focus', recheck)
-    document.addEventListener('visibilitychange', visible)
-    const statusInterval = window.setInterval(pollProvider, 60_000)
-    const writeStatusInterval = window.setInterval(() => {
-      if (
-        document.visibilityState === 'visible' &&
-        controller.projection?.profile_kind !== 'amazon'
-      ) {
-        void controller.providerWrite.poll().catch(() => undefined)
-      }
-    }, 1_000)
-    void controller.hydrate().catch(() => undefined)
-    return () => {
-      window.clearInterval(statusInterval)
-      window.clearInterval(writeStatusInterval)
-      window.removeEventListener('popstate', restore)
-      window.removeEventListener('pagehide', leave)
-      window.removeEventListener('focus', recheck)
-      document.removeEventListener('visibilitychange', visible)
-      controller.flushHistory()
-    }
+    if (catalog) void catalog.load()
   })
 </script>
 
-{#if amazonImport && amazonProfileID}
-  <AmazonImportWizard
-    controller={amazonImport}
-    initialCurrency={controller?.projection?.amazon_settings?.currency ?? 'USD'}
-    initialScale={controller?.projection?.amazon_settings?.scale ?? 2}
-    oncomplete={completeAmazonImport}
-    oncancel={() => void closeAmazonImport()}
-  />
-{:else if simplefinOnboarding && onboardingProfileID}
-  <SimpleFINOnboardingWizard
-    controller={simplefinOnboarding}
-    oncomplete={completeOnboarding}
-    oncancel={() => void closeOnboarding()}
-    onoffline={() => void navigate(onboardingProfileID!)}
-  />
-{:else if onboarding && onboardingProfileID}
-  <OnboardingWizard
-    controller={onboarding}
-    oncomplete={completeOnboarding}
-    oncancel={() => void closeOnboarding()}
-    onoffline={() => void navigate(onboardingProfileID!)}
-  />
-{:else if catalog}
-  <ProfileSelector
-    profiles={catalog.state.profiles}
-    loading={catalog.state.loading}
-    announcement={catalog.state.announcement}
-    problem={catalog.state.problem}
-    recovery={catalog.state.recovery}
-    onopen={(id) => void navigate(id)}
-    onsetup={(id) => void setup(id)}
-    onsimplefinsetup={(id) => void setupSimpleFIN(id)}
-    onamazonsetup={(id) => void setupAmazon(id)}
-    onrecover={recover}
-    oncreate={createProfile}
-    ondemo={() => globalThis.location.assign(`${basePath}demo/`)}
-    onexit={() => catalog.announce('The Moneyflow web server remains available in this tab.')}
-  />
-{:else if controller?.problem && !controller.projection}
-  <div class="moneyflow-app">
-    <TopBar ariaLabel="Moneyflow">
-      {#snippet left()}
-        <span class="moneyflow-brand">Moneyflow</span>
-      {/snippet}
-      {#snippet right()}
-        <ThemeToggle size="sm" />
-      {/snippet}
-    </TopBar>
-
-    <main class="moneyflow-main" aria-label="Moneyflow">
-      {#if controller.problem.kind === 'invalid-view'}
-        <section class="moneyflow-message" aria-labelledby="invalid-title">
-          <h1 id="invalid-title">This Moneyflow link cannot be opened</h1>
-          <p>The saved view is malformed or is not supported by this version.</p>
-          <div class="moneyflow-actions">
-            <Button onclick={() => history.back()}>Back</Button>
-            <Button tone="info" surface="solid" onclick={() => void controller.reset()}>
-              Reset view
-            </Button>
-          </div>
-        </section>
-      {:else}
-        <section class="moneyflow-message" aria-labelledby="error-title">
-          <h1 id="error-title">Couldn't load {profileName ?? 'this profile'}</h1>
-          <p>{controller.problem.detail}</p>
-          <Button tone="info" surface="solid" onclick={() => void controller.retry()}>Retry</Button>
-        </section>
-      {/if}
-      <p class="kit-sr-only" aria-live="polite">{controller.announcement}</p>
-    </main>
-
-    <StatusBar>
-      {#snippet left()}
-        <span role="status">{controller.loading ? 'Loading…' : ''}</span>
-      {/snippet}
-      {#snippet right()}
-        <span>profile · {basePath}</span>
-      {/snippet}
-    </StatusBar>
-  </div>
-{:else if controller}
-  <!-- The workspace lays itself out while the first view loads, so nothing swaps in after. -->
-  <AppShell
-    {controller}
-    onreconnect={() =>
-      profileID &&
-      void (controller.projection?.profile_kind === 'simplefin'
-        ? setupSimpleFIN(profileID)
-        : setup(profileID))}
-    onamazonimport={() => {
-      const settings = controller.projection?.amazon_settings
-      if (profileID && settings) {
-        void setupAmazon(profileID, { currency: settings.currency, scale: settings.scale })
-      }
-    }}
-  />
-{/if}
+<div class="mf-views">
+  {#if setupFlow}
+    {#key setupFlow}
+      <MoneyflowSetup
+        apiBase={basePath}
+        fetch={tokenFetch}
+        provider={setupFlow.provider}
+        profileID={setupFlow.profileID}
+        amazonSettings={setupFlow.amazonSettings}
+        oncomplete={completeSetup}
+        oncancel={() => void closeSetup()}
+      />
+    {/key}
+  {:else if catalog}
+    <ProfileSelector
+      profiles={catalog.state.profiles}
+      loading={catalog.state.loading}
+      announcement={catalog.state.announcement}
+      problem={catalog.state.problem}
+      recovery={catalog.state.recovery}
+      onopen={(id) => void navigate(id)}
+      onsetup={(id) => void setup(id)}
+      onsimplefinsetup={(id) => void startSetup(id, 'simplefin')}
+      onamazonsetup={(id) => void startSetup(id, 'amazon')}
+      onrecover={recover}
+      oncreate={createProfile}
+      ondemo={() => globalThis.location.assign(`${basePath}demo/`)}
+      onexit={() => catalog.announce('The Moneyflow web server remains available in this tab.')}
+    />
+  {:else if controller && profileID && viewState}
+    <MoneyflowWorkspace
+      {controller}
+      apiBase={basePath}
+      fetch={tokenFetch}
+      {profileID}
+      {profileName}
+      {viewState}
+      chrome
+      onreconnect={() => void startSetup(profileID, reconnectProvider(controller))}
+      onamazonimport={(settings) => void startSetup(profileID, 'amazon', settings)}
+    />
+  {/if}
+</div>

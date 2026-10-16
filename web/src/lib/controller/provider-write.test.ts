@@ -242,6 +242,69 @@ describe('provider write controller', () => {
     await expect(controller.reconcile()).resolves.toBe(false)
     expect(controller.can('confirm')).toBe(true)
   })
+
+  it('confirms with the token of a parked reconcile it did not start', async () => {
+    const parked = writeStatus({
+      phase: 'reconcile_confirmation_required',
+      batch_version: '12',
+      actions: ['confirm'],
+    })
+    const transport = transportStub({
+      mutationResponse: problemResponse(
+        'provider_deletion_confirmation_required',
+        parked,
+        'parked-attempt-token',
+      ),
+    })
+    const controller = createProviderWriteController({ transport, host: hostStub() })
+    controller.install(
+      writeStatus({ phase: 'attention_required', batch_version: '11', actions: ['reconcile'] }),
+    )
+
+    await expect(controller.reconcile()).resolves.toBe(false)
+    expect(controller.state.phase).toBe('confirmation')
+    expect(controller.state.status).toEqual(parked)
+    vi.mocked(transport.mutations.request).mockResolvedValueOnce(
+      Response.json({ status: writeStatus() } satisfies ProviderWriteResponse),
+    )
+    await expect(controller.confirm()).resolves.toBe(true)
+
+    const [path, raw] = vi.mocked(transport.mutations.request).mock.calls[1]!
+    expect(path).toBe('api/v1/provider/write/reconcile/confirm')
+    expect(JSON.parse(raw)).toMatchObject({
+      expected_batch_version: '12',
+      confirmation_token: 'parked-attempt-token',
+    })
+  })
+
+  it('keeps its phase and polls at once when a 503 says the write runs on', async () => {
+    const transport = transportStub({
+      mutationResponse: Response.json(
+        {
+          type: 'about:blank',
+          title: 'Service Unavailable',
+          status: 503,
+          detail: 'The provider write is still running.',
+          code: 'provider_write_in_progress',
+        },
+        { status: 503, headers: { 'Content-Type': 'application/problem+json' } },
+      ),
+    })
+    const polled = Promise.withResolvers<void>()
+    transport.status.mockImplementationOnce(() => {
+      polled.resolve()
+      return new Promise<ProviderWriteStatus>(() => undefined)
+    })
+    const controller = createProviderWriteController({ transport, host: hostStub() })
+    controller.install(
+      writeStatus({ phase: 'paused', batch_version: '7', actions: ['resume', 'reconcile'] }),
+    )
+
+    await expect(controller.resume()).resolves.toBe(false)
+
+    expect(controller.state.phase).toBe('paused')
+    await polled.promise
+  })
 })
 
 describe('provider write failures the user must see', () => {
@@ -493,6 +556,81 @@ describe('provider write failures the user must see', () => {
         tone: 'danger',
       },
     ])
+  })
+})
+
+describe('a stopped provider write controller', () => {
+  const finished = () =>
+    writeStatus({ completed_at: '2026-10-15T12:00:00Z', total: 2, completed: 2 })
+
+  it('rereads and reports nothing from a status check that answers after it stopped', async () => {
+    const host = hostStub()
+    const transport = transportStub()
+    const answer = Promise.withResolvers<ProviderWriteStatus>()
+    transport.status.mockReturnValueOnce(answer.promise)
+    const controller = createProviderWriteController({ transport, host })
+    controller.install(writeStatus({ phase: 'writing', batch_version: '4', total: 2 }))
+
+    const polled = controller.poll()
+    controller.stop()
+    // The write finished while the status check was on its way.
+    answer.resolve(finished())
+    await polled
+
+    expect({ reread: host.reload.mock.calls.length, notices: notices() }).toEqual({
+      reread: 0,
+      notices: { banners: [], status: '' },
+    })
+  })
+
+  it('rereads and reports nothing from a write request that answers after it stopped', async () => {
+    const host = hostStub()
+    const transport = transportStub()
+    const answer = Promise.withResolvers<Response>()
+    transport.mutations.request.mockReturnValueOnce(answer.promise)
+    const controller = createProviderWriteController({ transport, host })
+    controller.install(
+      writeStatus({ phase: 'paused', batch_version: '4', total: 2, actions: ['resume'] }),
+    )
+
+    const resumed = controller.resume()
+    controller.stop()
+    answer.resolve(Response.json({ status: finished() }))
+    await resumed
+
+    expect({ reread: host.reload.mock.calls.length, notices: notices() }).toEqual({
+      reread: 0,
+      notices: { banners: [], status: '' },
+    })
+  })
+
+  it.each<[string, (answer: PromiseWithResolvers<ProviderWriteStatus>) => void]>([
+    ['fails', (answer) => answer.reject(new TypeError('Failed to fetch'))],
+    [
+      'reports a stopped run',
+      (answer) =>
+        answer.resolve(
+          writeStatus({
+            phase: 'writing',
+            batch_version: '4',
+            total: 2,
+            run_failure: { code: 'store_busy', detail: 'The profile is busy. Try again.' },
+          }),
+        ),
+    ],
+  ])('shows no failure from a status check that %s after it stopped', async (_, settle) => {
+    const transport = transportStub()
+    const answer = Promise.withResolvers<ProviderWriteStatus>()
+    transport.status.mockReturnValueOnce(answer.promise)
+    const controller = createProviderWriteController({ transport, host: hostStub() })
+    controller.install(writeStatus({ phase: 'writing', batch_version: '4', total: 2 }))
+
+    const polled = controller.poll()
+    controller.stop()
+    settle(answer)
+    await polled
+
+    expect(notices()).toEqual({ banners: [], status: '' })
   })
 })
 

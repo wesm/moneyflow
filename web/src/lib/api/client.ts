@@ -43,14 +43,6 @@ export type ProviderWriteResponse = components['schemas']['ProviderWriteResponse
 export type TransactionInformationBody = components['schemas']['TransactionInformationBody']
 export type TransactionInformationResponse = components['schemas']['TransactionInformationResponse']
 
-interface BootstrapResponse {
-  mutation_token: string
-  token_expires_at: string
-}
-
-const mutationTokenHeader = 'X-Moneyflow-Mutation-Token'
-const proactiveRefreshMillis = 5 * 60 * 1000
-
 export interface MoneyflowClient {
   readonly mutations: MutationFetch
   view(body: ViewBody, signal?: AbortSignal): Promise<ViewProjection>
@@ -93,97 +85,27 @@ export async function requestProfileJSON<T>(
   return value as T
 }
 
+/**
+ * Sends POST requests beneath `basePath`. JSON bodies carry their content type; an upload's
+ * `FormData` sets its own. The caller's `fetch` adds whatever the server's admission needs.
+ */
 export function createMutationFetch(
   basePath: string,
   upstream: typeof fetch = fetch,
-  root: Document | null | undefined = globalThis.document,
-  now: () => number = Date.now,
-  bootstrapPath = 'api/v1/bootstrap',
 ): MutationFetch {
   const origin = globalThis.location?.origin ?? 'http://localhost'
   const baseURL = new URL(basePath, origin)
-  let token = readMutationToken(root)
-  let refreshAt = token === '' ? 0 : now() + 55 * 60 * 1000
-
-  const refresh = async (signal?: AbortSignal): Promise<void> => {
-    const response = await upstream(new URL(bootstrapPath, baseURL), {
-      method: 'GET',
-      cache: 'no-store',
-      credentials: 'omit',
-      redirect: 'error',
-      ...(signal === undefined ? {} : { signal }),
-    })
-    const value: unknown = await response.json()
-    if (!response.ok || !isBootstrap(value)) {
-      throw new Error('The Moneyflow mutation bootstrap response is invalid.')
-    }
-    token = value.mutation_token
-    refreshAt = Date.parse(value.token_expires_at) - proactiveRefreshMillis
-  }
-
-  const send = async (
-    path: string,
-    body: BodyInit,
-    signal?: AbortSignal,
-    contentType = 'application/json',
-  ): Promise<Response> => {
-    if (token === '' || now() >= refreshAt) await refresh(signal)
-    const options = (): RequestInit => ({
+  const send = (path: string, body: BodyInit, signal?: AbortSignal, json = true) =>
+    upstream(new URL(path.replace(/^\/+/, ''), baseURL), {
       method: 'POST',
       body,
-      credentials: 'omit',
       redirect: 'error',
-      headers: {
-        ...(contentType === '' ? {} : { 'Content-Type': contentType }),
-        [mutationTokenHeader]: token,
-      },
+      ...(json ? { headers: { 'Content-Type': 'application/json' } } : {}),
       ...(signal === undefined ? {} : { signal }),
     })
-    let response = await upstream(new URL(path.replace(/^\/+/, ''), baseURL), options())
-    if (await hasProblemCode(response, 'token_expired')) {
-      await refresh(signal)
-      response = await upstream(new URL(path.replace(/^\/+/, ''), baseURL), options())
-    }
-    return response
-  }
-
   return {
-    request(path, body, signal) {
-      return send(path, body, signal)
-    },
-    upload(path, body, signal) {
-      return send(path, body, signal, '')
-    },
-  }
-}
-
-function readMutationToken(root: Document | null | undefined): string {
-  return (
-    root
-      ?.querySelector<HTMLMetaElement>('meta[name="moneyflow-mutation-token"]')
-      ?.getAttribute('content') ?? ''
-  )
-}
-
-function isBootstrap(value: unknown): value is BootstrapResponse {
-  if (!isRecord(value)) return false
-  return (
-    typeof value.mutation_token === 'string' &&
-    value.mutation_token !== '' &&
-    typeof value.token_expires_at === 'string' &&
-    Number.isFinite(Date.parse(value.token_expires_at))
-  )
-}
-
-async function hasProblemCode(response: Response, code: string): Promise<boolean> {
-  if (response.ok) return false
-  const contentType = response.headers.get('Content-Type') ?? ''
-  if (!contentType.includes('application/problem+json')) return false
-  try {
-    const value: unknown = await response.clone().json()
-    return isRecord(value) && value.code === code
-  } catch {
-    return false
+    request: (path, body, signal) => send(path, body, signal),
+    upload: (path, body, signal) => send(path, body, signal, false),
   }
 }
 
@@ -211,13 +133,7 @@ export function createMoneyflowClient(
   const requestOptions = <Body>(body: Body, signal?: AbortSignal) =>
     signal === undefined ? { body } : { body, signal }
   const profilePrefix = `api/v1/profiles/${profileID}/`
-  const scopedMutations = createMutationFetch(
-    basePath,
-    upstream,
-    null,
-    Date.now,
-    `${profilePrefix}bootstrap`,
-  )
+  const scopedMutations = createMutationFetch(basePath, upstream)
   const mutations: MutationFetch = {
     request(path, body, signal) {
       const relative = path.replace(/^\/+/, '')

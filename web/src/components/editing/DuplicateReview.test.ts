@@ -133,5 +133,6 @@ function duplicateController(): DuplicateController {
     cancelDelete: vi.fn(),
     confirmDelete: vi.fn(async () => true),
     retry: vi.fn(async () => true),
+    stop: vi.fn(),
   } as DuplicateController
 }

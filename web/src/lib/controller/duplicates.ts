@@ -58,6 +58,8 @@ export interface DuplicateController {
   confirmDelete(): Promise<boolean>
   /** Rereads the view and the duplicate list after a failure. */
   retry(): Promise<boolean>
+  /** Stops for good, as when the workspace is gone: a refusal still on its way shows nothing. */
+  stop(): void
 }
 
 type DuplicateRow = NonNullable<NonNullable<DuplicateResponse['groups']>[number]['rows']>[number]
@@ -84,6 +86,7 @@ export function createDuplicateController(
   // Counts closings. Each async call keeps the count it started with and checks `live` after
   // every await, so a late answer cannot change a review that closed, or closed and reopened.
   let closings = 0
+  let stopped = false
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
     notify = update
@@ -370,8 +373,9 @@ export function createDuplicateController(
   async function refused(error: unknown, session: number): Promise<boolean> {
     const reloaded = isConflict(error) && (await reload(session))
     if (!live(session)) {
-      // Review closed before the refusal could show in it, so only the workspace can say so.
-      showFailure(`${changeRefused} ${failureReason(error)}`)
+      // Review closed before the refusal could show in it, so only the workspace can say so,
+      // unless it is gone too.
+      if (!stopped) showFailure(`${changeRefused} ${failureReason(error)}`)
       return false
     }
     if (isConflict(error)) {
@@ -440,6 +444,9 @@ export function createDuplicateController(
     cancelDelete,
     confirmDelete,
     retry,
+    stop: () => {
+      stopped = true
+    },
   }
 }
 

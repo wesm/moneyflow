@@ -240,3 +240,33 @@ test('the cursor row at the bottom stays whole when the selection bar opens', as
   await expect(page.getByRole('region', { name: 'Selection' })).toBeVisible()
   await expect.poll(() => overlap(page, 32)).toBeLessThanOrEqual(0.5)
 })
+
+test('j scrolls inside the views and leaves a scrolling host page where it is', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  // A host page that scrolls, with its own content above a views container that ends below the
+  // window and is too short for both the charts and the table.
+  const pageScrolls = await page.evaluate(() => {
+    document.documentElement.style.overflow = 'auto'
+    document.body.style.overflow = 'visible'
+    const app = document.getElementById('app')!
+    app.style.height = '500px'
+    const header = document.createElement('div')
+    header.style.height = `${innerHeight - 300}px`
+    app.before(header)
+    return document.documentElement.scrollHeight > innerHeight
+  })
+  expect(pageScrolls).toBe(true)
+  const body = page.locator('.mf-workspace-body')
+  expect(await body.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+
+  const first = await activeRowIndex(page)
+  await page.keyboard.press('j')
+  await expect.poll(() => activeRowIndex(page), { timeout: 0 }).toBe(first + 1)
+  // The views scroll their own body to show the table; the host page stays where it is.
+  expect(await page.evaluate(() => scrollY)).toBe(0)
+  expect(await body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  expect(await visibleRowIndexes(page)).toContain(first + 1)
+})

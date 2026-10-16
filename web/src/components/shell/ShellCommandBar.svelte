@@ -33,9 +33,20 @@
     queue: TransitionQueue
     /** Returns focus to the grid; only `fromSearch` takes it from the search field. */
     onfocusgrid: (fromSearch?: boolean) => void
+    /** Whether the bar may be the page's banner. An embedding host's page has its own. */
+    banner?: boolean
   }
 
-  let { controller, projection, overlays, charts, compact, queue, onfocusgrid }: Props = $props()
+  let {
+    controller,
+    projection,
+    overlays,
+    charts,
+    compact,
+    queue,
+    onfocusgrid,
+    banner = true,
+  }: Props = $props()
   let search = $state<CommandSearch>()
   let filters = $state<FiltersChip>()
   let searchToggle = $state<HTMLElement>()
@@ -151,6 +162,7 @@
     bind:this={search}
     {controller}
     settled={queue.settled}
+    stopped={() => queue.stopped}
     carry={searchCarry}
     reveal={() => (searchShown = compact)}
     ondone={() => void searchDone()}
@@ -166,7 +178,7 @@
 {/snippet}
 
 {#if compact}
-  <CommandBar banner={!narrow.current}>
+  <CommandBar banner={banner && !narrow.current}>
     {#snippet leading()}
       <Breadcrumbs {projection} onback={(depth) => void backTo(depth)} />
       {@render chartsSwitch()}
@@ -215,7 +227,7 @@
     {breakdown}
   />
 {:else}
-  <CommandBar banner={!narrow.current}>
+  <CommandBar banner={banner && !narrow.current}>
     {#snippet leading()}
       <Breadcrumbs {projection} onback={(depth) => void backTo(depth)} />
       {@render breakdown()}

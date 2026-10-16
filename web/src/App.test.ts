@@ -5,8 +5,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App.svelte'
 import type { CatalogController } from './lib/controller/catalog.svelte'
 import type { ViewController } from './lib/controller/view-controller.svelte'
+import { historyViewState } from './lib/controller/view-state'
 import { testEditingController, testReviewController } from './test/editing'
 import { testProviderWriteController } from './test/provider-write'
+
+const testProfileID = 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 describe('Moneyflow application scaffold', () => {
   afterEach(() => {
@@ -15,7 +18,7 @@ describe('Moneyflow application scaffold', () => {
   })
 
   it('lays out the workspace while the profile loads, with Loading… in the status bar', () => {
-    render(App, { basePath: '/moneyflow/', controller: stubController() })
+    render(App, { basePath: '/moneyflow/', profileID: testProfileID, controller: stubController() })
 
     const main = screen.getByRole('main', { name: 'Moneyflow workspace' })
     expect(main.getAttribute('aria-busy')).toBe('true')
@@ -45,7 +48,7 @@ describe('Moneyflow application scaffold', () => {
         detail: 'The view URL is invalid.',
       },
     })
-    render(App, { basePath: '/moneyflow/', controller })
+    render(App, { basePath: '/moneyflow/', profileID: testProfileID, controller })
 
     expect(
       screen.getByRole('heading', { name: 'This Moneyflow link cannot be opened' }),
@@ -56,6 +59,8 @@ describe('Moneyflow application scaffold', () => {
   })
 
   it('says the server is unreachable only when the first load could not reach it', async () => {
+    // The failure page asks the catalog for the profile's name; that request stays offline.
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockRejectedValue(new Error('offline')))
     const controller = stubController({
       loading: false,
       problem: {
@@ -64,7 +69,7 @@ describe('Moneyflow application scaffold', () => {
         detail: 'Moneyflow could not reach the server. Check the connection and retry.',
       },
     })
-    render(App, { basePath: '/moneyflow/', controller })
+    render(App, { basePath: '/moneyflow/', profileID: testProfileID, controller })
 
     expect(screen.getByRole('heading', { name: "Couldn't load this profile" })).not.toBeNull()
     expect(screen.getByText(/could not reach the server/)).not.toBeNull()
@@ -74,9 +79,11 @@ describe('Moneyflow application scaffold', () => {
   })
 
   it('shows the server reason when the first load is refused', () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockRejectedValue(new Error('offline')))
     const detail = 'This profile was saved by a newer Moneyflow. Install that version to open it.'
     render(App, {
       basePath: '/moneyflow/',
+      profileID: testProfileID,
       controller: stubController({
         loading: false,
         problem: { kind: 'request', code: 'schema_newer', detail },
@@ -159,7 +166,7 @@ describe('Moneyflow application scaffold', () => {
 
   it('rechecks the profile and provider on focus', async () => {
     const controller = stubController()
-    render(App, { basePath: '/moneyflow/', controller })
+    render(App, { basePath: '/moneyflow/', profileID: testProfileID, controller })
     await Promise.resolve()
     vi.mocked(controller.recheck).mockClear()
     vi.mocked(controller.provider.poll).mockClear()
@@ -175,7 +182,11 @@ describe('Moneyflow application scaffold', () => {
     try {
       const controller = stubController()
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
-      const rendered = render(App, { basePath: '/moneyflow/', controller })
+      const rendered = render(App, {
+        basePath: '/moneyflow/',
+        profileID: testProfileID,
+        controller,
+      })
       await vi.advanceTimersByTimeAsync(60_000)
       expect(controller.provider.poll).not.toHaveBeenCalled()
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
@@ -190,7 +201,7 @@ describe('Moneyflow application scaffold', () => {
 
   it('writes pending cursor history when the page hides, is left, or unmounts', async () => {
     const controller = stubController()
-    const rendered = render(App, { basePath: '/moneyflow/', controller })
+    const rendered = render(App, { basePath: '/moneyflow/', profileID: testProfileID, controller })
     try {
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
       await fireEvent(document, new Event('visibilitychange'))
@@ -262,6 +273,7 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
     review: testReviewController(),
     provider: {
       state: { phase: 'idle', announcement: '', capability: undefined },
+      cancelable: true,
       sync: vi.fn(),
       poll: vi.fn(async () => undefined),
       reread: vi.fn(async () => undefined),
@@ -269,9 +281,12 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
       confirm: vi.fn(async () => true),
       dismissConfirmation: vi.fn(),
       cancel: vi.fn(),
+      hide: vi.fn(),
       continueStale: vi.fn(),
+      stop: vi.fn(),
     } as ViewController['provider'],
     providerWrite: testProviderWriteController(),
+    viewState: historyViewState('/'),
     duplicates: { state: { announcement: '' } } as ViewController['duplicates'],
     export: { state: { announcement: '' } } as ViewController['export'],
     hydrate: vi.fn(async () => undefined),
@@ -293,6 +308,7 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
     settled: async () => undefined,
     restore: vi.fn(async () => undefined),
     flushHistory: vi.fn(),
+    stop: vi.fn(),
     retry: vi.fn(async () => undefined),
     reset: vi.fn(async () => undefined),
     ...overrides,

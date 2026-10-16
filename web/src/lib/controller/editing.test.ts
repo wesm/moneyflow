@@ -655,6 +655,32 @@ describe('browser editing controller', () => {
       input: { scope: 'transactions' },
     })
   })
+
+  it('neither rereads nor retries a preview refused after it stopped', async () => {
+    const answered = Promise.withResolvers<void>()
+    const transport = {
+      request: vi.fn(async () => {
+        await answered.promise
+        return problemResponse('selection_stale', '6')
+      }),
+    }
+    const host = editingHost(testProjection({ revision: '6' }))
+    const controller = createEditingController({ transport, host })
+    const preview = controller.previewMerchant(
+      { kind: 'transaction', identity: 'row-0' },
+      'transactions',
+    )
+
+    controller.stop()
+    answered.resolve()
+
+    await expect(preview).rejects.toBeInstanceOf(MoneyflowProblem)
+    expect({
+      requests: transport.request.mock.calls.length,
+      rereads: vi.mocked(host.refresh).mock.calls.length,
+      announcement: controller.state.announcement,
+    }).toEqual({ requests: 1, rereads: 0, announcement: '' })
+  })
 })
 
 function editingHost(initial: ReturnType<typeof testProjection>): EditingProjectionHost & {

@@ -1,9 +1,15 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import ProviderStatus from './ProviderStatus.svelte'
 import RefreshDialog from './RefreshDialog.svelte'
-import type { RefreshDialog as DialogState } from '../lib/controller/provider'
-import { stubProvider, testProviderStatus } from '../test/provider'
+import {
+  createProviderController,
+  type RefreshDialog as DialogState,
+} from '../lib/controller/provider'
+import { testProjection } from '../test/projection'
+import { providerCapability, stubProvider, testProviderStatus } from '../test/provider'
 
 const now = Date.parse('2026-10-13T12:00:00Z')
 
@@ -82,6 +88,48 @@ describe('RefreshDialog', () => {
     await fireEvent.keyDown(window, { key: 'Escape' })
     expect(controller.cancel).toHaveBeenCalledTimes(2)
   })
+
+  it.each(['button', 'Escape'] as const)(
+    'closes with the %s, not Cancel, while a host’s server runs the refresh on',
+    async (closer) => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+      let sent: AbortSignal | undefined
+      const current = testProjection({ capabilities: [providerCapability(true)] })
+      const controller = createProviderController({
+        transport: {
+          mutations: {
+            request: vi.fn((_path: string, _body: string, signal?: AbortSignal) => {
+              sent = signal
+              return new Promise<Response>(() => undefined)
+            }),
+          },
+          status: vi.fn(async () => testProviderStatus({ refreshing: true })),
+        },
+        host: {
+          current: () => current,
+          accept: vi.fn(),
+          reload: vi.fn(async () => undefined),
+          serially: <T>(work: () => Promise<T>) => work(),
+        },
+        autoRefresh: false,
+      })
+      controller.sync(current)
+      render(RefreshDialog, { controller })
+      render(ProviderStatus, { controller })
+      void controller.refresh()
+      await tick()
+
+      expect(screen.queryByRole('button', { name: 'Cancel refresh' })).toBeNull()
+      if (closer === 'button') await fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      else await fireEvent.keyDown(window, { key: 'Escape' })
+
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(sent?.aborted).toBe(false)
+      expect(screen.getByRole('button', { name: 'Refreshing…' }).hasAttribute('disabled')).toBe(
+        true,
+      )
+    },
+  )
 
   it('says Stopping… until the server stops the refresh', () => {
     render(RefreshDialog, { controller: open({ view: 'stopping' }) })

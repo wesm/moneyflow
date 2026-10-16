@@ -104,9 +104,10 @@ func runDev(t *testing.T, command []string, environment ...string) (
 	//nolint:gosec // Fixed test commands.
 	run := exec.CommandContext(t.Context(), command[0], command[1:]...)
 	run.Env = withoutVariables(os.Environ(), "MONEYFLOW_HOME", "PROFILE", "DEV_PROFILE", "MAKEFLAGS")
+	ports := freePorts(t, 2)
 	run.Env = append(run.Env,
 		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "AIR_RECORD="+record,
-		"DEV_WEB_PORT="+freePort(t), "DEV_BACKEND_PORT="+freePort(t))
+		"DEV_WEB_PORT="+ports[0], "DEV_BACKEND_PORT="+ports[1])
 	run.Env = append(run.Env, environment...)
 	combined, err := run.CombinedOutput()
 	require.NoError(t, err, string(combined))
@@ -139,12 +140,22 @@ func withoutVariables(environment []string, names ...string) []string {
 	return kept
 }
 
-func freePort(t *testing.T) string {
+// freePorts returns count different free ports. Every listener stays open until all the ports
+// are chosen: the system can hand out a port again as soon as its listener closes, and dev.sh
+// refuses two equal ports.
+func freePorts(t *testing.T, count int) []string {
 	t.Helper()
 	var config net.ListenConfig
-	listener, err := config.Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	require.NoError(t, listener.Close())
-	return strconv.Itoa(port)
+	listeners := make([]net.Listener, count)
+	ports := make([]string, count)
+	for index := range listeners {
+		listener, err := config.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		listeners[index] = listener
+		ports[index] = strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+	}
+	for _, listener := range listeners {
+		require.NoError(t, listener.Close())
+	}
+	return ports
 }

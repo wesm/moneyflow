@@ -29,7 +29,6 @@ export interface CatalogClient {
 export function createCatalogClient(
   basePath: string,
   upstream: typeof fetch = fetch,
-  root: Document | null | undefined = globalThis.document,
 ): CatalogClient {
   const origin = globalThis.location?.origin ?? 'http://localhost'
   const client = createClient<paths>({
@@ -37,7 +36,7 @@ export function createCatalogClient(
     fetch: upstream,
     redirect: 'error',
   })
-  const mutations = createMutationFetch(basePath, upstream, root)
+  const mutations = createMutationFetch(basePath, upstream)
 
   return {
     mutations,

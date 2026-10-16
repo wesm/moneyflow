@@ -1,0 +1,1893 @@
+/* The views' styles. Every rule applies only inside `.mf-views`, so a host page keeps its own. */
+
+@keyframes mf-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The views' root: it scopes their styles and adds no box of its own. */
+.mf-views {
+  display: contents;
+  --mf-in: var(--accent-green);
+  --mf-in-muted: color-mix(in srgb, var(--accent-green) 35%, var(--bg-surface));
+  --mf-out: color-mix(in srgb, var(--accent-red) 70%, var(--bg-surface));
+  --mf-out-muted: color-mix(in srgb, var(--accent-red) 35%, var(--bg-surface));
+  /* Text tones: mixed toward the text color, so a change reads at 4.5:1 or better on the page,
+     the surface, and the cursor and selected row tints in both themes. Fills keep the above. */
+  --mf-in-text: color-mix(in srgb, var(--accent-green) 65%, var(--text-primary));
+  --mf-out-text: color-mix(in srgb, var(--accent-red) 65%, var(--text-primary));
+  --mf-pending: var(--accent-amber);
+  --mf-cursor: color-mix(in srgb, var(--accent-blue) 16%, transparent);
+  --mf-selected: color-mix(in srgb, var(--accent-blue) 30%, transparent);
+  --mf-focus: var(--accent-blue);
+  /* A chart period still in progress, such as the current month, draws at this strength. */
+  --mf-partial-opacity: 0.5;
+}
+
+:where(.mf-views) {
+  button,
+  input {
+    font: inherit;
+  }
+
+  .moneyflow-app {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .moneyflow-brand {
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--letter-spacing-label, 0.02em);
+  }
+
+  .moneyflow-main {
+    min-height: 0;
+    flex: 1;
+    display: grid;
+    place-items: center;
+    padding: var(--space-6);
+  }
+
+  .profile-main {
+    min-height: 0;
+    flex: 1;
+    overflow: auto;
+    display: grid;
+    place-items: start center;
+    padding: clamp(var(--space-4), 5vw, var(--space-8));
+  }
+
+  .profile-panel {
+    width: min(42rem, 100%);
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  .profile-panel > h1,
+  .profile-panel > p {
+    margin: 0;
+  }
+
+  .profile-panel > p:not(.moneyflow-eyebrow) {
+    color: var(--text-secondary);
+  }
+
+  .profile-list {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .profile-list .kit-card {
+    width: 100%;
+  }
+
+  .profile-form {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .profile-form label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .profile-actions {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+  }
+
+  .onboarding-working {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--border-muted);
+    border-radius: var(--radius-md);
+    background: var(--bg-inset);
+  }
+
+  .onboarding-working p {
+    margin: 0;
+    color: var(--text-secondary);
+  }
+
+  .moneyflow-message {
+    max-width: 32rem;
+  }
+
+  .moneyflow-message :is(h1, h2),
+  .moneyflow-message p {
+    margin: 0;
+  }
+
+  .moneyflow-message :is(h1, h2) {
+    margin-block: var(--space-2);
+    font-size: var(--font-size-xl);
+  }
+
+  .moneyflow-message p,
+  .moneyflow-eyebrow {
+    color: var(--text-muted);
+  }
+
+  .app-shell {
+    /* The current entry's icon reads like its label. */
+    --kit-sidebar-current-icon: var(--text-primary);
+    height: 100%;
+    display: flex;
+  }
+  .app-shell__column {
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .app-shell__main {
+    min-height: 0;
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+    padding: var(--space-4);
+  }
+  .app-shell__table {
+    min-width: 0;
+    min-height: 0;
+  }
+  /* Without moneyflow's sidebar, the pending edits and provider status sit above the status line. */
+  .mf-workspace-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    border-top: 1px solid var(--border-muted);
+  }
+  .mf-workspace-status > .mf-pending-card {
+    min-width: 0;
+    flex: 1;
+  }
+  .mf-command-bar {
+    box-sizing: border-box;
+    min-height: var(--header-height);
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-6);
+    padding: var(--space-3) var(--space-6);
+    border-bottom: 1px solid var(--border-default);
+    background: var(--bg-surface);
+  }
+  .mf-command-bar__leading {
+    min-width: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-6);
+  }
+  .mf-command-bar__controls {
+    min-width: 0;
+    margin-left: auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-3) var(--space-5);
+  }
+  /* The view controls and the Charts switch wrap as one row of siblings. */
+  .mf-command-bar__center,
+  .mf-command-bar__trailing {
+    display: contents;
+  }
+
+  .mf-breadcrumbs {
+    min-width: 0;
+  }
+  .mf-breadcrumbs ol {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--font-size-sm);
+  }
+  .mf-breadcrumbs li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .mf-breadcrumbs__separator {
+    color: var(--text-muted);
+  }
+  .mf-breadcrumbs__current {
+    overflow-wrap: break-word;
+    color: var(--text-primary);
+    font-weight: var(--font-weight-semibold);
+  }
+  .mf-breadcrumbs__link {
+    padding: var(--space-1) var(--space-2);
+    margin: 0 calc(-1 * var(--space-2));
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    text-align: start;
+    overflow-wrap: break-word;
+    cursor: pointer;
+  }
+  .mf-breadcrumbs__link:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+  }
+  .mf-breadcrumbs__link:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -2px;
+  }
+  .mf-break-down {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .mf-break-down__label {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+  }
+
+  /* kit SelectDropdown reserves 150px; a currency code needs a fraction of that. */
+  .mf-command-bar .kit-select-dropdown.mf-currency-chip {
+    min-width: 4.5rem;
+  }
+
+  /* kit FilterDropdown fades unchecked items to half opacity, which fails WCAG AA contrast;
+     the check mark and dot still show the state (upstream candidate). */
+  .mf-filters-chip .kit-filter-dropdown__panel .kit-filter-dropdown__item:not(.active) {
+    opacity: 1;
+  }
+
+  .mf-command-search {
+    position: relative;
+  }
+  .mf-command-search__status {
+    position: absolute;
+    top: calc(100% + var(--space-2));
+    right: 0;
+    z-index: var(--z-popover);
+  }
+  .mf-command-search__error {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    color: var(--accent-red);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+  }
+
+  .mf-period {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .mf-period .kit-segmented {
+    margin-left: var(--space-3);
+  }
+  .mf-period__label {
+    box-sizing: border-box;
+    display: inline-flex;
+    min-width: 4.5rem;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: 0 var(--space-3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium, 500);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  /* A long custom range shrinks with an ellipsis; its title and name keep the full label. */
+  .mf-period__text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mf-period__key {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+  .mf-period__label:hover:not(:disabled),
+  .mf-period__label[aria-expanded='true'] {
+    border-color: var(--border-default);
+    background: var(--bg-surface-hover);
+  }
+  /* Open, the label sinks like kit's open dropdown triggers. */
+  .mf-period__label[aria-expanded='true'] {
+    box-shadow: var(--shadow-sunken);
+  }
+  .mf-period__label:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -2px;
+  }
+  .mf-period__label:disabled {
+    opacity: var(--opacity-disabled);
+    cursor: default;
+  }
+  .mf-period-chooser {
+    box-sizing: border-box;
+    position: fixed;
+    z-index: var(--z-popover);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-4);
+  }
+  .mf-period-chooser:focus {
+    outline: none;
+  }
+  /* Each tab carries its key badge, so the segments pack tighter than the kit default. */
+  .mf-period-chooser .kit-segmented--block .kit-segmented__btn {
+    gap: var(--space-1);
+    padding-inline: var(--space-2);
+  }
+  .mf-period-chooser__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .mf-period-chooser__body .kit-calendar {
+    align-self: center;
+  }
+  .mf-period-chooser__body > .kit-button {
+    align-self: flex-end;
+  }
+  .mf-period-chooser__stepper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold, 600);
+    font-variant-numeric: tabular-nums;
+  }
+  .mf-period-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--mf-period-columns), minmax(0, 1fr));
+    gap: 2px;
+  }
+  .mf-period-grid__cell {
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: var(--font-size-xs);
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+  }
+  .mf-period-grid__cell:hover:not(:disabled) {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+  }
+  .mf-period-grid__cell:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -2px;
+  }
+  .mf-period-grid__cell[aria-current='date'] {
+    background: var(--accent-blue);
+    color: var(--bg-surface);
+    font-weight: var(--font-weight-semibold, 600);
+  }
+  .mf-period-grid__cell:disabled {
+    opacity: var(--opacity-disabled);
+    cursor: default;
+  }
+  .mf-period-chooser__endpoints {
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+  .mf-period-chooser__endpoint {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+  }
+  .mf-period-chooser__endpoint--next {
+    border-color: var(--accent-blue);
+  }
+  .mf-period-chooser__endpoint dt {
+    color: var(--text-muted);
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-semibold, 600);
+  }
+  .mf-period-chooser__endpoint dd {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .mf-period-chooser__footer {
+    display: flex;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-muted);
+  }
+
+  /* Only a click handler around kit's sidebar; the sidebar lays itself out in the shell. */
+  .mf-sidebar {
+    display: contents;
+  }
+  .mf-sidebar__brand {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .mf-sidebar__provider {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+  }
+  .mf-sidebar__footer {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+  }
+  /* Touch targets in the drawer: these out-rank kit's scoped component rules, which tie at two
+     classes. */
+  .mf-sidebar .mf-sidebar__footer--drawer .kit-icon-button,
+  .mf-sidebar .mf-sidebar__footer--drawer .kit-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .mf-pending-card__text {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    line-height: 1.4;
+  }
+  .mf-pending-card__title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+  }
+  .mf-pending-card__text--waiting .mf-pending-card__title {
+    color: var(--text-primary);
+  }
+  .mf-pending-card__text--waiting .mf-pending-card__title::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--mf-pending);
+  }
+  .mf-pending-card__detail {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+  }
+  .mf-pending-card__text--waiting .mf-pending-card__detail {
+    padding-left: calc(6px + var(--space-3));
+  }
+  .mf-pending-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  .mf-sidebar__system {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-4);
+  }
+  .mf-sidebar__system .provider-status {
+    min-width: 0;
+    flex: 1;
+  }
+  .mf-sidebar__theme {
+    margin-left: auto;
+  }
+  .provider-status {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
+  .provider-status__meta {
+    color: var(--text-muted);
+    font-size: var(--font-size-2xs);
+  }
+
+  .mf-rail__list {
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    list-style: none;
+  }
+  .mf-rail__pending {
+    position: relative;
+  }
+  .mf-rail__count {
+    box-sizing: border-box;
+    position: absolute;
+    top: -3px;
+    right: -5px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 7px;
+    background: var(--mf-pending);
+    color: var(--bg-surface);
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-semibold);
+    line-height: 14px;
+    text-align: center;
+    pointer-events: none;
+  }
+
+  .mf-status-line {
+    --status-bar-height: 28px;
+    flex: none;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--bg-surface);
+  }
+  .mf-status-line__hints,
+  .mf-status-line__state {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    font-size: var(--font-size-xs);
+  }
+  .mf-status-line__hint,
+  .mf-status-line__connection {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .mf-status-line__hint {
+    height: var(--status-bar-height);
+    color: var(--text-secondary);
+  }
+  /* State keeps its natural width; hints take the rest and drop whole hints that do not fit. */
+  .mf-status-line .kit-status-bar .kit-status-bar__section--right {
+    flex: 0 1 auto;
+  }
+  .mf-status-line__hints {
+    height: var(--status-bar-height);
+    flex-wrap: wrap;
+    overflow: hidden;
+  }
+  .mf-status-line__notice,
+  .mf-status-line__activity {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mf-status-line__activity {
+    color: var(--text-secondary);
+  }
+  /* An empty live region stays in the accessibility tree but out of the hints' flex gaps. */
+  .mf-status-line__notice:empty {
+    position: absolute;
+  }
+  .mf-status-line__pending {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-secondary);
+    text-overflow: ellipsis;
+  }
+  /* kit-ui has no bottom sheet (upstream candidate): BottomSheet composes its focus trap and
+     overlay helpers with these styles. */
+  .mf-sheet {
+    position: fixed;
+    inset: 0; /* kit-ui-check-ignore: kit-ui has no bottom sheet component */
+    z-index: var(--z-overlay);
+    display: flex;
+    align-items: flex-end;
+    background: var(--overlay-bg);
+  }
+  .mf-sheet .mf-sheet__body .kit-segmented__btn,
+  .mf-sheet .mf-sheet__body .kit-select-dropdown__trigger,
+  .mf-sheet .mf-sheet__body .kit-filter-dropdown__btn,
+  .mf-sheet .mf-sheet__body .kit-filter-dropdown__item,
+  .mf-sheet .mf-sheet__body .kit-select-dropdown__option,
+  .mf-sheet .mf-sheet__body .kit-button,
+  .mf-sheet .mf-sheet__body .kit-text-input,
+  .mf-sheet .mf-sheet__body .kit-text-input__control,
+  .mf-sheet .mf-sheet__body [role='option'] {
+    min-height: 44px;
+  }
+  .mf-sheet .mf-sheet__body [role='option'] {
+    align-items: center;
+  }
+  /* In a sheet the editor's list takes room in the flow, so it never covers Stage and Cancel. */
+  .mf-sheet .mf-combobox-list {
+    position: static;
+  }
+  .mf-sheet__panel {
+    box-sizing: border-box;
+    width: 100%;
+    max-height: 85%;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    border-top: 1px solid var(--border-default);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    background: var(--bg-surface);
+    box-shadow: var(--shadow-lg);
+    outline: none;
+    /* A fade, not a slide: a transform would become the containing block for kit's fixed
+       popovers inside the sheet and misplace them while it runs. */
+    animation: mf-fade-in var(--transition-medium) var(--transition-ease, ease-out);
+  }
+  .mf-sheet__header {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-1) var(--space-2) var(--space-1) var(--space-6);
+    border-bottom: 1px solid var(--border-muted);
+  }
+  .mf-sheet__title {
+    margin: 0;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-semibold);
+  }
+  .mf-sheet__body {
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-5) var(--space-6) var(--space-6);
+  }
+  .mf-sheet__footer {
+    flex: none;
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-6);
+    border-top: 1px solid var(--border-muted);
+  }
+  .mf-touch-target.kit-icon-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .mf-view-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+  }
+  .mf-view-sheet__row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+  .mf-view-sheet__label {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+  }
+  .mf-view-sheet .mf-break-down__label {
+    display: none;
+  }
+  .mf-view-sheet .kit-select-dropdown,
+  .mf-view-sheet .kit-filter-dropdown,
+  .mf-view-sheet .kit-filter-dropdown .kit-filter-dropdown__btn {
+    width: 100%;
+  }
+  .mf-view-sheet .mf-break-down {
+    overflow-x: auto;
+  }
+  /*
+   * Table: the banners and charts hold still above the scroller that holds only the table. A window
+   * too short for both keeps the table's minimum height, and this body scrolls the charts away. Its
+   * padding holds the room the table's scroller keeps outside itself for the focus ring.
+   */
+  .mf-workspace-body {
+    box-sizing: border-box;
+    height: calc(100% + 2 * var(--space-2));
+    margin: calc(-1 * var(--space-2));
+    padding: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .mf-workspace {
+    /* The grid's offsetParent, so the grid knows where its rows sit in this scroller. */
+    position: relative;
+    flex: 1 1 0;
+    min-height: min(100%, 16rem);
+    box-sizing: border-box;
+    /*
+     * Room inside the scroller for the grid's focus ring, without moving the grid. The top room is
+     * the grid's margin, not padding: a sticky header stops below a scroller's padding.
+     */
+    margin: calc(-1 * var(--space-2));
+    padding: 0 var(--space-2) var(--space-2);
+    overflow: auto;
+  }
+  .mf-table {
+    margin-top: var(--space-2);
+    outline: none;
+    display: grid;
+    grid-template-columns: var(--mf-columns);
+    align-content: start;
+    font-size: var(--font-size-sm);
+  }
+  /* Panels sit a step above the page. */
+  .mf-workspace .mf-chart-states,
+  .mf-table {
+    border-radius: var(--radius-lg);
+    background: var(--bg-surface);
+    box-shadow: var(--shadow-panel);
+  }
+  /* Controls repeated on every row stay flat, so they do not stack into a column of tiles. */
+  .mf-table__row {
+    --shadow-raised: none;
+  }
+  /* The grid takes focus on load; its ring waits for a key, so a mouse user never sees it. */
+  &[data-keyboard] .mf-table:focus-visible {
+    /* Neutral and outside the rows, so the blue left rule still marks only the cursor row. */
+    outline: 2px solid var(--text-muted);
+    outline-offset: 1px;
+  }
+  .mf-table__header,
+  .mf-table__row {
+    grid-column: 1 / -1;
+    box-sizing: border-box;
+    height: var(--mf-row-height);
+    display: grid;
+    grid-template-columns: subgrid;
+    align-items: center;
+    border-bottom: 1px solid var(--border-muted);
+  }
+  .mf-table__spacer {
+    grid-column: 1 / -1;
+  }
+  /*
+   * The rows that hold the view's longest labels, so the text columns fit them; see ColumnSizer.
+   * They take no height and never show. A label wider than 20rem does not widen its column further.
+   */
+  .mf-table__sizer {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: subgrid;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+  }
+  .mf-table__sizer > .mf-table__cell {
+    max-width: 20rem;
+  }
+  /* The rows on screen never size a column, so the widths hold still while the table scrolls. */
+  .mf-table:not(.mf-table--compact) .mf-table__row > .mf-table__cell {
+    contain: inline-size;
+  }
+  .mf-table__header {
+    position: sticky;
+    top: 0;
+    /* Above the positioned rows, which scroll up beneath it. */
+    z-index: 2;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    background: var(--bg-table-header);
+    box-shadow: inset 0 1px var(--edge-highlight);
+    border-bottom-color: var(--border-default);
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+  }
+  /* Rows scrolled beneath the stuck header pass under its shadow. */
+  .mf-table--scrolled > .mf-table__header {
+    border-radius: 0;
+    box-shadow: var(--shadow-raised);
+  }
+  .mf-table__cell {
+    min-width: 0;
+    padding: 0 var(--space-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mf-table__cell--end {
+    text-align: right;
+  }
+  .mf-table__row .mf-table__cell--end {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .mf-table__row {
+    --mf-row-tint: transparent;
+    position: relative;
+    background-color: var(--mf-row-tint);
+  }
+  /* No added specificity, so the cursor and selected tints below win over hover. */
+  .mf-table__row:where(:hover:not(.mf-table__row--placeholder)) {
+    --mf-row-tint: var(--bg-surface-hover);
+  }
+  .mf-table__row--placeholder::after {
+    content: '';
+    grid-column: 2 / -1;
+    height: var(--space-2);
+    margin: 0 var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--bg-inset);
+  }
+  .mf-table__row--active {
+    --mf-row-tint: var(--mf-cursor);
+    box-shadow:
+      inset 3px 0 var(--mf-focus),
+      inset 10px 0 8px -8px var(--mf-focus),
+      inset 0 1px var(--edge-highlight);
+  }
+  .mf-table__row--selected {
+    --mf-row-tint: var(--mf-selected);
+  }
+  /* A hidden row dims its values; its selection box and flags stay legible. */
+  .mf-table__row--hidden > .mf-table__cell:not([data-column='flags'], [data-column='select']) {
+    opacity: var(--opacity-disabled);
+  }
+  .mf-table__row--divided {
+    background-image: linear-gradient(var(--text-muted), var(--text-muted));
+    background-size: 100% 1px;
+    background-repeat: no-repeat;
+  }
+  .mf-table__divider {
+    flex: none;
+    color: var(--text-muted);
+    font-size: var(--font-size-2xs);
+    line-height: 1;
+    letter-spacing: var(--letter-spacing-label);
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+  .mf-check {
+    display: block;
+    box-sizing: border-box;
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+  }
+  .mf-check--on {
+    background: var(--mf-focus);
+    border-color: var(--mf-focus);
+  }
+  .mf-check--on::after {
+    content: '';
+    display: block;
+    box-sizing: border-box;
+    width: 4px;
+    height: 7px;
+    margin: 1px auto 0;
+    border: solid var(--bg-surface);
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+  }
+  /* Header sort buttons read as the header text; the active direction shows after the label. */
+  .mf-table__sort {
+    max-width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    cursor: pointer;
+  }
+  .mf-table__sort:hover {
+    color: var(--text-primary);
+  }
+  /* kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells */
+  [aria-sort='ascending'] > .mf-table__sort::after {
+    content: ' ↑' / '';
+  }
+  /* kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells */
+  [aria-sort='descending'] > .mf-table__sort::after {
+    content: ' ↓' / '';
+  }
+  .mf-table__select-all {
+    display: flex;
+    margin-left: calc(-1 * var(--space-2));
+  }
+  .mf-table__editable {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .mf-table__pencil {
+    display: flex;
+    flex: none;
+    visibility: hidden;
+  }
+  .mf-table__row:hover .mf-table__pencil,
+  .mf-table__row--active .mf-table__pencil {
+    visibility: visible;
+  }
+  .mf-table__name {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .mf-table__text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Trend and vs prior give up some left padding, so the grouped table fits at 1024 px. */
+  .mf-table [data-column='trend'],
+  .mf-table [data-column='vs_prior'] {
+    padding-left: var(--space-1);
+  }
+  /* The Trend sparkline: twelve months of Net around a zero line at mid-height. */
+  .mf-trend {
+    display: block;
+    margin-left: auto;
+    overflow: visible;
+  }
+  .mf-trend__zero {
+    /* Stronger than a border, so the line still shows on the dark theme's rows. */
+    stroke: var(--text-muted);
+    stroke-opacity: 0.45;
+  }
+  .mf-trend__line {
+    fill: none;
+    stroke: var(--text-secondary);
+    stroke-width: 1.25;
+    stroke-linejoin: round;
+  }
+  .mf-trend__end {
+    fill: var(--text-secondary);
+  }
+  /* A month still in progress keeps its color at a lighter strength. */
+  .mf-trend__end--partial {
+    fill-opacity: var(--mf-partial-opacity);
+  }
+  .mf-table__cell > .mf-skeleton {
+    width: 100%;
+    max-width: 3.5rem;
+  }
+  .mf-table__muted {
+    color: var(--text-secondary);
+  }
+  .mf-share {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+  .mf-share__track {
+    flex: none;
+    width: 2rem;
+    height: 3px;
+    overflow: hidden;
+    background: var(--border-muted);
+  }
+  .mf-share__bar {
+    display: block;
+    height: 100%;
+  }
+  .mf-share__bar--in,
+  .mf-net-bar__fill--in {
+    background: var(--mf-in);
+  }
+  .mf-share__bar--out,
+  .mf-net-bar__fill--out {
+    background: var(--mf-out);
+  }
+  .mf-net-bar {
+    position: relative;
+    display: block;
+    height: 10px;
+    margin-block: 5px;
+  }
+  .mf-net-bar::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    left: 50%;
+    border-left: 1px solid var(--text-muted);
+  }
+  .mf-net-bar__fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+  }
+  .mf-net-bar__fill--in {
+    left: 50%;
+  }
+  .mf-net-bar__fill--out {
+    right: 50%;
+  }
+  .mf-staged {
+    color: var(--mf-pending);
+  }
+  .mf-table__row--deleted .mf-table__cell:not([data-column='flags']) {
+    text-decoration: line-through;
+  }
+  .mf-flags {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  /* Phone rows at 640 px and narrower: a 44 px selection tap area, two lines, and a 44 px button.
+     The grid sets the class from kit MEDIA.compact, with the row height it virtualizes. */
+  .mf-table--compact {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+  }
+  .mf-table--compact .mf-table__row {
+    touch-action: manipulation;
+  }
+  .mf-table--compact [data-column='select'],
+  .mf-compact__action {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .mf-table--compact .mf-table__select-all {
+    margin-left: 0;
+  }
+  .mf-table--compact .mf-table__select-all .kit-icon-button,
+  .mf-table--compact .mf-table__sort {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .mf-compact {
+    min-width: 0;
+    padding-right: var(--space-3);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-content: center;
+    gap: var(--space-1) var(--space-3);
+  }
+  .mf-compact > [role='gridcell'] {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .mf-compact__lead {
+    color: var(--text-primary);
+    font-weight: var(--font-weight-medium);
+  }
+  .mf-compact__figure,
+  .mf-compact__money {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .mf-compact__figure {
+    text-align: right;
+  }
+  .mf-compact__meta {
+    grid-column: 1 / -1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    overflow-x: clip;
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+  }
+  .mf-compact__meta > [role='gridcell'] {
+    flex: none;
+  }
+  .mf-compact__meta > .mf-compact__text {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mf-compact__label {
+    margin-right: var(--space-1);
+    font-family: var(--font-sans);
+  }
+  .mf-compact__button {
+    display: flex;
+  }
+  /* The flags cell keeps full strength, so its Hidden tag reads clearly, as on desktop rows. */
+  .mf-table__row--hidden .mf-compact [role='gridcell']:not([data-column='flags']) {
+    opacity: var(--opacity-disabled);
+  }
+  /* A 44 px tap target that keeps the meta line's height; the line clips only sideways. It reaches
+     further up than down, so it stays inside the row's 7.5 px bottom padding and off the next row;
+     the top padding keeps the mark on the text line. A hover background would cover the amount
+     above it, so hover only darkens the mark. */
+  .mf-table--compact .mf-flags__match .kit-icon-button {
+    --bg-surface-hover: transparent;
+    box-sizing: border-box;
+    min-width: 44px;
+    min-height: 44px;
+    margin-block: -21px -7px;
+    padding-top: 14px;
+  }
+  .mf-table__row--deleted .mf-compact [role='gridcell']:not([data-column='flags']) {
+    text-decoration: line-through;
+  }
+  /* The row actions sheet: one full-width 44 px button per item, with an unavailable item's
+     reason under it. */
+  .mf-row-actions__summary {
+    margin: 0 0 var(--space-4);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+  }
+  .mf-row-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .mf-row-actions .kit-button.mf-row-actions__button {
+    width: 100%;
+    min-height: 44px;
+    justify-content: flex-start;
+  }
+  .mf-row-actions__reason {
+    margin: var(--space-1) 0 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+  }
+  /* In the scroll flow after the table, so the last row scrolls clear of it. The negative bottom
+     reaches past the workspace's focus-ring padding to its edge. */
+  .mf-selection-bar {
+    position: sticky;
+    bottom: calc(-1 * var(--space-2));
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3) var(--space-6);
+    margin-top: var(--space-4);
+    padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6);
+    border-top: 1px solid var(--border-default);
+    background: var(--bg-surface);
+    font-size: var(--font-size-sm);
+  }
+  .mf-selection-bar__summary {
+    color: var(--text-primary);
+    font-weight: var(--font-weight-semibold);
+    font-variant-numeric: tabular-nums;
+  }
+  .mf-selection-bar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  /* A disabled button takes no pointer events, so its Tooltip wrapper sees the hover. */
+  .mf-selection-bar__button:disabled {
+    pointer-events: none;
+  }
+
+  .editing-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+  }
+
+  .editing-error {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+  .mf-quiet {
+    margin: 0;
+    color: var(--text-secondary);
+  }
+
+  .help-groups {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-6);
+    overflow: auto;
+  }
+  .help-groups h2 {
+    margin: 0 0 var(--space-3);
+    font-size: var(--font-size-sm);
+  }
+  .help-list {
+    display: flex;
+    margin: 0;
+    padding: 0;
+    flex-direction: column;
+    gap: var(--space-3);
+    list-style: none;
+  }
+  .help-list li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    color: var(--text-secondary);
+  }
+  .help-list li > :first-child {
+    flex: 1;
+  }
+  .help-list__unavailable {
+    color: var(--text-muted);
+    text-decoration: line-through;
+  }
+  .mf-lock-banner {
+    padding-bottom: var(--space-4);
+  }
+  .mf-lock-banner__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .mf-lock-banner__text {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+  }
+  /* Charts: the KPI strip and the chart row, above the table's scroller. */
+  .mf-chart-area {
+    /* Positioned, so a tooltip can raise the area above the table's sticky header. */
+    position: relative;
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-2) 0;
+  }
+  /* A chart tooltip covers the table's sticky header, which otherwise paints above the area. */
+  .mf-chart-area:has([role='tooltip']) {
+    z-index: 3;
+  }
+  .mf-chart-states {
+    display: grid;
+    gap: var(--space-5);
+  }
+  .mf-workspace .mf-chart-states {
+    gap: var(--space-4);
+    padding: var(--space-2);
+  }
+  .mf-chart-states--stale {
+    opacity: var(--opacity-disabled);
+  }
+  .mf-chart-failure {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+  }
+  .mf-chart-dialog {
+    padding: var(--space-5) var(--space-6);
+  }
+  .mf-kpis {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .mf-kpis__tiles {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-4) var(--space-8);
+    margin: 0;
+  }
+  .mf-kpi {
+    display: grid;
+    min-width: 6.5rem;
+  }
+  .mf-kpi > * {
+    margin: 0;
+  }
+  .mf-kpi__label {
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+  }
+  .mf-kpi__value {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xl);
+    font-variant-numeric: tabular-nums;
+  }
+  .mf-kpi__note {
+    /* Always one line, so tiles with and without a change line up and skeletons keep the size. */
+    min-height: 1lh;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+  }
+  /* A change against the comparison range, in the KPI strip and the vs prior column. */
+  .mf-tone--favorable {
+    color: var(--mf-in-text);
+  }
+  .mf-tone--unfavorable {
+    color: var(--mf-out-text);
+  }
+  .mf-tone--neutral {
+    color: var(--text-secondary);
+  }
+  .mf-kpis__caption {
+    /* Always one line under the tiles, so a comparison arriving or leaving shifts nothing. */
+    min-height: 1lh;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+  }
+  .mf-chart-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+  }
+  .mf-chart-row__slot {
+    min-width: 0;
+    height: 12rem;
+  }
+  .mf-skeleton {
+    display: inline-block;
+    width: 4rem;
+    height: 0.75em;
+    vertical-align: middle;
+    border-radius: var(--radius-sm);
+    background: var(--bg-inset);
+  }
+  .mf-kpi__value > .mf-skeleton {
+    width: 6rem;
+  }
+  .mf-skeleton--fill {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  /* The cash-flow chart: muted In and Out columns, the cursor's share solid inside them. */
+  .mf-cashflow,
+  .mf-cashflow__plot {
+    height: 100%;
+  }
+  .mf-cashflow__plot {
+    position: relative;
+    display: grid;
+    /* Vertical swipes still scroll; sideways drags select columns. */
+    touch-action: pan-y;
+    user-select: none;
+  }
+  .mf-cashflow__column {
+    flex: 1;
+    display: grid;
+    /* One track as wide as the slot, so a label wider than a narrow column cannot widen it. */
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 16px;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--font-size-xs);
+    line-height: 16px;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  /* Starts at its column's left edge, moved by its offset into the unlabeled neighbors. */
+  .mf-cashflow__tick {
+    justify-self: start;
+  }
+  /* Draws a sample axis label in the axis font, out of sight, to measure labels. */
+  .mf-cashflow__ruler {
+    position: absolute;
+    top: 0;
+    left: 0;
+    visibility: hidden;
+    font-size: var(--font-size-xs);
+    line-height: 16px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .mf-cashflow__column--scope {
+    background: var(--bg-surface-hover);
+  }
+  .mf-cashflow__column:hover,
+  .mf-cashflow__column--dragged {
+    background: var(--mf-cursor);
+  }
+  .mf-cashflow__column:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -2px;
+  }
+  .mf-cashflow__in {
+    fill: var(--mf-in-muted);
+  }
+  .mf-cashflow__out {
+    fill: var(--mf-out-muted);
+  }
+  .mf-cashflow__in.mf-cashflow__cursor {
+    fill: var(--mf-in);
+  }
+  .mf-cashflow__out.mf-cashflow__cursor {
+    fill: var(--mf-out);
+  }
+  /* A period still in progress keeps its colors at a lighter strength; the cursor's share stays
+     full strength, so it reads over the lighter bar. */
+  .mf-cashflow__column--partial rect:not(.mf-cashflow__cursor),
+  .mf-cashflow__dot--partial {
+    fill-opacity: var(--mf-partial-opacity);
+  }
+  .mf-cashflow__lines {
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .mf-cashflow__zero {
+    stroke: var(--border-default);
+  }
+  .mf-cashflow__net {
+    fill: none;
+    stroke: var(--text-secondary);
+    stroke-width: 1.5px;
+  }
+  .mf-cashflow__dot {
+    fill: var(--text-secondary);
+  }
+  .mf-cashflow-tip {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 0 var(--space-4);
+    margin: 0 0 var(--space-2);
+  }
+  .mf-cashflow-tip dd {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .mf-cashflow-tip__title {
+    margin: 0;
+    font-weight: 600;
+  }
+  /* The right panel: composition bars or the calendar heatmap, under a title line. */
+  .mf-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    height: 100%;
+  }
+  .mf-panel__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .mf-panel__title,
+  .mf-calendar__label {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+  }
+  .mf-bars {
+    display: grid;
+    flex: 1;
+    grid-auto-rows: minmax(0, 1.25rem);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .mf-bar {
+    display: grid;
+    grid-template-columns: minmax(4rem, 30%) minmax(0, 1fr) auto 3rem;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    height: 100%;
+    padding: 0 var(--space-1);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--font-size-xs);
+    text-align: left;
+  }
+  button.mf-bar:hover {
+    background: var(--mf-cursor);
+    cursor: pointer;
+  }
+  .mf-bar:focus-visible,
+  .mf-day:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -2px;
+  }
+  .mf-bar__label {
+    overflow: hidden;
+    color: var(--text-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mf-bar__fill {
+    display: block;
+    height: 0.5rem;
+    border-radius: 2px;
+    background: var(--mf-out-muted);
+  }
+  .mf-bar--cursor .mf-bar__fill {
+    background: var(--mf-out);
+  }
+  .mf-bars--income .mf-bar__fill {
+    background: var(--mf-in-muted);
+  }
+  .mf-bars--income .mf-bar--cursor .mf-bar__fill {
+    background: var(--mf-in);
+  }
+  /* The others entry folds many rows, so it is drawn neutral, not as one large payee. */
+  .mf-bar--others .mf-bar__fill {
+    background: color-mix(in srgb, var(--text-muted) 40%, transparent);
+  }
+  .mf-bar__net,
+  .mf-bar__share {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  /* Month grids fill the panel; the strip keeps short rows under its month ticks. */
+  .mf-calendar {
+    display: flex;
+    flex: 1;
+    gap: var(--space-4);
+    min-height: 0;
+  }
+  .mf-calendar__month {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .mf-calendar__days {
+    display: grid;
+    flex: 1;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+    gap: 2px;
+    min-height: 0;
+  }
+  .mf-calendar__weekday,
+  .mf-calendar__ticks,
+  .mf-day {
+    color: var(--text-secondary);
+    font-size: 10px;
+    line-height: 0.875rem;
+  }
+  .mf-calendar__weekday {
+    text-align: center;
+  }
+  .mf-calendar--weeks {
+    display: grid;
+    grid-template-columns: 1rem minmax(0, 1fr);
+    align-content: start;
+    gap: 2px var(--space-1);
+  }
+  .mf-calendar__ticks {
+    display: grid;
+    grid-column: 2;
+    grid-template-columns: repeat(var(--mf-weeks), minmax(0, 1fr));
+    white-space: nowrap;
+  }
+  /* Each name is as wide as its text, so a name that would cover the one before it can be found. */
+  .mf-calendar__ticks > span {
+    justify-self: start;
+  }
+  /* A name too near the right edge to fit ends at the edge. The heatmap hides any drawn name that
+     would crowd the shown name before it or pass the edge. */
+  .mf-calendar__ticks > .mf-calendar__tick--end {
+    grid-column-end: -1;
+    justify-self: end;
+  }
+  .mf-calendar__tick--hidden {
+    visibility: hidden;
+  }
+  .mf-calendar__rows,
+  .mf-calendar--weeks .mf-calendar__days {
+    display: grid;
+    grid-row: 2;
+    grid-template-rows: repeat(7, 0.875rem);
+    gap: 1px;
+  }
+  .mf-calendar--weeks .mf-calendar__days {
+    grid-column: 2;
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+  /* Levels mix one hue; the darkest stays light enough for the day number to read in both themes. */
+  .mf-day,
+  .mf-legend__swatch {
+    --mf-fill: color-mix(in srgb, var(--mf-out) calc(var(--mf-level) * 21%), var(--bg-inset));
+    border-radius: 2px;
+    background: var(--mf-fill);
+  }
+  .mf-day {
+    position: relative;
+    /* The grid item, or the button that fills the kit Tooltip wrapper of the one tipped day. */
+    flex: 1;
+    padding: 1px 3px;
+    border: 0;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    text-align: left;
+    cursor: pointer;
+  }
+  .mf-day--in::after,
+  .mf-legend__in::before {
+    content: '';
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--mf-in);
+  }
+  .mf-day--in::after {
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+  }
+  /* A day without Out, and its key swatch, keep an edge where the inset ground meets the panel. */
+  .mf-heat--empty {
+    box-shadow: inset 0 0 0 1px var(--border-muted);
+  }
+  .mf-day--outside {
+    background: color-mix(in srgb, var(--mf-fill) 45%, var(--bg-surface));
+    color: var(--text-secondary);
+  }
+  .mf-day--scope {
+    box-shadow: inset 0 0 0 2px var(--mf-focus);
+  }
+  .mf-day--cursor {
+    outline: 2px solid var(--text-primary);
+  }
+  .mf-legend,
+  .mf-legend__in {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .mf-legend {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+  }
+  .mf-legend__swatch {
+    width: 10px;
+    height: 10px;
+  }
+  .mf-legend__in {
+    margin-left: var(--space-2);
+  }
+  /* Phone rows reach the 24 px minimum target size; the panel grows to hold them. */
+  @media (max-width: 640px) {
+    .mf-bars {
+      grid-auto-rows: 1.5rem;
+    }
+    .mf-chart-row__slot:last-child {
+      height: 14.5rem;
+    }
+  }
+  @media (min-width: 900px) {
+    .mf-chart-row {
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    }
+  }
+  /* Live projection updates must not restart the drawer entrance outside the viewport. */
+  .kit-detail-drawer {
+    animation: none !important;
+  }
+  @media (max-width: 900px) {
+    .help-groups {
+      grid-template-columns: 1fr;
+    }
+    /* The sidebar's top bar sits above the workspace. */
+    .app-shell {
+      flex-direction: column;
+    }
+  }
+  @media (max-width: 640px) {
+    /* Phone frame: two command bar rows, with 44 px touch targets. */
+    .mf-command-bar {
+      gap: 0;
+      padding: var(--space-1) var(--space-2);
+    }
+    .mf-command-bar__leading,
+    .mf-command-bar__controls {
+      flex-basis: 100%;
+      flex-wrap: nowrap;
+      gap: var(--space-2);
+    }
+    .mf-command-bar__controls {
+      margin-left: 0;
+      justify-content: flex-start;
+    }
+    .mf-command-bar__leading .mf-breadcrumbs {
+      flex: 1;
+    }
+    .mf-breadcrumbs__link {
+      min-height: 44px;
+    }
+    .mf-command-bar .kit-icon-button,
+    .kit-app-sidebar__bar .kit-icon-button {
+      min-width: 44px;
+      min-height: 44px;
+    }
+    .mf-command-bar .mf-period__label {
+      min-height: 44px;
+    }
+    .mf-charts-switch {
+      min-height: 44px;
+      padding-right: var(--space-3);
+    }
+    .mf-view-button-slot {
+      display: contents;
+    }
+    .mf-command-bar .kit-button.mf-view-button {
+      min-height: 44px;
+      margin-left: auto;
+    }
+    .mf-command-bar__search {
+      flex-basis: 100%;
+      padding-bottom: var(--space-2);
+    }
+    /* At least 16 px on touch devices (kit's md size), so iOS does not zoom into the field. */
+    .mf-command-bar .mf-command-bar__search .kit-search-input {
+      width: 100%;
+      height: 44px;
+      font-size: var(--font-size-md);
+    }
+    .app-shell__main {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr);
+    }
+    /* The bar spans the screen's bottom edge, over the status line; the workspace keeps room for
+       it below the last row. */
+    .mf-workspace--selecting {
+      padding-bottom: calc(var(--space-2) + var(--mf-selection-height));
+    }
+    .mf-selection-bar {
+      position: fixed;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      margin: 0;
+      padding: var(--space-3) var(--space-4);
+      padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+      box-shadow: var(--shadow-md);
+    }
+    .mf-selection-bar__actions {
+      flex: 1 1 100%;
+      flex-wrap: nowrap;
+      gap: var(--space-2);
+    }
+    .mf-selection-bar__actions > .kit-tooltip-trigger {
+      flex: 1 1 0;
+      min-width: 0;
+      display: flex;
+    }
+    .mf-selection-bar .kit-button.mf-selection-bar__button {
+      flex: 1 1 0;
+      min-width: 0;
+      min-height: 44px;
+      flex-direction: column;
+      gap: var(--space-1);
+      padding: var(--space-2);
+    }
+    .mf-selection-bar__button .kit-kbd-badge {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mf-sheet__panel {
+      animation: none;
+    }
+  }
+
+  .moneyflow-actions {
+    display: flex;
+    gap: var(--space-4);
+    margin-top: var(--space-6);
+  }
+
+  .moneyflow-eyebrow {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--letter-spacing-label, 0.06em);
+    text-transform: uppercase;
+  }
+  /* The provider refresh dialog. */
+  .mf-refresh {
+    display: grid;
+    gap: var(--space-3);
+    min-inline-size: min(26rem, calc(100vw - 4rem));
+  }
+  .mf-refresh p {
+    margin: 0;
+  }
+  .mf-refresh__progress {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .mf-refresh__subject,
+  .mf-refresh__lead {
+    color: var(--text-primary);
+    font-weight: var(--font-weight-semibold);
+  }
+  .mf-refresh__bar {
+    inline-size: 100%;
+    block-size: 0.5rem;
+    accent-color: var(--accent-blue);
+  }
+  .mf-refresh__count,
+  .mf-refresh__meta {
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Data that missed a refresh: the banner stays until a refresh succeeds. */
+  .mf-stale-banner {
+    padding-bottom: var(--space-4);
+  }
+  .mf-stale-banner__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .mf-stale-banner__wait {
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+  }
+}
