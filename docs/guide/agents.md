@@ -9,9 +9,10 @@ experiment with synthetic data.
 
 - `https://moneyflow.dev/llms.txt` lists every page in
   the [llmstxt.org](https://llmstxt.org/) format.
-- Every page has a Markdown twin: replace the trailing `/` of its URL with `.md`. This page is
-  `https://moneyflow.dev/docs/guide/agents.md`; the overview is
-  `https://moneyflow.dev/docs/index.md`.
+- Every page has a Markdown twin at its source path. This page, `/docs/guide/agents/`, is
+  `https://moneyflow.dev/docs/guide/agents.md`. Section index pages keep their file name:
+  `/docs/` is `https://moneyflow.dev/docs/index.md`, and `/docs/architecture/` is
+  `https://moneyflow.dev/docs/architecture/index.md`.
 - These pages describe the Go application on `main`. Command help belongs to the installed
   binary, so check `moneyflow <command> --help` when the two disagree. See
   [installation](../getting-started/installation.md) for release status.

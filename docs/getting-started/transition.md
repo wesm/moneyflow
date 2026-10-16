@@ -142,7 +142,7 @@ in Go.
 ## What about older Go previews?
 
 Moneyflow installs one current schema into an empty database. It does not migrate older
-databases and refuses incompatible profiles. The unreleased Go build offers **Start fresh** to
+databases and refuses incompatible profiles. The Go build offers **Start fresh** to
 set up a separate profile and keep the existing files. See
 [incompatible profiles](../reference/troubleshooting.md#the-profile-schema-is-incompatible)
 for setup and recovery choices.

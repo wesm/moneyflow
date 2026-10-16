@@ -1,8 +1,8 @@
 # Installation
 
-Moneyflow is one binary with the web application built in. Install a tagged Go preview, or
-build it from this checkout. Do not assume the latest published release already includes the
-Go application. The old PyPI package installs Python Moneyflow.
+Moneyflow is one binary with the web application built in. No Go release has been published
+yet, so [build from source](#build-from-source). The latest PyPI package, `moneyflow==0.11.1`,
+is the legacy Python application.
 Read [moving to Go](transition.md) before you replace a Python installation.
 
 ## Available releases

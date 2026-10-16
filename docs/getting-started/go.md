@@ -56,13 +56,13 @@ codes. Amazon imports CSV files and commits edits locally. [SimpleFIN](../guide/
 imports read-only bank data and keeps edits local; its Go support stays experimental until
 live-bank validation.
 
-**Unreleased:** When no profile has the name you pass to `--profile`, or several do, the
+When no profile has the name you pass to `--profile`, or several do, the
 command stops and lists the profiles you can choose. Profiles that share a name are listed with
 their IDs; pass one of those IDs to `--profile`.
 
 ## Rename a profile
 
-**Unreleased:** A profile that a provider command or first run creates is named after its
+A profile that a provider command or first run creates is named after its
 provider, such as "Monarch" or "YNAB". When that name is taken, it becomes "Monarch 2",
 "Monarch 3", and so on. To choose another name, close every TUI, web, and MCP process using
 the profile, then run:

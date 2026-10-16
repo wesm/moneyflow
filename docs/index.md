@@ -44,7 +44,8 @@ Each provider guide owns its limitations, credential storage, and refresh behavi
 Coding and assistant agents should start with [Use Moneyflow with an agent](guide/agents.md).
 It covers MCP setup, safe commands, and the rules an agent must follow.
 
-Every page is also published as Markdown. Replace the trailing `/` of a page URL with `.md`:
-this page is at `https://moneyflow.dev/docs/index.md`, and the web guide at
-`https://moneyflow.dev/docs/guide/web.md`. The index of all pages is
+Every page is also published as Markdown at its source path. The web guide
+`https://moneyflow.dev/docs/guide/web/` is at `https://moneyflow.dev/docs/guide/web.md`.
+Section index pages keep their file name: this page is `https://moneyflow.dev/docs/index.md`,
+and `/docs/architecture/` is `/docs/architecture/index.md`. The index of all pages is
 `https://moneyflow.dev/llms.txt`.
