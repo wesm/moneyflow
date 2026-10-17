@@ -187,8 +187,10 @@ A dialog shows progress until the refresh ends:
   5 minutes; `r` still runs at once.
 - **Failure:** the dialog gives the reason. Choose **Retry**, or **Continue with data from** a
   date to keep working with what you have.
-- **Removals:** if the refresh would remove posted transactions, it asks first. Enter confirms;
-  Esc keeps your current data.
+- **Removals:** a refresh removes a few transactions without asking. It asks first when the
+  removal looks suspicious, such as emptying the profile or removing 1,000 transactions; see the
+  [exact thresholds](../architecture/providers.md#deletion-plausibility). Enter confirms; Esc
+  keeps your current data.
 - **Reconnect needed:** choose **Reconnect** to sign in again.
 
 If the terminal app, an MCP client, or another tab is already refreshing, the dialog follows
