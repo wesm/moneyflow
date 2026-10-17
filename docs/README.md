@@ -17,6 +17,7 @@ Follow the [documentation rules in AGENTS.md](https://github.com/wesm/moneyflow/
 | What does a command accept? | Command `--help`; [CLI reference](reference/cli.md) routes to it |
 | How do components fit together now? | [Architecture](architecture/index.md) |
 | How do we build and publish? | [Development](development/developing.md) and [releases](development/releases.md) |
+| How do I run Moneyflow inside another program? | [Embedding Moneyflow](development/embedding.md) |
 
 Update the owning section when behavior changes. Link to it from related pages instead of
 copying details. Keep exact commands, limits, failure behavior, and authorization requirements.

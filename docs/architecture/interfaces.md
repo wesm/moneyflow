@@ -325,7 +325,11 @@ standalone app renders the same components. In a host:
   refreshes that are due.
 - `MoneyflowSetup` creates a profile only with a name the host supplies.
 
-The views are not yet published as a package, and no embedding guide exists yet.
+Every API operation and MCP tool has one class: `read`, `stage`, or `commit`. The standalone web
+server wraps the same API handler with its canonical-origin and mutation-token checks; an
+embedded instance checks neither. The root `package.json` makes the repository the
+`moneyflow-views` Svelte package, which a host installs from the same Moneyflow commit or tag as
+the Go module. [Embedding Moneyflow](../development/embedding.md) owns the host contract.
 
 ## Credentials, cancellation, and process ownership
 

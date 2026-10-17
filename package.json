@@ -1,0 +1,26 @@
+{
+  "name": "moneyflow-views",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "svelte": "./web/src/lib/views/index.ts",
+  "types": "./web/src/lib/views/index.ts",
+  "main": "./web/src/lib/views/index.ts",
+  "exports": {
+    ".": {
+      "types": "./web/src/lib/views/index.ts",
+      "svelte": "./web/src/lib/views/index.ts",
+      "default": "./web/src/lib/views/index.ts"
+    },
+    "./styles.css": "./web/src/lib/views/views.css"
+  },
+  "peerDependencies": {
+    "svelte": "^5.56.9",
+    "@lucide/svelte": "^1.21.0",
+    "@kenn-io/kit-ui": "*"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0"
+  }
+}

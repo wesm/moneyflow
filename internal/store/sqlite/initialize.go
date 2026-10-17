@@ -42,7 +42,7 @@ func ensureCurrentSchema(
 		state, err := inspectSchema(deadlineContext, database)
 		if err != nil {
 			if isBusy(err) || errors.Is(deadlineContext.Err(), context.DeadlineExceeded) {
-				if waitErr := waitForStartup(deadlineContext); waitErr != nil {
+				if waitErr := waitForStartup(deadlineContext, options); waitErr != nil {
 					return store.NewError(store.CodeStoreBusy, err)
 				}
 				continue
@@ -68,7 +68,7 @@ func ensureCurrentSchema(
 		// that ends while another connection holds the install lock.
 		if errors.Is(err, errStartupBusy) || isBusy(err) ||
 			errors.Is(deadlineContext.Err(), context.DeadlineExceeded) {
-			if waitErr := waitForStartup(deadlineContext); waitErr != nil {
+			if waitErr := waitForStartup(deadlineContext, options); waitErr != nil {
 				return store.NewError(store.CodeStoreBusy, err)
 			}
 			continue
@@ -202,7 +202,10 @@ func isBusy(err error) bool {
 		coded.Code()&sqlitePrimary == sqliteLocked)
 }
 
-func waitForStartup(ctx context.Context) error {
+func waitForStartup(ctx context.Context, options Options) error {
+	if options.startupWaiting != nil {
+		options.startupWaiting()
+	}
 	timer := time.NewTimer(10 * time.Millisecond)
 	defer timer.Stop()
 	select {

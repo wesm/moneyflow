@@ -28,6 +28,8 @@ type Options struct {
 	MutationBusyTimeout time.Duration
 	StartupDeadline     time.Duration
 	Now                 func() time.Time
+	// startupWaiting runs each time startup waits for another schema installer.
+	startupWaiting func()
 }
 
 // DefaultOptions favors durable financial writes and bounded concurrent access.
