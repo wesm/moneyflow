@@ -54,6 +54,24 @@ jobs:
           make web-install
           make web-embed-check build
 
+      - name: Use a private temp directory on the Windows runner disk
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Go on Windows reads TMP and TEMP, not TMPDIR, so tests used the slow C: disk.
+          # A profile folder and its parents must be owned by trusted accounts, and the
+          # folder must be private to them. NETWORK SERVICE owns the runner disk's root,
+          # and runner.temp grants other users access.
+          $drive = Split-Path -Qualifier $env:RUNNER_TEMP
+          takeown /F "$drive\" /A
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $dir = Join-Path $env:RUNNER_TEMP 'private-tmp'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          icacls $dir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' "${env:USERNAME}:(OI)(CI)F"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "TMP=$dir" >> $env:GITHUB_ENV
+          "TEMP=$dir" >> $env:GITHUB_ENV
+
       - name: Test
         id: tests
         shell: bash
