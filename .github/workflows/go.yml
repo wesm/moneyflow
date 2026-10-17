@@ -252,22 +252,18 @@ jobs:
           cache: true
 
       - name: Time bulk editing with the temp dir on each disk
-        continue-on-error: true
-        shell: pwsh
+        shell: bash
         run: |
-          try { Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, AntivirusEnabled | Format-List } catch { "Defender status unavailable: $_" }
-          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Root, Used, Free
-          $test = Join-Path $env:RUNNER_TEMP 'sqlite.test.exe'
-          go test -c -o $test ./internal/store/sqlite
-          $c = $env:TEMP
-          $d = Join-Path $env:RUNNER_TEMP 'perf-tmp'
-          New-Item -ItemType Directory -Force $d | Out-Null
-          foreach ($i in 1..3) {
-            foreach ($pair in @(@('C', $c), @('D', $d))) {
-              $env:TMP = $pair[1]; $env:TEMP = $pair[1]
-              "== run $i disk $($pair[0]) temp $($pair[1])"
-              & $test -test.run '^TestBulkEditingPerformance100K$' -test.count=1 -test.v 2>&1 |
-                Select-String 'performance_test|--- |TempDir'
-            }
-          }
-          $global:LASTEXITCODE = 0
+          c_temp="$LOCALAPPDATA\\Temp"
+          d_temp="$RUNNER_TEMP\\perf-tmp"
+          mkdir -p "$(cygpath -u "$d_temp")"
+          go test -c -o sqlite.test.exe ./internal/store/sqlite
+          for i in 1 2 3; do
+            for disk in C D; do
+              if [ "$disk" = C ]; then dir="$c_temp"; else dir="$d_temp"; fi
+              echo "== run $i disk $disk temp $dir"
+              TMP="$dir" TEMP="$dir" ./sqlite.test.exe \
+                -test.run '^TestBulkEditingPerformance100K$' -test.count=1 -test.v 2>&1 |
+                grep -E 'performance_test|--- ' || true
+            done
+          done
