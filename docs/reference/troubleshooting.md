@@ -1,53 +1,67 @@
 # Troubleshooting
 
-Start with `moneyflow version` and the exact error shown. Before changing stored files,
-stop the application and keep a [complete profile backup](../config/caching.md#back-up-a-profile).
+Find the fix for common problems. Start with `moneyflow version` and the exact error. Commands
+print the reason on standard error and exit with status 1. Before you change stored files, stop
+Moneyflow and make a [complete profile backup](../config/caching.md#back-up-a-profile).
 
 ## The wrong application starts
 
-An older Python executable may appear first on your PATH. Use `command -v moneyflow`
-on Unix or `Get-Command moneyflow` in PowerShell. See [moving to Go](../getting-started/transition.md).
+An older Python Moneyflow may come first on your `PATH`. Run `command -v moneyflow` on macOS or
+Linux, or `Get-Command moneyflow` in PowerShell. Coming from Python Moneyflow? Read
+[Moving to Go](../getting-started/transition.md).
 
 ## My profile does not appear
 
-Check `MONEYFLOW_HOME`, the selected profile name, and which binary is running.
-Python profiles do not appear in the Go selector. Do not point Go at the Python directory.
+Check which binary is running, the profile name, and `MONEYFLOW_HOME`. Profiles live in
+`~/.moneyflow` unless `MONEYFLOW_HOME` names another directory.
+
+- `no profile named "NAME".` means no profile has that name. The message lists the profiles
+  that exist.
+- If several profiles share a name, pass the profile's ID to `--profile`.
+- Python Moneyflow profiles do not appear. Moneyflow refuses a directory that holds Python data.
+
+See the [command reference](cli.md#profiles-and-data-location).
 
 ## A refresh or provider write needs attention
 
-Use the provider status and its available recovery action. An uncertain write is not proof
-that nothing changed remotely. Do not resubmit blindly.
-See [write recovery](../guide/editing.md#recover-an-interrupted-provider-write).
+Use the recovery action that write status offers. An uncertain write does not prove that nothing
+changed at the provider, so do not resend it blindly. See
+[write recovery](../guide/editing.md#recover-an-interrupted-provider-write).
 
 ## Amazon import fails or a match is missing
 
-Use the [Amazon troubleshooting section](../guide/amazon-mode.md#if-results-look-wrong).
-Keep original exports, but share only synthetic examples when reporting an issue.
+See [if Amazon results look wrong](../guide/amazon-mode.md#if-results-look-wrong). Keep your
+original export files. When you report an issue, share only made-up examples.
 
 ## The profile schema is incompatible
 
-In the unreleased Go build, open `moneyflow tui`, select the affected profile, and press
-`n` for **Start fresh**. In the browser, select the profile and click **Start fresh**.
-Choose a provider and a new profile name, then complete setup. Your previous profile,
-database, and credentials stay where they are. Local changes are not copied to the new profile.
+Moneyflow cannot open a profile whose database format it does not support. It leaves the profile
+unchanged. You have two choices:
 
-The same action is available if a profile is labeled **Local · Setup incomplete** and
-has no provider to finish setup.
+- **Start fresh** creates a separate profile and keeps the old one, its database, and its
+  credentials. In the TUI, select the profile and press `n`. In the browser, select the profile
+  and choose **Start fresh**. Then choose a provider and a name, and finish setup. Local edits
+  are not copied.
+- **Recreate** backs up the old database and replaces it with an empty one in the same profile.
+  In the TUI, press Enter to review it and Enter again to confirm. In the browser, choose
+  **Recreate profile**. Recreate is not offered for a profile from a newer Moneyflow.
 
-To open a profile written by a newer Moneyflow version, install that version or later.
-For older profiles, **Recreate** is an alternative: it backs up the old database and replaces
-it with an empty one in the same profile. Recreate is unavailable for newer schemas.
-Never remove individual SQLite sidecar files from a live profile.
+To open a profile written by a newer Moneyflow, install that version or later. **Start fresh**
+also works for a profile marked **Local · Setup incomplete** that has no provider to finish
+setup. Never delete individual SQLite files, such as `moneyflow.db-wal`, from a profile.
 
-## Keys do not reach the terminal application
+## Keys do nothing
 
-Your terminal or tmux may intercept them. Try the alternatives in `?`, including
-`j`/`k` and the TUI's `T`/`B` navigation. Credential forms use masked feedback and
-accept terminal paste; do not include a password in a diagnostic recording.
+In the terminal, your terminal or tmux may take the key first. Use the other key listed by `?`,
+such as `j`/`k` for the arrows or `T`/`B` for Home and End. Do not record a password in a
+diagnostic recording.
+
+In the browser, shortcuts do nothing while you type in a text field, such as search. Press Esc or
+click the table, then try again. See [keyboard shortcuts](../guide/keyboard-shortcuts.md).
 
 ## Report a bug
 
-Include version, operating system, steps, and a sanitized error. Do not include profile
-databases, provider responses, account names, transactions, tokens, or Access URLs.
-Use the repository's issue tracker for ordinary bugs and its private security contact
-for credential exposure.
+Include the version, operating system, steps, and the error with personal details removed. Do
+not include profile databases, provider responses, account names, transactions, tokens, or
+Access URLs. Use the repository's issue tracker for ordinary bugs and its private security
+contact if a credential was exposed.

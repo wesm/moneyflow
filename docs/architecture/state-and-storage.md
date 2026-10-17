@@ -1,5 +1,9 @@
 # State, accounting, and storage
 
+Each profile is one SQLite database that holds exact integer money, stable identities, and a
+durable journal of pending edits. This page describes those contracts and the files, locks,
+recovery, and transfer rules around them.
+
 ## Exact accounting
 
 [Domain money][source-1] carries signed minor units, currency, and scale.
@@ -55,7 +59,7 @@ The invariant is: freshly loaded committed state equals the effective snapshot b
 including structural retirement effects. Provider write-back uses a response-adjusted version of
 that invariant described in [providers](providers.md).
 
-**Unreleased:** The profile's `audit.jsonl` retains edit evidence after the journal and
+The profile's `audit.jsonl` retains edit evidence after the journal and
 provider batch are cleared. Store mutations serialize file appends using the SQLite write
 lock. A durable intent precedes provider dispatch or a local fold; separate records describe
 provider responses and completed database commits. The file and database are not one atomic
@@ -108,7 +112,13 @@ downstream code receives its root just as it does any other profile. When the ro
 its manifest, it is named after its provider ("Monarch", "YNAB", "SimpleFIN", "Amazon", "Local",
 or "CSV"), with " 2", " 3", and so on when another profile already uses that name. Before then,
 the catalog lists it under that provider name, using "Local" for an unbound database, or as
-"Unknown profile" when its provider cannot be read.
+"Unknown profile" when its provider cannot be read. A profile created through **Add profile**
+takes the name the user enters.
+
+`moneyflow profile rename` changes only the manifest's display name; the ID, provider, data, and
+credentials stay. A profile may take another capitalization of its own name. Rename refuses a
+name another profile uses, and fails as busy while another process holds the catalog or the
+profile.
 
 Selection resolves ID/key first, then a unique normalized display name. Without an explicit choice,
 CLI commands use the sole persistent profile only when exactly one exists. Interactive commands
@@ -180,17 +190,17 @@ to compare counts and exact totals. Only successful population and verification 
 publication. Domain identities are preserved, but the catalog ID is new and no credentials,
 journal, or resumable provider work are copied. No network refresh runs during transfer.
 
-[source-1]: https://github.com/wesm/moneyflow/blob/go-port/internal/domain/money.go
-[source-2]: https://github.com/wesm/moneyflow/blob/go-port/internal/analytics/filter.go
-[source-4]: https://github.com/wesm/moneyflow/blob/go-port/internal/domain/operations.go
-[source-5]: https://github.com/wesm/moneyflow/blob/go-port/internal/app/profile_service.go
-[source-6]: https://github.com/wesm/moneyflow/blob/go-port/internal/profilecatalog/catalog.go
-[source-7]: https://github.com/wesm/moneyflow/blob/go-port/internal/home/lock.go
-[source-8]: https://github.com/wesm/moneyflow/blob/go-port/internal/profilecatalog/recovery.go
-[source-9]: https://github.com/wesm/moneyflow/blob/go-port/internal/store/sqlite/initialize.go
-[source-10]: https://github.com/wesm/moneyflow/blob/go-port/internal/store/sqlite/schema/profile.sql
-[source-11]: https://github.com/wesm/moneyflow/blob/go-port/internal/replay/replay_equivalence_test.go
-[source-12]: https://github.com/wesm/moneyflow/blob/go-port/internal/profilecatalog/recovery_test.go
-[source-13]: https://github.com/wesm/moneyflow/blob/go-port/internal/profiletransfer/format.go
-[source-14]: https://github.com/wesm/moneyflow/blob/go-port/internal/store/sqlite/profile_transfer.go
-[source-15]: https://github.com/wesm/moneyflow/blob/go-port/internal/app/profile_transfer.go
+[source-1]: https://github.com/wesm/moneyflow/blob/main/internal/domain/money.go
+[source-2]: https://github.com/wesm/moneyflow/blob/main/internal/analytics/filter.go
+[source-4]: https://github.com/wesm/moneyflow/blob/main/internal/domain/operations.go
+[source-5]: https://github.com/wesm/moneyflow/blob/main/internal/app/profile_service.go
+[source-6]: https://github.com/wesm/moneyflow/blob/main/internal/profilecatalog/catalog.go
+[source-7]: https://github.com/wesm/moneyflow/blob/main/internal/home/lock.go
+[source-8]: https://github.com/wesm/moneyflow/blob/main/internal/profilecatalog/recovery.go
+[source-9]: https://github.com/wesm/moneyflow/blob/main/internal/store/sqlite/initialize.go
+[source-10]: https://github.com/wesm/moneyflow/blob/main/internal/store/sqlite/schema/profile.sql
+[source-11]: https://github.com/wesm/moneyflow/blob/main/internal/replay/replay_equivalence_test.go
+[source-12]: https://github.com/wesm/moneyflow/blob/main/internal/profilecatalog/recovery_test.go
+[source-13]: https://github.com/wesm/moneyflow/blob/main/internal/profiletransfer/format.go
+[source-14]: https://github.com/wesm/moneyflow/blob/main/internal/store/sqlite/profile_transfer.go
+[source-15]: https://github.com/wesm/moneyflow/blob/main/internal/app/profile_transfer.go

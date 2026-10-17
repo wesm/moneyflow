@@ -5,8 +5,6 @@ Moneyflow's API under a path it chooses, adds Moneyflow's MCP tools to its own M
 shows Moneyflow's screens with the `moneyflow-views` Svelte package. This page calls that
 application the host.
 
-**Unreleased:** The embedding package and `moneyflow-views` are on `main` and not yet in a release.
-
 The host does four jobs that standalone Moneyflow does for itself:
 
 - **Admission.** The embedded API checks no origin and no token. The host decides who may call it

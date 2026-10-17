@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { chromium } from "../../web/node_modules/playwright";
-import { expect } from "../../web/node_modules/@playwright/test";
 import { startE2EServer } from "../../web/scripts/e2e-server";
 import prepareE2EBinaries from "../../web/scripts/e2e-binaries";
 
@@ -30,11 +29,11 @@ async function command(argv: string[], input?: string) {
   return stdout;
 }
 
-async function waitForText(text: string, occurrences = 1) {
+async function waitForText(text: string) {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     const pane = await command([...tmux, "capture-pane", "-p", "-t", "demo"]);
-    if (pane.split(text).length - 1 >= occurrences) return;
+    if (pane.includes(text)) return;
     await Bun.sleep(100);
   }
   throw new Error(
@@ -95,43 +94,7 @@ try {
   await command([...tmux, "set-option", "-g", "status", "off"]);
   await waitForText("Merchant");
   await capture("tui-browse");
-  await command([...tmux, "send-keys", "-t", "demo", "Down", "Enter"]);
-  await waitForText("Date");
-  await capture("tui-detail");
-  await command([...tmux, "send-keys", "-t", "demo", "Escape"]);
-  await waitForText("Top Category");
-  await command([...tmux, "send-keys", "-t", "demo", "d"]);
-  await waitForText("Date");
-  await command([
-    ...tmux,
-    "send-keys",
-    "-t",
-    "demo",
-    "Space",
-    "Down",
-    "Space",
-    "c",
-  ]);
-  await waitForText("Change Category");
-  await command([...tmux, "send-keys", "-t", "demo", "-l", "Books"]);
-  // Wait for both the complete input and the selected result, not a partial
-  // keystroke frame where the category merely appears among the choices.
-  await waitForText("Books", 2);
-  await capture("tui-category");
-  await command([...tmux, "send-keys", "-t", "demo", "Enter"]);
-  await waitForText("Pending:");
-  await command([...tmux, "send-keys", "-t", "demo", "w"]);
-  await waitForText("Enter=Commit");
-  await waitForText("Pending changes: 1 · Transactions: 2");
-  await capture("tui-review");
-  await command([...tmux, "send-keys", "-t", "demo", "Escape"]);
-  await waitForText("g Group By");
-  await command([...tmux, "send-keys", "-t", "demo", "E"]);
-  await waitForText("Export Data");
-  await capture("tui-export");
   // Exit normally so the application's own deferred demo cleanup runs.
-  await command([...tmux, "send-keys", "-t", "demo", "Escape"]);
-  await waitForText("g Group By");
   await command([...tmux, "send-keys", "-t", "demo", "q"]);
   await waitForText("Quit moneyflow?");
   await command([...tmux, "send-keys", "-t", "demo", "Enter"]);
@@ -166,62 +129,6 @@ try {
       await page.evaluate(() => document.fonts.ready);
       await page.screenshot({ path: join(output, "web-browse.png") });
       console.log("Captured web-browse.png");
-      const phone = await browser.newPage({
-        viewport: { width: 390, height: 844 },
-        deviceScaleFactor: 3,
-        colorScheme: "dark",
-      });
-      await phone.goto(server.url);
-      await phone.getByRole("grid", { name: "Financial results" }).waitFor();
-      await phone.evaluate(() => document.fonts.ready);
-      await phone.evaluate(() =>
-        (document.activeElement as HTMLElement)?.blur(),
-      );
-      await phone.screenshot({ path: join(output, "web-phone.png") });
-      console.log("Captured web-phone.png");
-      await phone.close();
-      const grid = page.getByRole("grid", { name: "Financial results" });
-      await grid.focus();
-      await page.keyboard.press("d");
-      await page.getByRole("columnheader", { name: "Date" }).waitFor();
-      await page.keyboard.press("Space");
-      await expect(page.getByRole("row", { selected: true })).toHaveCount(1);
-      await page.keyboard.press("ArrowDown");
-      await page.keyboard.press("Space");
-      await expect(page.getByRole("row", { selected: true })).toHaveCount(2);
-      await page.keyboard.press("c");
-      await page.getByRole("dialog", { name: "Change category" }).waitFor();
-      const category = page.getByRole("combobox", {
-        name: "Category",
-        exact: true,
-      });
-      await category.fill("Books");
-      await expect(category).toHaveAttribute("aria-expanded", "true");
-      // A click takes the suggestion without staging it, as Enter would, so the editor stays.
-      await page.getByRole("option", { name: /^Books, / }).click();
-      await expect(category).toHaveAttribute("aria-expanded", "false");
-      const stage = page.getByRole("button", { name: /^Stage change to / });
-      await stage.waitFor();
-      await page.evaluate(() => document.fonts.ready);
-      await page.screenshot({ path: join(output, "web-edit.png") });
-      console.log("Captured web-edit.png");
-      await stage.click();
-      await page
-        .getByRole("dialog", { name: "Change category" })
-        .waitFor({ state: "hidden", timeout: 5_000 })
-        .catch(async () => {
-          throw new Error(
-            await page
-              .getByRole("dialog", { name: "Change category" })
-              .innerText(),
-          );
-        });
-      await page.keyboard.press("w");
-      await page
-        .getByRole("dialog", { name: "Review pending changes" })
-        .waitFor();
-      await page.screenshot({ path: join(output, "web-review.png") });
-      console.log("Captured web-review.png");
     } finally {
       await browser.close();
     }

@@ -1,51 +1,48 @@
 # Go cutover
 
-This checkout contains one Go application. The Python implementation and Nix packaging have
-been removed. Previously published Python packages remain available; the
-[frozen archive](/legacy/v1/) documents them.
+The repository contains one application, written in Go. The Python implementation and Nix
+packaging are gone; published Python packages remain on PyPI. This page lists what Go covers
+and what still blocks recommending a full switch from Python.
 
-## What works in this checkout?
+## What works now?
 
-Go provides terminal, browser, and MCP interfaces over shared profiles and pending edits.
-Monarch and YNAB support import, refresh, and restricted write-back. Amazon supports imports,
-local edits, matching, and product search. SimpleFIN supports additive imports and local
-edits, but remains experimental pending live-bank testing. [Bank CSV](../guide/bank-csv.md)
-imports Chase credit-card exports and preserves local edits across overlapping and corrected files.
+- Browser, terminal, and MCP interfaces over shared profiles and pending edits.
+- Monarch and YNAB: import, refresh, and restricted write-back.
+- Amazon: imports, local edits, matching, and product search.
+- [Bank CSV](../guide/bank-csv.md): Chase credit-card imports that keep local edits across
+  overlapping and corrected files.
+- SimpleFIN: additive imports and local edits. It stays experimental pending live-bank testing.
+- [Release machinery](../development/releases.md) that builds archives with embedded web
+  assets, plus installers.
 
-[Binary release machinery](../development/releases.md) builds archives with embedded web
-assets and supports installation and update. A source build or passing synthetic test does
-not establish that a stable release was published or that a live account was validated.
+A source build or a passing synthetic test does not show that a stable release was published or
+that a live account was validated.
 
 ## What still blocks a complete switch?
 
 | Area | Remaining work |
 | --- | --- |
-| Data continuity | Go-to-Go JSONL transfer preserves saved profile data. Implement the Python source exporter and verify local-only edits and Amazon data before recommending Python cutover. |
-| Provider confidence | Record authorized live Monarch/YNAB writes and subsequent refresh. Keep SimpleFIN labeled experimental until live-bank evidence is available. |
+| Data continuity | Go-to-Go JSONL transfer keeps saved profile data. Build the Python source exporter and verify local-only edits, Amazon data, and CSV identities before recommending Python cutover. |
+| Provider confidence | Record authorized live Monarch and YNAB writes and the refresh after them. |
 | Installed release | Exercise released binaries and update paths on supported operating systems. Publish only after the release gates pass. |
-| Daily workflows | Check onboarding, editing, commit recovery, export, reconnect, and private-proxy access through the interfaces users rely on. |
-| Documentation | Review and publish the combined Go-first site from a stable release tag. Building a preview does not publish it. |
+| Daily workflows | Check onboarding, editing, commit recovery, export, reconnect, and private-proxy access through the interfaces people use. |
+| Documentation | Review and publish the Go site from a stable release tag. Building a preview does not publish it. |
 
 The [transition guide](../getting-started/transition.md) owns data-preservation instructions.
-There are no database migrations. Keep original data and the compatible old application;
-profile recreation or provider reimport does not transfer local-only state.
+There are no database migrations. Keep the original data and a compatible old application;
+recreating a profile or reimporting from a provider does not transfer local-only state.
 
-SimpleFIN live-bank confirmation is not a Go-cutover gate. It remains experimental until
-maintainers review that evidence; its automated correctness and data-preservation gates
-must still pass.
+SimpleFIN live-bank confirmation is not a cutover gate. SimpleFIN stays experimental until
+maintainers review that evidence, and its automated correctness and data-preservation gates must
+still pass.
 
-Chase CSV import and aggregate In/Out/Net columns are implemented in this checkout.
-Use the [bank CSV guide](../guide/bank-csv.md) and
-[grouped table navigation](../guide/navigation.md) for current behavior. Transferring
-Python CSV identities and local edits still belongs to the unbuilt Python source exporter.
+## Functional differences from Python
 
-## Functional differences to track
-
-- Go imports posted Monarch transactions; pending bank activity is deliberately excluded.
+- Go imports posted Monarch transactions and deliberately excludes pending bank activity.
 - Go owns taxonomy in SQLite. Python's YAML category utilities are not compatibility targets.
 - MCP defaults to read-only access. Writes are staged, reviewed, and explicitly committed.
-- Provider restrictions are described in [each provider's guide](providers.md).
-- YNAB split details are preserved, but split-line editing is not implemented.
+- [Provider restrictions](providers.md) are described for each provider.
+- YNAB split details are kept, but split-line editing is not implemented.
 
-New charts or editable split lines are enhancements, not invented cutover prerequisites.
-Use [verification](verification.md) for automated gates and record live confirmation separately.
+New charts and editable split lines are not cutover prerequisites. Use
+[verification](verification.md) for automated gates, and record live confirmation separately.

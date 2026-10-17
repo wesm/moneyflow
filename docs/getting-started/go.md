@@ -1,128 +1,101 @@
-# Go application quick start
+# Terminal interface
 
-The Go application on `go-port` is the replacement for Moneyflow's Python application. It runs
-the TUI, web UI, and MCP server from one binary, sharing the same SQLite profiles and pending
-edits. This checkout no longer contains the Python application or Nix packaging. See
-[installation](installation.md) for binary distribution and release status; the older PyPI
-package installs the legacy application, not Go.
+`moneyflow tui` runs Moneyflow in your terminal, driven entirely from the keyboard. It opens the
+same profiles and pending edits as the [browser](../guide/web.md) and the
+[MCP server](../guide/mcp.md). Use it locally, over SSH, or in tmux. For a first run, follow
+the [quick start](quickstart.md).
 
-## Build and try it
-
-From a checkout of `go-port`, use the Go toolchain declared in `go.mod`, Bun, and Make:
+## Start the TUI
 
 ```bash
-make web-install
-make build
-./bin/moneyflow version
-./bin/moneyflow tui --demo
+moneyflow tui --demo
+moneyflow tui
+moneyflow tui --profile "Example Profile" --year 2026
 ```
 
-`make build` builds and embeds the web application. The resulting binary does not need the Python
-application or a separate frontend server at runtime. On Windows the binary is
-`bin/moneyflow.exe`. Demo profiles are temporary; their edits disappear when the process exits.
+| Flag | Effect |
+| --- | --- |
+| `--demo` | Opens a temporary profile of made-up data; edits disappear when you quit |
+| `--profile NAME_OR_ID` | Opens one saved profile instead of the profile selector |
+| `--year YYYY` | Shows transactions from January 1 of that year through today |
+| `--since YYYY-MM-DD` | Shows transactions from that date through today |
+| `--mtd` | Shows month-to-date transactions |
+| `--theme NAME` | Chooses a [color theme](../config/themes.md) |
 
-Bare `moneyflow` prints command help. Use `moneyflow tui --demo`, not Python's `moneyflow --demo`.
-Examples below use the local build explicitly so an installed Python command cannot take its place.
+Running `moneyflow` with no subcommand prints help.
 
-## Create a persistent profile
+If `--profile` matches no profile, or several, the command stops and lists the profiles you can
+choose. Profiles that share a name are listed with their IDs; pass an ID instead.
 
-```bash
-./bin/moneyflow tui
-# Or use the browser selector and setup wizard:
-./bin/moneyflow web
-```
+## Keys
 
-Choose **Add profile**, give it a name, and select Monarch, YNAB, or Amazon. YNAB setup asks for
-the personal access token, a Moneyflow vault password, and a plan choice when needed. Monarch
-setup supports saved credentials and generated TOTP verification codes. Amazon imports CSV files
-and commits edits locally. [SimpleFIN](../guide/simplefin.md) imports read-only bank data and
-keeps edits local; its Go support remains experimental pending live-bank validation.
+| Key | Action |
+| --- | --- |
+| `g` | Cycle the grouping |
+| `1`–`5` | Group by Merchant, Category, Group, Account, or Time |
+| `t` | Group by Time; press again to switch between year, month, and day |
+| `p` | Choose a period |
+| Enter / Esc | Open the selected group / go back |
+| `/` | Search |
+| `f` | Filters |
+| `i` | Transaction details |
+| Space | Select a row |
+| `m` / `c` | Edit the merchant / change the category |
+| `h` | Hide or unhide |
+| `x` | Delete, where the provider allows it |
+| `u` / `U` | Undo / redo |
+| `w`, then Enter | Review pending edits, then commit |
+| `?` | Keys for the current view |
+| `q` | Quit |
 
-After setup, select the profile directly by its name or ID:
+The [keyboard reference](../guide/keyboard-shortcuts.md) lists every key.
+[Navigation](../guide/navigation.md) and [editing](../guide/editing.md) cover each workflow.
+Charts are browser-only.
 
-```bash
-./bin/moneyflow tui --profile "Example Profile" --year 2026
-./bin/moneyflow web --profile "Example Profile" --open=false
-```
+Some providers don't allow every edit. YNAB doesn't allow hide, transfer, or split-category
+edits, and Monarch categories are managed in Monarch. When an action is unavailable, the TUI
+says why.
 
-**Unreleased:** When no profile has that name, or several do, the command stops and lists the
-profiles you can choose. Profiles that share a name are listed with their IDs; pass one of those
-IDs to `--profile`.
+## Create a profile
+
+Run `moneyflow tui` (or `moneyflow web`), choose **Add profile**, and pick a source:
+
+- [Monarch](../guide/monarch.md) supports saved credentials and generated two-factor codes.
+- [YNAB](../guide/ynab.md) asks for a personal access token, a Moneyflow vault password, and a
+  plan when you have several.
+- [Amazon](../guide/amazon-mode.md) imports order-history CSV files. Edits stay local.
+- [SimpleFIN](../guide/simplefin.md) (experimental) imports read-only bank data. Edits stay
+  local.
+
+[Chase bank CSV](../guide/bank-csv.md) profiles are created with an import command.
 
 ## Rename a profile
 
-**Unreleased:** A profile that a provider command or first run creates is named after its
-provider, such as "Monarch" or "YNAB". When that name is taken, it becomes "Monarch 2",
-"Monarch 3", and so on. To choose another name, close every TUI, web, and MCP process using the
-profile, then run:
+New profiles are named after their provider, such as "Monarch" or "YNAB". If that name is
+taken, the next is "Monarch 2", "Monarch 3", and so on. To rename one, close every web, TUI,
+and MCP process that uses it, then run:
 
 ```bash
-./bin/moneyflow profile rename --profile Monarch --name "Example Budget"
+moneyflow profile rename --profile Monarch --name "Example Budget"
 ```
 
 The profile keeps its ID, data, and credentials. The new name must not belong to another
-profile, but it may change the capitalization of the current one. While another process holds
-the profile, the command refuses and asks you to close that process.
+profile, but it may change the capitalization of the current one. If another process has the
+profile open, the command refuses and asks you to close it.
 
-Go's default catalog is `~/.moneyflow`. `MONEYFLOW_HOME` overrides that catalog root.
-Go refuses a catalog folder that holds Python app data; [moving to Go](transition.md) explains
-how to move that data aside. Opening Go does not convert Python profiles. During the
-preview, incompatible Go schemas require explicit recovery, not an automatic migration.
-Recovery backs up the old database and creates a pristine one; it does not transfer local edits.
-Keep your original data until a [cutover has been verified](../architecture/cutover.md).
+## Where profiles live
 
-## Use MCP as your daily interface
+Profiles live in `~/.moneyflow`. Set `MONEYFLOW_HOME` to use another directory. Moneyflow
+refuses a directory that holds Python Moneyflow data; [moving to Go](transition.md) explains
+how to move it aside.
 
-For offline analysis, point your MCP client's stdio configuration at the Go binary with
-`mcp --profile "Example Profile"`. For YNAB refresh and commits, start the server in a terminal:
+If a release can't open a profile, Moneyflow refuses it instead of migrating it. Recovery backs
+up the old database and creates an empty one; it doesn't carry over local edits. See
+[when a release can't open a profile](transition.md#when-a-release-cant-open-a-profile).
 
-```bash
-./bin/moneyflow mcp --profile "Example Profile" \
-  --unlock --allow-write --transport streamable-http
-```
+## Use an assistant alongside the TUI
 
-Enter the **Moneyflow vault password**, not the YNAB personal access token. Connect the MCP client
-to `http://127.0.0.1:8081/mcp/` with the profile's bearer token. The
-[MCP guide](../guide/mcp.md#authenticated-http) covers token setup and private Caddy proxying.
-
-`--unlock` activates the existing YNAB vault for this process. `--allow-write` separately enables
-edit tools. Neither flag refreshes data or commits anything at startup. A GUI client without a
-controlling terminal should connect to this already-unlocked HTTP process instead of trying to
-supply a password through stdio or tool arguments.
-
-A normal MCP session is:
-
-1. Inspect profile/provider status and call `refresh_data` when you want fresh provider data.
-   Poll `get_refresh_status` until that attempt finishes.
-2. Search transactions and inspect categories. Use exact IDs returned by tools.
-3. Preview a category/merchant edit, hide toggle, or deletion with `dry_run`, then stage it with
-   the current revision.
-4. Read `review_changes`. Commit only the revision you reviewed with `commit_changes`.
-5. Poll `get_commit_status`; a background batch is not complete just because the tool returned.
-   Follow any pause, reconnect, or reconciliation guidance before issuing more writes.
-
-MCP targets the 2026-07-28 protocol. See the [MCP guide](../guide/mcp.md) for editing tools,
-limits, and restart recovery. `preview_export` and `export_transactions` export the full committed
-profile, or an explicitly filtered committed subset, to a file on the server; HTTP clients do not
-receive a download. MCP also provides category/group management for local and Amazon profiles.
-MCP does not run the TUI/web refresh scheduler for Monarch, YNAB, and SimpleFIN.
-
-## Keyboard workflows and provider limits
-
-Use `g` to cycle views, Enter to drill, `/` to search, and `i` for transaction details. Select rows
-with Space; `m` edits merchants, `c` changes categories, `h` toggles hidden state, and `x` stages
-deletion where the provider allows it. `u` undoes and `U` redoes. `w`, then Enter starts the reviewed
-commit. Pending edits survive restart; remote writes use resumable batches.
-
-Provider restrictions are intentional: YNAB does not allow hide edits, transfer edits, or split
-category edits; Monarch taxonomy administration remains in Monarch. Check the application's
-availability message rather than assuming every provider supports every operation.
-
-## Where to go next
-
-- [MCP server](../guide/mcp.md): client setup, authorization, tools, and recovery.
-- [Living architecture](../architecture/index.md): current behavior and ownership.
-- [Python retirement checklist](../architecture/cutover.md): remaining release work, not shipped features.
-
-The older Python guides remain labeled separately while Python still ships. They are not a
-prerequisite for operating the Go application.
+Point an MCP client at `moneyflow mcp --profile "Example Profile"`. The assistant reads the same
+profile and can stage edits for you to review in the TUI. YNAB refresh and commits need the
+unlocked HTTP server, started from a terminal. See the [MCP guide](../guide/mcp.md) and
+[Use Moneyflow with an agent](../guide/agents.md).

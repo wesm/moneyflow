@@ -1,18 +1,17 @@
-# Go releases
+# Releases
 
-The Go application ships as one binary with its web application embedded. End users do not need
-Python, Go, Bun, or a separate web server. Nix packaging has been removed.
+A Moneyflow release is one binary per platform with the web app embedded, so users need no
+Python, Go, Bun, or separate web server. This page covers what a release contains, how to
+rehearse one locally, and how to publish it.
 
-A local build does not prove that a release was published or tested on every operating system.
-Use prereleases while validating the replacement. Follow the
-[transition policy](../getting-started/transition.md) before recommending a full switch;
-provider reconnection and Amazon reimport alone do not preserve local-only edits.
+A local build doesn't prove a release was published or tested on every operating system. Use
+`-rc.N` preview tags to validate a release before the stable tag.
 
-SimpleFIN ships as **experimental**. Its automated adapter, storage, CLI, TUI, web, and MCP gates
-are required; live-bank testing is pending and nonblocking for the preview. Request community
-validation using the [SimpleFIN guide](../guide/simplefin.md#help-validate-an-institution).
-Public-demo success is not bank validation. Maintainers must review institution evidence before
-removing the experimental label; the label does not replace the automated release gates.
+SimpleFIN ships as **experimental**. Its automated adapter, storage, CLI, TUI, web, and MCP
+gates are required. Live-bank testing doesn't block a release; request community validation
+through the [SimpleFIN guide](../guide/simplefin.md#help-validate-an-institution). Public-demo
+success is not bank validation. Maintainers review institution evidence before removing the
+experimental label.
 
 ## Release contents
 
@@ -68,7 +67,8 @@ or profiles.
 
 `.github/workflows/release.yml` builds and checks archives on pull requests and manual workflow runs
 without publishing. A pushed annotated tag triggers publication after all six native smoke jobs
-pass. Stable tags must point to a commit on `main`; preview tags may be cut from `go-port`.
+pass. A stable tag must point to a commit on `main`; the workflow checks this. A preview tag
+(`-rc.N`) can point to any commit.
 
 Use `vX.Y.Z` for a stable release or `vX.Y.Z-rc.N` for a preview. Choose the version deliberately;
 there is no Python version bump for Go releases. The annotated tag message becomes the release
@@ -103,9 +103,8 @@ That workflow builds and deploys the Markdown from that tag. Prereleases leave t
 site unchanged. A manual docs deployment requires a stable tag; it does not deploy the
 working branch. See [documentation maintenance](https://github.com/wesm/moneyflow/blob/main/docs/README.md).
 
-The Python application and its PyPI publishing scripts are retired from this checkout.
-Do not update the old `stable` branch or publish a Python package to release Go.
-Historical Python versions remain in existing releases and Git history.
+The Python application and its PyPI publishing scripts are gone. Do not update the old
+`stable` branch or publish a Python package to release Go.
 
 Before deleting an old installed application or profile, follow
 [moving to Go](../getting-started/transition.md). Publication never authorizes deleting user data.

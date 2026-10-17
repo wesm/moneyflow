@@ -1,51 +1,13 @@
 # Installation
 
-Install Moneyflow as one binary, or build it from this checkout. This branch contains the Go replacement;
-do not assume the latest published release already includes it. The old PyPI package installs Python Moneyflow.
-See [moving to Go](transition.md) before replacing a Python installation.
+Moneyflow is one binary with the web app built in. It runs on Linux, macOS, and Windows, on
+AMD64 and ARM64. It needs no Python, Go, or Bun runtime.
 
-## Available releases
+## Install the latest release
 
-The Go release pipeline builds standalone binaries for Linux, macOS, and Windows on AMD64 and ARM64.
-Prebuilt binaries include the web application and need no Python, Go, or Bun runtime.
-
-When a Go preview is available on [GitHub Releases](https://github.com/wesm/moneyflow/releases), use its tagged installer
-below. Until then, [build from source](#build-from-source).
-
-### Install a Tagged Preview
-
-Replace `vX.Y.Z-rc.N` with an actual Go preview tag from the release page. Download and inspect the installer from that
-same tag, then run it with `MONEYFLOW_VERSION` set. Preview releases are not selected by GitHub's `latest` release URL.
-
-=== "Linux / macOS"
-
-    ```bash
-    MONEYFLOW_VERSION=vX.Y.Z-rc.N
-    curl -fsSL "https://github.com/wesm/moneyflow/releases/download/${MONEYFLOW_VERSION}/install.sh" -o install.sh
-    less install.sh
-    MONEYFLOW_VERSION="$MONEYFLOW_VERSION" sh install.sh
-    ```
-
-=== "Windows PowerShell"
-
-    ```powershell
-    $env:MONEYFLOW_VERSION = 'vX.Y.Z-rc.N'
-    Invoke-WebRequest "https://github.com/wesm/moneyflow/releases/download/$env:MONEYFLOW_VERSION/install.ps1" -OutFile install.ps1
-    Get-Content .\install.ps1
-    .\install.ps1
-    ```
-
-The default install directory is `~/.local/bin` on Linux/macOS and `%LOCALAPPDATA%\Programs\moneyflow\bin` on Windows.
-Set `MONEYFLOW_INSTALL_DIR` before running the installer to choose another directory. Add that directory to your `PATH`
-if needed. If Python moneyflow is also installed, check which executable your shell selects before running it.
-
-To update, close Moneyflow and rerun the installer for the desired release. Installation replaces the binary only;
-it does not remove profiles or resolve incompatible preview schemas. Keep a backup before opening data with a new version.
-
-### Install the Latest Stable Go Release
-
-Use these commands only after a stable Go release publishes the installer assets. Until then, use a tagged Go preview or
-build from source. Leave `MONEYFLOW_VERSION` unset to select the latest stable release.
+The installer downloads the binary for your system from
+[GitHub Releases](https://github.com/wesm/moneyflow/releases) and checks it against the
+release's `SHA256SUMS`. Download it, read it, then run it.
 
 === "Linux / macOS"
 
@@ -63,9 +25,35 @@ build from source. Leave `MONEYFLOW_VERSION` unset to select the latest stable r
     .\install.ps1
     ```
 
-### Manual Download
+The binary goes in `~/.local/bin` on Linux and macOS, and in
+`%LOCALAPPDATA%\Programs\moneyflow\bin` on Windows. Set `MONEYFLOW_INSTALL_DIR` before you run
+the installer to choose another directory. Add the directory to your `PATH` if needed.
 
-Each Go release includes `SHA256SUMS`, `install.sh`, `install.ps1`, and these six archives:
+To install a specific release, set `MONEYFLOW_VERSION` to its tag, for example
+`MONEYFLOW_VERSION=vX.Y.Z sh install.sh`. Download the installer from that same release.
+
+If Python Moneyflow is also installed, check which `moneyflow` your shell runs:
+`moneyflow version` prints the Go version.
+
+## Check that it works
+
+```bash
+moneyflow version
+moneyflow web --demo
+moneyflow tui --demo
+```
+
+The demo needs no account and is deleted when you quit. Next, follow the
+[quick start](quickstart.md).
+
+## Update
+
+Close Moneyflow and run the installer again. It replaces only the binary. It does not open,
+change, or remove your profiles.
+
+## Download manually
+
+Each release includes `SHA256SUMS`, `install.sh`, `install.ps1`, and these archives:
 
 | Operating system | Architecture | Archive |
 | --- | --- | --- |
@@ -76,37 +64,32 @@ Each Go release includes `SHA256SUMS`, `install.sh`, `install.ps1`, and these si
 | Windows | AMD64 | `moneyflow_<version>_windows_amd64.zip` |
 | Windows | ARM64 | `moneyflow_<version>_windows_arm64.zip` |
 
-Here `<version>` is the release tag without its leading `v`. Download the archive for your system and `SHA256SUMS` from
-the same release, verify the archive's SHA-256 checksum, then extract `moneyflow` or `moneyflow.exe` into a directory on
-your `PATH`.
+`<version>` is the release tag without its leading `v`.
 
-### Run the Go Application
+1. Download your archive and `SHA256SUMS` from the same release.
+2. Check the archive's SHA-256 checksum against `SHA256SUMS`.
+3. Extract `moneyflow` or `moneyflow.exe` into a directory on your `PATH`.
 
-```bash
-moneyflow version
-moneyflow tui --demo
-moneyflow web --demo
-moneyflow tui
-```
+macOS and Windows binaries are not signed or notarized. The checksums detect a damaged
+download; they do not prove who published it.
 
-Demo profiles are temporary and need no financial account. Persistent Go profiles live under `~/.moneyflow` by default;
-set `MONEYFLOW_HOME` to use a different catalog directory. Moneyflow refuses a folder that holds
-Python app data.
+## Where your data lives
 
-See [moving to Go](transition.md) for old Python data and incompatible Go preview profiles.
+Profiles live in `~/.moneyflow`. Set `MONEYFLOW_HOME` to use another directory. Moneyflow
+refuses a directory that holds Python Moneyflow data, so your Python files are never touched.
+See [moving to Go](transition.md).
 
-### Build from source
+## Build from source
 
-Install [mise](https://mise.jdx.dev/getting-started.html) and `make`, then build from the `go-port` branch:
+Install [mise](https://mise.jdx.dev/getting-started.html) and `make`, then:
 
 ```bash
-git clone --branch go-port https://github.com/wesm/moneyflow.git
+git clone https://github.com/wesm/moneyflow.git
 cd moneyflow
 mise trust
 mise install
 mise exec -- make web-install build
 ```
 
-Windows builds produce `bin/moneyflow.exe`. The build generates and embeds the web assets before compiling the binary.
-Follow [development setup](../development/developing.md) before running tests or temporary demos on Unix.
-See the [Go release guide](../development/releases.md) for the distribution workflow.
+This builds the web app, embeds it, and writes `bin/moneyflow` (`bin/moneyflow.exe` on
+Windows). Read [development setup](../development/developing.md) before you run the tests.

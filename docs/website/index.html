@@ -3,12 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Moneyflow — make sense of your transactions</title>
+    <meta name="color-scheme" content="light dark" />
+    <title>
+      Moneyflow · Review and clean up your transactions
+    </title>
     <meta
       name="description"
-      content="Local-first transaction analysis and refinement. Use a terminal, browser or MCP client with one Go application."
+      content="See where your money goes, fix merchants and categories in bulk, and commit changes only after you review them. Works in a browser, a terminal, or an AI assistant. Your data stays on your machine."
     />
     <link rel="canonical" href="https://moneyflow.dev/" />
+    <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt" />
     <link rel="stylesheet" href="/styles/site.css" />
     <script src="/scripts/lightbox.js" defer></script>
   </head>
@@ -18,205 +22,224 @@
       <div class="wrap nav">
         <a class="brand" href="/">moneyflow<span>.</span></a>
         <nav aria-label="Main">
-          <a href="/guide/">Walkthrough</a><a href="/docs/">Docs</a
-          ><a href="https://github.com/wesm/moneyflow/tree/go-port">GitHub ↗</a>
+          <a href="/docs/">Docs</a
+          ><a href="https://github.com/wesm/moneyflow">GitHub</a>
         </nav>
       </div>
     </header>
-    <main id="main" class="wrap">
-      <section class="hero" aria-labelledby="intro">
-        <div>
-          <p class="eyebrow">Local-first personal finance · Go preview</p>
-          <h1 id="intro">
-            Your transactions.<br />A clearer <em>picture.</em>
-          </h1>
+    <main id="main">
+      <section class="wrap hero" aria-labelledby="intro">
+        <div class="hero-copy">
+          <h1 id="intro">Review and clean up your transactions.</h1>
           <p class="lede">
-            Explore the details. Refine the messy parts. Review what changes
-            before you commit it.
+            Moneyflow shows where your money goes and lets you fix merchants and
+            categories hundreds of rows at a time. Nothing changes until you
+            review and commit. Use it in a browser, in a terminal, or from an AI
+            assistant.
           </p>
           <div class="actions">
-            <a class="button" href="/docs/getting-started/go/"
-              >Try the Go preview</a
-            ><a href="/guide/">See the workflow →</a>
+            <a class="button" href="#install">Install</a
+            ><a href="#install">Try the demo</a
+            ><a href="/docs/">Read the docs</a>
           </div>
-          <p class="note">
-            Terminal, browser and MCP. One application, one set of profiles.
-          </p>
         </div>
-        <figure class="capture hero-capture">
-          <a data-lightbox href="/screenshots/tui-browse.svg">
-            <img
-              src="/screenshots/tui-browse.svg"
-              alt="The Go terminal application, grouped by merchant on synthetic demo data"
-              fetchpriority="high"
-            />
-          </a>
-          <figcaption>
-            Real application. Demo data. <span>Click to enlarge ↗</span>
-          </figcaption>
-        </figure>
+        <div class="hero-shots">
+          <figure class="capture shot-web">
+            <a data-lightbox href="/screenshots/web-browse.png">
+              <img
+                src="/screenshots/web-browse.png"
+                width="2880"
+                height="1800"
+                alt="Moneyflow in a browser on demo data, with spending by merchant and a monthly cash-flow chart"
+                fetchpriority="high"
+              />
+            </a>
+            <figcaption>Browser</figcaption>
+          </figure>
+          <figure class="capture shot-tui">
+            <a data-lightbox href="/screenshots/tui-browse.svg">
+              <img
+                src="/screenshots/tui-browse.svg"
+                width="1024"
+                height="454"
+                alt="Moneyflow in a terminal on the same demo data, grouped by merchant"
+              />
+            </a>
+            <figcaption>Terminal</figcaption>
+          </figure>
+        </div>
       </section>
-      <section class="band" aria-labelledby="interfaces">
+
+      <section class="wrap band" aria-labelledby="features">
         <div class="section-intro">
+          <h2 id="features">What you can do</h2>
+        </div>
+        <dl class="ledger">
           <div>
-            <p class="eyebrow">Work your way</p>
-            <h2 id="interfaces">
-              Three interfaces.<br />The same underlying work.
-            </h2>
+            <dt>See where your money goes</dt>
+            <dd>
+              Total your spending by merchant, category, account or month. Open
+              any total to see the transactions behind it.
+            </dd>
           </div>
+          <div>
+            <dt>Fix many transactions at once</dt>
+            <dd>
+              Rename a merchant or change a category across a whole selection.
+              Undo any bulk edit in one step.
+            </dd>
+          </div>
+          <div>
+            <dt>Check before anything changes</dt>
+            <dd>
+              Edits wait until you review and commit them, and they survive a
+              restart. Monarch and YNAB receive only what you commit.
+            </dd>
+          </div>
+          <div>
+            <dt>Find anything</dt>
+            <dd>
+              Search merchant and category names, narrow to one account or
+              category, and pick any date range.
+            </dd>
+          </div>
+          <div>
+            <dt>Keep your data</dt>
+            <dd>
+              Each profile is a SQLite file in <code>~/.moneyflow</code>. Export
+              to Parquet, CSV or SQLite whenever you like.
+            </dd>
+          </div>
+          <div>
+            <dt>Trust the totals</dt>
+            <dd>
+              Amounts are stored as exact integers in each currency&rsquo;s
+              smallest unit, so totals never pick up rounding errors.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="wrap band" aria-labelledby="interfaces">
+        <div class="section-intro">
+          <h2 id="interfaces">Use the interface you prefer</h2>
           <p>
-            Switch how you interact, not how your data behaves. Profiles,
-            pending edits and commit status belong to the application.
+            All three open the same profiles and share the same pending edits.
           </p>
         </div>
-        <figure class="capture">
-          <a data-lightbox href="/screenshots/web-browse.png">
-            <img
-              src="/screenshots/web-browse.png"
-              alt="The Go web application on demo data: income, spending and net totals, a monthly cash-flow chart, the Where it went breakdown, and merchant rows"
-              loading="lazy"
-            />
-          </a>
-          <figcaption>
-            The browser interface, running locally with
-            <code>moneyflow web --demo</code>. <span>Click to enlarge ↗</span>
-          </figcaption>
-        </figure>
         <div class="cards">
           <article class="card">
-            <span class="number">01 / TERMINAL</span>
-            <h3>Keep your hands on the keys.</h3>
+            <h3>Browser</h3>
             <p>
-              Group, drill, search and refine a selection. Review the result
-              with <kbd>w</kbd>, then commit with Enter.
+              Charts and tables in a local browser tab, on a desktop or a phone.
             </p>
-            <a href="/docs/guide/navigation/">Learn the keys →</a>
+            <pre><code>moneyflow web</code></pre>
+            <a href="/docs/guide/web/">Web guide</a>
           </article>
           <article class="card">
-            <span class="number">02 / BROWSER</span>
-            <h3>Bring the workflow to a tab.</h3>
+            <h3>Terminal</h3>
             <p>
-              See charts beside your rows, then edit a selection in place.
-              Serve privately on your own machine or behind your trusted
-              proxy.
+              Everything the browser does, from the keyboard. Works over SSH.
             </p>
-            <a href="/docs/guide/web/">Set up the web UI →</a>
+            <pre><code>moneyflow tui</code></pre>
+            <a href="/docs/getting-started/go/">Terminal guide</a>
           </article>
           <article class="card">
-            <span class="number">03 / MCP</span>
-            <h3>Give your assistant a precise interface.</h3>
+            <h3>AI assistants</h3>
             <p>
-              Search, inspect, preview and stage changes. Explicit review and
-              commit keep reading separate from writing.
+              Ask Claude or another MCP client about your spending. It can stage
+              edits only if you allow it, and you still review every commit.
             </p>
-            <a href="/docs/guide/mcp/">Connect an MCP client →</a>
+            <pre><code>moneyflow mcp</code></pre>
+            <a href="/docs/guide/mcp/">MCP guide</a>
           </article>
         </div>
-      </section>
-      <section class="band" aria-labelledby="workflow">
-        <p class="eyebrow">A deliberate loop</p>
-        <h2 id="workflow">From a broad question to a reviewed change.</h2>
-        <div class="flow">
-          <article>
-            <span class="number">01</span>
-            <h3>Explore</h3>
-            <p>
-              Start with merchants, categories, accounts or time. Drill into
-              what needs attention.
-            </p>
-          </article>
-          <article>
-            <span class="number">02</span>
-            <h3>Refine</h3>
-            <p>
-              Search and select the exact rows. Make a bulk change without
-              losing its undo grouping.
-            </p>
-          </article>
-          <article>
-            <span class="number">03</span>
-            <h3>Review</h3>
-            <p>
-              Pending edits survive restart. Inspect them before they become a
-              commit.
-            </p>
-          </article>
-          <article>
-            <span class="number">04</span>
-            <h3>Commit</h3>
-            <p>
-              Apply local changes or follow a durable provider batch through
-              completion and recovery.
-            </p>
-          </article>
-        </div>
-      </section>
-      <section class="band" aria-labelledby="providers">
-        <p class="eyebrow">Your data, locally available</p>
-        <h2 id="providers">Connect a provider. Or import your files.</h2>
-        <div class="provider">
-          <strong>Monarch Money</strong>
-          <p>
-            Posted transactions, refresh and supported edits with durable
-            write-back.
-          </p>
-          <a href="/docs/guide/monarch/">Monarch guide</a>
-        </div>
-        <div class="provider">
-          <strong>YNAB</strong>
-          <p>
-            Plan imports, payee/category edits and deletion, with explicit
-            provider restrictions.
-          </p>
-          <a href="/docs/guide/ynab/">YNAB guide</a>
-        </div>
-        <div class="provider">
-          <strong>Amazon</strong>
-          <p>
-            Order-history CSV imports, local categorization and cross-profile
-            matching.
-          </p>
-          <a href="/docs/guide/amazon-mode/">Amazon guide</a>
-        </div>
-        <div class="provider">
-          <strong>Bank CSV</strong>
-          <p>
-            Chase credit-card exports, overlapping-file reconciliation and local
-            edits that survive reimport.
-          </p>
-          <a href="/docs/guide/bank-csv/">Bank CSV guide</a>
-        </div>
-        <p class="note">
-          SimpleFIN imports read-only bank data and keeps edits local; Go support is experimental.
-          <a href="/docs/getting-started/python-transition/"
-            >Read the current gaps and transition guidance.</a
-          >
+        <p class="agents">
+          <strong>Agents:</strong> every docs page is also available as
+          Markdown, and <a href="/llms.txt"><code>/llms.txt</code></a> lists
+          them all. See <a href="/docs/guide/agents/">Use Moneyflow with an agent</a>.
         </p>
       </section>
-      <section class="cta" aria-labelledby="try">
-        <p class="eyebrow">Start with a demo</p>
-        <h2 id="try">Explore before you connect.</h2>
-        <p>
-          Build the preview, then try a temporary synthetic profile. No account
-          required.
-        </p>
-        <pre><code>./bin/moneyflow tui --demo</code></pre>
-        <a class="button" href="/docs/getting-started/go/"
-          >Build and get started</a
-        >
-        <p class="note">
-          Go binary packaging and Go-to-Go JSONL transfer are implemented.
-          The Python source exporter and installed-release validation remain cutover work.
-          Previously published Python packages contain the legacy app.
-        </p>
+
+      <section class="wrap band" aria-labelledby="providers">
+        <div class="section-intro">
+          <h2 id="providers">Bring in your data</h2>
+        </div>
+        <div class="table-scroll">
+          <table class="providers">
+            <thead>
+              <tr>
+                <th scope="col">Source</th>
+                <th scope="col">How data arrives</th>
+                <th scope="col">Where your edits go</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">
+                  <a href="/docs/guide/monarch/">Monarch Money</a>
+                </th>
+                <td>Sync from your Monarch account</td>
+                <td>Back to Monarch, after you commit</td>
+              </tr>
+              <tr>
+                <th scope="row"><a href="/docs/guide/ynab/">YNAB</a></th>
+                <td>Sync from one YNAB plan</td>
+                <td>Back to YNAB, after you commit</td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  <a href="/docs/guide/amazon-mode/">Amazon</a>
+                </th>
+                <td>Import your order-history CSV</td>
+                <td>Your local profile</td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  <a href="/docs/guide/bank-csv/">Bank CSV</a>
+                </th>
+                <td>Import Chase credit-card CSV files</td>
+                <td>Your local profile</td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  <a href="/docs/guide/simplefin/">SimpleFIN</a>
+                  <span class="tag">experimental</span>
+                </th>
+                <td>Read-only sync from your bank through SimpleFIN</td>
+                <td>Your local profile</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="wrap band demo" id="install" aria-labelledby="try">
+        <div>
+          <h2 id="try">Install and try the demo</h2>
+          <p>
+            Moneyflow is one binary for Linux, macOS and Windows. The demo uses
+            about 2,000 made-up transactions and needs no account. Demo edits
+            disappear when you quit.
+          </p>
+          <p>
+            For Windows, manual downloads and checksums, see
+            <a href="/docs/getting-started/installation/">Installation</a>.
+            Coming from Python Moneyflow? Read
+            <a href="/docs/getting-started/transition/">Moving to Go</a> first.
+          </p>
+        </div>
+        <pre><code><span class="prompt">$</span> curl -fsSL https://github.com/wesm/moneyflow/releases/latest/download/install.sh -o install.sh
+<span class="prompt">$</span> sh install.sh
+<span class="prompt">$</span> moneyflow web --demo
+<span class="prompt">$</span> moneyflow tui --demo</code></pre>
       </section>
     </main>
     <footer>
       <div class="wrap footer-inner">
-        <span>Moneyflow · Open source · MIT</span
+        <span>Moneyflow · MIT license</span
         ><span
-          ><a href="/docs/architecture/cutover/">Cutover status</a> ·
-          <a href="/legacy/v1/">Legacy Python v1</a> ·
+          ><a href="/docs/">Docs</a> · <a href="/llms.txt">llms.txt</a> ·
           <a href="https://github.com/wesm/moneyflow">Source</a></span
         >
       </div>
