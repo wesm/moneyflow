@@ -54,14 +54,25 @@ jobs:
           make web-install
           make web-embed-check build
 
+      - name: Use a private temp directory on the Windows runner disk
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Go on Windows reads TMP and TEMP, not TMPDIR, so tests used the slow C: disk.
+          # Profile roots must be private, and runner.temp grants other principals access.
+          $dir = Join-Path $env:RUNNER_TEMP 'private-tmp'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          icacls $dir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' "${env:USERNAME}:(OI)(CI)F"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          for ($path = $dir; $path; $path = Split-Path -Parent $path) { icacls $path }
+          "TMP=$dir" >> $env:GITHUB_ENV
+          "TEMP=$dir" >> $env:GITHUB_ENV
+
       - name: Test
         id: tests
         shell: bash
         env:
           TMPDIR: ${{ runner.temp }}
-          # Go on Windows reads TMP and TEMP, not TMPDIR; keep test files off the slow C: disk.
-          TMP: ${{ runner.temp }}
-          TEMP: ${{ runner.temp }}
           MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
         run: |
           MONEYFLOW_SKIP_PERF=1 go test -shuffle=on ./...
@@ -82,8 +93,6 @@ jobs:
         shell: bash
         env:
           TMPDIR: ${{ runner.temp }}
-          TMP: ${{ runner.temp }}
-          TEMP: ${{ runner.temp }}
           MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
         run: |
           mkdir -p "$RUNNER_TEMP/cold-start"
@@ -107,8 +116,6 @@ jobs:
       - name: Test provider refresh slice
         env:
           TMPDIR: ${{ runner.temp }}
-          TMP: ${{ runner.temp }}
-          TEMP: ${{ runner.temp }}
           MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
         run: make test-provider
 
