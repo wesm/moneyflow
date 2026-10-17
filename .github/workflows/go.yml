@@ -59,6 +59,9 @@ jobs:
         shell: bash
         env:
           TMPDIR: ${{ runner.temp }}
+          # Go on Windows reads TMP and TEMP, not TMPDIR; keep test files off the slow C: disk.
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
           MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
         run: |
           MONEYFLOW_SKIP_PERF=1 go test -shuffle=on ./...
@@ -79,6 +82,8 @@ jobs:
         shell: bash
         env:
           TMPDIR: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
           MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
         run: |
           mkdir -p "$RUNNER_TEMP/cold-start"
@@ -102,6 +107,8 @@ jobs:
       - name: Test provider refresh slice
         env:
           TMPDIR: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
           MONEYFLOW_UI_ARTIFACTS: ${{ runner.temp }}/ui-harness
         run: make test-provider
 
@@ -232,38 +239,3 @@ jobs:
           go vet ./...
           go build ./...
           go run .
-
-  windows-temp-ab:
-    name: Windows temp disk A/B (temporary)
-    runs-on: windows-latest
-    timeout-minutes: 30
-    env:
-      CGO_ENABLED: "0"
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Time bulk editing with the temp dir on each disk
-        shell: bash
-        run: |
-          c_temp="$LOCALAPPDATA\\Temp"
-          d_temp="$RUNNER_TEMP\\perf-tmp"
-          mkdir -p "$(cygpath -u "$d_temp")"
-          go test -c -o sqlite.test.exe ./internal/store/sqlite
-          for i in 1 2 3; do
-            for disk in C D; do
-              if [ "$disk" = C ]; then dir="$c_temp"; else dir="$d_temp"; fi
-              echo "== run $i disk $disk temp $dir"
-              TMP="$dir" TEMP="$dir" ./sqlite.test.exe \
-                -test.run '^TestBulkEditingPerformance100K$' -test.count=1 -test.v 2>&1 |
-                grep -E 'performance_test|--- ' || true
-            done
-          done
