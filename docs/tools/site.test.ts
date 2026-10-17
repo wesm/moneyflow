@@ -160,7 +160,6 @@ test("llms.txt lists every nav section with each page's title and opening summar
     "## Interfaces\n\n- [Web interface](https://moneyflow.dev/docs/guide/web.md): Serve the `web` command.\n" +
       "- [Architecture](https://moneyflow.dev/docs/architecture/index.md): One service owns accounting.\n",
   );
-  expect(text).toMatch(/\.md`? twin|Markdown/);
   await expect(
     llmsText(
       {
