@@ -65,6 +65,11 @@ jobs:
           icacls $dir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' "${env:USERNAME}:(OI)(CI)F"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           for ($path = $dir; $path; $path = Split-Path -Parent $path) { icacls $path }
+          foreach ($root in @($dir, $env:LOCALAPPDATA + '\Temp')) {
+            for ($path = $root; $path; $path = Split-Path -Parent $path) { "OWNER $path => $((Get-Acl $path).Owner)" }
+          }
+          whoami /user /groups | Select-String 'User Name|S-1-5-21|Administrators|Mandatory'
+          exit 1 # TEMPORARY: owner diagnostics only
           "TMP=$dir" >> $env:GITHUB_ENV
           "TEMP=$dir" >> $env:GITHUB_ENV
 
