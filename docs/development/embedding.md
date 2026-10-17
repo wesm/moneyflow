@@ -396,6 +396,8 @@ router, implement `ViewStateAdapter` over the router's own history.
 - With `amazonSettings`, Amazon setup starts the import with those settings instead of asking.
 - Setup reads its props once. Mount a new `MoneyflowSetup` for each setup. Removing it stops
   setup, and a profile it already created stays in `needs_setup`.
+- Without `chrome`, setup adds no top bar, theme button, status bar, `main` landmark or banner,
+  so it fits in the host's dialog or page. `chrome` frames it as a page of its own.
 
 ## Fetch contract
 

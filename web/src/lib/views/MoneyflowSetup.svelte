@@ -32,6 +32,11 @@
     provider: ProviderKind
     /** Starts an Amazon import with these settings instead of asking for them. */
     amazonSettings?: { currency: string; scale: number } | undefined
+    /**
+     * Frames setup as a page of its own, with moneyflow's top bar, theme button and status bar.
+     * A host leaves it off and frames setup itself, for example in a dialog.
+     */
+    chrome?: boolean
     oncomplete: (profileID: string) => void
     oncancel: () => void
   }
@@ -58,6 +63,7 @@
     profileID,
     name,
     amazonSettings,
+    chrome = false,
     oncomplete,
     oncancel,
   }: Props = $props()
@@ -162,6 +168,7 @@
     {@const id = flow.id}
     <OnboardingWizard
       controller={flow.controller}
+      {chrome}
       oncomplete={() => complete(id)}
       oncancel={() => void cancel()}
       onoffline={() => complete(id)}
@@ -170,6 +177,7 @@
     {@const id = flow.id}
     <SimpleFINOnboardingWizard
       controller={flow.controller}
+      {chrome}
       oncomplete={() => complete(id)}
       oncancel={() => void cancel()}
       onoffline={() => complete(id)}
@@ -178,6 +186,7 @@
     {@const id = flow.id}
     <AmazonImportWizard
       controller={flow.controller}
+      {chrome}
       initialCurrency={amazonSettings?.currency ?? 'USD'}
       initialScale={amazonSettings?.scale ?? 2}
       oncomplete={() => complete(id)}
