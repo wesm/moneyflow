@@ -91,6 +91,50 @@ describe('MoneyflowSetup', () => {
     expect(oncancel).toHaveBeenCalledTimes(1)
     expect(requests).toEqual([])
   })
+
+  it.each([
+    ['monarch', 'Profile setup was interrupted'],
+    ['simplefin', 'Connect SimpleFIN (experimental)'],
+    ['amazon', 'Confirm import settings'],
+  ] as const)(
+    'leaves the page frame and the theme to the host in %s setup',
+    async (provider, title) => {
+      const { hostFetch } = fakeServer(provider)
+      render(MoneyflowSetup, {
+        apiBase: '/embedded/moneyflow/',
+        fetch: hostFetch,
+        provider,
+        name: 'Example Budget',
+        oncomplete: vi.fn(),
+        oncancel: vi.fn(),
+      })
+
+      await appears(() => screen.queryByRole('heading', { name: title }))
+      expect(screen.queryByRole('banner')).toBeNull()
+      expect(screen.queryByRole('main')).toBeNull()
+      expect(screen.queryByRole('contentinfo')).toBeNull()
+      expect(screen.queryByRole('button', { name: /^Change theme/ })).toBeNull()
+    },
+  )
+
+  it('frames setup as its own page for standalone moneyflow', async () => {
+    const { hostFetch } = fakeServer('monarch')
+    render(MoneyflowSetup, {
+      apiBase: '/embedded/moneyflow/',
+      fetch: hostFetch,
+      provider: 'monarch',
+      name: 'Example Budget',
+      chrome: true,
+      oncomplete: vi.fn(),
+      oncancel: vi.fn(),
+    })
+
+    await appears(() => screen.queryByRole('heading', { name: 'Profile setup was interrupted' }))
+    expect(screen.getByRole('banner')).not.toBeNull()
+    expect(screen.getByRole('main')).not.toBeNull()
+    expect(screen.getByRole('contentinfo')).not.toBeNull()
+    expect(screen.getByRole('button', { name: /^Change theme/ })).not.toBeNull()
+  })
 })
 
 // svelte-check enforces these props: setup that creates a profile needs the host's name for it,

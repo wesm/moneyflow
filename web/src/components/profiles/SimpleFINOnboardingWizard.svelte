@@ -8,8 +8,10 @@
     oncomplete: () => void
     oncancel: () => void
     onoffline?: () => void
+    /** Frames the wizard as a page, with a top bar, theme button and status bar. */
+    chrome?: boolean
   }
-  let { controller, oncomplete, oncancel, onoffline }: Props = $props()
+  let { controller, oncomplete, oncancel, onoffline, chrome = true }: Props = $props()
   let currency = $state('USD')
   let scale = $state('2')
   let settingsReady = $state(false)
@@ -57,11 +59,17 @@
 </script>
 
 <div class="moneyflow-app onboarding-wizard">
-  <TopBar ariaLabel="Moneyflow setup">
-    {#snippet left()}<span class="moneyflow-brand">Moneyflow setup</span>{/snippet}
-    {#snippet right()}<ThemeToggle size="sm" />{/snippet}
-  </TopBar>
-  <main class="profile-main" aria-label="SimpleFIN profile onboarding">
+  {#if chrome}
+    <TopBar ariaLabel="Moneyflow setup">
+      {#snippet left()}<span class="moneyflow-brand">Moneyflow setup</span>{/snippet}
+      {#snippet right()}<ThemeToggle size="sm" />{/snippet}
+    </TopBar>
+  {/if}
+  <svelte:element
+    this={chrome ? 'main' : 'div'}
+    class="profile-main"
+    aria-label={chrome ? 'SimpleFIN profile onboarding' : undefined}
+  >
     <section class="profile-panel" aria-labelledby="simplefin-title">
       <h1 id="simplefin-title">Connect SimpleFIN <small>(experimental)</small></h1>
       <p>Edits stay in Moneyflow; your bank data is never changed.</p>
@@ -167,9 +175,13 @@
         <p role="alert" class="editing-error">{controller.state.failure}</p>
       {/if}
     </section>
-  </main>
-  <StatusBar
-    >{#snippet left()}<span role="status">{controller.state.announcement}</span
-      >{/snippet}</StatusBar
-  >
+  </svelte:element>
+  {#if chrome}
+    <StatusBar
+      >{#snippet left()}<span role="status">{controller.state.announcement}</span
+        >{/snippet}</StatusBar
+    >
+  {:else}
+    <p class="kit-sr-only" role="status">{controller.state.announcement}</p>
+  {/if}
 </div>

@@ -215,6 +215,7 @@
         provider={setupFlow.provider}
         profileID={setupFlow.profileID}
         amazonSettings={setupFlow.amazonSettings}
+        chrome
         oncomplete={completeSetup}
         oncancel={() => void closeSetup()}
       />

@@ -32,9 +32,11 @@
     oncomplete: () => void
     oncancel: () => void
     onoffline?: () => void
+    /** Frames the wizard as a page, with a top bar, theme button and status bar. */
+    chrome?: boolean
   }
 
-  let { controller, oncomplete, oncancel, onoffline }: Props = $props()
+  let { controller, oncomplete, oncancel, onoffline, chrome = true }: Props = $props()
   let currency = $state('USD')
   let scale = $state('2')
   let accountPassword = $state('')
@@ -149,11 +151,17 @@
 </script>
 
 <div class="moneyflow-app onboarding-wizard">
-  <TopBar ariaLabel="Moneyflow setup">
-    {#snippet left()}<span class="moneyflow-brand">Moneyflow setup</span>{/snippet}
-    {#snippet right()}<ThemeToggle size="sm" />{/snippet}
-  </TopBar>
-  <main class="profile-main" aria-label="Profile onboarding">
+  {#if chrome}
+    <TopBar ariaLabel="Moneyflow setup">
+      {#snippet left()}<span class="moneyflow-brand">Moneyflow setup</span>{/snippet}
+      {#snippet right()}<ThemeToggle size="sm" />{/snippet}
+    </TopBar>
+  {/if}
+  <svelte:element
+    this={chrome ? 'main' : 'div'}
+    class="profile-main"
+    aria-label={chrome ? 'Profile onboarding' : undefined}
+  >
     <section class="profile-panel" aria-labelledby="onboarding-title">
       <p class="moneyflow-eyebrow">{provider}</p>
       {#if problem}
@@ -433,13 +441,15 @@
       {/if}
       <p class="kit-sr-only" aria-live="polite">{controller.state.announcement}</p>
     </section>
-  </main>
-  <StatusBar>
-    {#snippet left()}<span role={progress ? undefined : 'status'}
-        >{controller.state.announcement}</span
-      >{/snippet}
-    {#snippet right()}<span
-        >{snapshot?.state ?? 'starting'} · secrets never enter browser storage</span
-      >{/snippet}
-  </StatusBar>
+  </svelte:element>
+  {#if chrome}
+    <StatusBar>
+      {#snippet left()}<span role={progress ? undefined : 'status'}
+          >{controller.state.announcement}</span
+        >{/snippet}
+      {#snippet right()}<span
+          >{snapshot?.state ?? 'starting'} · secrets never enter browser storage</span
+        >{/snippet}
+    </StatusBar>
+  {/if}
 </div>

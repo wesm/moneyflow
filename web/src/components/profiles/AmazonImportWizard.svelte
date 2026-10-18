@@ -9,6 +9,8 @@
     initialScale?: number
     oncomplete: () => void
     oncancel: () => void
+    /** Frames the wizard as a page, with a top bar, theme button and status bar. */
+    chrome?: boolean
   }
 
   let {
@@ -17,6 +19,7 @@
     initialScale = 2,
     oncomplete,
     oncancel,
+    chrome = true,
   }: Props = $props()
   let currency = $state('')
   let scale = $state('')
@@ -65,11 +68,17 @@
 </script>
 
 <div class="moneyflow-app onboarding-wizard amazon-import-wizard">
-  <TopBar ariaLabel="Amazon import">
-    {#snippet left()}<span class="moneyflow-brand">Moneyflow</span>{/snippet}
-    {#snippet right()}<ThemeToggle size="sm" />{/snippet}
-  </TopBar>
-  <main class="profile-main" aria-label="Amazon order-history import">
+  {#if chrome}
+    <TopBar ariaLabel="Amazon import">
+      {#snippet left()}<span class="moneyflow-brand">Moneyflow</span>{/snippet}
+      {#snippet right()}<ThemeToggle size="sm" />{/snippet}
+    </TopBar>
+  {/if}
+  <svelte:element
+    this={chrome ? 'main' : 'div'}
+    class="profile-main"
+    aria-label={chrome ? 'Amazon order-history import' : undefined}
+  >
     <section class="profile-panel" aria-labelledby="amazon-import-title">
       <p class="moneyflow-eyebrow">Amazon orders</p>
       {#if controller.state.phase === 'settings'}
@@ -209,9 +218,11 @@
       {/if}
       <p class="kit-sr-only" aria-live="polite">{controller.state.announcement}</p>
     </section>
-  </main>
-  <StatusBar>
-    {#snippet left()}<span>Amazon order-history import</span>{/snippet}
-    {#snippet right()}<span>{controller.state.phase}</span>{/snippet}
-  </StatusBar>
+  </svelte:element>
+  {#if chrome}
+    <StatusBar>
+      {#snippet left()}<span>Amazon order-history import</span>{/snippet}
+      {#snippet right()}<span>{controller.state.phase}</span>{/snippet}
+    </StatusBar>
+  {/if}
 </div>
