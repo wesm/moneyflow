@@ -319,6 +319,7 @@ func readArguments(fixture readFixture) map[string]map[string]any {
 		"get_merchants":                  {"profile": acme},
 		"get_account_info":               {"profile": acme},
 		"get_uncategorized_transactions": {"profile": acme},
+		"find_duplicates":                {"profile": acme},
 		"get_amazon_order_details":       {"profile": acme, "transaction_id": fixture.transactionID},
 		"get_transaction_details":        {"profile": acme, "transaction_id": fixture.transactionID},
 		"review_changes":                 {"profile": acme, "expected_revision": fixture.view.Revision},

@@ -36,8 +36,8 @@ One server serves one existing profile. It never creates a profile, runs provide
 or imports Amazon files; a person does that in the browser, the TUI, or the
 [command line](#run-commands-without-a-terminal).
 
-The server starts read-only: 17 tools and five `moneyflow://` resources. Add `--allow-write`
-to the `args` to register the editing and commit tools, 33 tools in all. Each step of an edit
+The server starts read-only: 18 tools and five `moneyflow://` resources. Add `--allow-write`
+to the `args` to register the editing and commit tools, 34 tools in all. Each step of an edit
 is a separate call:
 
 | Step | Tools | What changes |

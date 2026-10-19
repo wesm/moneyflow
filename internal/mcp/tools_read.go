@@ -43,6 +43,10 @@ func registerReadTools(server *Server) {
 		func(ctx context.Context, dependencies Dependencies, input UncategorizedInput) (any, error) {
 			return uncategorizedDocument(ctx, dependencies.Service, input)
 		})
+	registerTool(server, "find_duplicates", findDuplicatesDescription, true,
+		func(ctx context.Context, dependencies Dependencies, input FindDuplicatesInput) (any, error) {
+			return duplicatesDocument(ctx, dependencies.Service, input)
+		})
 	registerTool(server, "get_amazon_order_details", "Return bounded Amazon enrichment for one transaction.", true,
 		func(ctx context.Context, dependencies Dependencies, input TransactionDetailsInput) (any, error) {
 			return transactionInfoDocument(ctx, dependencies.Service, input)
