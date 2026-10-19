@@ -73,16 +73,9 @@ func duplicatesDocument(
 	if err != nil {
 		return DuplicatesDocument{}, err
 	}
-	groups := projection.Groups
-	// Rows fill in group order, so only the last group can be cut short. Leave it for the
-	// next window rather than present part of a group as the whole.
-	if projection.RowWindow.Count < projection.WindowTransactions && len(groups) > 0 {
-		groups = groups[:len(groups)-1]
-		if len(groups) == 0 {
-			return DuplicatesDocument{}, newDuplicatesInputError(projection.Revision, fmt.Errorf(
-				"duplicate group %d has more than %d transactions", input.Offset+1, app.MaxWindowLimit,
-			))
-		}
+	groups, err := wholeDuplicateGroups(ctx, service, session.ViewState(), projection)
+	if err != nil {
+		return DuplicatesDocument{}, err
 	}
 	document := DuplicatesDocument{
 		Header: NewHeader(StatusOK, projection.Revision), TotalGroups: projection.TotalGroups,
@@ -106,6 +99,36 @@ func duplicatesDocument(
 		document.Groups = append(document.Groups, converted)
 	}
 	return document, nil
+}
+
+// wholeDuplicateGroups drops the last group when the row limit cut it short. Rows fill in
+// group order, so only the last group can be partial, and the projection's totals cover the
+// whole window, so the group's own size comes from a one-group projection.
+func wholeDuplicateGroups(
+	ctx context.Context, service *app.Service, state app.ViewState, projection app.DuplicateProjection,
+) ([]app.DuplicateGroupProjection, error) {
+	groups := projection.Groups
+	if projection.RowWindow.Count == projection.WindowTransactions || len(groups) == 0 {
+		return groups, nil
+	}
+	last := groups[len(groups)-1]
+	alone, err := service.ProjectDuplicates(
+		ctx, projection.Revision, state, app.EmptySelection(),
+		app.DuplicateWindowRequest{GroupOffset: last.Number - 1, GroupLimit: 1, RowLimit: app.MaxWindowLimit},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if alone.WindowTransactions == len(last.Rows) {
+		return groups, nil
+	}
+	if len(groups) == 1 {
+		return nil, newDuplicatesInputError(projection.Revision, fmt.Errorf(
+			"duplicate group %d has %d transactions, more than %d transactions",
+			last.Number, alone.WindowTransactions, app.MaxWindowLimit,
+		))
+	}
+	return groups[:len(groups)-1], nil
 }
 
 // newDuplicatesInputError tells the agent why its duplicate search was rejected.

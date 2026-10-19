@@ -188,3 +188,25 @@ func TestFindDuplicatesLeavesOutTransfersUnlessAsked(t *testing.T) {
 	included := callFindDuplicates(t, client, map[string]any{"include_transfers": true})
 	assert.Equal(t, [][]string{{"transfer_a", "transfer_b"}}, duplicateGroupIDs(included))
 }
+
+func TestFindDuplicatesReturnsAGroupThatFillsTheResponse(t *testing.T) {
+	transactions := []domain.Transaction{}
+	for index := range app.MaxWindowLimit {
+		transactions = append(transactions, duplicateTestTransaction(
+			t, fmt.Sprintf("full_%03d", index), "2026-08-20", "Example Coffee", -450, false,
+		))
+	}
+	transactions = append(transactions,
+		duplicateTestTransaction(t, "older_a", "2026-08-02", "Example Grocer", -100, false),
+		duplicateTestTransaction(t, "older_b", "2026-08-02", "Example Grocer", -100, false),
+	)
+	client := connectDuplicateTestServer(t, transactions)
+
+	page := callFindDuplicates(t, client, nil)
+	groups := duplicateGroupIDs(page)
+	require.Len(t, groups, 1, page)
+	assert.Len(t, groups[0], app.MaxWindowLimit)
+
+	next := callFindDuplicates(t, client, map[string]any{"offset": 1})
+	assert.Equal(t, [][]string{{"older_a", "older_b"}}, duplicateGroupIDs(next))
+}
