@@ -454,7 +454,7 @@ func TestSupervisedWorkHoldsItsProfileAfterTheToolCallReturns(t *testing.T) {
 func TestRegisterGivesEachClassItsOwnTools(t *testing.T) {
 	expected := map[access.Class][]string{
 		access.Read: {
-			"get_account_info", "get_amazon_order_details", "get_categories", "get_commit_status",
+			"find_duplicates", "get_account_info", "get_amazon_order_details", "get_categories", "get_commit_status",
 			"get_insights", "get_merchants", "get_reconcile_status", "get_refresh_status",
 			"get_spending_summary", "get_transaction_details", "get_transactions",
 			"get_uncategorized_transactions", "list_profiles", "preview_export", "review_changes",

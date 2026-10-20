@@ -111,6 +111,7 @@ var toolClasses = map[string]access.Class{
 	"get_uncategorized_transactions": access.Read,
 	"get_amazon_order_details":       access.Read,
 	"get_transaction_details":        access.Read,
+	"find_duplicates":                access.Read,
 	"review_changes":                 access.Read,
 	"get_commit_status":              access.Read,
 	"get_refresh_status":             access.Read,

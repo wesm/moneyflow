@@ -78,6 +78,7 @@ the server opened; any other value fails with `profile_not_found`.
 | `get_merchants` | List active merchants and exact totals. |
 | `get_account_info` | Return credential-blind local profile information. |
 | `get_uncategorized_transactions` | Return effective uncategorized transactions. |
+| `find_duplicates` | Group likely duplicate committed transactions; see [duplicates](#find-duplicates). |
 | `get_amazon_order_details` | Return bounded Amazon enrichment for one transaction. |
 | `get_transaction_details` | Return committed details for one transaction. |
 | `review_changes` | Return bounded active and redo journal summaries. |
@@ -103,6 +104,24 @@ The resources return the same JSON documents as the matching reads:
 | `moneyflow://merchants/top` | The 50 top effective merchants by transaction count |
 | `moneyflow://spending/monthly` | The current calendar month's effective spending by category |
 | `moneyflow://transactions/recent` | Up to 50 recent effective transactions, hidden ones included |
+
+### Find duplicates
+
+`find_duplicates` applies the matching rule of [duplicate review](editing.md#review-possible-duplicates)
+in the TUI and web: the same date, signed amount, currency, scale, and account, and merchant
+names that match ignoring case. It searches committed transactions, hidden ones included.
+Pass `start_date` and `end_date` together to limit the dates. Transfers are left out unless
+`include_transfers` is `true`.
+
+Groups are numbered newest first. `offset` and `limit` (1–400, default 50) select groups. A
+response holds at most 400 transactions and only whole groups, so `group_window.returned` can
+be smaller than `limit`; continue from `offset` plus `returned`. A group with more than 400
+transactions fails with `invalid_operation`.
+
+Rows show committed values. `pending_edit` is `true` when a staged edit touches the
+transaction, which stays in its group until you commit. A match is a suggestion, not proof. To
+remove a duplicate, stage `delete_transactions` or `toggle_transactions_hidden` with its ID
+and commit after review.
 
 ### Staged editing
 

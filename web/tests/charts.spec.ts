@@ -62,11 +62,14 @@ test('toggling Charts keeps the table rows aligned with the cursor', async ({ pa
   // The table moves up into the chart row's room; the rows now on screen must be drawn.
   await toggle.uncheck()
   await focusGrid(page)
-  const header = (await page.getByRole('columnheader').first().boundingBox())!
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const header = (await grid.getByRole('row').first().boundingBox())!
   const port = (await workspace(page).boundingBox())!
-  // Rows are a pixel taller than the header.
   const rowHeight = (await (await activeRow(page)).boundingBox())!.height
-  const shown = Math.floor((port.y + port.height - header.y - header.height) / rowHeight)
+  // Stop a row short of the bottom edge. The room varies by a few pixels between runs, and a row
+  // that only just fits can count as cut off in the app's whole-pixel viewport and be revealed.
+  const room = port.y + port.height - header.y - header.height
+  const shown = Math.floor(room / rowHeight) - 1
   for (let index = 1; index < shown; index += 1) await page.keyboard.press('j')
   await expect(await activeRow(page)).toHaveAttribute('aria-rowindex', String(shown + 1))
   await expectCursorRowShown(page)

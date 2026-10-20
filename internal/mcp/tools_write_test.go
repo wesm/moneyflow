@@ -144,7 +144,7 @@ func TestWriteRegistrationIsConditionalAndExact(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"batch_update_category", "commit_changes", "confirm_reconcile",
-		"confirm_refresh_deletions", "delete_transactions", "export_transactions", "get_account_info", "get_amazon_order_details",
+		"confirm_refresh_deletions", "delete_transactions", "export_transactions", "find_duplicates", "get_account_info", "get_amazon_order_details",
 		"get_categories", "get_commit_status", "get_insights", "get_merchants", "get_reconcile_status",
 		"get_refresh_status", "get_spending_summary", "get_transaction_details",
 		"get_transactions", "get_uncategorized_transactions", "manage_category", "manage_category_group", "pause_commit", "preview_export",
