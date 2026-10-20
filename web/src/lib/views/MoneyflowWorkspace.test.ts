@@ -170,6 +170,52 @@ describe('MoneyflowWorkspace', () => {
     }
   })
 
+  it('shows a running write, not the review, when the write status answers after the view', async () => {
+    const pending = { active_operations: 1, inactive_operations: 0, affected_transactions: 1 }
+    const capabilities = [
+      { id: 'changes.review', key_display: 'w', description: 'Review changes', category: 'Edit' },
+    ].map((capability) => ({ ...capability, available: true }))
+    const asked = Promise.withResolvers<void>()
+    const answer = Promise.withResolvers<object>()
+    const hostFetch = vi.fn<typeof fetch>(async (input, init) => {
+      const path = new Request(input, init).url.replace(`${api}profiles/${profileID}/`, '')
+      if (path === 'view') {
+        return Response.json(testProjection({ capabilities, pending, profile_kind: 'monarch' }))
+      }
+      if (path === 'provider/status') return Response.json(testProviderStatus({ revision: '0' }))
+      if (path === 'provider/write-status') {
+        asked.resolve()
+        return Response.json(await answer.promise)
+      }
+      return Response.json(
+        { status: 404, code: 'not_found', detail: 'Not found.' },
+        { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+    })
+    const workspace = mount(MoneyflowWorkspace, {
+      target: document.body.appendChild(document.createElement('div')),
+      props: {
+        apiBase: '/embedded/moneyflow/',
+        fetch: hostFetch,
+        profileID,
+        viewState: memoryViewState(),
+      },
+    })
+    try {
+      workspace.review()
+      await asked.promise
+      await new Promise((resolve) => setTimeout(resolve))
+      expect(screen.queryByRole('dialog', { name: 'Review pending changes' })).toBeNull()
+
+      answer.resolve({ ...writing, actions: [] })
+
+      await appears(() => screen.queryByRole('dialog', { name: 'Monarch write status' }))
+      expect(screen.queryByRole('dialog', { name: 'Review pending changes' })).toBeNull()
+    } finally {
+      await unmount(workspace)
+    }
+  })
+
   describe('an initial view from the host', () => {
     const capabilities = [
       { id: 'view.set-grouping', key_display: '1-5', description: 'Group by', category: 'Views' },
@@ -236,6 +282,48 @@ describe('MoneyflowWorkspace', () => {
       await vi.waitFor(() => expect(onlocation).toHaveBeenCalledWith('detail'))
       await new Promise((resolve) => setTimeout(resolve))
       expect(paths).not.toContain('view/transition')
+    })
+
+    it('gives way to Back taken while the first view loads', async () => {
+      const viewState = memoryViewState()
+      viewState.entries.unshift({ state: null, query: 'v=1' })
+      viewState.go(1)
+      const firstView = Promise.withResolvers<void>()
+      const paths: string[] = []
+      const onlocation = vi.fn<(view?: ViewID) => void>()
+      const hostFetch = vi.fn<typeof fetch>(async (input, init) => {
+        const request = new Request(input, init)
+        const path = request.url.replace(`${api}profiles/${profileID}/`, '')
+        paths.push(path)
+        if (path === 'view') {
+          const { query } = (await request.json()) as { query: string }
+          if (query === '') await firstView.promise
+          return Response.json(testProjection({ capabilities }))
+        }
+        if (path === 'view/transition') return Response.json(categories)
+        return Response.json(
+          { status: 404, code: 'not_found', detail: 'Not found.' },
+          { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+        )
+      })
+      render(MoneyflowWorkspace, {
+        apiBase: '/embedded/moneyflow/',
+        fetch: hostFetch,
+        profileID,
+        viewState,
+        initialView: 'category',
+        onlocation,
+      })
+      await vi.waitFor(() => expect(paths).toContain('view'))
+
+      viewState.go(-1)
+      for (const listener of viewState.listeners) listener()
+      firstView.resolve()
+
+      await vi.waitFor(() => expect(onlocation).toHaveBeenCalledWith('detail'))
+      await new Promise((resolve) => setTimeout(resolve))
+      expect(paths).not.toContain('view/transition')
+      expect(viewState.entries).toHaveLength(2)
     })
   })
 

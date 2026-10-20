@@ -71,7 +71,10 @@
   let root = $state<HTMLElement>()
   let requested = $state<ViewID>()
   let reviewRequested = $state(false)
-  /** The host's view for a history entry without one, until the first view has loaded. */
+  /**
+   * The host's view for a history entry without one, until the first view has loaded or history
+   * moves to another entry.
+   */
   let initial = $state<ViewID>()
 
   function resolveController(): ViewController {
@@ -91,12 +94,11 @@
   }
 
   /**
-   * Opens the review of pending edits. A review asked for while the workspace loads opens once it
-   * has loaded.
+   * Opens the review of pending edits. A review asked for while the workspace loads opens once the
+   * first view and the provider write status have loaded.
    */
   export function review(): void {
-    if (shell && controller.projection) shell.review()
-    else reviewRequested = true
+    reviewRequested = true
   }
 
   function importAmazon(): void {
@@ -118,8 +120,13 @@
     requested = undefined
   })
 
+  // A running or finished write shows its status in place of the review, so the review waits for
+  // the first write status check. Amazon profiles make none.
   $effect(() => {
-    if (!shell || !controller.projection || !reviewRequested) return
+    const projection = controller.projection
+    if (!shell || !projection || !reviewRequested) return
+    const write = controller.providerWrite.state
+    if (projection.profile_kind !== 'amazon' && !write.status && write.phase === 'idle') return
     shell.review()
     reviewRequested = false
   })
@@ -162,7 +169,11 @@
       root?.setAttribute('data-keyboard', '')
     }
     window.addEventListener('keydown', keyboard, { capture: true, once: true })
-    const unlisten = viewState.listen(() => void controller.restore({ state: viewState.state }))
+    const unlisten = viewState.listen(() => {
+      // Back or Forward leaves the entry the host's initial view was for.
+      initial = undefined
+      void controller.restore({ state: viewState.state })
+    })
     window.addEventListener('pagehide', leave)
     window.addEventListener('focus', recheck)
     document.addEventListener('visibilitychange', visible)

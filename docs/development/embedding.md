@@ -331,7 +331,8 @@ including `--edge-highlight`, `--shadow-raised`, `--shadow-sunken`, `--shadow-pa
   change another of those props, mount a new workspace.
 - `initialView` opens once the first view has loaded, unless that view is already shown, so a
   link to the view that loads first sends no view change. A history entry with a view of its
-  own, such as one that Back returns to, keeps it.
+  own, such as one that Back returns to, keeps it. Back or Forward before the first view loads
+  cancels `initialView`.
 - Removing the workspace stops its work, and answers that arrive later change nothing.
 - In a host, a refresh that the page starts, whether the user asks or `autoRefresh` starts it,
   opens a dialog that offers Close, not Cancel, because the refresh runs on after its request
@@ -352,7 +353,7 @@ including `--edge-highlight`, `--shadow-raised`, `--shadow-sunken`, `--shadow-pa
 - `review()` opens what the Review button opens: the review of pending edits, or the status of a
   running provider write. With nothing to review, it shows the last write's status while the
   server still reports it, or else the status line says why. A review asked for while the
-  workspace loads opens once it has loaded.
+  workspace loads opens once the first view and the provider write status have loaded.
 - Without `chrome`, the workspace adds no `main` landmark and no banner. It is a region named
   "Moneyflow workspace", and its command bar is a region named "View controls". Pending edits and
   provider status sit in a strip above the status line.
