@@ -16,14 +16,7 @@ import { providerName } from '../provider-name'
 import { problemReason, showFailure, showNotice } from '../shell/notices'
 
 export type ProviderWritePhase =
-  | 'idle'
-  | 'active'
-  | 'paused'
-  | 'attention'
-  | 'confirmation'
-  | 'reconnect'
-  | 'complete'
-  | 'failed'
+  'idle' | 'active' | 'paused' | 'attention' | 'confirmation' | 'reconnect' | 'complete' | 'failed'
 
 export interface ProviderWriteState {
   phase: ProviderWritePhase

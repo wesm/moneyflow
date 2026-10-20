@@ -7,8 +7,7 @@ import type { TransitionAction, ViewController } from '../controller/view-contro
  * undefined sends nothing.
  */
 export type ViewChange =
-  | TransitionAction
-  | ((current: ViewProjection) => TransitionAction | undefined)
+  TransitionAction | ((current: ViewProjection) => TransitionAction | undefined)
 
 /**
  * Runs view changes from keys, the table and the command bar in the order the user made them.

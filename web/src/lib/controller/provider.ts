@@ -24,12 +24,7 @@ export type RefreshKind = 'recent' | 'full'
  * refresh, a failure, a reconnect request, or removals to confirm.
  */
 export type RefreshDialogView =
-  | 'progress'
-  | 'stopping'
-  | 'other'
-  | 'failed'
-  | 'reconnect'
-  | 'confirmation'
+  'progress' | 'stopping' | 'other' | 'failed' | 'reconnect' | 'confirmation'
 
 export interface RefreshDialog {
   view: RefreshDialogView

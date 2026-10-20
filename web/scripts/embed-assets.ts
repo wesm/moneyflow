@@ -14,7 +14,7 @@ export async function embedDistribution(
     try {
       target = await validateDistribution(targetRoot)
     } catch (error) {
-      throw new Error(`embedded web distribution is stale: ${String(error)}`)
+      throw new Error(`embedded web distribution is stale: ${String(error)}`, { cause: error })
     }
     if (JSON.stringify(source.files) !== JSON.stringify(target.files)) {
       throw new Error('embedded web distribution is stale: filenames differ')

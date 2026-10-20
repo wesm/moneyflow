@@ -148,7 +148,9 @@ export async function driveBrowser(
         { mode: 0o600 },
       )
       await page.screenshot({ path: join(root, 'failure.png'), fullPage: true })
-      throw new Error(`Browser action ${index} (${action.kind}): ${String(error)}`)
+      throw new Error(`Browser action ${index} (${action.kind}): ${String(error)}`, {
+        cause: error,
+      })
     }
   }
 }

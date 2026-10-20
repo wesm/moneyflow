@@ -28,7 +28,7 @@ func TestWriteParquetRoundTripsTypedRowsAndMetadata(t *testing.T) {
 	assert.Equal(t, parquet.Int64, fields[5].Type().Kind())
 	assert.Equal(t, parquet.ByteArray, fields[4].Type().Kind())
 	require.NotNil(t, fields[3].Type().LogicalType())
-	assert.NotNil(t, fields[3].Type().LogicalType().Date)
+	assert.IsType(t, new(format.DateType), fields[3].Type().LogicalType().Value)
 	for _, rowGroup := range file.Metadata().RowGroups {
 		for _, column := range rowGroup.Columns {
 			assert.Equal(t, format.Snappy, column.MetaData.Codec)
