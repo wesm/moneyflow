@@ -11,6 +11,7 @@
   import { createMoneyflowClient } from '../api/client'
   import { createViewController, type ViewController } from '../controller/view-controller.svelte'
   import type { ViewStateAdapter } from '../controller/view-state'
+  import { navItems } from '../shell/nav-items'
   import type { ViewID } from './views'
 
   interface Props {
@@ -32,6 +33,12 @@
     shortcuts?: boolean
     /** Starts a refresh the server reports as due. Read when the workspace mounts. */
     autoRefresh?: boolean
+    /**
+     * The view to open when the history entry has no view of its own, as a link to that view
+     * would. Nothing changes when the first view is already that view. Read when the workspace
+     * mounts.
+     */
+    initialView?: ViewID | undefined
     chrome?: boolean
     onlocation?: ((view: ViewID | undefined) => void) | undefined
     onreconnect?: (() => void) | undefined
@@ -52,6 +59,7 @@
     readOnly = false,
     shortcuts = true,
     autoRefresh = false,
+    initialView,
     chrome = false,
     onlocation,
     onreconnect,
@@ -62,6 +70,9 @@
   let shell = $state<AppShell>()
   let root = $state<HTMLElement>()
   let requested = $state<ViewID>()
+  let reviewRequested = $state(false)
+  /** The host's view for a history entry without one, until the first view has loaded. */
+  let initial = $state<ViewID>()
 
   function resolveController(): ViewController {
     if (supplied) return supplied
@@ -79,15 +90,38 @@
     else requested = view
   }
 
+  /**
+   * Opens the review of pending edits. A review asked for while the workspace loads opens once it
+   * has loaded.
+   */
+  export function review(): void {
+    if (shell && controller.projection) shell.review()
+    else reviewRequested = true
+  }
+
   function importAmazon(): void {
     const settings = controller.projection?.amazon_settings
     if (settings) onamazonimport?.({ currency: settings.currency, scale: settings.scale })
   }
 
+  // Before the host's own requests, so a view the host asks for while the workspace loads wins.
+  $effect(() => {
+    if (!shell || !controller.projection || initial === undefined) return
+    const shown = navItems(controller.projection).explore.find((entry) => entry.active)?.id
+    if (initial !== shown) shell.open(initial)
+    initial = undefined
+  })
+
   $effect(() => {
     if (!shell || !controller.projection || requested === undefined) return
     shell.open(requested)
     requested = undefined
+  })
+
+  $effect(() => {
+    if (!shell || !controller.projection || !reviewRequested) return
+    shell.review()
+    reviewRequested = false
   })
 
   function pollProvider(): void {
@@ -141,6 +175,7 @@
         void controller.providerWrite.poll().catch(() => undefined)
       }
     }, 1_000)
+    if (!viewState.query) initial = initialView
     // A controller kept across setup already holds a view, but Back or Forward during setup can
     // have moved history to another entry, so it shows the current entry's view again.
     const load = controller.projection

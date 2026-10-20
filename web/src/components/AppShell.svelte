@@ -129,6 +129,10 @@
     }
     run(entry.run)
   }
+  /** Opens the review of pending edits as the Review button does. */
+  export function review(): void {
+    local('edit.review')
+  }
   function run(entry: NavRun): void {
     if (entry.kind === 'local') local(entry.action)
     else
