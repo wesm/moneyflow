@@ -968,47 +968,6 @@ export interface components {
       /** Format: int64 */
       transaction_count: number
     }
-    ErrorDetail: {
-      /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
-      location?: string
-      /** @description Error message text */
-      message?: string
-      /** @description The value at the given location */
-      value?: unknown
-    }
-    ErrorModel: {
-      /**
-       * @description A human-readable explanation specific to this occurrence of the problem.
-       * @example Property foo is required but is missing.
-       */
-      detail?: string
-      /** @description Optional list of individual error details */
-      errors?: components['schemas']['ErrorDetail'][] | null
-      /**
-       * Format: uri
-       * @description A URI reference that identifies the specific occurrence of the problem.
-       * @example https://example.com/error-log/abc123
-       */
-      instance?: string
-      /**
-       * Format: int64
-       * @description HTTP status code
-       * @example 400
-       */
-      status?: number
-      /**
-       * @description A short, human-readable summary of the problem type. This value should not change between occurrences of the error.
-       * @example Bad Request
-       */
-      title?: string
-      /**
-       * Format: uri
-       * @description A URI reference to human-readable documentation for the error.
-       * @default about:blank
-       * @example https://example.com/errors/example
-       */
-      type: string
-    }
     ExportBody: {
       /** @enum {string} */
       format: 'parquet' | 'csv' | 'sqlite'
@@ -1040,13 +999,6 @@ export interface components {
       hidden: boolean
       pending: boolean
       selected: boolean
-    }
-    FormFile: {
-      ContentType: string
-      Filename: string
-      IsSet: boolean
-      /** Format: int64 */
-      Size: number
     }
     Health: {
       api_schema_version: string
@@ -1312,13 +1264,7 @@ export interface components {
       affected: number
       /** @enum {string} */
       kind:
-        | 'rename'
-        | 'recategorize'
-        | 'hide'
-        | 'show'
-        | 'delete'
-        | 'manage_category'
-        | 'manage_group'
+        'rename' | 'recategorize' | 'hide' | 'show' | 'delete' | 'manage_category' | 'manage_group'
       label: string
       undoable: boolean
     }
@@ -1802,14 +1748,7 @@ export interface components {
       selection?: string
       /** @enum {string} */
       sort_field?:
-        | 'count'
-        | 'amount'
-        | 'date'
-        | 'merchant'
-        | 'category'
-        | 'group'
-        | 'account'
-        | 'time_period'
+        'count' | 'amount' | 'date' | 'merchant' | 'category' | 'group' | 'account' | 'time_period'
       target?: components['schemas']['TransitionTarget']
       window: components['schemas']['Window']
     }
@@ -1845,14 +1784,7 @@ export interface components {
       sort_direction: string
       sort_field: string
       sort_fields: (
-        | 'count'
-        | 'amount'
-        | 'date'
-        | 'merchant'
-        | 'category'
-        | 'group'
-        | 'account'
-        | 'time_period'
+        'count' | 'amount' | 'date' | 'merchant' | 'category' | 'group' | 'account' | 'time_period'
       )[]
       sub_grouping?: string
       time_granularity: string

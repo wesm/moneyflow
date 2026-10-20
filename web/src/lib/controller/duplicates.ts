@@ -14,13 +14,7 @@ import {
 import { failureReason, problemReason, showFailure } from '../shell/notices'
 
 export type DuplicatePhase =
-  | 'idle'
-  | 'loading'
-  | 'ready'
-  | 'confirming'
-  | 'submitting'
-  | 'conflict'
-  | 'failed'
+  'idle' | 'loading' | 'ready' | 'confirming' | 'submitting' | 'conflict' | 'failed'
 
 export interface DuplicateState {
   phase: DuplicatePhase

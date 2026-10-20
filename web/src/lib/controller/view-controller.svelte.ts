@@ -657,7 +657,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     // left, not the older one history saved. Keys wait until the view loads.
     const query = owned?.query ?? viewState.query
     const selection = arrived?.projection.selection ?? owned?.selection ?? projection?.selection
-    let loaded = false
+    let loaded: boolean
     try {
       loaded = await requestProjection(
         async () =>
