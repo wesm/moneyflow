@@ -74,7 +74,7 @@ Do not create a second assistant-specific instruction file or private project me
 
 Stay on the branch the user selected.
 Use `mise trust` and `mise install` to select the tools pinned in `mise.toml`, including
-Go 1.27.1 and Bun 1.3.14. Run commands through `mise exec --` when shell activation is absent.
+Go 1.27.3 and Bun 1.4.4. Run commands through `mise exec --` when shell activation is absent.
 Do not work around toolchain selection with shell-specific Go version exports.
 Keep `mise.toml`, `go.mod`, `web/package.json`, and CI tool versions aligned.
 Build portable Linux, macOS, and Windows binaries without CGO. Put binaries in `bin/`,
