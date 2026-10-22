@@ -11,6 +11,7 @@
   import { createMoneyflowClient } from '../api/client'
   import { createViewController, type ViewController } from '../controller/view-controller.svelte'
   import type { ViewStateAdapter } from '../controller/view-state'
+  import { navItems } from '../shell/nav-items'
   import type { ViewID } from './views'
 
   interface Props {
@@ -32,6 +33,12 @@
     shortcuts?: boolean
     /** Starts a refresh the server reports as due. Read when the workspace mounts. */
     autoRefresh?: boolean
+    /**
+     * The view to open when the history entry has no view of its own, as a link to that view
+     * would. Nothing changes when the first view is already that view. Read when the workspace
+     * mounts.
+     */
+    initialView?: ViewID | undefined
     chrome?: boolean
     onlocation?: ((view: ViewID | undefined) => void) | undefined
     onreconnect?: (() => void) | undefined
@@ -52,6 +59,7 @@
     readOnly = false,
     shortcuts = true,
     autoRefresh = false,
+    initialView,
     chrome = false,
     onlocation,
     onreconnect,
@@ -62,6 +70,12 @@
   let shell = $state<AppShell>()
   let root = $state<HTMLElement>()
   let requested = $state<ViewID>()
+  let reviewRequested = $state(false)
+  /**
+   * The host's view for a history entry without one, until the first view has loaded, history
+   * moves to another entry, or the host asks for a view.
+   */
+  let initial = $state<ViewID>()
 
   function resolveController(): ViewController {
     if (supplied) return supplied
@@ -75,8 +89,18 @@
 
   /** Shows a view. A view asked for while the workspace loads opens once it has loaded. */
   export function open(view: ViewID): void {
+    // The host's request replaces the initial view, which as a maintain view would cover this one.
+    initial = undefined
     if (shell && controller.projection) shell.open(view)
     else requested = view
+  }
+
+  /**
+   * Opens the review of pending edits. A review asked for while the workspace loads opens once the
+   * first view and the provider write status have loaded.
+   */
+  export function review(): void {
+    reviewRequested = true
   }
 
   function importAmazon(): void {
@@ -85,9 +109,27 @@
   }
 
   $effect(() => {
+    if (!shell || !controller.projection || initial === undefined) return
+    const shown = navItems(controller.projection).explore.find((entry) => entry.active)?.id
+    if (initial !== shown) shell.open(initial)
+    initial = undefined
+  })
+
+  $effect(() => {
     if (!shell || !controller.projection || requested === undefined) return
     shell.open(requested)
     requested = undefined
+  })
+
+  // A running or finished write shows its status in place of the review, so the review waits for
+  // the first write status check. Amazon profiles make none.
+  $effect(() => {
+    const projection = controller.projection
+    if (!shell || !projection || !reviewRequested) return
+    const write = controller.providerWrite.state
+    if (projection.profile_kind !== 'amazon' && !write.status && write.phase === 'idle') return
+    shell.review()
+    reviewRequested = false
   })
 
   function pollProvider(): void {
@@ -128,7 +170,11 @@
       root?.setAttribute('data-keyboard', '')
     }
     window.addEventListener('keydown', keyboard, { capture: true, once: true })
-    const unlisten = viewState.listen(() => void controller.restore({ state: viewState.state }))
+    const unlisten = viewState.listen(() => {
+      // Back or Forward leaves the entry the host's initial view was for.
+      initial = undefined
+      void controller.restore({ state: viewState.state })
+    })
     window.addEventListener('pagehide', leave)
     window.addEventListener('focus', recheck)
     document.addEventListener('visibilitychange', visible)
@@ -141,6 +187,8 @@
         void controller.providerWrite.poll().catch(() => undefined)
       }
     }, 1_000)
+    // A view the host asked for before the workspace mounted replaces the initial view too.
+    if (!viewState.query && requested === undefined) initial = initialView
     // A controller kept across setup already holds a view, but Back or Forward during setup can
     // have moved history to another entry, so it shows the current entry's view again.
     const load = controller.projection

@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
-import { mount, unmount } from 'svelte'
+import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createMoneyflowClient } from '../api/client'
@@ -9,7 +9,7 @@ import { appears } from '../../test/dom'
 import { notices } from '../../test/notices'
 import { testAggregateRow, testProjection } from '../../test/projection'
 import { providerCapability, testProviderStatus } from '../../test/provider'
-import { MoneyflowWorkspace } from './index'
+import { MoneyflowWorkspace, type ViewID } from './index'
 
 const profileID = 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa'
 const api = 'http://localhost:3000/embedded/moneyflow/api/v1/'
@@ -117,6 +117,270 @@ describe('MoneyflowWorkspace', () => {
     } finally {
       await unmount(workspace)
     }
+  })
+
+  it('opens the review asked for before the workspace has mounted', async () => {
+    const pending = { active_operations: 1, inactive_operations: 0, affected_transactions: 1 }
+    const capabilities = [
+      { id: 'changes.review', key_display: 'w', description: 'Review changes', category: 'Edit' },
+    ].map((capability) => ({ ...capability, available: true }))
+    const hostFetch = vi.fn<typeof fetch>(async (input, init) => {
+      const path = new Request(input, init).url.replace(`${api}profiles/${profileID}/`, '')
+      if (path === 'view') return Response.json(testProjection({ capabilities, pending }))
+      if (path === 'review') {
+        return Response.json({
+          revision: '0',
+          pending,
+          active_operations: [
+            {
+              operation_id: 'operation-a',
+              type: 'merchant.label',
+              label: 'Rename merchant',
+              active: true,
+              affected_count: 1,
+              before: 'Old Merchant',
+              after: 'New Merchant',
+            },
+          ],
+          inactive_operations: [],
+        })
+      }
+      return Response.json(
+        { status: 404, code: 'not_found', detail: 'Not found.' },
+        { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+    })
+    const workspace = mount(MoneyflowWorkspace, {
+      target: document.body.appendChild(document.createElement('div')),
+      props: {
+        apiBase: '/embedded/moneyflow/',
+        fetch: hostFetch,
+        profileID,
+        viewState: memoryViewState(),
+      },
+    })
+    try {
+      workspace.review()
+      const drawer = await appears(() =>
+        screen.queryByRole('dialog', { name: 'Review pending changes' }),
+      )
+      await appears(() => within(drawer).queryByRole('button', { name: /^Rename merchant/ }))
+    } finally {
+      await unmount(workspace)
+    }
+  })
+
+  it('shows a running write, not the review, when the write status answers after the view', async () => {
+    const pending = { active_operations: 1, inactive_operations: 0, affected_transactions: 1 }
+    const capabilities = [
+      { id: 'changes.review', key_display: 'w', description: 'Review changes', category: 'Edit' },
+    ].map((capability) => ({ ...capability, available: true }))
+    const asked = Promise.withResolvers<void>()
+    const answer = Promise.withResolvers<object>()
+    const hostFetch = vi.fn<typeof fetch>(async (input, init) => {
+      const path = new Request(input, init).url.replace(`${api}profiles/${profileID}/`, '')
+      if (path === 'view') {
+        return Response.json(testProjection({ capabilities, pending, profile_kind: 'monarch' }))
+      }
+      if (path === 'provider/status') return Response.json(testProviderStatus({ revision: '0' }))
+      if (path === 'provider/write-status') {
+        asked.resolve()
+        return Response.json(await answer.promise)
+      }
+      return Response.json(
+        { status: 404, code: 'not_found', detail: 'Not found.' },
+        { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+    })
+    const workspace = mount(MoneyflowWorkspace, {
+      target: document.body.appendChild(document.createElement('div')),
+      props: {
+        apiBase: '/embedded/moneyflow/',
+        fetch: hostFetch,
+        profileID,
+        viewState: memoryViewState(),
+      },
+    })
+    try {
+      workspace.review()
+      await asked.promise
+      await new Promise((resolve) => setTimeout(resolve))
+      expect(screen.queryByRole('dialog', { name: 'Review pending changes' })).toBeNull()
+
+      answer.resolve({ ...writing, actions: [] })
+
+      await appears(() => screen.queryByRole('dialog', { name: 'Monarch write status' }))
+      expect(screen.queryByRole('dialog', { name: 'Review pending changes' })).toBeNull()
+    } finally {
+      await unmount(workspace)
+    }
+  })
+
+  describe('an initial view from the host', () => {
+    const capabilities = [
+      { id: 'view.set-grouping', key_display: '1-5', description: 'Group by', category: 'Views' },
+      {
+        id: 'view.show-detail',
+        key_display: 'd',
+        description: 'All transactions',
+        category: 'Views',
+      },
+    ].map((capability) => ({ ...capability, available: true }))
+    const categories = testProjection({
+      canonical_query: 'group=category&v=1',
+      capabilities,
+      view: { ...testProjection().view, mode: 'aggregate', grouping: 'category' },
+      detail_rows: [],
+      aggregate_rows: [testAggregateRow({ dimension: 'category', label: 'Example Category' })],
+    })
+
+    /** Renders a workspace whose first view is all transactions, and records its requests. */
+    function renderWorkspace(initialView: ViewID, viewState = memoryViewState()) {
+      const paths: string[] = []
+      const onlocation = vi.fn<(view?: ViewID) => void>()
+      const hostFetch = vi.fn<typeof fetch>(async (input, init) => {
+        const path = new Request(input, init).url.replace(`${api}profiles/${profileID}/`, '')
+        paths.push(path)
+        if (path === 'view') return Response.json(testProjection({ capabilities }))
+        if (path === 'view/transition') return Response.json(categories)
+        return Response.json(
+          { status: 404, code: 'not_found', detail: 'Not found.' },
+          { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+        )
+      })
+      render(MoneyflowWorkspace, {
+        apiBase: '/embedded/moneyflow/',
+        fetch: hostFetch,
+        profileID,
+        viewState,
+        initialView,
+        onlocation,
+      })
+      return { paths, onlocation }
+    }
+
+    it('opens when the history entry has no view', async () => {
+      const { paths, onlocation } = renderWorkspace('category')
+
+      await vi.waitFor(() => expect(onlocation).toHaveBeenLastCalledWith('category'))
+      expect(paths.filter((path) => path === 'view/transition')).toHaveLength(1)
+    })
+
+    it('sends no view change when the first view is that view', async () => {
+      const { paths, onlocation } = renderWorkspace('detail')
+
+      await vi.waitFor(() => expect(onlocation).toHaveBeenCalledWith('detail'))
+      await new Promise((resolve) => setTimeout(resolve))
+      expect(paths).not.toContain('view/transition')
+    })
+
+    it('leaves a history entry that has a view alone', async () => {
+      const viewState = memoryViewState()
+      viewState.entries[0] = { state: null, query: 'v=1' }
+      const { paths, onlocation } = renderWorkspace('category', viewState)
+
+      await vi.waitFor(() => expect(onlocation).toHaveBeenCalledWith('detail'))
+      await new Promise((resolve) => setTimeout(resolve))
+      expect(paths).not.toContain('view/transition')
+    })
+
+    it('gives way to Back taken while the first view loads', async () => {
+      const viewState = memoryViewState()
+      viewState.entries.unshift({ state: null, query: 'v=1' })
+      viewState.go(1)
+      const firstView = Promise.withResolvers<void>()
+      const paths: string[] = []
+      const onlocation = vi.fn<(view?: ViewID) => void>()
+      const hostFetch = vi.fn<typeof fetch>(async (input, init) => {
+        const request = new Request(input, init)
+        const path = request.url.replace(`${api}profiles/${profileID}/`, '')
+        paths.push(path)
+        if (path === 'view') {
+          const { query } = (await request.json()) as { query: string }
+          if (query === '') await firstView.promise
+          return Response.json(testProjection({ capabilities }))
+        }
+        if (path === 'view/transition') return Response.json(categories)
+        return Response.json(
+          { status: 404, code: 'not_found', detail: 'Not found.' },
+          { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+        )
+      })
+      render(MoneyflowWorkspace, {
+        apiBase: '/embedded/moneyflow/',
+        fetch: hostFetch,
+        profileID,
+        viewState,
+        initialView: 'category',
+        onlocation,
+      })
+      await vi.waitFor(() => expect(paths).toContain('view'))
+
+      viewState.go(-1)
+      for (const listener of viewState.listeners) listener()
+      firstView.resolve()
+
+      await vi.waitFor(() => expect(onlocation).toHaveBeenCalledWith('detail'))
+      await new Promise((resolve) => setTimeout(resolve))
+      expect(paths).not.toContain('view/transition')
+      expect(viewState.entries).toHaveLength(2)
+    })
+
+    // A maintain view opens over the grid, so opening it before the asked-for view would cover it.
+    it.each([
+      { when: 'before the workspace has mounted', mounted: false },
+      { when: 'while the first view loads', mounted: true },
+    ])('gives way to a view the host asks for $when', async ({ mounted }) => {
+      const manage = [
+        ...capabilities,
+        {
+          id: 'category.manage',
+          key_display: 'C',
+          description: 'Manage categories',
+          category: 'Edit',
+          available: true,
+        },
+      ]
+      const firstView = Promise.withResolvers<void>()
+      const located = Promise.withResolvers<void>()
+      const hostFetch = vi.fn<typeof fetch>(async (input, init) => {
+        const path = new Request(input, init).url.replace(`${api}profiles/${profileID}/`, '')
+        if (path === 'view') {
+          await firstView.promise
+          return Response.json(testProjection({ capabilities: manage }))
+        }
+        if (path === 'view/transition')
+          return Response.json({ ...categories, capabilities: manage })
+        return Response.json(
+          { status: 404, code: 'not_found', detail: 'Not found.' },
+          { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+        )
+      })
+      const workspace = mount(MoneyflowWorkspace, {
+        target: document.body.appendChild(document.createElement('div')),
+        props: {
+          apiBase: '/embedded/moneyflow/',
+          fetch: hostFetch,
+          profileID,
+          viewState: memoryViewState(),
+          initialView: 'categories',
+          onlocation: (view?: ViewID) => {
+            if (view === 'category') located.resolve()
+          },
+        },
+      })
+      try {
+        if (mounted) flushSync()
+        workspace.open('category')
+        firstView.resolve()
+
+        await located.promise
+        await new Promise((resolve) => setTimeout(resolve))
+        expect(screen.queryByRole('dialog', { name: 'Manage categories' })).toBeNull()
+      } finally {
+        await unmount(workspace)
+      }
+    })
   })
 
   it.each([
