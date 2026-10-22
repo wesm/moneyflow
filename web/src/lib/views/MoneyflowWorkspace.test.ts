@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
-import { mount, unmount } from 'svelte'
+import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createMoneyflowClient } from '../api/client'
@@ -324,6 +324,62 @@ describe('MoneyflowWorkspace', () => {
       await new Promise((resolve) => setTimeout(resolve))
       expect(paths).not.toContain('view/transition')
       expect(viewState.entries).toHaveLength(2)
+    })
+
+    // A maintain view opens over the grid, so opening it before the asked-for view would cover it.
+    it.each([
+      { when: 'before the workspace has mounted', mounted: false },
+      { when: 'while the first view loads', mounted: true },
+    ])('gives way to a view the host asks for $when', async ({ mounted }) => {
+      const manage = [
+        ...capabilities,
+        {
+          id: 'category.manage',
+          key_display: 'C',
+          description: 'Manage categories',
+          category: 'Edit',
+          available: true,
+        },
+      ]
+      const firstView = Promise.withResolvers<void>()
+      const located = Promise.withResolvers<void>()
+      const hostFetch = vi.fn<typeof fetch>(async (input, init) => {
+        const path = new Request(input, init).url.replace(`${api}profiles/${profileID}/`, '')
+        if (path === 'view') {
+          await firstView.promise
+          return Response.json(testProjection({ capabilities: manage }))
+        }
+        if (path === 'view/transition')
+          return Response.json({ ...categories, capabilities: manage })
+        return Response.json(
+          { status: 404, code: 'not_found', detail: 'Not found.' },
+          { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+        )
+      })
+      const workspace = mount(MoneyflowWorkspace, {
+        target: document.body.appendChild(document.createElement('div')),
+        props: {
+          apiBase: '/embedded/moneyflow/',
+          fetch: hostFetch,
+          profileID,
+          viewState: memoryViewState(),
+          initialView: 'categories',
+          onlocation: (view?: ViewID) => {
+            if (view === 'category') located.resolve()
+          },
+        },
+      })
+      try {
+        if (mounted) flushSync()
+        workspace.open('category')
+        firstView.resolve()
+
+        await located.promise
+        await new Promise((resolve) => setTimeout(resolve))
+        expect(screen.queryByRole('dialog', { name: 'Manage categories' })).toBeNull()
+      } finally {
+        await unmount(workspace)
+      }
     })
   })
 

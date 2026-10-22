@@ -72,8 +72,8 @@
   let requested = $state<ViewID>()
   let reviewRequested = $state(false)
   /**
-   * The host's view for a history entry without one, until the first view has loaded or history
-   * moves to another entry.
+   * The host's view for a history entry without one, until the first view has loaded, history
+   * moves to another entry, or the host asks for a view.
    */
   let initial = $state<ViewID>()
 
@@ -89,6 +89,8 @@
 
   /** Shows a view. A view asked for while the workspace loads opens once it has loaded. */
   export function open(view: ViewID): void {
+    // The host's request replaces the initial view, which as a maintain view would cover this one.
+    initial = undefined
     if (shell && controller.projection) shell.open(view)
     else requested = view
   }
@@ -106,7 +108,6 @@
     if (settings) onamazonimport?.({ currency: settings.currency, scale: settings.scale })
   }
 
-  // Before the host's own requests, so a view the host asks for while the workspace loads wins.
   $effect(() => {
     if (!shell || !controller.projection || initial === undefined) return
     const shown = navItems(controller.projection).explore.find((entry) => entry.active)?.id
@@ -186,7 +187,8 @@
         void controller.providerWrite.poll().catch(() => undefined)
       }
     }, 1_000)
-    if (!viewState.query) initial = initialView
+    // A view the host asked for before the workspace mounted replaces the initial view too.
+    if (!viewState.query && requested === undefined) initial = initialView
     // A controller kept across setup already holds a view, but Back or Forward during setup can
     // have moved history to another entry, so it shows the current entry's view again.
     const load = controller.projection
