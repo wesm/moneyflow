@@ -348,11 +348,11 @@ func submitCLICredentials(
 	}
 	if _, err = fmt.Fprintln(
 		command.ErrOrStderr(),
-		"Enter the Base32 TOTP secret from Monarch Settings > Security.",
+		"Enter the authenticator setup key from Monarch Settings > Security: the Base32 text behind the QR code, not a six-digit code.",
 	); err != nil {
 		return snapshot, err
 	}
-	totp, err := promptCLI(command, streams, "Monarch TOTP secret", true)
+	totp, err := promptCLI(command, streams, "Monarch authenticator setup key", true)
 	if err != nil {
 		return snapshot, err
 	}

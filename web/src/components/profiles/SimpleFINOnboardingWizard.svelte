@@ -119,8 +119,7 @@
               autocomplete="off"
             />
             <p>
-              Paste from SimpleFIN Bridge. The connection is saved on this Moneyflow server before
-              importing.
+              Paste from SimpleFIN Bridge. The connection is saved on this server before importing.
             </p>
           {/if}
           {#if validation}<p role="alert" class="editing-error">{validation}</p>{/if}

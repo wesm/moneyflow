@@ -22,11 +22,9 @@ test('keyboard onboarding creates, connects, imports, and opens one profile', as
     await expect(page.getByRole('heading', { name: 'Connect Monarch Money' })).toBeVisible()
     await page.getByLabel('Monarch email').fill('user@example.test')
     await page.getByLabel('Monarch password').fill('synthetic-password')
-    await page.getByLabel('TOTP secret').fill('JBSWY3DPEHPK3PXP')
-    await page
-      .getByLabel('Moneyflow account password', { exact: true })
-      .fill('synthetic-vault-password')
-    await page.getByLabel('Confirm Moneyflow account password').fill('synthetic-vault-password')
+    await page.getByLabel('Authenticator setup key').fill('JBSWY3DPEHPK3PXP')
+    await page.getByLabel('Account password', { exact: true }).fill('synthetic-vault-password')
+    await page.getByLabel('Confirm account password').fill('synthetic-vault-password')
     await page.getByRole('button', { name: 'Connect' }).press('Enter')
 
     await expect(page.getByText(/of 4 visible/)).toBeVisible()
@@ -66,7 +64,7 @@ test('@smoke YNAB setup, category clear, w Enter, and refresh preserve committed
   try {
     await page.goto(server.url)
     await page.getByRole('button', { name: /Add profile/ }).click()
-    await page.getByRole('button', { name: /YNAB, available/ }).click()
+    await page.getByRole('button', { name: /^YNAB/ }).click()
     await page.getByLabel('Profile name').fill('YNAB Profile')
     await page.getByRole('button', { name: 'Create profile' }).click()
 
@@ -74,8 +72,8 @@ test('@smoke YNAB setup, category clear, w Enter, and refresh preserve committed
     const token = page.getByLabel('YNAB personal access token')
     await expect(token).toHaveAttribute('type', 'password')
     await token.fill('synthetic-token')
-    await page.getByLabel('Moneyflow account password', { exact: true }).fill('vault-password')
-    await page.getByLabel('Confirm Moneyflow account password').fill('vault-password')
+    await page.getByLabel('Account password', { exact: true }).fill('vault-password')
+    await page.getByLabel('Confirm account password').fill('vault-password')
     await page.getByRole('button', { name: 'Connect' }).click()
 
     await expect(page.getByRole('heading', { name: 'Choose a YNAB budget' })).toBeVisible()
@@ -83,7 +81,7 @@ test('@smoke YNAB setup, category clear, w Enter, and refresh preserve committed
     await expect(page.getByRole('heading', { name: 'Confirm import settings' })).toBeVisible()
     await expect(page.getByLabel('Currency')).toHaveValue('USD')
     await expect(page.getByLabel('Currency')).toHaveAttribute('readonly', '')
-    await expect(page.getByLabel('Minor-unit scale')).toHaveValue('2')
+    await expect(page.getByLabel('Decimal places')).toHaveValue('2')
     await page.getByRole('button', { name: 'Continue with USD / 2' }).press('Enter')
 
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()

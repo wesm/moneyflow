@@ -24,7 +24,7 @@ func (coordinator *Coordinator) authenticateFromVault(
 		if errors.Is(err, monarch.ErrCredentialUnlock) {
 			coordinator.setStableState(attemptID, StateUnlockRequired, &Failure{
 				Code:       string(CodeCredentialUnlockFailed),
-				Message:    "The Moneyflow account password was not accepted.",
+				Message:    "The account password was not accepted.",
 				CanReenter: true,
 			})
 			return
@@ -70,7 +70,7 @@ func (coordinator *Coordinator) runAuthentication(
 	if err != nil {
 		coordinator.authenticationFailure(
 			attemptID, string(CodeCredentialInputInvalid),
-			"The Monarch TOTP secret is invalid.", true,
+			"The Monarch authenticator setup key is invalid.", true,
 		)
 		return
 	}

@@ -74,7 +74,7 @@
       parsed < 0 ||
       parsed > 9
     ) {
-      validation = 'Enter a three-letter currency and a scale from 0 to 9.'
+      validation = 'Enter a three-letter currency and 0 to 9 decimal places.'
       return
     }
     validation = ''
@@ -83,7 +83,7 @@
 
   async function submitUnlock(): Promise<void> {
     if (!accountPassword) {
-      validation = 'Enter the Moneyflow account password.'
+      validation = 'Enter the account password.'
       return
     }
     const submitted = accountPassword
@@ -99,7 +99,7 @@
       return
     }
     if (accountPassword !== confirmation) {
-      validation = 'Moneyflow account passwords do not match.'
+      validation = 'The account passwords do not match.'
       return
     }
     const submitted = {
@@ -127,7 +127,7 @@
       return
     }
     if (accountPassword !== confirmation) {
-      validation = 'Moneyflow account passwords do not match.'
+      validation = 'The account passwords do not match.'
       return
     }
     const submitted = {
@@ -185,7 +185,10 @@
         </div>
       {:else if snapshot.state === 'settings_required'}
         <h1 id="onboarding-title">Confirm import settings</h1>
-        <p>Moneyflow stores exact integer minor units. Confirm the currency and decimal scale.</p>
+        <p>
+          Confirm the currency and how many decimal places its amounts use, such as USD and 2. They
+          cannot change after setup.
+        </p>
         <form
           class="profile-form"
           onsubmit={(event) => {
@@ -201,7 +204,7 @@
             readonly={snapshot.provider_kind === 'ynab'}
             autocomplete="off"
           />
-          <label for="onboarding-scale">Minor-unit scale</label>
+          <label for="onboarding-scale">Decimal places</label>
           <TextInput
             id="onboarding-scale"
             bind:value={scale}
@@ -220,9 +223,7 @@
         </form>
       {:else if snapshot.state === 'unlock_required'}
         <h1 id="onboarding-title">Unlock saved credentials</h1>
-        <p>
-          Enter the Moneyflow account password used to protect the local {provider} credential vault.
-        </p>
+        <p>Enter the account password you chose when you set up this {provider} profile.</p>
         <form
           class="profile-form"
           onsubmit={(event) => {
@@ -230,7 +231,7 @@
             void submitUnlock()
           }}
         >
-          <label for="onboarding-account-password">Moneyflow account password</label>
+          <label for="onboarding-account-password">Account password</label>
           <TextInput
             id="onboarding-account-password"
             type="password"
@@ -250,10 +251,7 @@
         </form>
       {:else if snapshot.state === 'credentials_required' && snapshot.provider_kind === 'ynab'}
         <h1 id="onboarding-title">Connect YNAB</h1>
-        <p>
-          The token is sent only to this Moneyflow server and saved only in the encrypted local
-          vault.
-        </p>
+        <p>The token goes only to this server, which saves it encrypted.</p>
         <form
           class="profile-form"
           onsubmit={(event) => {
@@ -269,16 +267,25 @@
             block
             autofocus
             autocomplete="off"
+            ariaDescribedby="onboarding-ynab-token-hint"
           />
-          <label for="onboarding-account-password">Moneyflow account password</label>
+          <p id="onboarding-ynab-token-hint" class="profile-hint">
+            Create one in YNAB under Account Settings, then Developer Settings.
+          </p>
+          <label for="onboarding-account-password">Account password</label>
           <TextInput
             id="onboarding-account-password"
             type="password"
             bind:value={accountPassword}
             block
             autocomplete="new-password"
+            ariaDescribedby="onboarding-account-password-hint"
           />
-          <label for="onboarding-confirmation">Confirm Moneyflow account password</label>
+          <p id="onboarding-account-password-hint" class="profile-hint">
+            Choose a new password. It encrypts the saved sign-in, and you enter it to unlock this
+            profile later.
+          </p>
+          <label for="onboarding-confirmation">Confirm account password</label>
           <TextInput
             id="onboarding-confirmation"
             type="password"
@@ -297,10 +304,7 @@
         </form>
       {:else if snapshot.state === 'credentials_required'}
         <h1 id="onboarding-title">Connect Monarch Money</h1>
-        <p>
-          Credentials are sent only to this Moneyflow server and saved only in the encrypted local
-          vault.
-        </p>
+        <p>Your sign-in goes only to this server, which saves it encrypted.</p>
         <form
           class="profile-form"
           onsubmit={(event) => {
@@ -325,23 +329,33 @@
             block
             autocomplete="current-password"
           />
-          <label for="onboarding-totp">TOTP secret</label>
+          <label for="onboarding-totp">Authenticator setup key</label>
           <TextInput
             id="onboarding-totp"
             type="password"
             bind:value={totpSecret}
             block
             autocomplete="off"
+            ariaDescribedby="onboarding-totp-hint"
           />
-          <label for="onboarding-account-password">Moneyflow account password</label>
+          <p id="onboarding-totp-hint" class="profile-hint">
+            The text key behind the QR code in Monarch Settings &gt; Security, not a six-digit code.
+            Monarch sign-in must use an authenticator app.
+          </p>
+          <label for="onboarding-account-password">Account password</label>
           <TextInput
             id="onboarding-account-password"
             type="password"
             bind:value={accountPassword}
             block
             autocomplete="new-password"
+            ariaDescribedby="onboarding-account-password-hint"
           />
-          <label for="onboarding-confirmation">Confirm Moneyflow account password</label>
+          <p id="onboarding-account-password-hint" class="profile-hint">
+            Choose a new password. It encrypts the saved sign-in, and you enter it to unlock this
+            profile later.
+          </p>
+          <label for="onboarding-confirmation">Confirm account password</label>
           <TextInput
             id="onboarding-confirmation"
             type="password"
@@ -428,7 +442,7 @@
         </div>
       {:else}
         <h1 id="onboarding-title">Profile setup complete</h1>
-        <p>Opening the keyboard-first financial workspace…</p>
+        <p>Opening the profile…</p>
       {/if}
       {#if controller.state.failure && !problem}
         <p role="alert" class="editing-error">{controller.state.failure}</p>

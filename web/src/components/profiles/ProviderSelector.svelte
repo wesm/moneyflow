@@ -17,12 +17,28 @@
   const announcement = 'Choose a provider. SimpleFIN is experimental and read-only.'
   let active = $state(0)
   let list = $state<HTMLElement | undefined>()
+  // What each provider's setup asks for, so the user can have it ready.
   const providers = [
-    { key: 'monarch', name: 'Monarch Money', shortcut: 'm', available: true },
-    { key: 'amazon', name: 'Amazon orders', shortcut: 'a', available: true },
-    { key: 'ynab', name: 'YNAB', shortcut: 'y', available: true },
-    { key: 'simplefin', name: 'SimpleFIN (experimental)', shortcut: 's', available: true },
-    { key: 'local', name: 'Local only', shortcut: 'l', available: true },
+    {
+      key: 'monarch',
+      name: 'Monarch Money',
+      shortcut: 'm',
+      needs: 'Monarch email, password and authenticator setup key',
+    },
+    {
+      key: 'amazon',
+      name: 'Amazon orders',
+      shortcut: 'a',
+      needs: 'Order history files from Amazon',
+    },
+    { key: 'ynab', name: 'YNAB', shortcut: 'y', needs: 'YNAB personal access token' },
+    {
+      key: 'simplefin',
+      name: 'SimpleFIN (experimental)',
+      shortcut: 's',
+      needs: 'SimpleFIN setup token. Read-only.',
+    },
+    { key: 'local', name: 'Local only', shortcut: 'l', needs: 'No provider. Edits stay local.' },
   ] as const
 
   function choose(index: number): void {
@@ -69,12 +85,11 @@
     {#each providers as provider, index (provider.key)}
       <Card
         title={provider.name}
-        meta={provider.available ? 'Available' : 'Coming later'}
+        meta={provider.shortcut}
         selected={active === index}
-        ariaLabel={`${provider.name}, ${provider.available ? 'available' : 'not available'}`}
         onclick={() => choose(index)}
       >
-        <span>{provider.shortcut} · {provider.available ? 'Continue' : 'Learn status'}</span>
+        <span>{provider.needs}</span>
       </Card>
     {/each}
   </div>

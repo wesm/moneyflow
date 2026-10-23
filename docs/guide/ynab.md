@@ -24,7 +24,8 @@ and its durable write batch.
 
 ## Connect a profile
 
-You need a YNAB personal access token. The browser and the terminal use the same steps:
+You need a YNAB personal access token. Create one in YNAB under Account Settings, then
+Developer Settings. The browser and the terminal use the same steps:
 
 1. Run `moneyflow web` or `moneyflow tui`.
 2. Choose **Add profile** (`a`), then **YNAB** (`y`).

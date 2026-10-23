@@ -21,19 +21,31 @@ describe('onboarding wizard', () => {
     await fireEvent.input(screen.getByLabelText('Monarch email'), {
       target: { value: 'user@example.test' },
     })
-    await fireEvent.input(screen.getByLabelText('TOTP secret'), {
+    await fireEvent.input(screen.getByLabelText('Authenticator setup key'), {
       target: { value: 'JBSWY3DPEHPK3PXP' },
     })
-    await fireEvent.input(screen.getByLabelText('Moneyflow account password'), {
+    await fireEvent.input(screen.getByLabelText('Account password'), {
       target: { value: 'vault-secret' },
     })
-    await fireEvent.input(screen.getByLabelText('Confirm Moneyflow account password'), {
+    await fireEvent.input(screen.getByLabelText('Confirm account password'), {
       target: { value: 'vault-secret' },
     })
     await fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
 
     expect(password.value).toBe('')
     resolve()
+  })
+
+  it('describes the authenticator setup key and the new account password', () => {
+    const controller = stubController('credentials_required')
+    render(OnboardingWizard, { controller, oncomplete: vi.fn(), oncancel: vi.fn() })
+
+    expect(description(screen.getByLabelText('Authenticator setup key'))).toMatch(
+      /not a six-digit code/,
+    )
+    expect(description(screen.getByLabelText('Account password'))).toMatch(
+      /unlock this profile later/,
+    )
   })
 
   it('shows why a step failed inside the panel and keeps the email for another try', async () => {
@@ -45,13 +57,13 @@ describe('onboarding wizard', () => {
     await fireEvent.input(screen.getByLabelText('Monarch password'), {
       target: { value: 'synthetic-secret' },
     })
-    await fireEvent.input(screen.getByLabelText('TOTP secret'), {
+    await fireEvent.input(screen.getByLabelText('Authenticator setup key'), {
       target: { value: 'JBSWY3DPEHPK3PXP' },
     })
-    await fireEvent.input(screen.getByLabelText('Moneyflow account password'), {
+    await fireEvent.input(screen.getByLabelText('Account password'), {
       target: { value: 'vault-secret' },
     })
-    await fireEvent.input(screen.getByLabelText('Confirm Moneyflow account password'), {
+    await fireEvent.input(screen.getByLabelText('Confirm account password'), {
       target: { value: 'vault-secret' },
     })
     await fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
@@ -112,10 +124,10 @@ describe('onboarding wizard', () => {
     const token = screen.getByLabelText('YNAB personal access token') as HTMLInputElement
     expect(token.type).toBe('password')
     await fireEvent.input(token, { target: { value: 'synthetic-token' } })
-    await fireEvent.input(screen.getByLabelText('Moneyflow account password'), {
+    await fireEvent.input(screen.getByLabelText('Account password'), {
       target: { value: 'vault-secret' },
     })
-    await fireEvent.input(screen.getByLabelText('Confirm Moneyflow account password'), {
+    await fireEvent.input(screen.getByLabelText('Confirm account password'), {
       target: { value: 'vault-secret' },
     })
     await fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
@@ -217,4 +229,10 @@ function stubController(
     destroy: vi.fn(),
     ...overrides,
   } as OnboardingController
+}
+
+/** The text that an input's aria-describedby points to. */
+function description(input: HTMLElement): string {
+  const id = input.getAttribute('aria-describedby') ?? ''
+  return (document.getElementById(id)?.textContent ?? '').replace(/\s+/g, ' ').trim()
 }

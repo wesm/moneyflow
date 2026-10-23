@@ -84,8 +84,8 @@
       {#if controller.state.phase === 'settings'}
         <h1 id="amazon-import-title">Confirm import settings</h1>
         <p>
-          Moneyflow stores exact integer minor units. Currency and scale cannot change after the
-          first import.
+          Confirm the currency and how many decimal places its amounts use, such as USD and 2. They
+          cannot change after the first import.
         </p>
         <form
           class="profile-form"
@@ -96,7 +96,7 @@
         >
           <label for="amazon-currency">Currency</label>
           <TextInput id="amazon-currency" bind:value={currency} block autocomplete="off" />
-          <label for="amazon-scale">Minor-unit scale</label>
+          <label for="amazon-scale">Decimal places</label>
           <TextInput id="amazon-scale" bind:value={scale} block autocomplete="off" />
           <Button type="button" size="sm" onclick={() => (advanced = !advanced)}>
             {advanced ? 'Hide advanced options' : 'Advanced options'}

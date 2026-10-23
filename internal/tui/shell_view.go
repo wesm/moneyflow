@@ -150,7 +150,7 @@ func (shell Shell) renderCredentialForm(frame *Frame, content Rect) *tea.Cursor 
 	}{
 		{"Email", shell.credentials.email, 3},
 		{"Monarch password", shell.credentials.password.input, 5},
-		{"TOTP secret", shell.credentials.totp.input, 7},
+		{"Authenticator setup key", shell.credentials.totp.input, 7},
 		{"Moneyflow account password", shell.credentials.accountPassword.input, 12},
 		{"Confirm account password", shell.credentials.confirmation.input, 14},
 	}
