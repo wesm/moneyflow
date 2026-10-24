@@ -288,7 +288,7 @@ func newCredentialForm() (credentialForm, tea.Cmd) {
 	email.Placeholder = "user@example.com"
 	email.SetWidth(52)
 	password, _ := newSecretInput("Monarch password")
-	totp, _ := newSecretInput("Monarch TOTP secret")
+	totp, _ := newSecretInput("Monarch authenticator setup key")
 	accountPassword, _ := newSecretInput("Moneyflow account password")
 	confirmation, _ := newSecretInput("Confirm Moneyflow account password")
 	form := credentialForm{

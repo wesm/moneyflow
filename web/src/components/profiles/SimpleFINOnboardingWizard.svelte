@@ -72,7 +72,7 @@
   >
     <section class="profile-panel" aria-labelledby="simplefin-title">
       <h1 id="simplefin-title">Connect SimpleFIN <small>(experimental)</small></h1>
-      <p>Edits stay in Moneyflow; your bank data is never changed.</p>
+      <p>Your edits never change your bank data.</p>
       {#if controller.state.problem}
         <p role="alert">{controller.state.problem.message}</p>
         <div class="profile-actions">
@@ -119,8 +119,7 @@
               autocomplete="off"
             />
             <p>
-              Paste from SimpleFIN Bridge. The connection is saved on this Moneyflow server before
-              importing.
+              Paste from SimpleFIN Bridge. The connection is saved on this server before importing.
             </p>
           {/if}
           {#if validation}<p role="alert" class="editing-error">{validation}</p>{/if}

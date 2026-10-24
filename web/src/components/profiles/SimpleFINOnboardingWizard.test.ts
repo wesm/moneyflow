@@ -72,7 +72,7 @@ it('confirms money settings before masked input and keeps invalid input for corr
   }
   const oncancel = vi.fn()
   render(SimpleFINOnboardingWizard, { controller, oncomplete: vi.fn(), oncancel })
-  expect(screen.getByText(/Edits stay in Moneyflow/)).toBeTruthy()
+  expect(screen.getByText(/Your edits never change your bank data/)).toBeTruthy()
   expect(screen.getByLabelText('Currency')).toBe(document.activeElement)
   await fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
   const input = screen.getByLabelText('Setup token or Access URL') as HTMLInputElement

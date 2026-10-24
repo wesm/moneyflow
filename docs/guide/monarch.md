@@ -24,17 +24,19 @@ explains the recovery actions.
 
 ## Connect a profile
 
-You need your Monarch email, password, and the Base32 authenticator secret. The secret is the
-setup key your password manager holds, not a current six-digit code. Moneyflow generates the
-verification codes from it.
+You need your Monarch email and password, and the authenticator setup key: the Base32 text
+behind the QR code in Monarch Settings > Security. It is not a current six-digit code; Moneyflow
+generates the verification codes from it. Your password manager may hold it. If you only
+scanned the QR code, set up the authenticator again in Monarch and save the key it shows.
+Moneyflow cannot connect a Monarch account that does not sign in with an authenticator app.
 
 The browser and the terminal use the same steps:
 
 1. Run `moneyflow web` or `moneyflow tui`.
 2. Choose **Add profile** (`a`), then **Monarch Money** (`m`).
 3. Enter a profile name.
-4. Confirm the three-letter currency and the decimal scale, such as `USD` and `2`.
-5. Enter your Monarch email, password, and TOTP secret.
+4. Confirm the three-letter currency and its number of decimal places, such as `USD` and `2`.
+5. Enter your Monarch email, password, and authenticator setup key.
 6. Create and confirm a Moneyflow account password. It encrypts the local credential vault.
 7. Wait for authentication and the first import to finish.
 

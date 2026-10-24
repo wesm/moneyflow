@@ -101,7 +101,7 @@ func (coordinator *Coordinator) authenticateYNABFromVault(
 		if errors.Is(err, ynab.ErrCredentialUnlock) {
 			coordinator.setStableState(attemptID, StateUnlockRequired, &Failure{
 				Code:    string(CodeCredentialUnlockFailed),
-				Message: "The Moneyflow account password was not accepted.", CanReenter: true,
+				Message: "The account password was not accepted.", CanReenter: true,
 			})
 			return
 		}

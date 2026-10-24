@@ -20,11 +20,9 @@ test('w then Enter prepares, writes, and finalizes Monarch edits without extra c
     await page.getByRole('button', { name: 'Continue with USD / 2' }).click()
     await page.getByLabel('Monarch email').fill('user@example.test')
     await page.getByLabel('Monarch password').fill(syntheticPassword)
-    await page.getByLabel('TOTP secret').fill(syntheticTotpSecret)
-    await page
-      .getByLabel('Moneyflow account password', { exact: true })
-      .fill(syntheticVaultPassword)
-    await page.getByLabel('Confirm Moneyflow account password').fill(syntheticVaultPassword)
+    await page.getByLabel('Authenticator setup key').fill(syntheticTotpSecret)
+    await page.getByLabel('Account password', { exact: true }).fill(syntheticVaultPassword)
+    await page.getByLabel('Confirm account password').fill(syntheticVaultPassword)
     await page.getByRole('button', { name: 'Connect' }).click()
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
 

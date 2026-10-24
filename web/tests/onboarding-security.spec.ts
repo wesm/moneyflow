@@ -38,9 +38,9 @@ test('onboarding responses, problems, DOM, console, and logs remain credential b
     await expect(page.getByRole('heading', { name: 'Connect Monarch Money' })).toBeVisible()
     await page.getByLabel('Monarch email').fill(secrets[0]!)
     await page.getByLabel('Monarch password').fill(secrets[1]!)
-    await page.getByLabel('TOTP secret').fill(secrets[2]!)
-    await page.getByLabel('Moneyflow account password', { exact: true }).fill(secrets[3]!)
-    await page.getByLabel('Confirm Moneyflow account password').fill(secrets[3]!)
+    await page.getByLabel('Authenticator setup key').fill(secrets[2]!)
+    await page.getByLabel('Account password', { exact: true }).fill(secrets[3]!)
+    await page.getByLabel('Confirm account password').fill(secrets[3]!)
     await page.getByRole('button', { name: 'Connect' }).click()
 
     await expect(page.locator('input[type="password"]')).toHaveCount(0)

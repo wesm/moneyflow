@@ -276,7 +276,7 @@ func TestProviderConnectCreatesEncryptedCredentialsAndReportsProgress(t *testing
 		TOTPSecret: "JBSWY3DPEHPK3PXP",
 	}, stored)
 	for _, message := range []string{
-		"Enter the Base32 TOTP secret from Monarch Settings > Security",
+		"Enter the authenticator setup key from Monarch Settings > Security",
 		"Authenticating with Monarch...",
 		"Authenticated with Monarch.",
 		"Importing Monarch data...",
