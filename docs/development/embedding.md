@@ -126,8 +126,8 @@ The host calls a few operations itself. `<base>` stands for `APIBasePath`:
 - `POST <base>api/v1/profiles/{profile_id}/rename` (stage) with
   `{"version":"1","display_name":"Example Household"}` renames the profile and answers with it. Its
   ID, data and credentials stay. It answers 409 `profile_name_conflict` when another profile has the
-  name. It waits for a running refresh or provider write instead of stopping it, and answers 503
-  `profile_busy` while that work or another process still holds the profile.
+  name. It never stops or waits for the profile's work: it answers 503 `profile_busy` at once while
+  a request, refresh, reconcile or provider write uses the profile, or another process holds it.
 - `GET <base>openapi.json` and `GET <base>openapi.yaml` (read) describe every operation.
 
 ## Show each profile by its state

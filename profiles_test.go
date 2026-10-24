@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -19,7 +20,9 @@ import (
 	"github.com/wesm/moneyflow/internal/assembly"
 	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/mcp"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
+	"github.com/wesm/moneyflow/internal/profilepool"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
 	"github.com/wesm/moneyflow/internal/provider/simplefin"
@@ -456,29 +459,49 @@ func TestRenameProfileRenamesAProfileTheInstanceHoldsOpen(t *testing.T) {
 	assert.Equal(t, "Household", currentProfile(t.Context(), instance, shop).Name)
 }
 
-func TestRenamingAProfileLeavesItsRefreshRunning(t *testing.T) {
-	root, providerRoot := testRoot(t), t.TempDir()
-	acme := createMonarchProfile(t, root, "Acme", providerRoot)
-	started := make(chan struct{}, 1)
-	instance := openTestInstance(t, root, seams{
-		inspectSession: sessionPresent, evictionTimeout: time.Millisecond,
-		factories: assembly.Factories{Monarch: stalledMonarch(providerRoot, started)},
+func TestRenamingAProfileLeavesItsQueuedRefreshToRun(t *testing.T) {
+	gate, queued := make(chan struct{}), make(chan struct{})
+	instance, acme, reads := openGatedInstance(t, gate, seams{
+		beforeRefreshWait: func(*mcp.Supervisor) { close(queued) },
 	})
-	session := connectTools(t, instance, ToolOptions{Classes: []Class{ClassStage}})
-	_, startError := callTool(t, session, "refresh_data", nil)
-	require.False(t, startError)
-	<-started
+	session := connectTools(t, instance, ToolOptions{Classes: []Class{ClassRead, ClassStage}})
+	started, startError := callTool(t, session, "refresh_data", nil)
+	require.False(t, startError, started)
+	require.NotNil(t, <-reads, "the MCP refresh reads the recent window")
+	body := manualRefresh()
+	body.CompleteHistory = true
+	completeHistory := encode(t, body)
+	refreshed, renamed := make(chan *httptest.ResponseRecorder, 1), make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		refreshed <- serveAPI(t, instance, http.MethodPost,
+			"api/v1/profiles/"+acme+"/provider/refresh", completeHistory)
+	}()
+	<-queued
+	// A request holds the profile too, so it is still open when the queued refresh starts.
+	request, err := instance.registry.Acquire(t.Context(), acme)
+	require.NoError(t, err)
+	go func() {
+		renamed <- serveAPI(t, instance, http.MethodPost,
+			"api/v1/profiles/"+acme+"/rename", `{"version":"1","display_name":"Household"}`)
+	}()
+	// The running refresh ends once the rename answers or begins to close the profile.
+	for len(renamed) == 0 {
+		lease, acquireErr := instance.registry.Acquire(t.Context(), acme)
+		if errors.Is(acquireErr, profilepool.ErrProfileEvicting) {
+			break
+		}
+		require.NoError(t, acquireErr)
+		require.NoError(t, lease.Release())
+	}
+	close(gate)
+	refresh := <-refreshed
+	require.NoError(t, request.Release())
+	busy := <-renamed
 
-	busy := serveAPI(t, instance, http.MethodPost,
-		"api/v1/profiles/"+acme+"/rename", `{"version":"1","display_name":"Household"}`)
-
-	// Removal stops the refresh so that it can close the profile; a rename waits for it instead.
+	require.Equal(t, http.StatusOK, refresh.Code, refresh.Body.String())
+	assert.Nil(t, <-reads, "the queued refresh reads complete history")
 	assert.Equal(t, http.StatusServiceUnavailable, busy.Code, busy.Body.String())
 	assert.Contains(t, busy.Body.String(), `"code":"profile_busy"`)
-	instance.mu.Lock()
-	_, supervised := instance.supervisors[acme]
-	instance.mu.Unlock()
-	assert.True(t, supervised)
 	assert.Equal(t, "Acme", currentProfile(t.Context(), instance, acme).Name)
 }
 

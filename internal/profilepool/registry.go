@@ -62,6 +62,9 @@ type registryEntry struct {
 	ready    chan struct{}
 	opening  bool
 	evicting bool
+	// reopen marks an eviction by CloseUnused. An acquisition waits for it and opens the profile
+	// again instead of failing.
+	reopen   bool
 	evicted  chan struct{}
 	evictErr error
 	// evictWaiters counts Evict calls blocked on the current owner's terminal result.
@@ -99,7 +102,8 @@ func NewProfileRegistry(config ProfileRegistryConfig) (*ProfileRegistry, error) 
 	}, nil
 }
 
-// Acquire returns a reference-counted lease, coalescing concurrent first opens.
+// Acquire returns a reference-counted lease, coalescing concurrent first opens. It fails while an
+// eviction owns the profile, except one by CloseUnused, which it waits for.
 func (registry *ProfileRegistry) Acquire(
 	ctx context.Context,
 	profileID string,
@@ -114,17 +118,20 @@ func (registry *ProfileRegistry) Acquire(
 			return nil, ErrProfileRegistryClosed
 		}
 		if entry, ok := registry.entries[profileID]; ok {
-			if entry.evicting {
+			if entry.evicting && !entry.reopen {
 				registry.mutex.Unlock()
 				return nil, ErrProfileEvicting
 			}
-			if entry.opening {
-				ready := entry.ready
+			if entry.opening || entry.evicting {
+				done := entry.ready
+				if entry.evicting {
+					done = entry.evicted
+				}
 				registry.mutex.Unlock()
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
-				case <-ready:
+				case <-done:
 					continue
 				}
 			}
@@ -334,6 +341,31 @@ func (registry *ProfileRegistry) finishEviction(
 		case <-changed:
 		}
 	}
+}
+
+// CloseUnused closes the profile at once when no lease holds it, so the next acquisition opens it
+// again; an acquisition during the close waits for it. It never waits itself: it reports false,
+// and closes nothing, while a lease holds the profile, or it is opening, being evicted or
+// temporary. It reports true once the profile is closed, with the close's error, and true when
+// the profile is not open.
+func (registry *ProfileRegistry) CloseUnused(profileID string) (bool, error) {
+	registry.mutex.Lock()
+	entry, ok := registry.entries[profileID]
+	if !ok {
+		registry.mutex.Unlock()
+		return true, nil
+	}
+	// Closing a temporary profile deletes it, as CloseIdle says.
+	if entry.opening || entry.evicting || entry.profile.Temporary || entry.refs > 0 {
+		registry.mutex.Unlock()
+		return false, nil
+	}
+	entry.evicting, entry.reopen = true, true
+	entry.evicted = make(chan struct{})
+	registry.signalLocked()
+	registry.mutex.Unlock()
+	// No lease can start now, so the eviction closes the profile without waiting.
+	return true, registry.finishEviction(context.Background(), profileID, entry)
 }
 
 // CloseIdle closes every unused profile whose fixed idle period elapsed.
