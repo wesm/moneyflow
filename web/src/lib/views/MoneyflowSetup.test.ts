@@ -34,25 +34,52 @@ describe('MoneyflowSetup', () => {
     ])
   })
 
-  it('removes the profile it created when the user cancels', async () => {
-    const { hostFetch, requests } = fakeServer('monarch')
-    const cancelled = Promise.withResolvers<void>()
+  it.each(['monarch', 'simplefin'] as const)(
+    'removes the %s profile it created when the user cancels',
+    async (provider) => {
+      const { hostFetch, requests } = fakeServer(provider)
+      const cancelled = Promise.withResolvers<void>()
+      render(MoneyflowSetup, {
+        apiBase: '/embedded/moneyflow/',
+        fetch: hostFetch,
+        provider,
+        name: 'Example Budget',
+        oncomplete: vi.fn(),
+        oncancel: () => cancelled.resolve(),
+      })
+
+      await fireEvent.click(await appears(() => backToProfiles()))
+
+      await cancelled.promise
+      expect(requests.at(-1)).toEqual({
+        url: `${api}profiles/${profileID}/cancel`,
+        body: '{"version":"1"}',
+      })
+    },
+  )
+
+  it('says why a new profile that holds saved state stays after a cancel', async () => {
+    const { hostFetch } = fakeServer('simplefin', { removed: false })
+    const oncancel = vi.fn()
     render(MoneyflowSetup, {
       apiBase: '/embedded/moneyflow/',
       fetch: hostFetch,
-      provider: 'monarch',
+      provider: 'simplefin',
       name: 'Example Budget',
       oncomplete: vi.fn(),
-      oncancel: () => cancelled.resolve(),
+      oncancel,
     })
 
     await fireEvent.click(await appears(() => backToProfiles()))
 
-    await cancelled.promise
-    expect(requests.at(-1)).toEqual({
-      url: `${api}profiles/${profileID}/cancel`,
-      body: '{"version":"1"}',
-    })
+    expect(
+      await appears(() =>
+        screen.queryByText(
+          'The new profile keeps what setup saved, so it stays in the profile list.',
+        ),
+      ),
+    ).not.toBeNull()
+    expect(oncancel).not.toHaveBeenCalled()
   })
 
   it('keeps an existing profile when the user cancels its setup', async () => {
@@ -158,10 +185,10 @@ void ([
 const backToProfiles = () => screen.queryByRole('button', { name: 'Back to profiles' })
 
 /**
- * A moneyflow API that creates profiles and removes them on cancel. Every other request fails
- * with a 503 problem, so onboarding stops at its interrupted step.
+ * A moneyflow API that creates profiles and, unless `removed` is false, removes them on cancel.
+ * Every other request fails with a 503 problem, so onboarding stops at its interrupted step.
  */
-function fakeServer(provider: string) {
+function fakeServer(provider: string, { removed = true } = {}) {
   const requests: Array<{ url: string; body: string }> = []
   const hostFetch = vi.fn<typeof fetch>(async (input, init) => {
     const request = new Request(input, init)
@@ -179,7 +206,7 @@ function fakeServer(provider: string) {
       })
     }
     if (request.url === `${api}profiles/${profileID}/cancel`) {
-      return Response.json({ version: '1', removed: true })
+      return Response.json({ version: '1', removed })
     }
     return Response.json(
       { status: 503, code: 'unavailable', detail: 'The provider is unavailable.' },
