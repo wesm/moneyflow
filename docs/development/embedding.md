@@ -330,9 +330,11 @@ including `--edge-highlight`, `--shadow-raised`, `--shadow-sunken`, `--shadow-pa
   mounts. A new `profileID` or `readOnly` starts it over, as if the host had just mounted it. To
   change another of those props, mount a new workspace.
 - `initialView` opens once the first view has loaded, unless that view is already shown, so a
-  link to the view that loads first sends no view change. A history entry with a view of its
-  own, such as one that Back returns to, keeps it. Back or Forward before the first view loads
-  cancels `initialView`, and so does a call to `open`, even one made before the workspace mounts.
+  link to the view that loads first sends no view change. When the first view has no currency,
+  the workspace first switches it to the currency most transactions use, then opens
+  `initialView` from the switched view. A history entry with a view of its own, such as one that
+  Back returns to, keeps it. Back or Forward before the first view loads cancels `initialView`,
+  and so does a call to `open`, even one made before the workspace mounts.
 - Removing the workspace stops its work, and answers that arrive later change nothing.
 - In a host, a refresh that the page starts, whether the user asks or `autoRefresh` starts it,
   opens a dialog that offers Close, not Cancel, because the refresh runs on after its request

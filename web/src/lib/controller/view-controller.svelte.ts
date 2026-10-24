@@ -319,19 +319,27 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   async function hydrate(): Promise<void> {
     const query = viewState.query
     const owned = ledger.read(viewState.state)
-    const loaded = await requestProjection(
+    let scoping: Promise<void> | undefined
+    await requestProjection(
       () =>
         client.view(
           viewBody(query, owned?.selection, alignedOffset(owned?.cursorIndex ?? 0)),
           activeRequest?.signal,
         ),
-      (next) => accept(next, 'replace', owned),
+      (next) => {
+        accept(next, 'replace', owned)
+        scoping = openInBusiestCurrency()
+      },
       hydrate,
     )
-    if (loaded) await openInBusiestCurrency()
+    await scoping
   }
 
-  /** Scopes a view without a currency, such as an empty profile's after its first import. */
+  /**
+   * Scopes a view without a currency, such as an empty profile's after its first import. A load
+   * starts it as it accepts the view, so a view change sent next, such as a host's initial view,
+   * waits for the currency instead of racing it.
+   */
   async function openInBusiestCurrency(): Promise<void> {
     const busiest = projection && !opening ? busiestCurrency(projection) : undefined
     if (!busiest) return
@@ -657,9 +665,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     // left, not the older one history saved. Keys wait until the view loads.
     const query = owned?.query ?? viewState.query
     const selection = arrived?.projection.selection ?? owned?.selection ?? projection?.selection
-    let loaded: boolean
+    let scoping: Promise<void> | undefined
     try {
-      loaded = await requestProjection(
+      await requestProjection(
         async () =>
           ensureVisibleWindow(
             await client.view(
@@ -667,15 +675,18 @@ export function createViewController(options: ViewControllerOptions): ViewContro
               activeRequest?.signal,
             ),
           ),
-        (next) => accept(next, 'replace', owned),
+        (next) => {
+          accept(next, 'replace', owned)
+          // As on a first load: a workspace that comes back from setup restores its view, and
+          // setup can have imported the profile's first transactions.
+          scoping = openInBusiestCurrency()
+        },
         () => restore(event),
       )
     } finally {
       returned?.settle()
     }
-    // As on a first load: a workspace that comes back from setup restores its view, and setup
-    // can have imported the profile's first transactions.
-    if (loaded) await openInBusiestCurrency()
+    await scoping
   }
 
   async function retry(): Promise<void> {

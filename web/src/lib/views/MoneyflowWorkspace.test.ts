@@ -266,6 +266,55 @@ describe('MoneyflowWorkspace', () => {
       expect(paths.filter((path) => path === 'view/transition')).toHaveLength(1)
     })
 
+    it('opens in the busiest currency of a profile whose first view has none', async () => {
+      // The first view has no currency, so the workspace scopes it to the currency most
+      // transactions use. The server answers each change from the view it starts from.
+      const currencies = [
+        { currency: 'USD', scale: 2, count: 3, first: '2024-01-01', latest: '2026-10-07' },
+      ]
+      const scoped = (projection: ReturnType<typeof testProjection>) => ({
+        ...projection,
+        canonical_query: `cur=USD%3A2&${projection.canonical_query}`,
+        view: { ...projection.view, currency: { currency: 'USD', scale: 2 } },
+      })
+      const first = testProjection({ capabilities, currencies })
+      const grouped = { ...categories, currencies }
+      const changes: string[] = []
+      const onlocation = vi.fn<(view?: ViewID) => void>()
+      const hostFetch = vi.fn<typeof fetch>(async (input, init) => {
+        const request = new Request(input, init)
+        const path = request.url.replace(`${api}profiles/${profileID}/`, '')
+        if (path === 'view') return Response.json(first)
+        if (path !== 'view/transition') {
+          return Response.json(
+            { status: 404, code: 'not_found', detail: 'Not found.' },
+            { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+          )
+        }
+        const { action, query } = (await request.json()) as { action: string; query: string }
+        changes.push(`${action} ${query}`)
+        if (action === 'view.set-currency') {
+          // A slow answer checks that the host's view change waits for the currency.
+          await new Promise((resolve) => setTimeout(resolve, 20))
+          return Response.json(scoped(first))
+        }
+        return Response.json(query.includes('cur=') ? scoped(grouped) : grouped)
+      })
+      render(MoneyflowWorkspace, {
+        apiBase: '/embedded/moneyflow/',
+        fetch: hostFetch,
+        profileID,
+        viewState: memoryViewState(),
+        initialView: 'category',
+        onlocation,
+      })
+
+      await vi.waitFor(() => expect(changes).toHaveLength(2))
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(changes).toEqual(['view.set-currency v=1', 'view.set-grouping cur=USD%3A2&v=1'])
+      expect(onlocation).toHaveBeenLastCalledWith('category')
+    })
+
     it('sends no view change when the first view is that view', async () => {
       const { paths, onlocation } = renderWorkspace('detail')
 
