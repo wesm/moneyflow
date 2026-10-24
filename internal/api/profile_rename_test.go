@@ -97,6 +97,32 @@ func TestRenameProfileRefusesAnUnsupportedVersion(t *testing.T) {
 	assert.Empty(t, calls)
 }
 
+func TestRenameProfileNeedsCatalogAuthorityWithoutHostAdmission(t *testing.T) {
+	t.Parallel()
+	var calls []string
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	server, err := New(Config{
+		Resolver: resolverForService(testProfileID, service), BasePath: "/", Version: "test",
+		Catalog: &apiCatalogFake{}, Evictor: &apiEvictorFake{calls: &calls},
+		Renamer: &apiRenamerFake{calls: &calls},
+	})
+	require.NoError(t, err)
+	path, err := ProfileAPIPath("/", testProfileID, "rename")
+	require.NoError(t, err)
+	body := ProfileRenameBody{Version: ProfileCatalogSchemaVersion, DisplayName: "Household"}
+
+	unsigned := requestSignedJSON(t, server, path, body, "")
+	assert.Equal(t, http.StatusForbidden, unsigned.Code)
+	wrongScope := requestScopedMutation(t, server, testProfileID, path, body)
+	assert.Equal(t, http.StatusForbidden, wrongScope.Code)
+	assert.Empty(t, calls)
+
+	response := requestScopedMutation(t, server, CatalogMutationScope, path, body)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.Equal(t, []string{"rename " + testProfileID + " to Household"}, calls)
+}
+
 func TestRenameProfileIsAStageOperationOnlyWithARenamer(t *testing.T) {
 	t.Parallel()
 	var calls []string

@@ -295,7 +295,8 @@ func profileMutationSecurity(
 			if err == nil {
 				scope := profileID
 				_, requiresProtection := protected[endpoint]
-				if endpoint == "recovery" || endpoint == "cancel" || endpoint == "remove" {
+				if endpoint == "recovery" || endpoint == "cancel" || endpoint == "remove" ||
+					endpoint == "rename" {
 					requiresProtection = true
 					scope = CatalogMutationScope
 				}
