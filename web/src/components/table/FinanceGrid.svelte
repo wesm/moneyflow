@@ -195,7 +195,12 @@
 
 {#if projection.total_rows === 0}
   <div class="mf-table-empty" tabindex="-1">
-    <EmptyState title="No transactions" description={NO_ROWS_HINT} />
+    <!-- A profile without transactions has nothing a refinement could reveal. -->
+    {#if projection.currencies.length > 0}
+      <EmptyState title="No transactions" description={NO_ROWS_HINT} />
+    {:else}
+      <EmptyState title="No transactions" />
+    {/if}
   </div>
 {:else}
   <div

@@ -505,18 +505,25 @@ describe('FinanceGrid', () => {
     expect(within(cell(deleted, 'flags')!).getByText('Delete')).not.toBeNull()
   })
 
-  it('shows an empty state without rows', () => {
+  const usd = { currency: 'USD', scale: 2, count: 3, first: '2026-01-15', latest: '2026-02-15' }
+  it.each([
+    { profile: 'with transactions', currencies: [usd], hint: true },
+    { profile: 'without transactions', currencies: [], hint: false },
+  ])('suggests refinements without rows only in a profile $profile', ({ currencies, hint }) => {
     render(FinanceGrid, {
       projection: testProjection({
         total_rows: 0,
         detail_rows: [],
         window: { offset: 0, limit: 200, count: 0 },
+        currencies,
       }),
       cursorIndex: 0,
       compact: false,
       ...callbacks(),
     })
     expect(screen.getByText('No transactions')).not.toBeNull()
+    const hinted = screen.queryByText('Change the current refinements to see results.')
+    expect(hinted !== null).toBe(hint)
   })
 
   describe('compact rows at 640 px and narrower', () => {
