@@ -374,7 +374,7 @@
         </form>
       {:else if snapshot.state === 'remote_profile_required'}
         <h1 id="onboarding-title">Choose a YNAB budget</h1>
-        <p>Choose the budget this Moneyflow profile will remain bound to.</p>
+        <p>The profile stays tied to the budget you choose.</p>
         <div class="profile-list" role="list">
           {#each snapshot.remote_profiles ?? [] as choice (choice.choice_id)}
             <Card

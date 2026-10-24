@@ -72,7 +72,7 @@
   >
     <section class="profile-panel" aria-labelledby="simplefin-title">
       <h1 id="simplefin-title">Connect SimpleFIN <small>(experimental)</small></h1>
-      <p>Edits stay in Moneyflow; your bank data is never changed.</p>
+      <p>Your edits never change your bank data.</p>
       {#if controller.state.problem}
         <p role="alert">{controller.state.problem.message}</p>
         <div class="profile-actions">
