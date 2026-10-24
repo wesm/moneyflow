@@ -83,6 +83,12 @@
   })
   const charts = new ChartState({ compact: () => compact.current, pushScope })
   const write = $derived(writeProgress(controller.providerWrite.state.status))
+  const lastWrite = $derived(writeSaved(controller.providerWrite.state))
+  /** Without the sidebar, the pending card shows only while it has something to report. */
+  const pendingCard = $derived.by(() => {
+    const pending = controller.editing.state.pending
+    return pending.active_operations > 0 || pending.inactive_operations > 0 || !!write || lastWrite
+  })
   const entries = $derived(projection ? navItems(projection) : undefined)
   const location = $derived(
     entries?.explore.find((entry) => entry.active)?.id as ViewID | undefined,
@@ -247,7 +253,7 @@
       {projection}
       pending={controller.editing.state.pending}
       {write}
-      lastWrite={writeSaved(controller.providerWrite.state)}
+      {lastWrite}
       provider={controller.provider}
       onrun={(entry) => fromSidebar(() => run(entry))}
       onreview={() => fromSidebar(() => local('edit.review'))}
@@ -291,16 +297,18 @@
       </div>
     </svelte:element>
     <ShellAnnouncements {controller} />
-    {#if !chrome && projection}
+    {#if !chrome && projection && (pendingCard || hasProviderStatus(projection.profile_kind))}
       <div class="mf-workspace-status">
-        <PendingCard
-          pending={controller.editing.state.pending}
-          reviewAvailable={availableCapabilities(projection).has('changes.review')}
-          {write}
-          lastWrite={writeSaved(controller.providerWrite.state)}
-          onreview={() => local('edit.review')}
-          onwrite={() => overlays.open('write')}
-        />
+        {#if pendingCard}
+          <PendingCard
+            pending={controller.editing.state.pending}
+            reviewAvailable={availableCapabilities(projection).has('changes.review')}
+            {write}
+            {lastWrite}
+            onreview={() => local('edit.review')}
+            onwrite={() => overlays.open('write')}
+          />
+        {/if}
         {#if hasProviderStatus(projection.profile_kind)}
           <ProviderStatus controller={controller.provider} {onreconnect} />
         {/if}
@@ -311,7 +319,7 @@
         ? keyHints(projection, overlays.current !== undefined || charts.dialogOpen)
         : []}
       connection={connectionState(controller.problem, controller.loading)}
-      revision={projection ? controller.editing.state.revision.toString(10) : undefined}
+      revision={chrome && projection ? controller.editing.state.revision.toString(10) : undefined}
       {activity}
       pending={!projection || sidebarFooter || !chrome
         ? undefined
