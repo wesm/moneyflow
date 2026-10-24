@@ -357,8 +357,9 @@ including `--edge-highlight`, `--shadow-raised`, `--shadow-sunken`, `--shadow-pa
   server still reports it, or else the status line says why. A review asked for while the
   workspace loads opens once the first view and the provider write status have loaded.
 - Without `chrome`, the workspace adds no `main` landmark and no banner. It is a region named
-  "Moneyflow workspace", and its command bar is a region named "View controls". Pending edits and
-  provider status sit in a strip above the status line.
+  "Moneyflow workspace", and its command bar is a region named "View controls". Provider status
+  sits in a strip above the status line, and so do pending edits while there are edits, a redo or
+  a provider write to show. The status line leaves out the profile revision.
 - Answer `onamazonimport` with `MoneyflowSetup`, `provider="amazon"`, the profile's ID, and the
   settings it received as `amazonSettings`.
 

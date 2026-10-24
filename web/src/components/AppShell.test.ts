@@ -1523,6 +1523,38 @@ describe('AppShell inside a host page', () => {
     ).not.toBeNull()
   })
 
+  it('shows the pending card only while it has edits, a redo or a write', async () => {
+    const idle = stubController()
+    const pending = (active: number, inactive: number) => ({
+      ...idle,
+      editing: testEditingController({
+        state: {
+          ...idle.editing.state,
+          pending: {
+            active_operations: active,
+            inactive_operations: inactive,
+            affected_transactions: active,
+          },
+        },
+      }),
+    })
+    const rendered = render(AppShell, { controller: pending(0, 0), chrome: false })
+    expect(screen.queryByRole('status', { name: 'Pending profile changes' })).toBeNull()
+    expect(document.querySelector('.mf-workspace-status')).toBeNull()
+
+    await rendered.rerender({ controller: pending(0, 1) })
+    expect(screen.getByRole('status', { name: 'Pending profile changes' }).textContent).toContain(
+      '1 redo',
+    )
+  })
+
+  it('leaves the profile revision out of the status line', () => {
+    render(AppShell, { controller: stubController(), chrome: false })
+
+    expect(screen.getByText('Connected')).not.toBeNull()
+    expect(screen.queryByText(/profile revision/)).toBeNull()
+  })
+
   it('shows no sidebar or banner of its own while the first view loads', () => {
     const loading = { ...stubController(), projection: undefined, loading: true }
     render(AppShell, { controller: loading, chrome: false })
