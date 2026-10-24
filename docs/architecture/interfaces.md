@@ -50,6 +50,8 @@ local journal or committed data.
 - Connection attempts use advisory locking and expected state versions.
 - Cancel stops any attempt that has not completed, even when the client's state version is
   behind, because import progress changes the version. A completed attempt keeps its result.
+- Cancelling a new profile removes it only while it holds no saved state and no SimpleFIN claim
+  has begun for it. A claim can consume its token even when its answer is lost.
 - Passwords and tokens never appear in status snapshots, URLs, error bodies, or history.
 - A valid saved session can skip credential entry. A failed import can retry from saved session
   material.

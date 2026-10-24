@@ -273,6 +273,40 @@ func TestCancelKeepsSetupThatCompletedFirst(t *testing.T) {
 	require.NotContains(t, h.events, "rollback")
 }
 
+// A claim can consume its token even when its answer is lost, so once setup begins a claim the
+// coordinator keeps the profile, though setup saved no session for it.
+func TestRetainsAProfileOnceSetupBeginsAClaim(t *testing.T) {
+	for name, prepare := range map[string]func(*harness){
+		"claim lost its answer": func(h *harness) {
+			h.claimHook = func(context.Context) error { return errors.New("connection reset") }
+		},
+		"first save failed": func(h *harness) { h.saveErr = errors.New("disk full") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			prepare(h)
+			s := submitInput(t, h, startInput(t, h), ActionConnect, "synthetic-token")
+			s = waitState(t, h.coordinator, s, StateFailed)
+
+			_, err := h.coordinator.Cancel(t.Context(), CancelRequest{s.ProfileID, s.AttemptID, s.StateVersion})
+			require.NoError(t, err)
+			_, _, err = h.sessions.Load()
+			require.Error(t, err, "setup saved no session")
+			require.True(t, h.coordinator.Retains(testProfileID))
+			require.False(t, h.coordinator.Retains(otherProfileID))
+		})
+	}
+}
+
+func TestRetainsNoProfileWhoseSetupStoppedBeforeAClaim(t *testing.T) {
+	h := newHarness(t)
+	s := startInput(t, h)
+
+	_, err := h.coordinator.Cancel(t.Context(), CancelRequest{s.ProfileID, s.AttemptID, s.StateVersion})
+	require.NoError(t, err)
+	require.False(t, h.coordinator.Retains(testProfileID))
+}
+
 func TestSavedSessionRestartAndBindingGuards(t *testing.T) {
 	h := newHarness(t)
 	h.fetchErr = provider.NewError(provider.CodeUnavailable)

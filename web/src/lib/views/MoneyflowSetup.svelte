@@ -78,7 +78,7 @@
   let flow = $state<Flow>({ kind: 'starting' })
   /**
    * The profile this setup created, which cancelling removes again. The server keeps a profile
-   * that already holds a saved sign-in or a claimed SimpleFIN connection.
+   * that already holds a saved sign-in, or whose SimpleFIN setup began to claim a connection.
    */
   let created: string | undefined
   let closed = false
@@ -149,7 +149,7 @@
   async function removeCreated(id: string): Promise<string | undefined> {
     try {
       if (await createCatalogClient(apiBase, hostFetch).cancelNew(id)) return undefined
-      return 'The new profile keeps what setup saved, so it stays in the profile list.'
+      return 'Setup may already have connected the new profile, so it stays in the profile list.'
     } catch {
       return 'The new profile could not be removed. It stays in the profile list.'
     }

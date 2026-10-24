@@ -58,7 +58,7 @@ describe('MoneyflowSetup', () => {
     },
   )
 
-  it('says why a new profile that holds saved state stays after a cancel', async () => {
+  it('says why a new profile that the server keeps stays after a cancel', async () => {
     const { hostFetch } = fakeServer('simplefin', { removed: false })
     const oncancel = vi.fn()
     render(MoneyflowSetup, {
@@ -75,7 +75,7 @@ describe('MoneyflowSetup', () => {
     expect(
       await appears(() =>
         screen.queryByText(
-          'The new profile keeps what setup saved, so it stays in the profile list.',
+          'Setup may already have connected the new profile, so it stays in the profile list.',
         ),
       ),
     ).not.toBeNull()

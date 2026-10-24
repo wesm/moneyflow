@@ -394,8 +394,8 @@ router, implement `ViewStateAdapter` over the router's own history.
 
 - Without `profileID`, setup creates a profile with the display name `name`, which it then
   requires. If the user cancels, setup removes that profile again. A profile that already holds a
-  saved sign-in or a claimed SimpleFIN connection stays in the list, and so does one whose removal
-  fails; setup says so.
+  saved sign-in, or whose SimpleFIN setup began to claim a connection, stays in the list, and so
+  does one whose removal fails; setup says so.
 - `local` completes as soon as the profile exists. `csv` completes at once for an existing profile
   and cannot create one.
 - With `profileID`, setup reconnects or unlocks that profile.
