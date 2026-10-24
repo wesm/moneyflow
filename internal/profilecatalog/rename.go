@@ -4,16 +4,18 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 
 	"github.com/wesm/moneyflow/internal/home"
 )
 
-// Rename gives the profile that selector names a new display name in place. Its ID, provider,
-// data, and credentials stay the same. A profile may take another capitalization of its own
-// name. Rename fails with CodeProfileNameConflict when another profile uses the name, and with
-// CodeProfileBusy while another process holds the catalog or the profile. A root profile must
-// have its manifest first; Activate writes it.
-func (catalog *Catalog) Rename(ctx context.Context, selector string, displayName string) (Entry, error) {
+// Rename gives the profile with ID id a new display name in place. Its ID, provider, data, and
+// credentials stay the same. A profile may take another capitalization of its own name. Rename
+// takes only an ID, never a name, so it fails with CodeProfileNotFound when no profile has the
+// ID, even when another profile's name matches it. It fails with CodeProfileNameConflict when
+// another profile uses the name, and with CodeProfileBusy while another process holds the catalog
+// or the profile. A root profile must have its manifest first; Activate writes it.
+func (catalog *Catalog) Rename(ctx context.Context, id string, displayName string) (Entry, error) {
 	name, key, err := NormalizeDisplayName(displayName)
 	if err != nil {
 		return Entry{}, newError(CodeProfileInvalid, err)
@@ -27,13 +29,11 @@ func (catalog *Catalog) Rename(ctx context.Context, selector string, displayName
 	if err != nil {
 		return Entry{}, err
 	}
-	entry, err := ResolveEntries(entries, selector)
-	if err != nil {
-		return Entry{}, err
+	index := slices.IndexFunc(entries, func(entry Entry) bool { return entry.ID == id })
+	if id == "" || index < 0 {
+		return Entry{}, newError(CodeProfileNotFound, errors.New("no profile has the ID"))
 	}
-	if entry.ID == "" {
-		return Entry{}, newError(CodeProfileInvalid, errors.New("profile identity is missing"))
-	}
+	entry := entries[index]
 	if displayNameConflict(entries, key, entry.Root) {
 		return Entry{}, newError(CodeProfileNameConflict, errors.New("display name collides"))
 	}

@@ -35,7 +35,7 @@ func TestRenameKeepsIdentityAndDataForEveryLayout(t *testing.T) {
 			before := readTestManifest(t, manifestPath)
 			database := readTestFile(t, original.ProfilePaths().Database)
 
-			renamed, err := catalog.Rename(context.Background(), "moneyflow", "  Monarch ")
+			renamed, err := catalog.Rename(context.Background(), original.ID, "  Monarch ")
 			require.NoError(t, err)
 
 			assert.Equal(t, "Monarch", renamed.DisplayName)
@@ -100,6 +100,21 @@ func TestRenameRefusesWithoutChangingTheManifest(t *testing.T) {
 			assert.Equal(t, before, readTestFile(t, manifestPath))
 		})
 	}
+}
+
+func TestRenameTakesOnlyAnExistingProfileID(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	missing := deterministicProfileID(t, 0x57)
+	// A display name can look like the ID of a profile that does not exist.
+	named := createTestManifestProfile(t, catalog, 0x56, missing, "local")
+	manifestPath := filepath.Join(named.Root, ManifestFilename)
+	before := readTestFile(t, manifestPath)
+
+	_, err := catalog.Rename(context.Background(), missing, "Household")
+
+	assert.Equal(t, CodeProfileNotFound, CodeOf(err))
+	assert.Equal(t, before, readTestFile(t, manifestPath))
 }
 
 // readTestManifest reads a root or nested manifest without checking its directory name.

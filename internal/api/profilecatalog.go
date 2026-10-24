@@ -342,7 +342,7 @@ func (server *Server) registerProfileRename(config Config) {
 				"The profile request version is unsupported.",
 			)
 		}
-		// The catalog would also take a profile's name in place of its ID.
+		// A path segment that is not a profile ID, such as a profile's name, names no profile.
 		if !profilecatalog.ValidProfileID(input.ProfileID) {
 			return nil, problemFromCatalogError(
 				&profilecatalog.Error{Code: profilecatalog.CodeProfileNotFound})
