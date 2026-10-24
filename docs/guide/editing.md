@@ -164,7 +164,7 @@ rows, then delete the ones you choose; the deletion is a pending edit until you 
 
 Check exactly what will change, then save it. Press `w`, or choose **Review** in the browser.
 The review lists each pending change with its old and new values and the transactions it
-affects.
+affects, newest first.
 
 - In the TUI, Up and Down pick a change. `i` lists all affected rows, and Left and Right page
   through them. Enter commits. Esc goes back without committing.

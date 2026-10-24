@@ -138,9 +138,9 @@ Write-enabled tools follow this workflow:
 2. Call the same tool without `dry_run` to stage one ordinary revision-checked journal
    operation.
 3. Use `review_changes`, `undo_changes`, or `redo_changes` as needed. With an `operation_id`,
-   `review_changes` lists that operation's transactions with their date, merchant, category,
-   hidden state, and exact `money`: an object with `amount`, `amount_minor`, `currency`, and
-   `scale`.
+   `review_changes` lists that operation's transactions newest first, with their date,
+   merchant, category, hidden state, and exact `money`: an object with `amount`,
+   `amount_minor`, `currency`, and `scale`.
 4. Call `commit_changes` with the exact reviewed revision.
 
 In `review_changes`, a hide operation's `before` and `after` read `Visible` and `Hidden`, or

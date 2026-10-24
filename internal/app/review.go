@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/wesm/moneyflow/internal/domain"
 )
@@ -231,23 +233,23 @@ func affectedOperationSummary(
 		}
 	}
 	count := 0
-	ids := make([]domain.EntityID, 0, min(span.limit, len(before.Transactions)))
+	var ids []domain.EntityID
 	visitAffectedByOperation(before, operation, func(id domain.EntityID) bool {
 		if filterSurvivors {
 			if _, exists := survivors[id]; !exists {
 				return true
 			}
 		}
-		if count >= span.offset && len(ids) < span.limit {
+		if span.limit > 0 {
 			ids = append(ids, id)
 		}
 		count++
 		return true
 	})
-	if len(ids) == 0 {
+	if span.offset >= len(ids) {
 		return count, nil
 	}
-	return count, reviewTargets(before, ids)
+	return count, reviewTargets(before, ids, span)
 }
 
 func reviewValues(
@@ -348,34 +350,45 @@ func groupLabel(profile domain.CommittedProfile, id domain.EntityID) string {
 	return group.Label
 }
 
+// reviewTargets lists the span of the affected transactions in the transaction list's default
+// order, newest first and then by identifier, so the review reads like the list it changes.
 func reviewTargets(
 	profile domain.CommittedProfile,
 	ids []domain.EntityID,
+	span targetSpan,
 ) []ReviewTarget {
+	wanted := make(map[domain.EntityID]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	rows := make([]int, 0, len(ids))
+	for index := range profile.Transactions {
+		if _, exists := wanted[profile.Transactions[index].ID]; exists {
+			rows = append(rows, index)
+		}
+	}
+	if span.offset >= len(rows) {
+		return nil
+	}
+	slices.SortFunc(rows, func(left, right int) int {
+		older, newer := &profile.Transactions[left], &profile.Transactions[right]
+		if comparison := newer.Date.Compare(older.Date); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(string(older.ID), string(newer.ID))
+	})
+	rows = rows[span.offset:min(len(rows), span.offset+span.limit)]
 	merchants := make(map[domain.EntityID]string, len(profile.Merchants))
 	categories := make(map[domain.EntityID]string, len(profile.Categories))
-	wanted := make(map[domain.EntityID]struct{}, len(ids))
-	transactions := make(map[domain.EntityID]domain.TransactionRecord, len(ids))
 	for _, merchant := range profile.Merchants {
 		merchants[merchant.ID] = merchant.Label
 	}
 	for _, category := range profile.Categories {
 		categories[category.ID] = category.Label
 	}
-	for _, id := range ids {
-		wanted[id] = struct{}{}
-	}
-	for _, transaction := range profile.Transactions {
-		if _, exists := wanted[transaction.ID]; exists {
-			transactions[transaction.ID] = transaction
-		}
-	}
-	result := make([]ReviewTarget, 0, len(ids))
-	for _, id := range ids {
-		transaction, ok := transactions[id]
-		if !ok {
-			continue
-		}
+	result := make([]ReviewTarget, 0, len(rows))
+	for _, index := range rows {
+		transaction := &profile.Transactions[index]
 		result = append(result, ReviewTarget{
 			TransactionID: transaction.ID, Date: transaction.Date,
 			Merchant: merchants[transaction.MerchantID],

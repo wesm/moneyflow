@@ -59,16 +59,9 @@ func TestReviewPreviewAttachesFirstTargetsToEachActiveOperation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, review.ActiveOperations, 2)
 	require.Len(t, review.InactiveOperations, 1)
-	targetIDs := func(operation app.ReviewOperation) []domain.EntityID {
-		ids := make([]domain.EntityID, 0, len(operation.Targets))
-		for _, target := range operation.Targets {
-			ids = append(ids, target.TransactionID)
-		}
-		return ids
-	}
 	assert.Equal(t, 2, review.ActiveOperations[0].AffectedCount)
-	assert.Equal(t, []domain.EntityID{"transaction_a"}, targetIDs(review.ActiveOperations[0]))
-	assert.Equal(t, []domain.EntityID{"transaction_b"}, targetIDs(review.ActiveOperations[1]))
+	assert.Equal(t, []domain.EntityID{"transaction_a"}, reviewTargetIDs(review.ActiveOperations[0].Targets))
+	assert.Equal(t, []domain.EntityID{"transaction_b"}, reviewTargetIDs(review.ActiveOperations[1].Targets))
 	assert.Empty(t, review.InactiveOperations[0].Targets)
 	assert.Empty(t, review.Targets)
 
@@ -179,4 +172,82 @@ func TestReviewLabelsNameTheHideDirection(t *testing.T) {
 			assert.Equal(t, test.after, operation.After)
 		})
 	}
+}
+
+func TestReviewListsAffectedTransactionsNewestFirst(t *testing.T) {
+	t.Parallel()
+
+	// Stored order follows identifiers, which say nothing about when a purchase happened.
+	profile := replayProfile(t)
+	template := profile.Transactions[0]
+	profile.Transactions = nil
+	for _, row := range []struct {
+		id   domain.EntityID
+		date string
+	}{
+		{"transaction_a", "2026-03-01"},
+		{"transaction_b", "2026-09-01"},
+		{"transaction_c", "2026-06-01"},
+		{"transaction_d", "2026-09-01"},
+	} {
+		date, err := domain.ParseDate(row.date)
+		require.NoError(t, err)
+		transaction := template
+		transaction.ID, transaction.ProviderID, transaction.Date = row.id, "provider-"+string(row.id), date
+		profile.Transactions = append(profile.Transactions, transaction)
+	}
+	require.NoError(t, profile.Validate())
+	newestFirst := []domain.EntityID{"transaction_b", "transaction_d", "transaction_c", "transaction_a"}
+
+	for _, test := range []struct {
+		name  string
+		stage func(*testing.T, *app.Service)
+	}{
+		{"category change", func(t *testing.T, service *app.Service) {
+			selection, err := app.NewExplicitTransactionSelection(
+				[]domain.EntityID{"transaction_c", "transaction_a", "transaction_d", "transaction_b"},
+				service.Revision(),
+			)
+			require.NoError(t, err)
+			_, err = service.Mutate(t.Context(), app.MutationRequest{
+				Action: app.ActionEditCategory, ExpectedRevision: service.Revision(),
+				State: detailViewState(), Selection: selection,
+				Input: app.EditInput{Scope: app.EditScopeTransactions, DestinationID: "category_b"},
+			})
+			require.NoError(t, err)
+		}},
+		{"merchant rename", func(t *testing.T, service *app.Service) {
+			stagedMutate(t, service, app.ActionEditMerchant, "transaction_a",
+				app.EditInput{Scope: app.EditScopeEntity, Label: "Merchant A Renamed"})
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			service, err := app.NewProfileService(t.Context(), &memoryProfile{
+				snapshot: domain.ProfileSnapshot{Revision: 5, Committed: profile.Clone()},
+			})
+			require.NoError(t, err)
+			test.stage(t, service)
+
+			review, err := service.Review(t.Context(), service.Revision(), app.ReviewWindow{Preview: 4})
+			require.NoError(t, err)
+			require.Len(t, review.ActiveOperations, 1)
+			operation := review.ActiveOperations[0]
+			assert.Equal(t, newestFirst, reviewTargetIDs(operation.Targets))
+
+			page, err := service.Review(t.Context(), service.Revision(), app.ReviewWindow{
+				OperationID: operation.OperationID, Offset: 1, Limit: 2,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, newestFirst[1:3], reviewTargetIDs(page.Targets))
+		})
+	}
+}
+
+func reviewTargetIDs(targets []app.ReviewTarget) []domain.EntityID {
+	ids := make([]domain.EntityID, 0, len(targets))
+	for _, target := range targets {
+		ids = append(ids, target.TransactionID)
+	}
+	return ids
 }
