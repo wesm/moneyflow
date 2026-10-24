@@ -183,6 +183,7 @@
           <Spinner label={`Checking saved ${provider} credentials`} />
           <p>Looking for a reusable encrypted session before asking for credentials.</p>
         </div>
+        {#if snapshot}<Button onclick={() => void cancel()}>Cancel</Button>{/if}
       {:else if snapshot.state === 'settings_required'}
         <h1 id="onboarding-title">Confirm import settings</h1>
         <p>Moneyflow stores exact integer minor units. Confirm the currency and decimal scale.</p>

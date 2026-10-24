@@ -347,7 +347,10 @@ func (coordinator *Coordinator) Cancel(
 		}
 		return snapshot, nil
 	}
-	if request.ExpectedStateVersion != current.stateVersion {
+	// Import progress changes the state version, so a client's version is
+	// often behind. Cancel still stops any attempt that has not completed; a
+	// completed import keeps its result.
+	if request.ExpectedStateVersion != current.stateVersion && current.state == StateComplete {
 		coordinator.mu.Unlock()
 		return Snapshot{}, newError(CodeOnboardingStale, errors.New("state version differs"))
 	}

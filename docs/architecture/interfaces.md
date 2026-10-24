@@ -48,6 +48,8 @@ settings when saved state already supplies them. Binding must not orphan an unbo
 local journal or committed data.
 
 - Connection attempts use advisory locking and expected state versions.
+- Cancel stops any attempt that has not completed, even when the client's state version is
+  behind, because import progress changes the version. A completed attempt keeps its result.
 - Passwords and tokens never appear in status snapshots, URLs, error bodies, or history.
 - A valid saved session can skip credential entry. A failed import can retry from saved session
   material.

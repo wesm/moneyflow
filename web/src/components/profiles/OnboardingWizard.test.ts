@@ -165,6 +165,15 @@ describe('onboarding wizard', () => {
     expect(oncancel).not.toHaveBeenCalled()
   })
 
+  it('lets the user cancel while it checks a saved session', async () => {
+    const controller = stubController('validate_session')
+    render(OnboardingWizard, { controller, oncomplete: vi.fn(), oncancel: vi.fn() })
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(controller.cancel).toHaveBeenCalledTimes(1)
+  })
+
   it('offers restart and back when setup cannot start', async () => {
     const oncancel = vi.fn()
     const controller = stubController('settings_required')

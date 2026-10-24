@@ -424,7 +424,10 @@ func (c *Coordinator) Cancel(ctx context.Context, request CancelRequest) (Snapsh
 		c.mu.Unlock()
 		return Snapshot{}, err
 	}
-	if request.ExpectedStateVersion != a.snapshot.StateVersion {
+	// Import progress changes the state version, so a client's version is
+	// often behind. Cancel still stops any attempt that has not completed; a
+	// completed import keeps its result.
+	if request.ExpectedStateVersion != a.snapshot.StateVersion && a.snapshot.State == StateComplete {
 		c.mu.Unlock()
 		return Snapshot{}, &Error{Code: "onboarding_stale"}
 	}

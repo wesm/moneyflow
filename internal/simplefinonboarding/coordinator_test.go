@@ -244,6 +244,35 @@ func TestCancellationPreservesClaimedCredential(t *testing.T) {
 	}
 }
 
+func TestCancelStopsSetupThatMovedOnSinceTheClientLooked(t *testing.T) {
+	h := newHarness(t)
+	started, err := h.coordinator.Start(t.Context(), StartRequest{ProfileID: testProfileID, Renderer: "cli", RemoveIfAbandoned: true})
+	require.NoError(t, err)
+	waitState(t, h.coordinator, started, StateCredentialsRequired)
+
+	canceled, err := h.coordinator.Cancel(t.Context(), CancelRequest{started.ProfileID, started.AttemptID, started.StateVersion})
+	require.NoError(t, err)
+	require.Equal(t, StateCanceled, canceled.State)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	require.Equal(t, []string{"rollback"}, h.events)
+}
+
+func TestCancelKeepsSetupThatCompletedFirst(t *testing.T) {
+	h := newHarness(t)
+	s := submitInput(t, h, startInput(t, h), ActionConnect, "synthetic-token")
+	waitState(t, h.coordinator, s, StateComplete)
+
+	_, err := h.coordinator.Cancel(t.Context(), CancelRequest{s.ProfileID, s.AttemptID, s.StateVersion})
+	require.Equal(t, "onboarding_stale", CodeOf(err))
+	current, err := h.coordinator.Status(t.Context(), StatusRequest{s.ProfileID, s.AttemptID})
+	require.NoError(t, err)
+	require.Equal(t, StateComplete, current.State)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	require.NotContains(t, h.events, "rollback")
+}
+
 func TestSavedSessionRestartAndBindingGuards(t *testing.T) {
 	h := newHarness(t)
 	h.fetchErr = provider.NewError(provider.CodeUnavailable)
