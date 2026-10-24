@@ -76,7 +76,10 @@
     | { kind: 'amazon'; id: string; controller: AmazonImportController }
 
   let flow = $state<Flow>({ kind: 'starting' })
-  /** The profile this setup created, which cancelling removes again. */
+  /**
+   * The profile this setup created, which cancelling removes again. The server keeps a profile
+   * that already holds a saved sign-in, or whose SimpleFIN setup began to claim a connection.
+   */
   let created: string | undefined
   let closed = false
 
@@ -86,8 +89,6 @@
     if (provider === 'local' || provider === 'csv') {
       complete(id)
     } else if (provider === 'simplefin') {
-      // Setup claims the SimpleFIN connection, which must stay with its profile.
-      created = undefined
       const transport = createSimpleFINOnboardingTransport(apiBase, id, hostFetch)
       const controller = createSimpleFINOnboardingController({ profileID: id, transport })
       flow = { kind: 'simplefin', id, controller }
@@ -136,21 +137,21 @@
     stop()
     const id = created
     created = undefined
-    if (id && !(await removeCreated(id))) {
-      flow = {
-        kind: 'failed',
-        message: 'The new profile could not be removed. It stays in the profile list.',
-      }
+    const kept = id === undefined ? undefined : await removeCreated(id)
+    if (kept !== undefined) {
+      flow = { kind: 'failed', message: kept }
       return
     }
     oncancel()
   }
 
-  async function removeCreated(id: string): Promise<boolean> {
+  /** Removes the profile this setup created, or says why it stays. */
+  async function removeCreated(id: string): Promise<string | undefined> {
     try {
-      return await createCatalogClient(apiBase, hostFetch).cancelNew(id)
+      if (await createCatalogClient(apiBase, hostFetch).cancelNew(id)) return undefined
+      return 'Setup may already have connected the new profile, so it stays in the profile list.'
     } catch {
-      return false
+      return 'The new profile could not be removed. It stays in the profile list.'
     }
   }
 

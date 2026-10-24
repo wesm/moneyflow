@@ -424,7 +424,10 @@ func (c *Coordinator) Cancel(ctx context.Context, request CancelRequest) (Snapsh
 		c.mu.Unlock()
 		return Snapshot{}, err
 	}
-	if request.ExpectedStateVersion != a.snapshot.StateVersion {
+	// Import progress changes the state version, so a client's version is
+	// often behind. Cancel still stops any attempt that has not completed; a
+	// completed import keeps its result.
+	if request.ExpectedStateVersion != a.snapshot.StateVersion && a.snapshot.State == StateComplete {
 		c.mu.Unlock()
 		return Snapshot{}, &Error{Code: "onboarding_stale"}
 	}
@@ -493,6 +496,20 @@ func (c *Coordinator) CancelProfile(ctx context.Context, profileID string) error
 	}
 	c.mu.Unlock()
 	return c.releasePending(ctx, attempts)
+}
+
+// Retains reports whether an attempt began to claim a connection for the profile or found its
+// saved one. A claim can consume its token even when its answer is lost, so such a profile is
+// never removed as abandoned, even when setup saved nothing for it.
+func (c *Coordinator) Retains(profileID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, a := range c.attempts {
+		if a.snapshot.ProfileID == profileID && a.flow.retain {
+			return true
+		}
+	}
+	return false
 }
 
 // releasePending releases the flow of each attempt whose job has ended, and returns the release

@@ -212,9 +212,14 @@ func (server *Server) registerProfileCatalogEndpoints(config Config) {
 		if err := releaseProfileForRollback(ctx, config, input.ProfileID); err != nil {
 			return nil, err
 		}
-		removed, err := config.Catalog.CancelNewProfile(ctx, input.ProfileID)
-		if err != nil {
-			return nil, problemFromCatalogError(err)
+		// The catalog sees only saved state, and a SimpleFIN claim can consume its token
+		// without saving anything, so the SimpleFIN coordinator decides first.
+		removed := false
+		if config.SimpleFINOnboarding == nil || !config.SimpleFINOnboarding.Retains(input.ProfileID) {
+			var err error
+			if removed, err = config.Catalog.CancelNewProfile(ctx, input.ProfileID); err != nil {
+				return nil, problemFromCatalogError(err)
+			}
 		}
 		return &profileCancelOutput{Body: ProfileCancelResponse{
 			Version: ProfileCatalogSchemaVersion, Removed: removed,

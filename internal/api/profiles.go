@@ -72,6 +72,7 @@ type SimpleFINOnboardingCoordinator interface {
 	Submit(context.Context, simplefinonboarding.SubmitRequest) (simplefinonboarding.Snapshot, error)
 	Cancel(context.Context, simplefinonboarding.CancelRequest) (simplefinonboarding.Snapshot, error)
 	CancelProfile(context.Context, string) error
+	Retains(string) bool
 	TakeOpenedProfile(context.Context, simplefinonboarding.StatusRequest) (simplefinonboarding.OpenedProfile, error)
 }
 

@@ -108,6 +108,46 @@ func TestCancelWaitsForProviderFetchBeforeReleasingResources(t *testing.T) {
 	require.NoError(t, lock.Release())
 }
 
+func TestCancelStopsAnImportWhoseProgressMovedOn(t *testing.T) {
+	source := newImportTestSource(t)
+	source.block = make(chan struct{})
+	source.entered = make(chan struct{})
+	source.progress = provider.Progress{Partition: "visible", Fetched: 25, Total: 100, Attempt: 1, Pass: 1}
+	coordinator, started, _, _ := newImportCoordinator(t, source, &fakeCredentialVault{})
+	waitForState(t, coordinator, started, StateImporting)
+	<-source.entered
+	current, err := coordinator.Status(context.Background(), StatusRequest{
+		ProfileID: testProfileID, AttemptID: started.AttemptID,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, current.Progress)
+
+	canceled, err := coordinator.Cancel(context.Background(), CancelRequest{
+		ProfileID: testProfileID, AttemptID: started.AttemptID,
+		ExpectedStateVersion: current.StateVersion - 1,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StateCanceled, canceled.State)
+	assert.True(t, source.fetchExited())
+}
+
+func TestCancelKeepsAnImportThatCompletedFirst(t *testing.T) {
+	source := newImportTestSource(t)
+	coordinator, started, _, _ := newImportCoordinator(t, source, &fakeCredentialVault{})
+	complete := waitForState(t, coordinator, started, StateComplete)
+
+	_, err := coordinator.Cancel(context.Background(), CancelRequest{
+		ProfileID: testProfileID, AttemptID: started.AttemptID,
+		ExpectedStateVersion: complete.StateVersion - 1,
+	})
+	assert.Equal(t, CodeOnboardingStale, CodeOf(err))
+	current, err := coordinator.Status(context.Background(), StatusRequest{
+		ProfileID: testProfileID, AttemptID: started.AttemptID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StateComplete, current.State)
+}
+
 func TestProgressCopiesCountsWithoutProviderValues(t *testing.T) {
 	source := newImportTestSource(t)
 	source.block = make(chan struct{})
