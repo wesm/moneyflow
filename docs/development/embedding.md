@@ -123,6 +123,11 @@ The host calls a few operations itself. `<base>` stands for `APIBasePath`:
   `needs_setup`. `provider_kind` is `monarch`, `ynab`, `simplefin`, `amazon`, or `local`.
 - `POST <base>api/v1/profiles/{profile_id}/remove` (commit) with `{"version":"1"}` deletes the
   profile and its files. It answers 503 `profile_busy` while any process holds the profile.
+- `POST <base>api/v1/profiles/{profile_id}/rename` (stage) with
+  `{"version":"1","display_name":"Example Household"}` renames the profile and answers with it. Its
+  ID, data and credentials stay. It answers 409 `profile_name_conflict` when another profile has the
+  name. It waits for a running refresh or provider write instead of stopping it, and answers 503
+  `profile_busy` while that work or another process still holds the profile.
 - `GET <base>openapi.json` and `GET <base>openapi.yaml` (read) describe every operation.
 
 ## Show each profile by its state

@@ -70,13 +70,23 @@ func (evictor supervisorEvictor) Evict(ctx context.Context, profileID string) er
 	if err := evictor.instance.dropSupervisor(ctx, profileID); err != nil {
 		return fmt.Errorf("stop supervised work for profile %s: %w", profileID, err)
 	}
+	return evictor.instance.evictWithin(ctx, evictor.next, profileID)
+}
+
+// evictWithin closes a profile's service through next once no work holds it. Work that still holds
+// it after evictionTimeout makes the eviction fail with profile_busy, and the profile keeps serving.
+func (instance *Instance) evictWithin(
+	ctx context.Context,
+	next api.ProfileEvictor,
+	profileID string,
+) error {
 	timeout := evictionTimeout
-	if evictor.instance.seams.evictionTimeout > 0 {
-		timeout = evictor.instance.seams.evictionTimeout
+	if instance.seams.evictionTimeout > 0 {
+		timeout = instance.seams.evictionTimeout
 	}
 	bounded, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	err := evictor.next.Evict(bounded, profileID)
+	err := next.Evict(bounded, profileID)
 	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 		return fmt.Errorf("profile %s is still in use: %w", profileID,
 			&profilecatalog.Error{Code: profilecatalog.CodeProfileBusy})

@@ -442,6 +442,46 @@ func TestRemoveProfileDeletesItsFiles(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(root, "profiles", shop))
 }
 
+func TestRenameProfileRenamesAProfileTheInstanceHoldsOpen(t *testing.T) {
+	root := testRoot(t)
+	shop := createLocalProfile(t, root, "Example Shop")
+	instance := openTestInstance(t, root, seams{})
+	// Reading its state leaves the profile open, as a workspace does.
+	require.Equal(t, StateReady, currentProfile(t.Context(), instance, shop).State)
+
+	response := serveAPI(t, instance, http.MethodPost,
+		"api/v1/profiles/"+shop+"/rename", `{"version":"1","display_name":"Household"}`)
+
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.Equal(t, "Household", currentProfile(t.Context(), instance, shop).Name)
+}
+
+func TestRenamingAProfileLeavesItsRefreshRunning(t *testing.T) {
+	root, providerRoot := testRoot(t), t.TempDir()
+	acme := createMonarchProfile(t, root, "Acme", providerRoot)
+	started := make(chan struct{}, 1)
+	instance := openTestInstance(t, root, seams{
+		inspectSession: sessionPresent, evictionTimeout: time.Millisecond,
+		factories: assembly.Factories{Monarch: stalledMonarch(providerRoot, started)},
+	})
+	session := connectTools(t, instance, ToolOptions{Classes: []Class{ClassStage}})
+	_, startError := callTool(t, session, "refresh_data", nil)
+	require.False(t, startError)
+	<-started
+
+	busy := serveAPI(t, instance, http.MethodPost,
+		"api/v1/profiles/"+acme+"/rename", `{"version":"1","display_name":"Household"}`)
+
+	// Removal stops the refresh so that it can close the profile; a rename waits for it instead.
+	assert.Equal(t, http.StatusServiceUnavailable, busy.Code, busy.Body.String())
+	assert.Contains(t, busy.Body.String(), `"code":"profile_busy"`)
+	instance.mu.Lock()
+	_, supervised := instance.supervisors[acme]
+	instance.mu.Unlock()
+	assert.True(t, supervised)
+	assert.Equal(t, "Acme", currentProfile(t.Context(), instance, acme).Name)
+}
+
 func TestProfilesReportWhatAProviderProfileNeeds(t *testing.T) {
 	for name, scenario := range map[string]struct {
 		drive func(context.Context, *uitestruntime.Runtime) error

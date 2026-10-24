@@ -42,6 +42,7 @@ var operationClasses = map[string]access.Class{
 	"createProfile":                 access.Stage,
 	"activateProfile":               access.Stage,
 	"cancelNewProfile":              access.Stage,
+	"renameProfile":                 access.Stage,
 	"mutateProfile":                 access.Stage,
 	"undoProfile":                   access.Stage,
 	"redoProfile":                   access.Stage,
