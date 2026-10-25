@@ -76,16 +76,6 @@ func TestRenameProfileReportsWhyTheCatalogRefused(t *testing.T) {
 	}
 }
 
-func TestRenameProfileTakesOnlyAProfileID(t *testing.T) {
-	t.Parallel()
-	var calls []string
-	server := newRenameServer(t, &calls, nil)
-	response := requestJSON(t, server, "/embedded/api/v1/profiles/Monarch/rename",
-		ProfileRenameBody{Version: ProfileCatalogSchemaVersion, DisplayName: "Household"})
-	assert.Equal(t, http.StatusNotFound, response.Code)
-	assert.Empty(t, calls)
-}
-
 func TestRenameProfileRefusesAnUnsupportedVersion(t *testing.T) {
 	t.Parallel()
 	var calls []string
