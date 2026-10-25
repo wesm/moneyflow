@@ -294,6 +294,18 @@ func (locked lockedCatalog) Recreate(
 	})
 }
 
+// Rename leaves the profile open, unlike removal, so its work and its process-local state, such
+// as a pending confirmation or an unlocked YNAB budget, carry on.
+func (locked lockedCatalog) Rename(
+	ctx context.Context,
+	profileID, displayName string,
+) (profilecatalog.Entry, error) {
+	instance := locked.instance
+	return lockForAPI(instance, func() (profilecatalog.Entry, error) {
+		return instance.catalog.Rename(ctx, profileID, displayName)
+	})
+}
+
 func (locked lockedCatalog) Remove(ctx context.Context, profileID string) error {
 	instance := locked.instance
 	_, err := lockForAPI(instance, func() (struct{}, error) {

@@ -35,7 +35,7 @@ func TestRenameKeepsIdentityAndDataForEveryLayout(t *testing.T) {
 			before := readTestManifest(t, manifestPath)
 			database := readTestFile(t, original.ProfilePaths().Database)
 
-			renamed, err := catalog.Rename(context.Background(), "moneyflow", "  Monarch ")
+			renamed, err := catalog.Rename(context.Background(), original.ID, "  Monarch ")
 			require.NoError(t, err)
 
 			assert.Equal(t, "Monarch", renamed.DisplayName)
@@ -84,8 +84,8 @@ func TestRenameRefusesWithoutChangingTheManifest(t *testing.T) {
 			manifestPath := filepath.Join(entry.Root, ManifestFilename)
 			before := readTestFile(t, manifestPath)
 			if test.hold {
-				// A running TUI, web, or MCP process holds the profile's lock in shared mode.
-				lock, err := home.TryLock(entry.Root, home.LockProfile, home.LockShared)
+				// An import, export, or recovery holds the profile's lock exclusively.
+				lock, err := home.TryLock(entry.Root, home.LockProfile, home.LockExclusive)
 				require.NoError(t, err)
 				t.Cleanup(func() { _ = lock.Release() })
 			}
@@ -100,6 +100,38 @@ func TestRenameRefusesWithoutChangingTheManifest(t *testing.T) {
 			assert.Equal(t, before, readTestFile(t, manifestPath))
 		})
 	}
+}
+
+func TestRenameTakesOnlyAnExistingProfileID(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	missing := deterministicProfileID(t, 0x57)
+	// A display name can look like the ID of a profile that does not exist.
+	named := createTestManifestProfile(t, catalog, 0x56, missing, "local")
+	manifestPath := filepath.Join(named.Root, ManifestFilename)
+	before := readTestFile(t, manifestPath)
+
+	_, err := catalog.Rename(context.Background(), missing, "Household")
+
+	assert.Equal(t, CodeProfileNotFound, CodeOf(err))
+	assert.Equal(t, before, readTestFile(t, manifestPath))
+}
+
+func TestRenameRenamesAProfileAnotherProcessHasOpen(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	entry := createTestManifestProfile(t, catalog, 0x55, "Moneyflow", "monarch")
+	// A running TUI, web, or MCP process holds the profile's lock in shared mode.
+	lock, err := home.TryLock(entry.Root, home.LockProfile, home.LockShared)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, lock.Release()) }()
+
+	renamed, err := catalog.Rename(context.Background(), entry.ID, "Monarch")
+
+	require.NoError(t, err)
+	assert.Equal(t, "Monarch", renamed.DisplayName)
+	manifest := readTestManifest(t, filepath.Join(entry.Root, ManifestFilename))
+	assert.Equal(t, "Monarch", manifest.DisplayName)
 }
 
 // readTestManifest reads a root or nested manifest without checking its directory name.

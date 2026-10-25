@@ -72,16 +72,16 @@ Run `moneyflow tui` (or `moneyflow web`), choose **Add profile**, and pick a sou
 ## Rename a profile
 
 New profiles are named after their provider, such as "Monarch" or "YNAB". If that name is
-taken, the next is "Monarch 2", "Monarch 3", and so on. To rename one, close every web, TUI,
-and MCP process that uses it, then run:
+taken, the next is "Monarch 2", "Monarch 3", and so on. To rename one, run:
 
 ```bash
 moneyflow profile rename --profile Monarch --name "Example Budget"
 ```
 
 The profile keeps its ID, data, and credentials. The new name must not belong to another
-profile, but it may change the capitalization of the current one. If another process has the
-profile open, the command refuses and asks you to close it.
+profile, but it may change the capitalization of the current one. Web, TUI, and MCP processes
+that have the profile open keep working. While an import or export holds the profile, the command
+fails as busy; run it again when that command finishes.
 
 ## Where profiles live
 

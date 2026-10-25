@@ -52,6 +52,8 @@ type Config struct {
 	ReportFailure func(profileID string, err error)
 	// Remover enables the removeProfile operation. It requires Evictor.
 	Remover ProfileRemover
+	// Renamer enables the renameProfile operation.
+	Renamer ProfileRenamer
 	// Refresher runs the refreshProvider and confirmProviderRefresh operations when set. Nil
 	// calls the profile's service directly, as the standalone server does.
 	Refresher ProviderRefresher
@@ -293,7 +295,8 @@ func profileMutationSecurity(
 			if err == nil {
 				scope := profileID
 				_, requiresProtection := protected[endpoint]
-				if endpoint == "recovery" || endpoint == "cancel" || endpoint == "remove" {
+				if endpoint == "recovery" || endpoint == "cancel" || endpoint == "remove" ||
+					endpoint == "rename" {
 					requiresProtection = true
 					scope = CatalogMutationScope
 				}

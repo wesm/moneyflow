@@ -77,6 +77,17 @@ type ProfileRemover interface {
 	Remove(ctx context.Context, profileID string) error
 }
 
+// ProfileRenameBody gives one profile a new display name.
+type ProfileRenameBody struct {
+	Version     string `json:"version"`
+	DisplayName string `json:"display_name" minLength:"1" maxLength:"320"`
+}
+
+// ProfileRenamer gives one profile a new display name. Its ID, data and credentials stay.
+type ProfileRenamer interface {
+	Rename(ctx context.Context, profileID, displayName string) (profilecatalog.Entry, error)
+}
+
 // RecoveryPlan is the exact destructive action previewed before confirmation.
 type RecoveryPlan struct {
 	ProfileKey   string `json:"profile_key"`
@@ -116,6 +127,10 @@ type profileRemoveInput struct {
 	Body      ProfileRemoveBody
 }
 type profileRemoveOutput struct{ Body ProfileRemoveResponse }
+type profileRenameInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      ProfileRenameBody
+}
 type recoveryInput struct {
 	ProfileID string `path:"profile_id"`
 	Body      RecoveryBody
@@ -280,6 +295,9 @@ func (server *Server) registerProfileCatalogEndpoints(config Config) {
 	if config.Remover != nil {
 		server.registerProfileRemoval(config)
 	}
+	if config.Renamer != nil {
+		server.registerProfileRename(config)
+	}
 }
 
 func (server *Server) registerProfileRemoval(config Config) {
@@ -309,6 +327,28 @@ func (server *Server) registerProfileRemoval(config Config) {
 		return &profileRemoveOutput{
 			Body: ProfileRemoveResponse{Version: ProfileCatalogSchemaVersion},
 		}, nil
+	})
+}
+
+func (server *Server) registerProfileRename(config Config) {
+	huma.Register(server.api, huma.Operation{
+		OperationID: "renameProfile", Method: http.MethodPost,
+		Path: server.profilePath("rename"), Summary: "Give one profile a new display name",
+		Errors: []int{400, 404, 409, 413, 422, 500, 503},
+	}, func(ctx context.Context, input *profileRenameInput) (*profileOutput, error) {
+		if input.Body.Version != ProfileCatalogSchemaVersion {
+			return nil, newProblem(
+				http.StatusUnprocessableEntity, string(CodeProfileInvalid),
+				"The profile request version is unsupported.",
+			)
+		}
+		entry, err := config.Renamer.Rename(ctx, input.ProfileID, input.Body.DisplayName)
+		if err != nil {
+			return nil, problemFromCatalogError(err)
+		}
+		return &profileOutput{Body: ProfileResponse{
+			Version: ProfileCatalogSchemaVersion, Profile: profileSummaryToWire(entry),
+		}}, nil
 	})
 }
 

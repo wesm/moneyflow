@@ -3,6 +3,7 @@ package home
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,6 +35,40 @@ func TestPrivateFileRoundTripAndAtomicReplacement(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte("second"), contents)
 	assert.False(t, os.SameFile(firstInfo, secondInfo), "atomic replace must install a new file")
+}
+
+// The test sets a package hook, so it does not run in parallel.
+func TestPrivateFileOpenFollowsAnAtomicReplacement(t *testing.T) {
+	for name, read := range map[string]func(string) ([]byte, error){
+		"read": func(path string) ([]byte, error) { return ReadPrivateFile(path, 64) },
+		"open": func(path string) ([]byte, error) {
+			file, err := OpenPrivateFile(path)
+			if err != nil {
+				return nil, err
+			}
+			defer func() { _ = file.Close() }()
+			return io.ReadAll(file)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "profile.json")
+			require.NoError(t, WritePrivateFile(path, []byte("before")))
+			replaced := false
+			// Another process replaces the file after the open inspects it, as a rename does.
+			afterTargetInspected = func(inspected string) {
+				if inspected == path && !replaced {
+					replaced = true
+					require.NoError(t, WritePrivateFile(path, []byte("after")))
+				}
+			}
+			t.Cleanup(func() { afterTargetInspected = nil })
+
+			contents, err := read(path)
+
+			require.NoError(t, err)
+			assert.Equal(t, []byte("after"), contents)
+		})
+	}
 }
 
 func TestPrivateFileReadIsBounded(t *testing.T) {

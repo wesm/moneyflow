@@ -261,7 +261,7 @@ func (instance *Instance) build(basePath string) error {
 			return assembly.LoadAmazonTaxonomyClone(ctx, instance.resolve, selector, instance.sqlite)
 		},
 		ErrorLog:      slog.NewLogLogger(instance.logger.Handler(), slog.LevelError),
-		HostAdmission: true, ReportFailure: instance.recordFailure, Remover: catalog,
+		HostAdmission: true, ReportFailure: instance.recordFailure, Remover: catalog, Renamer: catalog,
 		Refresher: apiRefresher{instance: instance}, Reconciler: apiReconciler{instance: instance},
 	})
 	return err

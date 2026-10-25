@@ -183,13 +183,14 @@ func TestProfileRenameCommandRejectsMissingFlagsAndBusyProfile(t *testing.T) {
 		DisplayName: "Moneyflow", ProviderKind: "monarch",
 	})
 	require.NoError(t, err)
-	lock, err := home.TryLock(entry.Root, home.LockProfile, home.LockShared)
+	// An import or export holds the profile's lock exclusively.
+	lock, err := home.TryLock(entry.Root, home.LockProfile, home.LockExclusive)
 	require.NoError(t, err)
-	defer func() { require.NoError(t, lock.Release()) }()
 
 	_, _, err = executeCommand(t, "profile", "rename", "--profile", "Moneyflow", "--name", "Monarch")
+	require.NoError(t, lock.Release())
 
-	require.ErrorContains(t, err, "close other Moneyflow processes using this profile")
+	require.Equal(t, profilecatalog.CodeProfileBusy, profilecatalog.CodeOf(err), err)
 	unchanged, err := catalog.Resolve(t.Context(), "Moneyflow")
 	require.NoError(t, err)
 	require.Equal(t, entry.ID, unchanged.ID)
