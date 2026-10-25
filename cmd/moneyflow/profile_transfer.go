@@ -77,9 +77,6 @@ func renameProfile(ctx context.Context, out io.Writer, selector, name string) er
 		}
 	}
 	renamed, err := catalog.Rename(ctx, entry.ID, name)
-	if profilecatalog.CodeOf(err) == profilecatalog.CodeProfileBusy {
-		return fmt.Errorf("profile rename: close other Moneyflow processes using this profile: %w", err)
-	}
 	if err != nil {
 		return fmt.Errorf("profile rename: %w", err)
 	}

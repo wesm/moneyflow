@@ -55,7 +55,7 @@ func TestRenameProfileAnswersWithTheRenamedProfile(t *testing.T) {
 	assert.JSONEq(t, `{"version":"1","profile":{"key":"`+testProfileID+`","id":"`+testProfileID+
 		`","display_name":"Household","provider_kind":"monarch","status":"ready"}}`,
 		response.Body.String())
-	// The renamer closes the profile itself; the API's evictor would also stop its refreshes.
+	// Unlike removal, a rename never evicts the profile, so its refreshes and confirmations carry on.
 	assert.Equal(t, []string{"rename " + testProfileID + " to Household"}, calls)
 }
 

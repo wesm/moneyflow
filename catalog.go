@@ -294,25 +294,14 @@ func (locked lockedCatalog) Recreate(
 	})
 }
 
-// Rename gives a profile a new display name. The catalog refuses a profile that any process holds
-// open, so Rename first closes this instance's service for the profile. It never stops or waits for
-// the profile's work: while a request, refresh, reconcile or provider write holds the profile, it
-// fails at once with profile_busy. Work that opens the profile during the rename waits for it,
-// because opening a profile reads the catalog, and the catalog write lock is held.
+// Rename leaves the profile open, unlike removal, so its work and its process-local state, such
+// as a pending confirmation or an unlocked YNAB budget, carry on.
 func (locked lockedCatalog) Rename(
 	ctx context.Context,
 	profileID, displayName string,
 ) (profilecatalog.Entry, error) {
 	instance := locked.instance
 	return lockForAPI(instance, func() (profilecatalog.Entry, error) {
-		closed, err := instance.registry.CloseUnused(profileID)
-		if err != nil {
-			return profilecatalog.Entry{}, err
-		}
-		if !closed {
-			return profilecatalog.Entry{}, fmt.Errorf("profile %s is in use: %w", profileID,
-				&profilecatalog.Error{Code: profilecatalog.CodeProfileBusy})
-		}
 		return instance.catalog.Rename(ctx, profileID, displayName)
 	})
 }

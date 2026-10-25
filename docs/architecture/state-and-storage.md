@@ -117,8 +117,9 @@ takes the name the user enters.
 
 `moneyflow profile rename` changes only the manifest's display name; the ID, provider, data, and
 credentials stay. A profile may take another capitalization of its own name. Rename refuses a
-name another profile uses, and fails as busy while another process holds the catalog or the
-profile.
+name another profile uses. It fails as busy while another process holds the catalog, or holds the
+profile exclusively, as an import, export, or recovery does. A process that has the profile open
+keeps it open.
 
 Selection resolves ID/key first, then a unique normalized display name. Without an explicit choice,
 CLI commands use the sole persistent profile only when exactly one exists. Interactive commands

@@ -16,13 +16,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/assembly"
 	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/mcp"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
-	"github.com/wesm/moneyflow/internal/profilepool"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
 	"github.com/wesm/moneyflow/internal/provider/simplefin"
@@ -459,7 +459,7 @@ func TestRenameProfileRenamesAProfileTheInstanceHoldsOpen(t *testing.T) {
 	assert.Equal(t, "Household", currentProfile(t.Context(), instance, shop).Name)
 }
 
-func TestRenamingAProfileLeavesItsQueuedRefreshToRun(t *testing.T) {
+func TestRenamingAProfileLeavesItsRefreshesRunning(t *testing.T) {
 	gate, queued := make(chan struct{}), make(chan struct{})
 	instance, acme, reads := openGatedInstance(t, gate, seams{
 		beforeRefreshWait: func(*mcp.Supervisor) { close(queued) },
@@ -471,38 +471,63 @@ func TestRenamingAProfileLeavesItsQueuedRefreshToRun(t *testing.T) {
 	body := manualRefresh()
 	body.CompleteHistory = true
 	completeHistory := encode(t, body)
-	refreshed, renamed := make(chan *httptest.ResponseRecorder, 1), make(chan *httptest.ResponseRecorder, 1)
+	refreshed := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		refreshed <- serveAPI(t, instance, http.MethodPost,
 			"api/v1/profiles/"+acme+"/provider/refresh", completeHistory)
 	}()
 	<-queued
-	// A request holds the profile too, so it is still open when the queued refresh starts.
-	request, err := instance.registry.Acquire(t.Context(), acme)
-	require.NoError(t, err)
-	go func() {
-		renamed <- serveAPI(t, instance, http.MethodPost,
-			"api/v1/profiles/"+acme+"/rename", `{"version":"1","display_name":"Household"}`)
-	}()
-	// The running refresh ends once the rename answers or begins to close the profile.
-	for len(renamed) == 0 {
-		lease, acquireErr := instance.registry.Acquire(t.Context(), acme)
-		if errors.Is(acquireErr, profilepool.ErrProfileEvicting) {
-			break
-		}
-		require.NoError(t, acquireErr)
-		require.NoError(t, lease.Release())
-	}
+
+	renamed := serveAPI(t, instance, http.MethodPost,
+		"api/v1/profiles/"+acme+"/rename", `{"version":"1","display_name":"Household"}`)
 	close(gate)
 	refresh := <-refreshed
-	require.NoError(t, request.Release())
-	busy := <-renamed
 
+	require.Equal(t, http.StatusOK, renamed.Code, renamed.Body.String())
 	require.Equal(t, http.StatusOK, refresh.Code, refresh.Body.String())
 	assert.Nil(t, <-reads, "the queued refresh reads complete history")
-	assert.Equal(t, http.StatusServiceUnavailable, busy.Code, busy.Body.String())
-	assert.Contains(t, busy.Body.String(), `"code":"profile_busy"`)
-	assert.Equal(t, "Acme", currentProfile(t.Context(), instance, acme).Name)
+	assert.Equal(t, "Household", currentProfile(t.Context(), instance, acme).Name)
+}
+
+func TestRenamingAProfileKeepsItsPendingConfirmation(t *testing.T) {
+	for name, test := range map[string]struct {
+		displayName string
+		want        int
+	}{
+		"a rename":                  {displayName: "Household", want: http.StatusOK},
+		"a rename to a name in use": {displayName: "Example Shop", want: http.StatusConflict},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root, providerRoot := testRoot(t), t.TempDir()
+			acme := createMonarchProfile(t, root, "Acme", providerRoot)
+			createLocalProfile(t, root, "Example Shop")
+			removeProviderTransactions(t, providerRoot)
+			advanceProvider(t, providerRoot)
+			source, err := uitest.OpenProvider(providerRoot)
+			require.NoError(t, err)
+			instance := openTestInstance(t, root, seams{
+				inspectSession: sessionPresent,
+				factories:      assembly.Factories{Monarch: sharedMonarch(source)},
+				now:            source.Now,
+			})
+			supervisor, err := instance.supervisor(acme)
+			require.NoError(t, err)
+			schedule(t, instance, acme)
+			parked, err := supervisor.RefreshStatus("")
+			require.NoError(t, err)
+			require.Equal(t, mcp.AttemptConfirmationRequired, parked.State)
+
+			renamed := serveAPI(t, instance, http.MethodPost, "api/v1/profiles/"+acme+"/rename",
+				`{"version":"1","display_name":"`+test.displayName+`"}`)
+			confirmed := serveAPI(t, instance, http.MethodPost,
+				"api/v1/profiles/"+acme+"/provider/refresh/confirm", encode(t, api.ProviderConfirmationBody{
+					ProviderRefreshBody: manualRefresh(), ConfirmationToken: parked.ConfirmationToken,
+				}))
+
+			assert.Equal(t, test.want, renamed.Code, renamed.Body.String())
+			assert.Equal(t, http.StatusOK, confirmed.Code, confirmed.Body.String())
+		})
+	}
 }
 
 func TestProfilesReportWhatAProviderProfileNeeds(t *testing.T) {

@@ -13,8 +13,9 @@ import (
 // credentials stay the same. A profile may take another capitalization of its own name. Rename
 // takes only an ID, never a name, so it fails with CodeProfileNotFound when no profile has the
 // ID, even when another profile's name matches it. It fails with CodeProfileNameConflict when
-// another profile uses the name, and with CodeProfileBusy while another process holds the catalog
-// or the profile. A root profile must have its manifest first; Activate writes it.
+// another profile uses the name, and with CodeProfileBusy while another process holds the catalog,
+// or holds the profile exclusively, as an import, export, or recovery does. A process that has the
+// profile open keeps it open. A root profile must have its manifest first; Activate writes it.
 func (catalog *Catalog) Rename(ctx context.Context, id string, displayName string) (Entry, error) {
 	name, key, err := NormalizeDisplayName(displayName)
 	if err != nil {
@@ -37,7 +38,10 @@ func (catalog *Catalog) Rename(ctx context.Context, id string, displayName strin
 	if displayNameConflict(entries, key, entry.Root) {
 		return Entry{}, newError(CodeProfileNameConflict, errors.New("display name collides"))
 	}
-	profileLock, err := home.TryLock(entry.Root, home.LockProfile, home.LockExclusive)
+	// Only the manifest changes, and every manifest change holds the catalog lock. The shared
+	// profile lock still refuses an import, export, or recovery and finds a removed profile, and a
+	// process that has the profile open keeps it.
+	profileLock, err := home.TryLock(entry.Root, home.LockProfile, home.LockShared)
 	if errors.Is(err, home.ErrProfileRetired) {
 		return Entry{}, newError(CodeProfileNotFound, err)
 	}
