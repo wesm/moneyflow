@@ -10,6 +10,10 @@ import (
 	"path/filepath"
 )
 
+// afterTargetInspected, when a test sets it, runs after a private file open inspects its target
+// and before it opens it. It is nil in production.
+var afterTargetInspected func(path string)
+
 // EnsurePrivateDirectory creates one owner-only directory path and re-enforces its permissions.
 func EnsurePrivateDirectory(path string) error {
 	if path == "" || !filepath.IsAbs(path) {
@@ -135,22 +139,9 @@ func ReadPrivateFile(path string, maximumBytes int64) ([]byte, error) {
 // OpenPrivateFile opens and validates one owner-only regular file without following redirection.
 // The caller must close the returned handle.
 func OpenPrivateFile(path string) (*os.File, error) {
-	info, err := inspectRegularTarget(path, "open private file")
+	file, openedInfo, err := openInspectedTarget(path, "open private file")
 	if err != nil {
 		return nil, err
-	}
-	file, err := openPrivateFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("open private file: open: %w", err)
-	}
-	openedInfo, err := file.Stat()
-	if err != nil {
-		_ = file.Close()
-		return nil, fmt.Errorf("open private file: inspect: %w", err)
-	}
-	if !os.SameFile(info, openedInfo) {
-		_ = file.Close()
-		return nil, errors.New("open private file: target changed while opening")
 	}
 	openedInfo, err = secureOpenedPrivateFile(file, openedInfo)
 	if err != nil {
@@ -164,6 +155,41 @@ func OpenPrivateFile(path string) (*os.File, error) {
 	return file, nil
 }
 
+// replacedTargetAttempts bounds how often an open starts over because its target was replaced.
+const replacedTargetAttempts = 3
+
+// openInspectedTarget opens the regular file at path once it has inspected it, and returns the
+// opened file's information. Another process can atomically replace the file between the
+// inspection and the open, as a profile rename replaces its manifest; the open then starts over,
+// so a reader gets the old file or the new one. Repeated replacements still fail.
+func openInspectedTarget(path, operation string) (*os.File, os.FileInfo, error) {
+	for attempt := 1; ; attempt++ {
+		info, err := inspectRegularTarget(path, operation)
+		if err != nil {
+			return nil, nil, err
+		}
+		if afterTargetInspected != nil {
+			afterTargetInspected(path)
+		}
+		file, err := openPrivateFile(path)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: open: %w", operation, err)
+		}
+		openedInfo, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			return nil, nil, fmt.Errorf("%s: inspect opened file: %w", operation, err)
+		}
+		if os.SameFile(info, openedInfo) {
+			return file, openedInfo, nil
+		}
+		_ = file.Close()
+		if attempt == replacedTargetAttempts {
+			return nil, nil, fmt.Errorf("%s: target changed while opening", operation)
+		}
+	}
+}
+
 // ReadPrivateFileWithFingerprint reads bytes and derives their replacement fingerprint together.
 func ReadPrivateFileWithFingerprint(
 	path string,
@@ -172,22 +198,11 @@ func ReadPrivateFileWithFingerprint(
 	if maximumBytes < 1 {
 		return nil, "", errors.New("read private file: maximum size must be positive")
 	}
-	info, err := inspectRegularTarget(path, "read private file")
+	file, openedInfo, err := openInspectedTarget(path, "read private file")
 	if err != nil {
 		return nil, "", err
 	}
-	file, err := openPrivateFile(path)
-	if err != nil {
-		return nil, "", fmt.Errorf("read private file: open: %w", err)
-	}
 	defer func() { _ = file.Close() }()
-	openedInfo, err := file.Stat()
-	if err != nil {
-		return nil, "", fmt.Errorf("read private file: inspect opened file: %w", err)
-	}
-	if !os.SameFile(info, openedInfo) {
-		return nil, "", errors.New("read private file: target changed while opening")
-	}
 	openedInfo, err = secureOpenedPrivateFile(file, openedInfo)
 	if err != nil {
 		return nil, "", err
