@@ -107,7 +107,8 @@ convert currencies.
 Required columns are `Order ID`, `Order Date`, `Product Name`, `Quantity`, `Total Owed`,
 `Order Status`, and `Shipment Status`. Optional columns include `ASIN`, `Unit Price`, and
 `Currency`. A blank quantity means 1. A missing ASIN gets a derived item identity. Amounts are
-parsed exactly; values Moneyflow cannot represent are rejected.
+parsed exactly; values Moneyflow cannot represent are rejected. Zeros beyond the currency's
+decimal places are dropped, so `1,000.00` reads as `1000` in JPY.
 
 | Limit | Maximum |
 | --- | --- |

@@ -29,8 +29,9 @@ before it fetches transactions. SimpleFIN in Go uses no encryption password, and
 `moneyflow simplefin` command does not exist. The [SimpleFIN CLI reference](simplefin-cli.md)
 covers command-line setup and an optional public-demo check.
 
-Moneyflow never rounds an unrepresentable amount or uses floating point. Mixed currencies,
-custom currency identifiers, and partial-account errors stop the import.
+Moneyflow never rounds an unrepresentable amount or uses floating point. It drops zeros beyond
+the currency's decimal places, so `100.00` imports as `100` in JPY, but `100.50` stops the
+import. Mixed currencies, custom currency identifiers, and partial-account errors stop it too.
 
 ## Storage and recovery
 

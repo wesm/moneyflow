@@ -396,7 +396,7 @@ func parseAmazonMoney(value string, currency domain.Currency, scale uint8) (doma
 	if len(parts) == 2 {
 		canonical += "." + parts[1]
 	}
-	return domain.ParseMoney(canonical, currency, scale)
+	return domain.ParseMoney(domain.TrimExactZeroPrecision(canonical, scale), currency, scale)
 }
 
 func validGroupedInteger(value string) bool {

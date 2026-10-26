@@ -40,6 +40,24 @@ type Money struct {
 	Scale    uint8
 }
 
+// TrimExactZeroPrecision drops fraction digits beyond scale when they are all zeros, so a provider's
+// "100.00" reads as 100 in a currency without minor units. A nonzero digit beyond scale stays, and
+// ParseMoney rejects it.
+func TrimExactZeroPrecision(decimal string, scale uint8) string {
+	point := strings.IndexByte(decimal, '.')
+	if point < 0 || strings.LastIndexByte(decimal, '.') != point {
+		return decimal
+	}
+	fraction := decimal[point+1:]
+	if len(fraction) <= int(scale) || strings.Trim(fraction[scale:], "0") != "" {
+		return decimal
+	}
+	if scale == 0 {
+		return decimal[:point]
+	}
+	return decimal[:point+1+int(scale)]
+}
+
 // ParseMoney parses a decimal without using floating-point arithmetic.
 func ParseMoney(decimal string, currency Currency, scale uint8) (Money, error) {
 	if currency == "" {

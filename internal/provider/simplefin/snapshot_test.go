@@ -30,11 +30,16 @@ func accountsJSON(accounts ...string) string {
 
 func fixtureClient(t *testing.T, handler http.HandlerFunc) *Client {
 	t.Helper()
+	return currencyClient(t, ImportConfig{Currency: "USD", Scale: 2}, handler)
+}
+
+func currencyClient(t *testing.T, config ImportConfig, handler http.HandlerFunc) *Client {
+	t.Helper()
 	server := httptest.NewTLSServer(handler)
 	t.Cleanup(server.Close)
 	client, err := NewClient(ClientOptions{
 		AccessURL: strings.Replace(server.URL, "://", "://user:synthetic-secret@", 1),
-		Import:    ImportConfig{Currency: "USD", Scale: 2}, HTTPClient: server.Client(),
+		Import:    config, HTTPClient: server.Client(),
 	})
 	require.NoError(t, err)
 	return client
@@ -69,6 +74,38 @@ func TestFetchSnapshotPostedMoneyAndPendingExclusion(t *testing.T) {
 	require.Equal(t, 1, calls)
 	require.Equal(t, 1, progress.Fetched)
 	require.Zero(t, progress.Total)
+}
+
+// SimpleFIN writes amounts with cents even in a currency without minor units,
+// such as JPY.
+func TestFetchSnapshotReadsWholeAmountsWrittenWithCents(t *testing.T) {
+	for _, test := range []struct {
+		amount string
+		minor  int64
+		valid  bool
+	}{
+		{amount: "-100.00", minor: -100, valid: true},
+		{amount: "-100", minor: -100, valid: true},
+		{amount: "-100.50"},
+	} {
+		t.Run(test.amount, func(t *testing.T) {
+			transaction := strings.Replace(postedTransaction, "-12.34", test.amount, 1)
+			client := currencyClient(t, ImportConfig{Currency: "JPY", Scale: 0}, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, accountsJSON(accountJSON("connection-a", "account-a", "JPY", transaction)))
+			})
+
+			result, err := client.FetchSnapshot(t.Context(), shortFetch(), nil)
+
+			if !test.valid {
+				code, _ := provider.CodeOf(err)
+				require.Equal(t, provider.CodeDataInvalid, code)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, result.Snapshot.Transactions, 1)
+			require.Equal(t, domain.Money{Minor: test.minor, Currency: "JPY", Scale: 0}, result.Snapshot.Transactions[0].Amount)
+		})
+	}
 }
 
 func TestFetchSnapshotValidation(t *testing.T) {

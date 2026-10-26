@@ -148,7 +148,7 @@ func (client *Client) normalizeTransaction(account account, value transaction) (
 	if posted == 0 || err != nil {
 		return domain.ImportTransaction{}, domain.ImportEntity{}, provider.NewDataInvalidError(provider.DataInvalidTransactionDate)
 	}
-	amount, err := domain.ParseMoney(value.Amount, client.config.Currency, client.config.Scale)
+	amount, err := domain.ParseMoney(domain.TrimExactZeroPrecision(value.Amount, client.config.Scale), client.config.Currency, client.config.Scale)
 	if err != nil {
 		return domain.ImportTransaction{}, domain.ImportEntity{}, provider.NewDataInvalidError(provider.DataInvalidTransactionAmount)
 	}

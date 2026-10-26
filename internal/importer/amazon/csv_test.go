@@ -34,6 +34,28 @@ func TestParseNormalizesExactMoneyAndLogicalRecords(t *testing.T) {
 	assert.Equal(t, []string{"order-1"}, candidate.ObservedOrderIDs)
 }
 
+// Amazon writes amounts with cents even in a currency without minor units,
+// such as JPY.
+func TestParseReadsWholeAmountsWrittenWithCents(t *testing.T) {
+	t.Parallel()
+	settings := Settings{Currency: "JPY", Scale: 0}
+	file := sourceCSV(t, "Retail.OrderHistory.1.csv", requiredHeader+
+		`order-1,2026-08-19T14:15:16Z,Example Product,2,"2,000.00",Closed,Delivered,ASIN1,JPY,1000.00`+"\n")
+	fractional := sourceCSV(t, "Retail.OrderHistory.2.csv", requiredHeader+
+		"order-2,2026-08-19,Example Product,1,1000.50,Closed,Delivered,ASIN2,JPY,1000.50\n")
+
+	candidate, err := Parse(context.Background(), []SourceFile{file}, settings, ProductionLimits, nil)
+	_, fractionalErr := Parse(context.Background(), []SourceFile{fractional}, settings, ProductionLimits, nil)
+
+	require.NoError(t, err)
+	require.Len(t, candidate.Rows, 1)
+	assert.Equal(t, int64(-2000), candidate.Rows[0].AmountMinor)
+	assert.Equal(t, int64(1000), *candidate.Rows[0].UnitPriceMinor)
+	var parseError *Error
+	require.ErrorAs(t, fractionalErr, &parseError)
+	assert.Equal(t, "invalid_money", parseError.Coordinate.Reason)
+}
+
 func TestParseDefaultsBlankQuantityToOneAndMissingCurrencyToBinding(t *testing.T) {
 	t.Parallel()
 	header := "Order ID,Order Date,Product Name,Quantity,Total Owed,Order Status,Shipment Status\n"
