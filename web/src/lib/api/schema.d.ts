@@ -1667,6 +1667,7 @@ export interface components {
     }
     SimpleFINOnboardingStatusResponse: {
       attempt_id: string
+      bound: boolean
       failure?: components['schemas']['SimpleFINOnboardingFailureResponse']
       /** Format: int64 */
       imported_transactions: number

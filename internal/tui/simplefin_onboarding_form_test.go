@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wesm/moneyflow/internal/provider/simplefin"
 	"github.com/wesm/moneyflow/internal/simplefinonboarding"
 )
 
@@ -40,6 +41,39 @@ func TestSimpleFINSetupInputThroughShell(t *testing.T) {
 		_, command = shell.Update(keyMessage("esc"))
 		require.NotNil(t, command)
 	}
+}
+
+// submittedSimpleFIN keeps the settings of the last SimpleFIN submit request.
+type submittedSimpleFIN struct {
+	SimpleFINOnboardingView
+	settings simplefin.ImportConfig
+}
+
+func (fake *submittedSimpleFIN) Submit(_ context.Context, request simplefinonboarding.SubmitRequest) (simplefinonboarding.Snapshot, error) {
+	fake.settings = request.Settings
+	return simplefinonboarding.Snapshot{}, nil
+}
+
+func TestSimpleFINReconnectKeepsTheBoundSettings(t *testing.T) {
+	dependencies, _ := fakeShellDependencies(t)
+	submitted := &submittedSimpleFIN{}
+	dependencies.SimpleFINOnboarding = submitted
+	shell, err := NewShell(t.Context(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	shell.screen, shell.onboardingKind = shellOnboarding, "simplefin"
+	shell = updateShell(t, shell, tea.WindowSizeMsg{Width: 80, Height: 24})
+	bound := simplefin.ImportConfig{Currency: "JPY", Scale: 2}
+	shell = updateShell(t, shell, shellSimpleFINSnapshotMsg{snapshot: simplefinonboarding.Snapshot{
+		ProtocolVersion: 1, ProfileID: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", AttemptID: "attempt-example",
+		StateVersion: 2, State: simplefinonboarding.StateCredentialsRequired, Settings: &bound, Bound: true,
+	}})
+
+	require.NotContains(t, strings.Join(shell.RenderScreen().Frame.PlainLines(), "\n"), "Currency")
+	shell = updateShell(t, shell, tea.PasteMsg{Content: "synthetic-input"})
+	_, submit := shell.Update(keyMessage("enter"))
+	require.NotNil(t, submit)
+	submit()
+	require.Equal(t, bound, submitted.settings)
 }
 
 func TestSimpleFINCancelRecoversWhenProgressReplyArrivesFirst(t *testing.T) {

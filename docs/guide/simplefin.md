@@ -40,8 +40,9 @@ either. Keep both on storage your account controls. Do not share the session fil
 backup.
 
 A connected profile stays bound to its original Access URL and money settings. If the local file
-is lost, restore that same Access URL. Replacement credentials need a **new profile**; they
-cannot silently rebind existing transaction identities. Cached data and local editing stay
+is lost, restore that same Access URL. Setup then keeps the profile's currency and decimal places
+and asks only for the Access URL. Replacement credentials need a **new profile**; they cannot
+silently rebind existing transaction identities. Cached data and local editing stay
 available when credentials are absent, revoked, or temporarily unavailable.
 
 ## Import and refresh

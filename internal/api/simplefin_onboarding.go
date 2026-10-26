@@ -32,8 +32,8 @@ type SimpleFINOnboardingCancelBody struct {
 	ExpectedStateVersion uint64 `json:"expected_state_version"`
 }
 
-// SimpleFINOnboardingSettingsInput chooses the profile currency for a connect action. Without a
-// scale, amounts use the currency's ISO 4217 decimal places.
+// SimpleFINOnboardingSettingsInput chooses the profile currency for a connect action. A new profile
+// uses the scale, or else the currency's ISO 4217 decimal places. A connected profile keeps its own.
 type SimpleFINOnboardingSettingsInput struct {
 	Currency string `json:"currency"`
 	Scale    *uint8 `json:"scale,omitempty"`
@@ -55,17 +55,20 @@ type SimpleFINOnboardingFailureResponse struct {
 
 // SimpleFINOnboardingStatusResponse is the complete credential-blind browser state.
 type SimpleFINOnboardingStatusResponse struct {
-	ProtocolVersion      uint16                               `json:"protocol_version"`
-	AttemptID            string                               `json:"attempt_id"`
-	ProfileID            string                               `json:"profile_id"`
-	StateVersion         uint64                               `json:"state_version"`
-	State                simplefinonboarding.State            `json:"state"`
-	ProviderKind         string                               `json:"provider_kind"`
-	Progress             ProviderProgress                     `json:"progress"`
-	NextEligible         string                               `json:"next_eligible,omitempty" format:"date-time"`
-	Settings             *SimpleFINOnboardingSettingsResponse `json:"settings,omitempty"`
-	ImportedTransactions int                                  `json:"imported_transactions"`
-	Failure              *SimpleFINOnboardingFailureResponse  `json:"failure,omitempty"`
+	ProtocolVersion uint16                               `json:"protocol_version"`
+	AttemptID       string                               `json:"attempt_id"`
+	ProfileID       string                               `json:"profile_id"`
+	StateVersion    uint64                               `json:"state_version"`
+	State           simplefinonboarding.State            `json:"state"`
+	ProviderKind    string                               `json:"provider_kind"`
+	Progress        ProviderProgress                     `json:"progress"`
+	NextEligible    string                               `json:"next_eligible,omitempty" format:"date-time"`
+	Settings        *SimpleFINOnboardingSettingsResponse `json:"settings,omitempty"`
+	// Bound reports that the profile already has a SimpleFIN connection, whose settings a connect
+	// action keeps.
+	Bound                bool                                `json:"bound"`
+	ImportedTransactions int                                 `json:"imported_transactions"`
+	Failure              *SimpleFINOnboardingFailureResponse `json:"failure,omitempty"`
 }
 
 type simplefinOnboardingStartInput struct {
@@ -208,8 +211,8 @@ func simplefinOnboardingSnapshotToWire(snapshot simplefinonboarding.Snapshot) Si
 		ProtocolVersion: snapshot.ProtocolVersion, AttemptID: snapshot.AttemptID,
 		ProfileID: snapshot.ProfileID, StateVersion: snapshot.StateVersion,
 		State: snapshot.State, ProviderKind: snapshot.ProviderKind,
-		Progress:             ProviderProgress{Fetched: snapshot.Progress.Fetched, Total: snapshot.Progress.Total},
-		ImportedTransactions: snapshot.ImportedTransactions,
+		Progress: ProviderProgress{Fetched: snapshot.Progress.Fetched, Total: snapshot.Progress.Total},
+		Bound:    snapshot.Bound, ImportedTransactions: snapshot.ImportedTransactions,
 	}
 	if !snapshot.NextEligible.IsZero() {
 		response.NextEligible = snapshot.NextEligible.UTC().Format(time.RFC3339Nano)

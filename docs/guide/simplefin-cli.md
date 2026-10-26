@@ -22,7 +22,7 @@ moneyflow mcp --profile "Example SimpleFIN"
 | Flag | Meaning |
 | --- | --- |
 | `--currency` | Three-letter import currency |
-| `--scale` | Decimal places, 0 to 9; defaults to the currency's, such as `2` for USD |
+| `--scale` | Decimal places, 0 to 9, for a new profile; defaults to the currency's, such as `2` for USD. A connected profile keeps its own |
 | `--profile` | Existing profile name or ID |
 
 - In an empty data folder (`~/.moneyflow`, or the folder `MONEYFLOW_HOME` names), the connect

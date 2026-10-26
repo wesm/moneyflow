@@ -2518,6 +2518,8 @@ components:
       properties:
         attempt_id:
           type: string
+        bound:
+          type: boolean
         failure:
           $ref: "#/components/schemas/SimpleFINOnboardingFailureResponse"
         imported_transactions:
@@ -2552,6 +2554,7 @@ components:
         - state
         - provider_kind
         - progress
+        - bound
         - imported_transactions
       type: object
     SimpleFINOnboardingSubmitBody:

@@ -142,7 +142,8 @@ running provider operation. Rename keeps the profile's ID, data, and credentials
 `chase_credit  Chase credit-card exports (USD, 2 decimal places)`. Pass that name as `MAPPING`.
 
 Without `--scale`, amounts use the currency's ISO 4217 decimal places, such as 2 for USD and 0
-for JPY. `--scale` needs `--currency`.
+for JPY. `--scale` needs `--currency`. A connected SimpleFIN profile keeps its own decimal places
+when it reconnects.
 
 When standard input is not a terminal, `provider connect simplefin` needs `--currency`. Without
 it the command stops with `provide --currency with standard input`.

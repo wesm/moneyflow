@@ -109,6 +109,12 @@ func (shell Shell) applySimpleFINMessage(message shellSimpleFINSnapshotMsg) (tea
 		}
 		return shell.finishCanceledOnboarding()
 	}
+	if message.snapshot.Bound && simplefinNeedsInput(message.snapshot) && !shell.simplefin.settingsReady {
+		// A connected profile keeps its currency and decimal places, so setup asks only for its
+		// credential.
+		shell.simplefin.settingsReady = true
+		return shell, shell.simplefin.input.Focus()
+	}
 	return shell, nil
 }
 
@@ -149,6 +155,9 @@ func (shell Shell) routeSimpleFINKey(message tea.KeyPressMsg) (tea.Model, tea.Cm
 			return shell, command
 		}
 		settings, ok := shell.simplefin.importSettings()
+		if snapshot.Bound && snapshot.Settings != nil {
+			settings, ok = *snapshot.Settings, true
+		}
 		if !ok {
 			return shell, nil
 		}
