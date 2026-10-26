@@ -17,6 +17,16 @@ import (
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
+const scaleFlagUsage = "decimal places, 0-9 (default: the currency's ISO 4217 decimal places)"
+
+// flagScale is the --scale value when given, or else the currency's ISO 4217 decimal places.
+func flagScale(command *cobra.Command, currency domain.Currency, scale uint8) uint8 {
+	if command.Flags().Changed("scale") {
+		return scale
+	}
+	return domain.StandardScale(currency)
+}
+
 func newProviderCommand(streams IOStreams) *cobra.Command {
 	providerCommand := &cobra.Command{
 		Use:   "provider",
@@ -37,19 +47,18 @@ func newProviderCommand(streams IOStreams) *cobra.Command {
 		Short: "Connect and import one Monarch profile",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			currencySet := command.Flags().Changed("currency")
-			scaleSet := command.Flags().Changed("scale")
-			if currencySet != scaleSet {
-				return errors.New("connect Monarch: --currency and --scale must be provided together")
+			configured := command.Flags().Changed("currency")
+			if command.Flags().Changed("scale") && !configured {
+				return errors.New("connect Monarch: --scale needs --currency")
 			}
-			configured := currencySet && scaleSet
+			currency := domain.Currency(importCurrency)
 			return runMonarchConnect(command, streams, monarch.ImportConfig{
-				Currency: domain.Currency(importCurrency), Scale: importScale,
+				Currency: currency, Scale: flagScale(command, currency, importScale),
 			}, configured, monthToDate, connectProfile)
 		},
 	}
 	connectMonarch.Flags().StringVar(&importCurrency, "currency", "", "three-letter import currency")
-	connectMonarch.Flags().Uint8Var(&importScale, "scale", 0, "currency minor-unit scale (0-9)")
+	connectMonarch.Flags().Uint8Var(&importScale, "scale", 0, scaleFlagUsage)
 	connectMonarch.Flags().BoolVar(
 		&monthToDate, "mtd", false, "load month-to-date transactions (from 1st of current month)",
 	)

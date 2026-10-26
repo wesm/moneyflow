@@ -96,7 +96,7 @@
       const transport = createAmazonImportTransport(apiBase, id, hostFetch)
       const controller = createAmazonImportController({ transport })
       flow = { kind: 'amazon', id, controller }
-      if (amazonSettings) await controller.start(amazonSettings.currency, amazonSettings.scale)
+      if (amazonSettings) await controller.start(amazonSettings)
     } else {
       const transport = createOnboardingTransport(apiBase, id, hostFetch)
       const controller = createOnboardingController({ profileID: id, transport })
@@ -189,7 +189,6 @@
       controller={flow.controller}
       {chrome}
       initialCurrency={amazonSettings?.currency ?? 'USD'}
-      initialScale={amazonSettings?.scale ?? 2}
       oncomplete={() => complete(id)}
       oncancel={() => void cancel()}
     />

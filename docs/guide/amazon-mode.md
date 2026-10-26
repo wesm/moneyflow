@@ -28,7 +28,7 @@ The browser and the terminal use the same steps:
 2. Choose **Add profile** (`a`), then **Amazon orders** in the browser or **Amazon order
    history** in the terminal (`a`).
 3. Enter a profile name.
-4. Confirm the currency and decimal places. `USD` and `2` are preselected.
+4. Choose the currency. `USD` is preselected.
 5. Choose the source:
    - In the browser, select the order-history CSV files, or the unzipped export directory.
    - In the terminal, enter the path of the unzipped export directory.
@@ -40,7 +40,7 @@ From the command line, `provider import amazon` takes the unzipped directory. It
 named profile when it does not exist:
 
 ```bash
-moneyflow provider import amazon ~/Downloads/"Your Orders" --profile "Amazon Orders" --currency USD --scale 2
+moneyflow provider import amazon ~/Downloads/"Your Orders" --profile "Amazon Orders" --currency USD
 moneyflow tui --profile "Amazon Orders"
 ```
 

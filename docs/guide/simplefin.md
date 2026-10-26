@@ -20,8 +20,7 @@ same steps:
 1. Run `moneyflow web` or `moneyflow tui`.
 2. Choose **Add profile** (`a`), then **SimpleFIN (experimental)** (`s`).
 3. Enter a profile name.
-4. Confirm the three-letter currency and the decimal places. For USD, choose `USD` and `2`:
-   `12.34` becomes exactly `1234` minor units.
+4. Choose the three-letter currency of the connected accounts, such as `USD`.
 5. Paste the setup token or Access URL into the masked field.
 6. Wait for the first import to finish.
 

@@ -6,23 +6,14 @@
   interface Props {
     controller: AmazonImportController
     initialCurrency?: string
-    initialScale?: number
     oncomplete: () => void
     oncancel: () => void
     /** Frames the wizard as a page, with a top bar, theme button and status bar. */
     chrome?: boolean
   }
 
-  let {
-    controller,
-    initialCurrency = 'USD',
-    initialScale = 2,
-    oncomplete,
-    oncancel,
-    chrome = true,
-  }: Props = $props()
+  let { controller, initialCurrency = 'USD', oncomplete, oncancel, chrome = true }: Props = $props()
   let currency = $state('')
-  let scale = $state('')
   let initialized = false
   let taxonomySource = $state('')
   let advanced = $state(false)
@@ -33,23 +24,16 @@
   $effect(() => {
     if (initialized) return
     currency = initialCurrency
-    scale = initialScale.toString(10)
     initialized = true
   })
 
   async function confirmSettings(): Promise<void> {
-    const parsedScale = Number.parseInt(scale, 10)
-    if (
-      !/^[A-Za-z]{3}$/.test(currency.trim()) ||
-      !Number.isInteger(parsedScale) ||
-      parsedScale < 0 ||
-      parsedScale > 9
-    ) {
-      localProblem = 'Currency must have three letters and scale must be between 0 and 9.'
+    if (!/^[A-Za-z]{3}$/.test(currency.trim())) {
+      localProblem = 'Enter a three-letter currency code, such as USD.'
       return
     }
     localProblem = ''
-    await controller.start(currency, parsedScale, taxonomySource)
+    await controller.start({ currency }, taxonomySource)
   }
 
   async function importFiles(): Promise<void> {
@@ -82,11 +66,7 @@
     <section class="profile-panel" aria-labelledby="amazon-import-title">
       <p class="moneyflow-eyebrow">Amazon orders</p>
       {#if controller.state.phase === 'settings'}
-        <h1 id="amazon-import-title">Confirm import settings</h1>
-        <p>
-          Confirm the currency and how many decimal places its amounts use, such as USD and 2. They
-          cannot change after the first import.
-        </p>
+        <h1 id="amazon-import-title">Choose a currency</h1>
         <form
           class="profile-form"
           onsubmit={(event) => {
@@ -95,9 +75,16 @@
           }}
         >
           <label for="amazon-currency">Currency</label>
-          <TextInput id="amazon-currency" bind:value={currency} block autocomplete="off" />
-          <label for="amazon-scale">Decimal places</label>
-          <TextInput id="amazon-scale" bind:value={scale} block autocomplete="off" />
+          <TextInput
+            id="amazon-currency"
+            bind:value={currency}
+            block
+            autocomplete="off"
+            ariaDescribedby="amazon-currency-hint"
+          />
+          <p id="amazon-currency-hint" class="profile-hint">
+            You can't change it after the first import.
+          </p>
           <Button type="button" size="sm" onclick={() => (advanced = !advanced)}>
             {advanced ? 'Hide advanced options' : 'Advanced options'}
           </Button>

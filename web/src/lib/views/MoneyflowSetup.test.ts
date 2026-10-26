@@ -122,7 +122,7 @@ describe('MoneyflowSetup', () => {
   it.each([
     ['monarch', 'Profile setup was interrupted'],
     ['simplefin', 'Connect SimpleFIN (experimental)'],
-    ['amazon', 'Confirm import settings'],
+    ['amazon', 'Choose a currency'],
   ] as const)(
     'leaves the page frame and the theme to the host in %s setup',
     async (provider, title) => {

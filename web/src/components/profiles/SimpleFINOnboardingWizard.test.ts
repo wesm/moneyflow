@@ -84,7 +84,7 @@ it('confirms money settings before masked input and keeps invalid input for corr
   expect(input.value.length).toBe(8193)
   await fireEvent.input(input, { target: { value: 'synthetic-token' } })
   await fireEvent.submit(input.closest('form')!)
-  expect(controller.connect).toHaveBeenCalledWith('synthetic-token', { currency: 'USD', scale: 2 })
+  expect(controller.connect).toHaveBeenCalledWith('synthetic-token', { currency: 'USD' })
   expect(input.value).toBe('')
   await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   expect(controller.cancel).toHaveBeenCalledOnce()

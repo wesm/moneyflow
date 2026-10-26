@@ -492,3 +492,35 @@ func TestCompletedOnboardingRetriesTakeAfterFailureBeforeOwnershipTransfer(t *te
 	assert.Equal(t, int32(2), coordinator.takes.Load())
 	assert.Equal(t, int32(1), coordinator.closes.Load())
 }
+
+func TestOnboardingSettingsWithoutAScaleUseTheCurrencyDecimalPlaces(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{}
+	server := newOnboardingAPIServer(t, coordinator)
+	startPath, err := ProfileAPIPath("/", testProfileID, "onboarding/start")
+	require.NoError(t, err)
+	started := requestScopedMutation(t, server, testProfileID, startPath, OnboardingStartBody{
+		ProtocolVersion: onboarding.ProtocolVersion, Settings: &OnboardingSettingsInput{Currency: "USD"},
+	})
+	require.Equal(t, http.StatusOK, started.Code, started.Body.String())
+	assert.Equal(t, &onboarding.SettingsInput{Currency: "USD", Scale: 2}, coordinator.lastStart.Settings)
+
+	submitPath, err := ProfileAPIPath("/", testProfileID, "onboarding/attempt_example/submit")
+	require.NoError(t, err)
+	for _, test := range []struct {
+		input OnboardingSettingsInput
+		want  onboarding.SettingsInput
+	}{
+		{input: OnboardingSettingsInput{Currency: "KWD"}, want: onboarding.SettingsInput{Currency: "KWD", Scale: 3}},
+		{input: OnboardingSettingsInput{Currency: "JPY"}, want: onboarding.SettingsInput{Currency: "JPY", Scale: 0}},
+		// A caller that names a scale keeps it, as a provider-reported budget format does.
+		{input: OnboardingSettingsInput{Currency: "USD", Scale: new(uint8(0))}, want: onboarding.SettingsInput{Currency: "USD", Scale: 0}},
+	} {
+		submitted := requestScopedMutation(t, server, testProfileID, submitPath, OnboardingSubmitBody{
+			ProtocolVersion: onboarding.ProtocolVersion, ExpectedStateVersion: coordinator.snapshot.StateVersion,
+			Action: onboarding.ActionConfirmSettings, Settings: &test.input,
+		})
+		require.Equal(t, http.StatusOK, submitted.Code, submitted.Body.String())
+		assert.Equal(t, &test.want, coordinator.lastSubmit.Settings)
+	}
+}

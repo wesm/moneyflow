@@ -19,17 +19,24 @@ type SimpleFINOnboardingStartBody struct {
 
 // SimpleFINOnboardingSubmitBody applies one exact versioned SimpleFIN transition.
 type SimpleFINOnboardingSubmitBody struct {
-	ProtocolVersion      uint16                              `json:"protocol_version"`
-	ExpectedStateVersion uint64                              `json:"expected_state_version"`
-	Action               simplefinonboarding.ActionType      `json:"action"`
-	Input                string                              `json:"input,omitempty" maxLength:"8192"`
-	Settings             SimpleFINOnboardingSettingsResponse `json:"settings"`
+	ProtocolVersion      uint16                           `json:"protocol_version"`
+	ExpectedStateVersion uint64                           `json:"expected_state_version"`
+	Action               simplefinonboarding.ActionType   `json:"action"`
+	Input                string                           `json:"input,omitempty" maxLength:"8192"`
+	Settings             SimpleFINOnboardingSettingsInput `json:"settings"`
 }
 
 // SimpleFINOnboardingCancelBody cancels one exact versioned SimpleFIN state.
 type SimpleFINOnboardingCancelBody struct {
 	ProtocolVersion      uint16 `json:"protocol_version"`
 	ExpectedStateVersion uint64 `json:"expected_state_version"`
+}
+
+// SimpleFINOnboardingSettingsInput chooses the profile currency for a connect action. Without a
+// scale, amounts use the currency's ISO 4217 decimal places.
+type SimpleFINOnboardingSettingsInput struct {
+	Currency string `json:"currency"`
+	Scale    *uint8 `json:"scale,omitempty"`
 }
 
 // SimpleFINOnboardingSettingsResponse reports the selected plan's exact money interpretation.
@@ -125,7 +132,10 @@ func (server *Server) registerSimpleFINOnboardingEndpoints(config Config) {
 		snapshot, err := config.SimpleFINOnboarding.Submit(ctx, simplefinonboarding.SubmitRequest{
 			ProfileID: input.ProfileID, AttemptID: input.AttemptID,
 			ExpectedStateVersion: input.Body.ExpectedStateVersion, Action: input.Body.Action,
-			Input: token, Settings: simplefin.ImportConfig{Currency: domain.Currency(input.Body.Settings.Currency), Scale: input.Body.Settings.Scale},
+			Input: token, Settings: simplefin.ImportConfig{
+				Currency: domain.Currency(input.Body.Settings.Currency),
+				Scale:    settingsScale(input.Body.Settings.Currency, input.Body.Settings.Scale),
+			},
 		})
 		if err != nil {
 			return nil, problemFromSimpleFINOnboardingError(err)

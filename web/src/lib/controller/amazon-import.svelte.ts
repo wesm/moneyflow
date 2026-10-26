@@ -18,9 +18,15 @@ export interface AmazonImportState {
   problem?: string
 }
 
+/** The profile currency; without a scale, amounts use the currency's standard decimal places. */
+export interface AmazonImportSettings {
+  currency: string
+  scale?: number
+}
+
 export interface AmazonImportController {
   readonly state: AmazonImportState
-  start(currency: string, scale: number, taxonomySourceID?: string): Promise<boolean>
+  start(settings: AmazonImportSettings, taxonomySourceID?: string): Promise<boolean>
   upload(files: File[]): Promise<boolean>
   execute(): Promise<boolean>
   cancel(): Promise<boolean>
@@ -40,7 +46,7 @@ export function createAmazonImportController(options: {
 }): AmazonImportController {
   let state = $state<AmazonImportState>({
     phase: 'settings',
-    announcement: 'Confirm currency and minor-unit scale.',
+    announcement: 'Choose a currency.',
   })
   let polling: number | undefined
   let destroyed = false
@@ -64,13 +70,13 @@ export function createAmazonImportController(options: {
     }
   }
 
-  async function start(currency: string, scale: number, taxonomySourceID = ''): Promise<boolean> {
+  async function start(settings: AmazonImportSettings, taxonomySourceID = ''): Promise<boolean> {
     try {
       install(
         await options.transport.start({
           version: '1',
-          currency: currency.trim().toUpperCase(),
-          scale,
+          currency: settings.currency.trim().toUpperCase(),
+          ...(settings.scale === undefined ? {} : { scale: settings.scale }),
           ...(taxonomySourceID.trim() ? { taxonomy_source_id: taxonomySourceID.trim() } : {}),
         }),
       )

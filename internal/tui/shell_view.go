@@ -72,23 +72,20 @@ func (shell Shell) renderOnboarding(frame *Frame, content Rect) *tea.Cursor {
 	heading := shell.palette.Heading
 	heading.Background = shell.palette.Background.Background
 	field := Rect{X: content.X, Y: content.Y + 3, Width: content.Width}
+	footer := "Tab/↑/↓ Move   Enter Continue   Esc Cancel"
 	switch shell.snapshot.State {
 	case onboarding.StateSettingsRequired:
-		if shell.settings.readonly {
-			frame.PutText(content.X+2, content.Y, "Confirm YNAB money format", heading)
-			frame.PutText(content.X+2, content.Y+3, "Currency: "+shell.settings.currency.Value(), shell.palette.Text)
-			frame.PutText(content.X+2, content.Y+5, "Decimal places: "+shell.settings.scale.Value(), shell.palette.Text)
+		footer = "Enter Continue   Esc Cancel"
+		if budget := shell.settings.budget; budget != nil {
+			frame.PutText(content.X+2, content.Y, "Budget currency", heading)
+			frame.PutText(content.X+2, content.Y+3, "This budget uses "+string(budget.Currency)+".", shell.palette.Text)
 			frame.PutText(content.X+2, content.Y+10, Truncate(shell.settings.status, content.Width-4), shell.palette.Warning)
 			break
 		}
-		frame.PutText(content.X+2, content.Y, "Import currency", heading)
-		frame.PutText(content.X+2, content.Y+1, "Use the currency of your Monarch accounts.", shell.palette.Muted)
+		frame.PutText(content.X+2, content.Y, "Choose a currency", heading)
+		frame.PutText(content.X+2, content.Y+1, "Monarch doesn't report a currency.", shell.palette.Muted)
 		cursor = drawSetupInput(frame, field, "Currency", shell.settings.currency, shell.palette)
-		field.Y += 3
-		if next := drawSetupInput(frame, field, "Decimal places", shell.settings.scale, shell.palette); next != nil {
-			cursor = next
-		}
-		frame.PutText(content.X+2, content.Y+8, "For USD: 2 decimal places, e.g. 12.34", shell.palette.Muted)
+		frame.PutText(content.X+2, content.Y+6, "You can't change it after setup.", shell.palette.Muted)
 		frame.PutText(content.X+2, content.Y+10, Truncate(shell.settings.status, content.Width-4), shell.palette.Warning)
 	case onboarding.StateUnlockRequired:
 		frame.PutText(content.X+2, content.Y, "Unlock "+onboardingProviderName(shell.snapshot.ProviderKind)+" credentials", heading)
@@ -108,7 +105,7 @@ func (shell Shell) renderOnboarding(frame *Frame, content Rect) *tea.Cursor {
 		state.render(frame, content, shell.palette)
 		return nil
 	}
-	frame.PutText(content.X+2, content.Y+content.Height-1, "Tab/↑/↓ Move   Enter Continue   Esc Cancel", shell.palette.Muted)
+	frame.PutText(content.X+2, content.Y+content.Height-1, footer, shell.palette.Muted)
 	return cursor
 }
 

@@ -13,7 +13,6 @@
   }
   let { controller, oncomplete, oncancel, onoffline, chrome = true }: Props = $props()
   let currency = $state('USD')
-  let scale = $state('2')
   let settingsReady = $state(false)
   let input = $state('')
   let validation = $state('')
@@ -38,8 +37,8 @@
   })
   async function submit(): Promise<void> {
     const code = currency.trim().toUpperCase()
-    if (!/^[A-Z]{3}$/.test(code) || !/^[0-9]$/.test(scale)) {
-      validation = 'Use a three-letter currency code and 0–9 decimal places.'
+    if (!/^[A-Z]{3}$/.test(code)) {
+      validation = 'Enter a three-letter currency code, such as USD.'
       return
     }
     validation = ''
@@ -54,7 +53,7 @@
     }
     const credential = input
     input = ''
-    await controller.connect(credential, { currency: code, scale: Number(scale) })
+    await controller.connect(credential, { currency: code })
   }
 </script>
 
@@ -95,7 +94,6 @@
           }}
         >
           {#if !settingsReady}
-            <p>Use the currency of the accounts connected through SimpleFIN.</p>
             <label for="simplefin-currency">Currency</label>
             <TextInput
               id="simplefin-currency"
@@ -103,12 +101,13 @@
               block
               autofocus
               autocomplete="off"
+              ariaDescribedby="simplefin-currency-hint"
             />
-            <label for="simplefin-scale">Decimal places</label>
-            <TextInput id="simplefin-scale" bind:value={scale} block />
-            <p>For USD: 2 decimal places, e.g. 12.34.</p>
+            <p id="simplefin-currency-hint" class="profile-hint">
+              Use the currency of the accounts connected through SimpleFIN.
+            </p>
           {:else}
-            <p>Import as {currency} with {scale} decimal places.</p>
+            <p>Import as {currency}.</p>
             <label for="simplefin-input">Setup token or Access URL</label>
             <TextInput
               id="simplefin-input"

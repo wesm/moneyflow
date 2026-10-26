@@ -8,8 +8,8 @@ describe('Amazon import controller', () => {
     const transport = transportStub()
     const controller = createAmazonImportController({ transport })
 
-    expect(await controller.start('usd', 2)).toBe(true)
-    expect(transport.start).toHaveBeenCalledWith({ version: '1', currency: 'USD', scale: 2 })
+    expect(await controller.start({ currency: 'usd' })).toBe(true)
+    expect(transport.start).toHaveBeenCalledWith({ version: '1', currency: 'USD' })
     expect(controller.state.phase).toBe('source')
 
     const file = new File(['header\nvalue'], 'Retail.OrderHistory.1.csv', { type: 'text/csv' })
@@ -20,6 +20,20 @@ describe('Amazon import controller', () => {
     expect(transport.execute).toHaveBeenCalledWith('attempt-example', '2')
     expect(controller.state.phase).toBe('complete')
     expect(controller.state.announcement).toContain('1 Amazon transaction imported')
+  })
+
+  it("sends an existing profile's exact scale, even zero", async () => {
+    const transport = transportStub()
+    const controller = createAmazonImportController({ transport })
+
+    await controller.start({ currency: 'JPY', scale: 0 }, 'profile_source')
+
+    expect(transport.start).toHaveBeenCalledWith({
+      version: '1',
+      currency: 'JPY',
+      scale: 0,
+      taxonomy_source_id: 'profile_source',
+    })
   })
 
   it('keeps actionable coordinates in the initiating session', async () => {
@@ -37,7 +51,7 @@ describe('Amazon import controller', () => {
       }),
     })
     const controller = createAmazonImportController({ transport })
-    await controller.start('USD', 2)
+    await controller.start({ currency: 'USD' })
     await controller.upload([new File(['bad'], 'Retail.OrderHistory.csv')])
 
     expect(await controller.execute()).toBe(false)
@@ -58,7 +72,7 @@ describe('Amazon import controller', () => {
         async () => await new Promise<AmazonImportStatus>((resolve) => (resolveExecute = resolve)),
       )
       const controller = createAmazonImportController({ transport })
-      await controller.start('USD', 2)
+      await controller.start({ currency: 'USD' })
       await controller.upload([new File(['x'], 'Retail.OrderHistory.1.csv')])
       const executing = controller.execute()
       await vi.advanceTimersByTimeAsync(500)
@@ -77,7 +91,7 @@ describe('Amazon import controller', () => {
     const transport = transportStub()
     transport.cancel.mockRejectedValue(new Error('busy'))
     const controller = createAmazonImportController({ transport })
-    await controller.start('USD', 2)
+    await controller.start({ currency: 'USD' })
     expect(await controller.cancel()).toBe(false)
     expect(controller.state.phase).toBe('failed')
   })
@@ -89,7 +103,7 @@ describe('Amazon import controller', () => {
       .mockRejectedValueOnce(new Error('temporary upload failure'))
       .mockResolvedValueOnce(status({ state_version: '2' }))
     const controller = createAmazonImportController({ transport })
-    await controller.start('USD', 2)
+    await controller.start({ currency: 'USD' })
     const file = new File(['x'], 'Retail.OrderHistory.csv')
 
     expect(await controller.upload([file])).toBe(false)
@@ -108,7 +122,7 @@ describe('Amazon import controller', () => {
     transport.upload.mockRejectedValueOnce(new Error('response lost'))
     transport.status.mockResolvedValueOnce(status({ state_version: '2' }))
     const controller = createAmazonImportController({ transport })
-    await controller.start('USD', 2)
+    await controller.start({ currency: 'USD' })
     const file = new File(['x'], 'Retail.OrderHistory.csv')
 
     expect(await controller.upload([file])).toBe(true)
@@ -129,7 +143,7 @@ describe('Amazon import controller', () => {
       }),
     })
     const controller = createAmazonImportController({ transport })
-    await controller.start('USD', 2)
+    await controller.start({ currency: 'USD' })
     await controller.upload([new File(['bad'], 'Retail.OrderHistory.csv')])
     expect(await controller.execute()).toBe(false)
 

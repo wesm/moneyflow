@@ -22,7 +22,7 @@ const AmazonImportWireVersion = "1"
 type AmazonImportStartBody struct {
 	Version          string `json:"version"`
 	Currency         string `json:"currency" minLength:"3" maxLength:"3"`
-	Scale            uint8  `json:"scale" maximum:"9"`
+	Scale            *uint8 `json:"scale,omitempty" maximum:"9"`
 	TaxonomySourceID string `json:"taxonomy_source_id,omitempty" maxLength:"128"`
 }
 
@@ -98,7 +98,8 @@ func (server *Server) registerAmazonImportEndpoints(config Config) {
 			return nil, amazonImportUnavailable()
 		}
 		if input.Body.Version != AmazonImportWireVersion ||
-			!domain.IsValidCurrency(domain.Currency(input.Body.Currency)) || input.Body.Scale > 9 {
+			!domain.IsValidCurrency(domain.Currency(input.Body.Currency)) ||
+			(input.Body.Scale != nil && *input.Body.Scale > 9) {
 			return nil, amazonRequestInvalid()
 		}
 		var clone *app.TaxonomyClone
@@ -112,7 +113,7 @@ func (server *Server) registerAmazonImportEndpoints(config Config) {
 				return nil, amazonTaxonomyProblem(err)
 			}
 		}
-		snapshot, err := config.AmazonImports.Start(ctx, amazonimport.StartRequest{ProfileID: input.ProfileID, Settings: amazon.Settings{Currency: domain.Currency(input.Body.Currency), Scale: input.Body.Scale}, TaxonomyClone: clone})
+		snapshot, err := config.AmazonImports.Start(ctx, amazonimport.StartRequest{ProfileID: input.ProfileID, Settings: amazon.Settings{Currency: domain.Currency(input.Body.Currency), Scale: settingsScale(input.Body.Currency, input.Body.Scale)}, TaxonomyClone: clone})
 		if err != nil {
 			return nil, amazonImportProblem(err)
 		}

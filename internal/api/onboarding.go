@@ -19,10 +19,31 @@ type OnboardingStartBody struct {
 	MonthToDate     bool                     `json:"month_to_date"`
 }
 
-// OnboardingSettingsInput confirms the exact money interpretation.
+// OnboardingSettingsInput chooses the profile currency. Without a scale, amounts use the
+// currency's ISO 4217 decimal places.
 type OnboardingSettingsInput struct {
 	Currency string `json:"currency" minLength:"3" maxLength:"3"`
-	Scale    uint8  `json:"scale" maximum:"9"`
+	Scale    *uint8 `json:"scale,omitempty" maximum:"9"`
+}
+
+func (input OnboardingSettingsInput) settings() *onboarding.SettingsInput {
+	return &onboarding.SettingsInput{
+		Currency: domain.Currency(input.Currency), Scale: settingsScale(input.Currency, input.Scale),
+	}
+}
+
+// settingsScale is the scale a request names, or else the currency's ISO 4217 decimal places.
+func settingsScale(currency string, scale *uint8) uint8 {
+	if scale != nil {
+		return *scale
+	}
+	return domain.StandardScale(domain.Currency(currency))
+}
+
+// OnboardingSettingsResponse reports the exact money interpretation an attempt uses.
+type OnboardingSettingsResponse struct {
+	Currency string `json:"currency"`
+	Scale    uint8  `json:"scale"`
 }
 
 // OnboardingUnlockInput contains one transient vault password.
@@ -98,7 +119,7 @@ type OnboardingStatusResponse struct {
 	StateVersion    uint64                            `json:"state_version"`
 	State           onboarding.State                  `json:"state"`
 	ProviderKind    string                            `json:"provider_kind"`
-	Settings        *OnboardingSettingsInput          `json:"settings,omitempty"`
+	Settings        *OnboardingSettingsResponse       `json:"settings,omitempty"`
 	Progress        *OnboardingProgressResponse       `json:"progress,omitempty"`
 	Failure         *OnboardingFailureResponse        `json:"failure,omitempty"`
 	RemoteProfiles  []OnboardingRemoteProfileResponse `json:"remote_profiles,omitempty"`
@@ -145,9 +166,7 @@ func (server *Server) registerOnboardingEndpoints(config Config) {
 			ProviderKind: providerKind,
 		}
 		if input.Body.Settings != nil {
-			request.Settings = &onboarding.SettingsInput{
-				Currency: domain.Currency(input.Body.Settings.Currency), Scale: input.Body.Settings.Scale,
-			}
+			request.Settings = input.Body.Settings.settings()
 		}
 		snapshot, err := config.Onboarding.Start(ctx, request)
 		if err != nil {
@@ -177,9 +196,7 @@ func (server *Server) registerOnboardingEndpoints(config Config) {
 			return nil, invalidOnboardingInput()
 		}
 		if input.Body.Settings != nil {
-			request.Settings = &onboarding.SettingsInput{
-				Currency: domain.Currency(input.Body.Settings.Currency), Scale: input.Body.Settings.Scale,
-			}
+			request.Settings = input.Body.Settings.settings()
 		}
 		if input.Body.Unlock != nil {
 			request.Unlock = &onboarding.UnlockInput{
@@ -378,7 +395,7 @@ func onboardingSnapshotToWire(snapshot onboarding.Snapshot) OnboardingStatusResp
 		State: snapshot.State, ProviderKind: snapshot.ProviderKind,
 	}
 	if snapshot.Settings != nil {
-		response.Settings = &OnboardingSettingsInput{
+		response.Settings = &OnboardingSettingsResponse{
 			Currency: string(snapshot.Settings.Currency), Scale: snapshot.Settings.Scale,
 		}
 	}

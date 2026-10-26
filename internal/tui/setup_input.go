@@ -21,7 +21,7 @@ func (shell *Shell) setupInput() *textinput.Model {
 	case shellAmazonImport:
 		switch shell.amazon.phase {
 		case amazonImportSettings:
-			return []*textinput.Model{&shell.amazon.currency, &shell.amazon.scale}[shell.amazon.focused]
+			return &shell.amazon.currency
 		case amazonImportSource:
 			return []*textinput.Model{&shell.amazon.directory, &shell.amazon.taxonomy}[shell.amazon.focused]
 		}
@@ -33,17 +33,17 @@ func (shell *Shell) setupInput() *textinput.Model {
 			if shell.simplefin.settingsReady {
 				return &shell.simplefin.input.input
 			}
-			return []*textinput.Model{&shell.simplefin.settings.currency, &shell.simplefin.settings.scale}[shell.simplefin.settings.focused]
+			return &shell.simplefin.settings.currency
 		}
 		if !shell.haveSnapshot {
 			return nil
 		}
 		switch shell.snapshot.State {
 		case onboarding.StateSettingsRequired:
-			if shell.settings.readonly {
+			if shell.settings.budget != nil {
 				return nil
 			}
-			return []*textinput.Model{&shell.settings.currency, &shell.settings.scale}[shell.settings.focused]
+			return &shell.settings.currency
 		case onboarding.StateUnlockRequired:
 			return &shell.unlock.password.input
 		case onboarding.StateCredentialsRequired:

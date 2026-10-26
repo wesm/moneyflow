@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
@@ -19,14 +18,27 @@ func TestSettingsFormShowsDefaultsAndBuildsVersionedRequest(t *testing.T) {
 	form, command := newSettingsForm()
 	require.NotNil(t, command)
 	assert.Equal(t, "USD", form.currency.Value())
-	assert.Equal(t, "2", form.scale.Value())
 	snapshot := formSnapshot(onboarding.StateSettingsRequired)
 	request, ok := form.submit(snapshot)
 	require.True(t, ok)
 	assert.Equal(t, onboarding.ActionConfirmSettings, request.Action)
 	assert.Equal(t, snapshot.StateVersion, request.ExpectedStateVersion)
-	assert.Equal(t, domain.Currency("USD"), request.Settings.Currency)
-	assert.Equal(t, uint8(2), request.Settings.Scale)
+	assert.Equal(t, &onboarding.SettingsInput{Currency: "USD", Scale: 2}, request.Settings)
+}
+
+func TestSettingsFormTakesTheCurrencyDecimalPlaces(t *testing.T) {
+	t.Parallel()
+	form, _ := newSettingsForm()
+	snapshot := formSnapshot(onboarding.StateSettingsRequired)
+	form.currency.SetValue(" jpy ")
+	request, ok := form.submit(snapshot)
+	require.True(t, ok)
+	assert.Equal(t, &onboarding.SettingsInput{Currency: "JPY", Scale: 0}, request.Settings)
+
+	form.currency.SetValue("US")
+	_, ok = form.submit(snapshot)
+	assert.False(t, ok)
+	assert.Contains(t, form.status, "three-letter currency code")
 }
 
 func TestUnlockSubmitClearsSecretImmediately(t *testing.T) {
@@ -142,16 +154,15 @@ func TestYNABSettingsAreReadOnlyAndConfirmDerivedMoney(t *testing.T) {
 	t.Parallel()
 	snapshot := formSnapshot(onboarding.StateSettingsRequired)
 	snapshot.ProviderKind = "ynab"
-	snapshot.Settings = &onboarding.Settings{Currency: "EUR", Scale: 2}
+	// The budget's own decimal places go back unchanged, even where they differ from ISO 4217.
+	snapshot.Settings = &onboarding.Settings{Currency: "EUR", Scale: 3}
 	form, _ := newSettingsFormForSnapshot(snapshot)
-	assert.True(t, form.readonly)
 	assert.Equal(t, "EUR", form.currency.Value())
 	form, _, _ = form.update(keyMessage("x"))
 	assert.Equal(t, "EUR", form.currency.Value())
 	request, ok := form.submit(snapshot)
 	require.True(t, ok)
-	assert.Equal(t, domain.Currency("EUR"), request.Settings.Currency)
-	assert.Equal(t, uint8(2), request.Settings.Scale)
+	assert.Equal(t, &onboarding.SettingsInput{Currency: "EUR", Scale: 3}, request.Settings)
 }
 
 func TestYNABCredentialFormMasksTypedSecrets(t *testing.T) {
@@ -201,9 +212,8 @@ func TestShellStartsOnboardingAndRendersSettingsForm(t *testing.T) {
 	shell = updateShell(t, shell, command())
 	assert.Equal(t, 1, state.onboardingStarts)
 	rendered := strings.Join(shell.RenderScreen().Frame.PlainLines(), "\n")
-	assert.Contains(t, rendered, "Import currency")
+	assert.Contains(t, rendered, "Choose a currency")
 	assert.Contains(t, rendered, "USD")
-	assert.Contains(t, rendered, "Decimal places")
 }
 
 func TestShellCredentialSubmitClearsSecretsBeforeCoordinatorRuns(t *testing.T) {

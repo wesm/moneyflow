@@ -23,7 +23,7 @@ func TestAmazonImportStartRequiresProfileScopedMutationSecurity(t *testing.T) {
 	server := newAmazonImportAPIServer(t, coordinator)
 	path, err := ProfileAPIPath("/", testProfileID, "amazon-import/start")
 	require.NoError(t, err)
-	body := AmazonImportStartBody{Version: AmazonImportWireVersion, Currency: "USD", Scale: 2}
+	body := AmazonImportStartBody{Version: AmazonImportWireVersion, Currency: "USD", Scale: new(uint8(2))}
 
 	unprotected := requestJSON(t, server, path, body)
 	assert.Equal(t, http.StatusForbidden, unprotected.Code)
@@ -168,4 +168,16 @@ func (fake *apiAmazonImportFake) Status(context.Context, amazonimport.StatusRequ
 
 func (fake *apiAmazonImportFake) Cancel(context.Context, amazonimport.CancelRequest) (amazonimport.Snapshot, error) {
 	return fake.snapshot, nil
+}
+
+func TestAmazonImportStartWithoutAScaleUsesTheCurrencyDecimalPlaces(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiAmazonImportFake{}
+	server := newAmazonImportAPIServer(t, coordinator)
+	path, err := ProfileAPIPath("/", testProfileID, "amazon-import/start")
+	require.NoError(t, err)
+	response := requestScopedMutation(t, server, testProfileID, path,
+		AmazonImportStartBody{Version: AmazonImportWireVersion, Currency: "KWD"})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.Equal(t, amazon.Settings{Currency: "KWD", Scale: 3}, coordinator.start.Settings)
 }

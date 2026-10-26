@@ -59,7 +59,7 @@ func TestAmazonImportExecuteNamesWhyTheInstallFailed(t *testing.T) {
 			t.Parallel()
 			server, logged := newLoggedServer(t, amazonImportConfig(t, test.err))
 			attempt := startAmazonImport(t, server, AmazonImportStartBody{
-				Version: AmazonImportWireVersion, Currency: "USD", Scale: 2,
+				Version: AmazonImportWireVersion, Currency: "USD", Scale: new(uint8(2)),
 			})
 			staged := stageAmazonImport(t, server, attempt)
 
@@ -115,7 +115,7 @@ func TestAmazonImportStartSaysWhenTheCategorySourceCannotBeRead(t *testing.T) {
 			require.NoError(t, err)
 
 			response := requestScopedMutation(t, server, testProfileID, path, AmazonImportStartBody{
-				Version: AmazonImportWireVersion, Currency: "USD", Scale: 2,
+				Version: AmazonImportWireVersion, Currency: "USD", Scale: new(uint8(2)),
 				TaxonomySourceID: otherProfileID,
 			})
 
