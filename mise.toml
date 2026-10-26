@@ -2,10 +2,10 @@
 air = "1.67.4"
 bun = "1.4.4"
 node = "26.12.1"
-golangci-lint = "2.14.0"
+golangci-lint = "2.15.0"
 prek = "0.5.5"
-powershell = "7.6.6"
-uv = "0.13.0"
+powershell = "7.6.7"
+uv = "0.13.1"
 "github:charmbracelet/freeze" = { version = "0.2.2", os = ["linux", "macos"] }
 # Keep dedicated tools ahead of any binaries installed into Go's bin directory.
 go = "1.27.3"
