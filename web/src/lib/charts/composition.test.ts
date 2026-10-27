@@ -34,9 +34,9 @@ describe('compositionBars', () => {
   it('lists one side with shares, exact Net, and the composition bar name', () => {
     const bars = compositionBars(composition, 'spending', 2)
     expect(bars.map((bar) => bar.name)).toEqual([
-      'Rent, 40.0%, -2,000.00',
-      'Corner Grocer, 6.2%, -360.00',
-      '5 others, 20.0%, -1,000.00',
+      'Rent, -2,000.00, 40.0%',
+      'Corner Grocer, -360.00, 6.2%',
+      '5 others, -1,000.00, 20.0%',
     ])
     expect(bars[1]).toMatchObject({
       key: 'merchant:grocer',

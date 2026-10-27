@@ -75,8 +75,8 @@ describe('DeleteConfirm', () => {
       key.getAttribute('aria-label'),
     )
     expect(hints).toEqual(['Enter', 'Esc'])
-    expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Cancel(?: Esc)?$/ })).toBeTruthy()
   })
 
   it('uses the singular for one transaction', () => {
@@ -116,7 +116,7 @@ describe('DeleteConfirm', () => {
     await fireEvent.keyDown(dialog, { key: 'Enter' })
     await fireEvent.keyDown(dialog, { key: 'Enter', repeat: true })
     await fireEvent.keyDown(dialog, { key: 'Enter' })
-    await fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await fireEvent.click(screen.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ }))
     expect(onconfirm).toHaveBeenCalledTimes(1)
     request.settle(true)
     await request.promise
@@ -146,7 +146,7 @@ describe('DeleteConfirm', () => {
 
   it('leaves Enter on Cancel, and modified Enter, to the browser', async () => {
     const { onconfirm } = setup()
-    const cancel = screen.getByRole('button', { name: 'Cancel' })
+    const cancel = screen.getByRole('button', { name: /^Cancel(?: Esc)?$/ })
     expect(await fireEvent.keyDown(cancel, { key: 'Enter' })).toBe(true)
     await fireEvent.keyDown(cancel, { key: 'Enter', ctrlKey: true })
     expect(onconfirm).not.toHaveBeenCalled()
@@ -154,9 +154,9 @@ describe('DeleteConfirm', () => {
 
   it('confirms and cancels from its buttons', async () => {
     const { onconfirm, oncancel } = setup()
-    await fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await fireEvent.click(screen.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ }))
     expect(onconfirm).toHaveBeenCalledTimes(1)
-    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await fireEvent.click(screen.getByRole('button', { name: /^Cancel(?: Esc)?$/ }))
     expect(oncancel).toHaveBeenCalledTimes(1)
   })
 

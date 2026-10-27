@@ -51,26 +51,19 @@ describe('SelectionBar', () => {
   it('names the selection and offers each action with its key', () => {
     render(SelectionBar, { projection: projection(), onaction: vi.fn() })
     expect(bar().textContent).toContain('3 merchants · 127 transactions · -4,212.40')
-    const keys = within(bar())
-      .getAllByRole('button')
-      .map((button) => [
-        button.getAttribute('aria-label'),
-        button.querySelector('kbd')?.getAttribute('aria-label'),
-      ])
-    expect(keys).toEqual([
-      ['Merchant', 'm'],
-      ['Category', 'c'],
-      ['Hide', 'h'],
-      ['Delete', 'x'],
-      ['Clear', 'Esc'],
-    ])
+    const buttons = within(bar()).getAllByRole('button')
+    const names = ['Merchant m', 'Category c', 'Hide h', 'Delete x', 'Clear Esc']
+    expect(buttons).toHaveLength(names.length)
+    for (const [index, name] of names.entries()) {
+      expect(within(bar()).getByRole('button', { name })).toBe(buttons[index])
+    }
   })
 
   it('runs the action of each button', async () => {
     const onaction = vi.fn()
     const detail = projection({ capabilities: testCapabilities(editIDs) })
     render(SelectionBar, { projection: detail, onaction })
-    for (const name of ['Merchant', 'Category', 'Hide', 'Delete', 'Clear']) {
+    for (const name of ['Merchant m', 'Category c', 'Hide h', 'Delete x', 'Clear Esc']) {
       await fireEvent.click(within(bar()).getByRole('button', { name }))
     }
     expect(onaction.mock.calls.map(([action]) => action)).toEqual([
@@ -85,7 +78,7 @@ describe('SelectionBar', () => {
   it('disables Delete in a grouped view and explains why', async () => {
     vi.useFakeTimers()
     render(SelectionBar, { projection: projection(), onaction: vi.fn() })
-    const remove = within(bar()).getByRole('button', { name: 'Delete' })
+    const remove = within(bar()).getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ })
     expect((remove as HTMLButtonElement).disabled).toBe(true)
     // Only the kit Tooltip explains it; a native title would show a second, unstyled tip.
     expect(remove.hasAttribute('title')).toBe(false)
@@ -101,7 +94,7 @@ describe('SelectionBar', () => {
       reason: writeReason,
     }))
     render(SelectionBar, { projection: projection({ capabilities }), onaction: vi.fn() })
-    for (const name of ['Merchant', 'Category', 'Hide', 'Delete']) {
+    for (const name of ['Merchant m', 'Category c', 'Hide h', 'Delete x']) {
       const button = within(bar()).getByRole('button', { name }) as HTMLButtonElement
       expect(button.disabled).toBe(true)
       await fireEvent.mouseEnter(button.closest('.kit-tooltip-trigger')!)
@@ -110,7 +103,9 @@ describe('SelectionBar', () => {
       await fireEvent.mouseLeave(button.closest('.kit-tooltip-trigger')!)
       await vi.advanceTimersByTimeAsync(300)
     }
-    const clear = within(bar()).getByRole('button', { name: 'Clear' }) as HTMLButtonElement
+    const clear = within(bar()).getByRole('button', {
+      name: /^Clear(?: Esc)?$/,
+    }) as HTMLButtonElement
     expect(clear.disabled).toBe(false)
   })
 })

@@ -399,7 +399,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(groups.getByRole('option').first()).toBeVisible()
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('n')
-    await expect(groups.getByRole('button', { name: 'Create' })).toBeVisible()
+    await expect(groups.getByRole('button', { name: /^Create(?: Enter)?$/ })).toBeVisible()
     await expectNoAxeViolations(page)
   })
 }
@@ -424,7 +424,7 @@ for (const [colorScheme, width] of [
       await expect(progress.locator('.mf-refresh__count')).toHaveText('Fetched 3 transactions')
       await expectNoAxeViolations(page)
 
-      await progress.getByRole('button', { name: 'Cancel refresh' }).click()
+      await progress.getByRole('button', { name: /^Cancel\b/ }).click()
       const banner = page.locator('.mf-stale-banner')
       await expect(banner).toContainText('Refresh stopped.')
       // The sidebar Refresh button, shown on wide screens, fades from its disabled colours as the

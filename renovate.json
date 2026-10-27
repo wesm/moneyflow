@@ -7,6 +7,11 @@
   "labels": ["dependencies"],
   "packageRules": [
     {
+      "description": "Keep TypeScript 5 while openapi-typescript requires its compiler API and peer range.",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<6.0.0"
+    },
+    {
       "matchManagers": ["github-actions"],
       "labels": ["dependencies", "ci"]
     },

@@ -780,7 +780,7 @@ test.describe('phone rows by touch', () => {
     }
 
     await more.tap()
-    await sheet.getByRole('button', { name: 'Hide' }).tap()
+    await sheet.getByRole('button', { name: /^Hide(?: h)?$/ }).tap()
     await expect(sheet).toBeHidden()
     await expect(first).toContainText('Hidden')
     await expect(more).toBeFocused()
@@ -898,7 +898,7 @@ test.describe('phone rows: drilling, keys, and the sheet', () => {
     const name = editor.getByRole('combobox', { name: 'Merchant' })
 
     await more.tap()
-    await actions.getByRole('button', { name: 'Merchant' }).tap()
+    await actions.getByRole('button', { name: /^Merchant(?: m)?$/ }).tap()
     await expect(name).toBeFocused()
     await expect(actions).toBeHidden()
     await expect(editor).toHaveAccessibleDescription('· 1 transaction')
@@ -910,12 +910,12 @@ test.describe('phone rows: drilling, keys, and the sheet', () => {
       phone.height,
     ])
     await expectTouchTargets(editor)
-    await editor.getByRole('button', { name: 'Cancel' }).tap()
+    await editor.getByRole('button', { name: /^Cancel(?: Esc)?$/ }).tap()
     await expect(editor).toBeHidden()
     await expect(more).toBeFocused()
 
     await more.tap()
-    await actions.getByRole('button', { name: 'Merchant' }).tap()
+    await actions.getByRole('button', { name: /^Merchant(?: m)?$/ }).tap()
     // A long suggestion list: 44 px options that scroll, with Stage and Cancel still in reach.
     await name.fill('a')
     const list = editor.getByRole('listbox', { name: 'Merchant' })
@@ -958,7 +958,7 @@ test.describe('phone rows: drilling, keys, and the sheet', () => {
     const confirmation = page.getByRole('alertdialog', { name: 'Confirm deletion' })
 
     await more.tap()
-    await actions.getByRole('button', { name: 'Delete' }).tap()
+    await actions.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ }).tap()
     await expect(actions).toBeHidden()
     await expect(confirmation).toHaveAccessibleDescription('Delete 1 transaction?')
     expect(await focusInside(confirmation)).toBe(true)
@@ -970,14 +970,14 @@ test.describe('phone rows: drilling, keys, and the sheet', () => {
       phone.height,
     ])
     await expectTouchTargets(confirmation)
-    await confirmation.getByRole('button', { name: 'Cancel' }).tap()
+    await confirmation.getByRole('button', { name: /^Cancel(?: Esc)?$/ }).tap()
     await expect(confirmation).toBeHidden()
     await expect(more).toBeFocused()
     await expect(second).not.toHaveClass(/mf-table__row--deleted/)
 
     await more.tap()
-    await actions.getByRole('button', { name: 'Delete' }).tap()
-    await confirmation.getByRole('button', { name: 'Delete' }).tap()
+    await actions.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ }).tap()
+    await confirmation.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ }).tap()
     await expect(confirmation).toBeHidden()
     await expect(page.getByRole('status').filter({ hasText: /^Deleted / })).toHaveText(
       'Deleted 1 transaction · Undo u',

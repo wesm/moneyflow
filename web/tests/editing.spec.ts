@@ -653,7 +653,7 @@ test('a merchant row renames the whole merchant through review and commit', asyn
     await expect(
       review.getByRole('button', { name: /^Rename merchant 34 transactions / }),
     ).toBeVisible()
-    await review.getByRole('button', { name: 'Commit reviewed changes' }).click()
+    await review.getByRole('button', { name: /^Commit reviewed changes(?: Enter)?$/ }).click()
     await expect(page.getByText(/0 pending edit/)).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(cell(await activeRow(page), 'name')).toHaveText('Maple Court Homes')
@@ -929,14 +929,14 @@ test('the selection bar counts two merchants, explains Delete, and Clear empties
     await expect.poll(() => hintKeys(page)).toEqual(['m', 'c', 'h', 'x', 'Esc'])
 
     const reason = 'Open the group to delete its transactions.'
-    const remove = bar.getByRole('button', { name: 'Delete' })
+    const remove = bar.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ })
     await expect(remove).toBeDisabled()
     await expect(remove).not.toHaveAttribute('title')
-    const deleteButton = page.getByRole('button', { name: 'Delete' })
+    const deleteButton = page.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ })
     await bar.locator('.kit-tooltip-trigger').filter({ has: deleteButton }).hover()
     await expect(page.getByRole('tooltip')).toHaveText(reason)
 
-    await bar.getByRole('button', { name: 'Merchant' }).click()
+    await bar.getByRole('button', { name: /^Merchant(?: m)?$/ }).click()
     const merchant = page.getByRole('dialog', { name: 'Edit merchant' })
     await expect(
       merchant.getByRole('button', { name: 'Stage change to 164 transactions' }),
@@ -945,7 +945,7 @@ test('the selection bar counts two merchants, explains Delete, and Clear empties
     await expect(merchant).toBeHidden()
     await expect(grid).toBeFocused()
 
-    await bar.getByRole('button', { name: 'Clear' }).click()
+    await bar.getByRole('button', { name: /^Clear(?: Esc)?$/ }).click()
     await expect(page.getByRole('row', { selected: true })).toHaveCount(0)
     await expect(bar).toBeHidden()
     await expect(grid).toBeFocused()
@@ -970,7 +970,7 @@ test('the selection bar edits selected transactions as their keys do', async ({ 
     const bar = page.getByRole('region', { name: 'Selection' })
     await expect(bar).toContainText(/^2 transactions · [+-][\d,]+\.\d\d/)
 
-    await bar.getByRole('button', { name: 'Delete' }).click()
+    await bar.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ }).click()
     const confirmation = page.getByRole('alertdialog', { name: 'Confirm deletion' })
     await expect(confirmation).toHaveAccessibleDescription('Delete 2 transactions?')
     // Anchored just above the selection bar.
@@ -982,8 +982,8 @@ test('the selection bar edits selected transactions as their keys do', async ({ 
     await expect(confirmation).toBeHidden()
     await expect(grid).toBeFocused()
 
-    await bar.getByRole('button', { name: 'Delete' }).click()
-    await confirmation.getByRole('button', { name: 'Delete' }).click()
+    await bar.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ }).click()
+    await confirmation.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ }).click()
     await expect(confirmation).toBeHidden()
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await expect(page.getByRole('status').filter({ hasText: /^Deleted / })).toHaveText(
@@ -996,7 +996,7 @@ test('the selection bar edits selected transactions as their keys do', async ({ 
     await page.keyboard.press('j')
     await page.keyboard.press('Space')
     await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
-    await bar.getByRole('button', { name: 'Hide' }).click()
+    await bar.getByRole('button', { name: /^Hide(?: h)?$/ }).click()
     await expect(page.getByText(/2 pending edits/)).toBeVisible()
     await expect(grid).toBeFocused()
   } finally {
@@ -1020,7 +1020,7 @@ test('Clear goes back once per click and works again after a failed request', as
     await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
     await page.keyboard.press('Space')
     const bar = page.getByRole('region', { name: 'Selection' })
-    const clear = bar.getByRole('button', { name: 'Clear' })
+    const clear = bar.getByRole('button', { name: /^Clear(?: Esc)?$/ })
 
     await clear.click()
     await expect.poll(() => backs.length).toBe(1)
@@ -1046,7 +1046,7 @@ test.describe('on a touch phone', () => {
       await cell(page.locator('[role="row"][aria-rowindex="2"]'), 'select').tap()
       const bar = page.getByRole('region', { name: 'Selection' })
       await expect(bar).toContainText('1 merchant · ')
-      const remove = page.getByRole('button', { name: 'Delete' })
+      const remove = page.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/ })
       await bar.locator('.kit-tooltip-trigger').filter({ has: remove }).tap()
       await expect(page.getByRole('tooltip')).toHaveText(
         'Open the group to delete its transactions.',
@@ -1123,7 +1123,7 @@ test('@smoke the selection bar returns focus to the grid row, not to its button'
 
     const merchant = page
       .getByRole('region', { name: 'Selection' })
-      .getByRole('button', { name: 'Merchant' })
+      .getByRole('button', { name: /^Merchant(?: m)?$/ })
     await merchant.click()
     const editor = page.getByRole('dialog', { name: 'Edit merchant' })
     await expect(editor).toBeVisible()

@@ -188,7 +188,6 @@
         {#each managerActions(kind) as { action, key } (action)}
           <Button
             size="sm"
-            ariaLabel={ACTION_LABELS[action]}
             disabled={!catalog || !canStart(action, source)}
             onclick={() => start(action)}
             >{ACTION_LABELS[action]}{#snippet trailing()}<KbdBadge keys={[key]} />{/snippet}</Button

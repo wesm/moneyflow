@@ -585,7 +585,7 @@ function whereItWent(page: Page): Locator {
 }
 
 function bar(page: Page, label: string): Locator {
-  return whereItWent(page).getByRole('button', { name: new RegExp(`^${label}, \\d+\\.\\d%, -`) })
+  return whereItWent(page).getByRole('button', { name: new RegExp(`^${label}, -`) })
 }
 
 test('a composition bar click moves the cursor, and a double-click drills', async ({
@@ -594,7 +594,7 @@ test('a composition bar click moves the cursor, and a double-click drills', asyn
 }) => {
   await openMoneyflow(page, server, september)
   await expect(bar(page, 'Online Megastore')).toHaveAccessibleName(
-    /^Online Megastore, \d+\.\d%, -[\d,]+\.\d\d$/,
+    /^Online Megastore, -[\d,]+\.\d\d, \d+\.\d%$/,
   )
   await expect(whereItWent(page).getByText(/^\d+ others$/)).toBeVisible()
   await bar(page, 'Online Megastore').click()

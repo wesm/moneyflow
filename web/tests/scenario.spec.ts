@@ -118,7 +118,7 @@ test('@smoke mixed hiding, undo, rejection and cancellation remain usable at nar
     expect((await server.observe()).pending).toBe(1)
     await server.fault('reject')
     await page.keyboard.press('w')
-    await page.getByRole('button', { name: 'Commit reviewed changes' }).click()
+    await page.getByRole('button', { name: /^Commit reviewed changes(?: Enter)?$/ }).click()
     // The rejected write opens its status in place of review; nothing is stacked beneath it.
     const write = page.getByRole('dialog', { name: 'Monarch write status' })
     await expect(write.getByRole('button', { name: 'Stop and reconcile' })).toBeVisible()
@@ -163,7 +163,7 @@ test('@smoke filtered merchant editing preserves committed data until the provid
     await page.keyboard.press('w')
     const review = page.getByRole('dialog', { name: 'Review pending changes' })
     await expect(review).toBeVisible()
-    await review.getByRole('button', { name: 'Commit reviewed changes' }).click()
+    await review.getByRole('button', { name: /^Commit reviewed changes(?: Enter)?$/ }).click()
     await expect
       .poll(
         async () =>
@@ -256,7 +256,7 @@ test('@smoke applied but unanswered category edit survives a process restart', a
     expect((await server.observe()).targets).toEqual(['current-a', 'current-b'])
     await server.fault('block-after')
     await page.keyboard.press('w')
-    await page.getByRole('button', { name: 'Commit reviewed changes' }).click()
+    await page.getByRole('button', { name: /^Commit reviewed changes(?: Enter)?$/ }).click()
     await expect
       .poll(
         async () =>

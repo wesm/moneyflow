@@ -130,8 +130,7 @@ func TestSimpleFINRefreshUsesLatestCommittedState(t *testing.T) {
 	_, err = second.Mutate(t.Context(), app.MutationRequest{Action: app.ActionDeleteTransaction, ExpectedRevision: second.Revision(), State: detailViewState(), Selection: app.EmptySelection(), Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: string(loaded.Committed.Transactions[0].ID)}})
 	if err != nil {
 		close(release)
-		<-done
-		t.Fatal(err)
+		t.Fatalf("mutate: %v; refresh: %v", err, <-done)
 	}
 	_, err = second.Commit(t.Context(), app.CommitRequest{ExpectedRevision: second.Revision(), ReviewedRevision: second.Revision()})
 	close(release)

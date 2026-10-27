@@ -6,6 +6,7 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -353,8 +354,7 @@ func waitForMCPProcess(command *exec.Cmd, timeout time.Duration) error {
 		return err
 	case <-time.After(timeout):
 		_ = command.Process.Kill()
-		<-done
-		return context.DeadlineExceeded
+		return fmt.Errorf("%w: %v", context.DeadlineExceeded, <-done)
 	}
 }
 

@@ -53,7 +53,9 @@ test('the category manager stages every action from its own keys', async ({ page
       'That label already exists; use merge instead.',
     )
     await page.keyboard.press('Enter')
-    await expect(manager.getByRole('button', { name: 'Rename', exact: true })).toBeDisabled()
+    await expect(
+      manager.getByRole('button', { name: /^Rename(?: (?:r|Enter))?$/, exact: true }),
+    ).toBeDisabled()
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(name).toBeHidden()
@@ -63,7 +65,9 @@ test('the category manager stages every action from its own keys', async ({ page
     const group = manager.getByRole('combobox', { name: 'Group' })
     await expect(group).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(manager.getByRole('button', { name: 'Move', exact: true })).toBeDisabled()
+    await expect(
+      manager.getByRole('button', { name: /^Move(?: Enter)?$/, exact: true }),
+    ).toBeDisabled()
     await pickAndConfirm(page, group, 'Entertainment')
     await expect(list.getByRole('option', { name: /^Dining Out, Entertainment,/ })).toBeVisible()
     await expect(page.getByText(/2 pending edit/)).toBeVisible()
@@ -71,7 +75,9 @@ test('the category manager stages every action from its own keys', async ({ page
     await page.keyboard.press('m')
     const destination = manager.getByRole('combobox', { name: 'Destination' })
     await expect(manager.getByRole('heading', { name: 'Merge Dining Out into' })).toBeVisible()
-    await expect(manager.getByRole('button', { name: 'Merge', exact: true })).toBeDisabled()
+    await expect(
+      manager.getByRole('button', { name: /^Merge(?: (?:m|Enter))?$/, exact: true }),
+    ).toBeDisabled()
     await pickAndConfirm(page, destination, 'Coffee')
     await expect(page.getByText(/3 pending edit/)).toBeVisible()
     await expect(list.getByRole('option')).toHaveCount(0)
@@ -116,7 +122,9 @@ test('the category manager stages every action from its own keys', async ({ page
     await expect(manager.getByText(`${count} transactions`, { exact: true })).toBeVisible()
     await expect(replacement).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(manager.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
+    await expect(
+      manager.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/, exact: true }),
+    ).toBeDisabled()
     await pickAndConfirm(page, replacement, 'Groceries')
     await expect(page.getByText(/6 pending edit/)).toBeVisible()
     await expect(list.getByRole('option')).toHaveCount(0)
@@ -245,7 +253,7 @@ test('the group manager stages every action and has no move', async ({ page }) =
     const list = manager.getByRole('listbox', { name: 'Category groups' })
     const name = manager.getByRole('textbox', { name: 'Name' })
     await expect(filter).toBeFocused()
-    await expect(manager.getByRole('button', { name: 'Move to group' })).toHaveCount(0)
+    await expect(manager.getByRole('button', { name: /^Move to group(?: g)?$/ })).toHaveCount(0)
 
     await page.keyboard.type('trav')
     await expect(list.getByRole('option')).toHaveCount(1)
@@ -266,7 +274,9 @@ test('the group manager stages every action and has no move', async ({ page }) =
     const destination = manager.getByRole('combobox', { name: 'Destination' })
     await expect(destination).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(manager.getByRole('button', { name: 'Merge', exact: true })).toBeDisabled()
+    await expect(
+      manager.getByRole('button', { name: /^Merge(?: (?:m|Enter))?$/, exact: true }),
+    ).toBeDisabled()
     await pickAndConfirm(page, destination, 'Entertainment')
     await expect(page.getByText(/2 pending edit/)).toBeVisible()
     await expect(list.getByRole('option')).toHaveCount(0)
@@ -301,7 +311,9 @@ test('the group manager stages every action and has no move', async ({ page }) =
     await page.keyboard.press('d')
     await expect(replacement).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(manager.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
+    await expect(
+      manager.getByRole('button', { name: /^Delete(?: (?:x|d|Enter))?$/, exact: true }),
+    ).toBeDisabled()
     await pickAndConfirm(page, replacement, 'Shopping')
     await expect(page.getByText(/5 pending edit/)).toBeVisible()
     await expect(list.getByRole('option')).toHaveCount(0)
@@ -329,15 +341,15 @@ test('a pointer alone can start, leave, and confirm a manager step', async ({ pa
       'aria-selected',
       'true',
     )
-    await manager.getByRole('button', { name: 'Rename' }).click()
+    await manager.getByRole('button', { name: /^Rename(?: (?:r|Enter))?$/ }).click()
     const name = manager.getByRole('textbox', { name: 'Name' })
     await expect(name).toHaveValue('Books')
-    await manager.getByRole('button', { name: 'Back' }).click()
+    await manager.getByRole('button', { name: /^Back(?: Esc)?$/ }).click()
     await expect(name).toBeHidden()
 
-    await manager.getByRole('button', { name: 'Rename' }).click()
+    await manager.getByRole('button', { name: /^Rename(?: (?:r|Enter))?$/ }).click()
     await name.fill('Reading')
-    await manager.getByRole('button', { name: 'Rename', exact: true }).click()
+    await manager.getByRole('button', { name: /^Rename(?: (?:r|Enter))?$/, exact: true }).click()
     await expect(name).toBeHidden()
     await expect(list.getByRole('option', { name: /^Reading, Shopping,/ })).toBeVisible()
     await expect(page.getByText(/1 pending edit/)).toBeVisible()

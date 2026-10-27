@@ -116,14 +116,13 @@
       <Button
         tone={action === 'delete' ? 'danger' : 'info'}
         surface="solid"
-        ariaLabel={CONFIRM_LABELS[action]}
         disabled={!ready}
         onclick={onconfirm}
         >{CONFIRM_LABELS[action]}{#snippet trailing()}<KbdBadge
             keys={['Enter']}
           />{/snippet}</Button
       >
-      <Button ariaLabel="Back" onclick={onback}
+      <Button onclick={onback}
         >Back{#snippet trailing()}<KbdBadge keys={['Esc']} />{/snippet}</Button
       >
     </div>

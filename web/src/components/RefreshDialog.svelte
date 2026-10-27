@@ -138,11 +138,11 @@
     </div>
     {#snippet footer()}
       {#if view === 'progress' && controller.cancelable}
-        <Button ariaLabel="Cancel refresh" label="Cancel" onclick={() => controller.cancel()}>
+        <Button label="Cancel" onclick={() => controller.cancel()}>
           {#snippet trailing()}<KbdBadge keys={['Esc']} />{/snippet}
         </Button>
       {:else if view === 'progress'}
-        <Button ariaLabel="Close" label="Close" onclick={() => controller.hide()}>
+        <Button label="Close" onclick={() => controller.hide()}>
           {#snippet trailing()}<KbdBadge keys={['Esc']} />{/snippet}
         </Button>
       {:else if unchecked}
@@ -166,14 +166,13 @@
           >
         {/if}
       {:else if view === 'confirmation'}
-        <Button ariaLabel="Cancel" label="Cancel" onclick={() => controller.dismissConfirmation()}>
+        <Button label="Cancel" onclick={() => controller.dismissConfirmation()}>
           {#snippet trailing()}<KbdBadge keys={['Esc']} />{/snippet}
         </Button>
         <Button
           class="mf-refresh__confirm"
           tone="danger"
           surface="solid"
-          ariaLabel="Confirm refresh"
           label="Confirm refresh"
           onclick={() => void controller.confirm()}
         >

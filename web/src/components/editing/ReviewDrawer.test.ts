@@ -39,7 +39,7 @@ function setup(options: Setup = {}) {
 
 /** Waits until the review has loaded and Commit has focus, as after `w`. */
 async function loaded(): Promise<HTMLElement> {
-  const commit = screen.getByRole('button', { name: 'Commit reviewed changes' })
+  const commit = screen.getByRole('button', { name: /^Commit reviewed changes(?: Enter)?$/ })
   await waitFor(() => expect(document.activeElement).toBe(commit))
   return commit
 }
@@ -385,7 +385,9 @@ describe('ReviewDrawer in review mode', () => {
 
     await fireEvent.keyDown(drawer, { key: 'Enter' })
     await fireEvent.keyDown(drawer, { key: 'Enter' })
-    await fireEvent.click(screen.getByRole('button', { name: 'Commit reviewed changes' }))
+    await fireEvent.click(
+      screen.getByRole('button', { name: /^Commit reviewed changes(?: Enter)?$/ }),
+    )
     expect(editing.commit).toHaveBeenCalledTimes(1)
     request.settle(false)
     await request.promise
@@ -486,7 +488,9 @@ describe('ReviewDrawer in write mode', () => {
     expect(within(drawer).getByRole('status').textContent).toBe(
       'Writing pending changes to Monarch.',
     )
-    expect(within(drawer).queryByRole('button', { name: 'Commit reviewed changes' })).toBeNull()
+    expect(
+      within(drawer).queryByRole('button', { name: /^Commit reviewed changes(?: Enter)?$/ }),
+    ).toBeNull()
     await fireEvent.click(within(drawer).getByRole('button', { name: 'Pause' }))
     expect(providerWrite.pause).toHaveBeenCalledTimes(1)
     expect(onclose).not.toHaveBeenCalled()

@@ -25,7 +25,7 @@ export interface CompositionBar {
   length: number
   /** Folds the rows below the top seven, so it stands for no single row. */
   others: boolean
-  /** The accessible name: `{label}, {share}, {net}`, such as `Rent, 40.0%, -2,000.00`. */
+  /** The accessible name follows the visible label, Net, and share order. */
   name: string
 }
 
@@ -49,7 +49,7 @@ export function compositionBars(
       net: unsignedZero(net),
       length: ratioBasisPoints(String(entry.share_tenths), longest),
       others,
-      name: `${entry.label}, ${share}, ${net}`,
+      name: `${entry.label}, ${net}, ${share}`,
     }
   })
 }
