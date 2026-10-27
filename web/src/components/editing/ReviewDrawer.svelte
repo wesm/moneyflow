@@ -149,7 +149,6 @@
         class="mf-review__commit"
         tone="success"
         surface="solid"
-        ariaLabel="Commit reviewed changes"
         disabled={review.state.reviewedRevision === undefined}
         onclick={() => void commit()}
         >Commit reviewed changes{#snippet trailing()}<KbdBadge keys={['Enter']} />{/snippet}</Button

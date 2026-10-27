@@ -33,7 +33,7 @@ test('review keeps redo separate, lists affected rows, and commits its captured 
     })
     await page.keyboard.press('w')
     await expect(review).toBeVisible()
-    const commit = review.getByRole('button', { name: 'Commit reviewed changes' })
+    const commit = review.getByRole('button', { name: /^Commit reviewed changes(?: Enter)?$/ })
     await expect(commit).toBeFocused()
 
     // The operation starts expanded, with its first rows from the review itself and Show more

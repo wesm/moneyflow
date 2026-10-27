@@ -167,7 +167,7 @@ test('another interface refresh is followed without a Cancel button', async ({ p
     await expect(dialog).toContainText(
       'The terminal app (moneyflow tui) is refreshing this profile. Cancel it there.',
     )
-    await expect(dialog.getByRole('button', { name: 'Cancel refresh' })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: /^Cancel\b/ })).toHaveCount(0)
 
     await server.otherRefresh('tui', false)
 

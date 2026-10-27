@@ -38,7 +38,7 @@ function setup(props: Partial<{ cursorIdentity: string; onleave: () => void }> =
 describe('CompositionPanel', () => {
   afterEach(() => cleanup())
 
-  it('lists spending by net share, naming each bar with its share and Net', () => {
+  it('lists spending by net share, naming each bar in visible label order', () => {
     const { list } = setup()
     const items = within(list).getAllByRole('listitem')
     expect(items.map((item) => item.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
@@ -47,7 +47,7 @@ describe('CompositionPanel', () => {
       '5 others -1,000.00 20.0%',
     ])
     expect(
-      within(list).getByRole('button', { name: 'Online Megastore, 6.2%, -360.00' }),
+      within(list).getByRole('button', { name: 'Online Megastore, -360.00, 6.2%' }),
     ).not.toBeNull()
   })
 

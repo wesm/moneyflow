@@ -58,7 +58,7 @@ test('@smoke Amazon import preserves committed edits through reimport and reload
     await merchant.press('Enter')
     await expect(page.getByText(/1 pending edit/)).toBeVisible()
     await page.keyboard.press('w')
-    await page.getByRole('button', { name: 'Commit reviewed changes' }).click()
+    await page.getByRole('button', { name: /^Commit reviewed changes(?: Enter)?$/ }).click()
     await expect(page.getByText(/0 pending edit/)).toBeVisible()
     await expect(grid).toBeFocused()
 

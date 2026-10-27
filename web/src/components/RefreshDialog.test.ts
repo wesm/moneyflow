@@ -84,7 +84,7 @@ describe('RefreshDialog', () => {
   it('cancels with the button and with Escape', async () => {
     const controller = open({})
     render(RefreshDialog, { controller })
-    await fireEvent.click(screen.getByRole('button', { name: 'Cancel refresh' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel Esc' }))
     await fireEvent.keyDown(window, { key: 'Escape' })
     expect(controller.cancel).toHaveBeenCalledTimes(2)
   })
@@ -119,8 +119,9 @@ describe('RefreshDialog', () => {
       void controller.refresh()
       await tick()
 
-      expect(screen.queryByRole('button', { name: 'Cancel refresh' })).toBeNull()
-      if (closer === 'button') await fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      expect(screen.queryByRole('button', { name: 'Cancel Esc' })).toBeNull()
+      if (closer === 'button')
+        await fireEvent.click(screen.getByRole('button', { name: 'Close Esc' }))
       else await fireEvent.keyDown(window, { key: 'Escape' })
 
       expect(screen.queryByRole('dialog')).toBeNull()
@@ -145,7 +146,7 @@ describe('RefreshDialog', () => {
     expect(dialog.textContent).toContain(
       'The terminal app (moneyflow tui) is refreshing this profile. Cancel it there.',
     )
-    expect(screen.queryByRole('button', { name: 'Cancel refresh' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cancel Esc' })).toBeNull()
     await fireEvent.keyDown(window, { key: 'Escape' })
     expect(controller.cancel).not.toHaveBeenCalled()
   })

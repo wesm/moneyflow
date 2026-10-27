@@ -660,8 +660,8 @@ describe('MoneyflowWorkspace', () => {
         screen.queryByRole('dialog', { name: 'Refreshing from Monarch' }),
       )
 
-      expect(within(dialog).queryByRole('button', { name: 'Cancel refresh' })).toBeNull()
-      await fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+      expect(within(dialog).queryByRole('button', { name: /^Cancel\b/ })).toBeNull()
+      await fireEvent.click(within(dialog).getByRole('button', { name: 'Close Esc' }))
 
       expect(screen.queryByRole('dialog')).toBeNull()
       expect(document.body.textContent).not.toContain('Stopping the refresh…')

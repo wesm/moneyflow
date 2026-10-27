@@ -958,7 +958,7 @@ describe('AppShell', () => {
     render(AppShell, { controller })
     const box = document.querySelector<HTMLElement>('[role="gridcell"][data-column="select"]')!
     await fireEvent.click(box)
-    await fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    await fireEvent.click(screen.getByRole('button', { name: /^Clear(?: Esc)?$/ }))
     await vi.waitFor(() =>
       expect(controller.apply).toHaveBeenCalledWith({
         action: 'selection.toggle',

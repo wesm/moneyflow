@@ -89,13 +89,12 @@
         class="mf-delete__confirm"
         tone="danger"
         surface="solid"
-        ariaLabel="Delete"
         label="Delete"
         onclick={() => void confirm()}
       >
         {#snippet trailing()}<KbdBadge keys={['Enter']} />{/snippet}
       </Button>
-      <Button ariaLabel="Cancel" label="Cancel" onclick={oncancel}>
+      <Button label="Cancel" onclick={oncancel}>
         {#snippet trailing()}<KbdBadge keys={['Esc']} />{/snippet}
       </Button>
     </div>

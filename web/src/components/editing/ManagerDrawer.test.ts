@@ -60,12 +60,15 @@ describe('ManagerDrawer', () => {
   it('stages a new category from the toolbar and reloads the list', async () => {
     const { controller } = setup()
     await list()
-    await fireEvent.click(screen.getByRole('button', { name: 'New' }))
+    await fireEvent.click(screen.getByRole('button', { name: /^New(?: n)?$/ }))
     const name = screen.getByRole('textbox', { name: 'Name' })
     expect(document.activeElement).toBe(name)
-    expect(screen.getByRole('button', { name: 'Create' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: /^Create(?: Enter)?$/ })).toHaveProperty(
+      'disabled',
+      true,
+    )
     await fireEvent.input(name, { target: { value: 'New Category' } })
-    await fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await fireEvent.click(screen.getByRole('button', { name: /^Create(?: Enter)?$/ }))
     await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull())
     expect(controller.submit).toHaveBeenCalledWith({
       action: 'category.manage',
@@ -99,7 +102,10 @@ describe('ManagerDrawer', () => {
     const options = await list()
     for (const key of ['r', 'g', 'm', 'd']) await fireEvent.keyDown(options, { key })
     expect(screen.queryByRole('heading', { level: 2 })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Rename' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: /^Rename(?: (?:r|Enter))?$/ })).toHaveProperty(
+      'disabled',
+      true,
+    )
   })
 
   it('steps back with Esc, then clears the filter, then closes', async () => {
@@ -184,7 +190,7 @@ describe('ManagerDrawer', () => {
     await fireEvent.keyDown(options, { key: 'm' })
     const destination = screen.getByRole('combobox', { name: 'Destination' })
     await fireEvent.input(destination, { target: { value: 'Uncategorized' } })
-    await fireEvent.click(screen.getByRole('button', { name: 'Merge' }))
+    await fireEvent.click(screen.getByRole('button', { name: /^Merge(?: (?:m|Enter))?$/ }))
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toBe(
         'That action is not available for the current target.',
@@ -243,7 +249,10 @@ describe('ManagerDrawer', () => {
     expect(screen.getByRole('alert').textContent).toBe(
       'That label already exists; use merge instead.',
     )
-    expect(screen.getByRole('button', { name: 'Create' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: /^Create(?: Enter)?$/ })).toHaveProperty(
+      'disabled',
+      true,
+    )
     await fireEvent.keyDown(name, { key: 'Enter' })
     expect(controller.submit).not.toHaveBeenCalled()
   })
@@ -264,7 +273,7 @@ describe('ManagerDrawer', () => {
     await pending.promise
     await tick()
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.getByRole('button', { name: 'New' })).not.toBeNull()
+    expect(screen.getByRole('button', { name: /^New(?: n)?$/ })).not.toBeNull()
   })
 
   it('keeps a step opened while the list reloads after a staged change', async () => {
@@ -393,7 +402,7 @@ describe('ManagerDrawer', () => {
     const options = await list()
     await fireEvent.keyDown(options, { key: 'ArrowDown' })
     await fireEvent.keyDown(options, { key: 'm' })
-    const merge = screen.getByRole('button', { name: 'Merge' })
+    const merge = screen.getByRole('button', { name: /^Merge(?: (?:m|Enter))?$/ })
     expect(merge).toHaveProperty('disabled', true)
     const destination = screen.getByRole('combobox', { name: 'Destination' })
     await fireEvent.input(destination, { target: { value: 'uncategorized' } })
@@ -413,7 +422,7 @@ describe('ManagerDrawer', () => {
     const { controller } = setup({ kind: 'group' })
     expect(screen.getByRole('dialog', { name: 'Manage category groups' })).not.toBeNull()
     const options = await list('Category groups')
-    expect(screen.queryByRole('button', { name: 'Move to group' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Move to group(?: g)?$/ })).toBeNull()
     await fireEvent.keyDown(options, { key: 'g' })
     expect(screen.queryByRole('heading', { level: 2 })).toBeNull()
     await fireEvent.keyDown(options, { key: 'd' })

@@ -46,7 +46,7 @@ test('pending edits and revision survive a real server restart on one explicit p
     await page.keyboard.press('w')
     const review = page.getByRole('dialog', { name: 'Review pending changes' })
     await expect(review).toContainText('Delete transaction')
-    await review.getByRole('button', { name: 'Commit reviewed changes' }).focus()
+    await review.getByRole('button', { name: /^Commit reviewed changes(?: Enter)?$/ }).focus()
     await page.keyboard.press('Enter')
     await expect(review).toBeHidden()
     await expect(page.getByText(/0 pending edit/)).toBeVisible()
