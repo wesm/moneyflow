@@ -10,6 +10,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/amazonimport"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/importer/amazon"
 )
 
 func TestAmazonOnboardingCreatesImportsAndOpensProfile(t *testing.T) {
@@ -124,8 +125,18 @@ func TestAmazonImportSettingsRejectMalformedCurrencyBeforeSourceStep(t *testing.
 
 		assert.False(t, state.settingsRequest(), currency)
 		assert.Equal(t, amazonImportSettings, state.phase)
-		assert.Contains(t, state.status, "three uppercase letters")
+		assert.Contains(t, state.status, "three-letter currency code")
 	}
+}
+
+func TestAmazonImportSettingsTakeTheCurrencyDecimalPlaces(t *testing.T) {
+	t.Parallel()
+	state, _ := newAmazonImportState()
+	state.currency.SetValue(" kwd ")
+
+	require.True(t, state.settingsRequest())
+	assert.Equal(t, amazon.Settings{Currency: "KWD", Scale: 3}, state.settings)
+	assert.Equal(t, amazonImportSource, state.phase)
 }
 
 type fakeAmazonImports struct {

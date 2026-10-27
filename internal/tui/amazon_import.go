@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -36,7 +35,6 @@ type AmazonTaxonomyLoader func(context.Context, string) (*app.TaxonomyClone, err
 type amazonImportState struct {
 	phase         amazonImportPhase
 	currency      textinput.Model
-	scale         textinput.Model
 	directory     textinput.Model
 	taxonomy      textinput.Model
 	allowTaxonomy bool
@@ -56,9 +54,6 @@ func newAmazonImportState() (amazonImportState, tea.Cmd) {
 	currency := textinput.New()
 	currency.SetValue("USD")
 	currency.SetWidth(12)
-	scale := textinput.New()
-	scale.SetValue("2")
-	scale.SetWidth(6)
 	directory := textinput.New()
 	directory.Placeholder = "/path/to/amazon-order-history"
 	directory.SetWidth(64)
@@ -66,20 +61,19 @@ func newAmazonImportState() (amazonImportState, tea.Cmd) {
 	taxonomy.Placeholder = "optional profile name or ID"
 	taxonomy.SetWidth(48)
 	state := amazonImportState{
-		phase: amazonImportSettings, currency: currency, scale: scale,
+		phase: amazonImportSettings, currency: currency,
 		directory: directory, taxonomy: taxonomy, allowTaxonomy: true,
 	}
 	return state, state.focus()
 }
 
 func (state *amazonImportState) settingsRequest() bool {
-	currency := strings.ToUpper(strings.TrimSpace(state.currency.Value()))
-	scale, err := strconv.ParseUint(strings.TrimSpace(state.scale.Value()), 10, 8)
-	if !domain.IsValidCurrency(domain.Currency(currency)) || err != nil || scale > 9 {
-		state.status = "Currency must have three uppercase letters and scale must be between 0 and 9."
+	currency := domain.Currency(strings.ToUpper(strings.TrimSpace(state.currency.Value())))
+	if !domain.IsValidCurrency(currency) {
+		state.status = "Enter a three-letter currency code, such as USD."
 		return false
 	}
-	state.settings = amazon.Settings{Currency: domain.Currency(currency), Scale: uint8(scale)}
+	state.settings = amazon.Settings{Currency: currency, Scale: domain.StandardScale(currency)}
 	state.phase = amazonImportSource
 	state.focused = 0
 	state.status = ""
@@ -91,9 +85,9 @@ func (state amazonImportState) update(message tea.KeyPressMsg) (amazonImportStat
 	if state.phase != amazonImportSettings && state.phase != amazonImportSource {
 		return state, false, nil
 	}
-	fieldCount := 2
-	if state.phase == amazonImportSource && !state.allowTaxonomy {
-		fieldCount = 1
+	fieldCount := 1
+	if state.phase == amazonImportSource && state.allowTaxonomy {
+		fieldCount = 2
 	}
 	if message.Keystroke() == "tab" || message.Keystroke() == "shift+tab" ||
 		message.Keystroke() == "up" || message.Keystroke() == "down" {
@@ -119,11 +113,7 @@ func (state amazonImportState) update(message tea.KeyPressMsg) (amazonImportStat
 	}
 	var command tea.Cmd
 	if state.phase == amazonImportSettings {
-		if state.focused == 0 {
-			state.currency, command = state.currency.Update(message)
-		} else {
-			state.scale, command = state.scale.Update(message)
-		}
+		state.currency, command = state.currency.Update(message)
 	} else if state.focused == 0 || !state.allowTaxonomy {
 		state.directory, command = state.directory.Update(message)
 	} else {
@@ -135,14 +125,10 @@ func (state amazonImportState) update(message tea.KeyPressMsg) (amazonImportStat
 
 func (state *amazonImportState) focus() tea.Cmd {
 	state.currency.Blur()
-	state.scale.Blur()
 	state.directory.Blur()
 	state.taxonomy.Blur()
 	if state.phase == amazonImportSettings {
-		if state.focused == 0 {
-			return state.currency.Focus()
-		}
-		return state.scale.Focus()
+		return state.currency.Focus()
 	}
 	if state.focused == 0 || !state.allowTaxonomy {
 		return state.directory.Focus()
@@ -188,10 +174,9 @@ func (shell Shell) renderAmazonImport(frame *Frame, content Rect) {
 	width := max(0, content.Width-4)
 	switch shell.amazon.phase {
 	case amazonImportSettings:
-		frame.PutText(x, content.Y+2, "Confirm how Moneyflow stores Amazon order amounts.", shell.palette.Muted)
-		frame.PutText(x, content.Y+5, "Import currency: "+shell.amazon.currency.Value(), shell.palette.Heading)
-		frame.PutText(x, content.Y+7, "Minor-unit scale: "+shell.amazon.scale.Value(), shell.palette.Heading)
-		frame.PutText(x, content.Y+10, "USD and scale 2 are preselected; confirm them before continuing.", shell.palette.Muted)
+		frame.PutText(x, content.Y+2, "Choose a currency.", shell.palette.Muted)
+		frame.PutText(x, content.Y+5, "Currency: "+shell.amazon.currency.Value(), shell.palette.Heading)
+		frame.PutText(x, content.Y+7, "You can't change it after the first import.", shell.palette.Muted)
 	case amazonImportSource:
 		frame.PutText(x, content.Y+2, "Choose an Amazon order-history export directory.", shell.palette.Muted)
 		frame.PutText(x, content.Y+5, "Directory: "+shell.amazon.directory.Value(), shell.palette.Heading)
@@ -230,7 +215,10 @@ func (shell Shell) renderAmazonImport(frame *Frame, content Rect) {
 		shell.amazon.phase != amazonImportRunning {
 		frame.PutText(x, content.Y+content.Height-3, Truncate(shell.amazon.status, width), shell.palette.Warning)
 	}
-	if shell.amazon.phase == amazonImportSettings || shell.amazon.phase == amazonImportSource {
+	switch shell.amazon.phase {
+	case amazonImportSettings:
+		frame.PutText(x, content.Y+content.Height-2, "Enter Continue  Esc Cancel", shell.palette.Muted)
+	case amazonImportSource:
 		frame.PutText(x, content.Y+content.Height-2, "Tab/Shift+Tab Move  Enter Continue  Esc Cancel", shell.palette.Muted)
 	}
 }

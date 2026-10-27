@@ -18,6 +18,7 @@ it('keeps interrupted-claim recovery visible until explicitly dismissed', async 
     state: 'claiming',
     provider_kind: 'simplefin',
     progress: { fetched: 0, total: 0, verifying: false, percent: 0 },
+    bound: false,
     imported_transactions: 0,
   }
   const message = 'If the connection was not saved, revoke it in SimpleFIN and obtain a new token.'
@@ -57,6 +58,7 @@ it('confirms money settings before masked input and keeps invalid input for corr
         state: 'credentials_required',
         provider_kind: 'simplefin',
         progress: { fetched: 0, total: 0, verifying: false, percent: 0 },
+        bound: false,
         imported_transactions: 0,
       },
       busy: false,
@@ -84,11 +86,51 @@ it('confirms money settings before masked input and keeps invalid input for corr
   expect(input.value.length).toBe(8193)
   await fireEvent.input(input, { target: { value: 'synthetic-token' } })
   await fireEvent.submit(input.closest('form')!)
-  expect(controller.connect).toHaveBeenCalledWith('synthetic-token', { currency: 'USD', scale: 2 })
+  expect(controller.connect).toHaveBeenCalledWith('synthetic-token', { currency: 'USD' })
   expect(input.value).toBe('')
   await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   expect(controller.cancel).toHaveBeenCalledOnce()
   expect(oncancel).not.toHaveBeenCalled()
+})
+
+it('reconnects a connected profile with its own currency and decimal places', async () => {
+  const controller: SimpleFINOnboardingController = {
+    state: {
+      snapshot: {
+        protocol_version: 1,
+        profile_id: 'profile_example',
+        attempt_id: 'attempt_example',
+        state_version: 1,
+        state: 'credentials_required',
+        provider_kind: 'simplefin',
+        progress: { fetched: 0, total: 0, verifying: false, percent: 0 },
+        settings: { currency: 'JPY', scale: 2 },
+        bound: true,
+        imported_transactions: 0,
+      },
+      busy: false,
+      announcement: '',
+    },
+    start: vi.fn(),
+    connect: vi.fn(),
+    retry: vi.fn(),
+    restart: vi.fn(),
+    cancel: vi.fn(),
+    poll: vi.fn(),
+    destroy: vi.fn(),
+  }
+  render(SimpleFINOnboardingWizard, { controller, oncomplete: vi.fn(), oncancel: vi.fn() })
+
+  expect(screen.queryByLabelText('Currency')).toBeNull()
+  expect(screen.getByText('Import as JPY.')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+  const input = screen.getByLabelText('Setup token or Access URL')
+  await fireEvent.input(input, { target: { value: 'https://user:synthetic@example.com/access' } })
+  await fireEvent.submit(input.closest('form')!)
+  expect(controller.connect).toHaveBeenCalledWith('https://user:synthetic@example.com/access', {
+    currency: 'JPY',
+    scale: 2,
+  })
 })
 
 it('shows why a connect request failed next to the input', () => {
@@ -102,6 +144,7 @@ it('shows why a connect request failed next to the input', () => {
         state: 'credentials_required',
         provider_kind: 'simplefin',
         progress: { fetched: 0, total: 0, verifying: false, percent: 0 },
+        bound: false,
         imported_transactions: 0,
       },
       busy: false,

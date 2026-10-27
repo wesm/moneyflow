@@ -48,17 +48,20 @@ type Failure struct {
 
 // Snapshot is the detached presenter state; it never contains credentials.
 type Snapshot struct {
-	ProtocolVersion      uint16                  `json:"protocol_version"`
-	ProfileID            string                  `json:"profile_id"`
-	AttemptID            string                  `json:"attempt_id"`
-	StateVersion         uint64                  `json:"state_version"`
-	State                State                   `json:"state"`
-	ProviderKind         string                  `json:"provider_kind"`
-	Settings             *simplefin.ImportConfig `json:"settings,omitempty"`
-	Progress             provider.Progress       `json:"progress"`
-	ImportedTransactions int                     `json:"imported_transactions"`
-	NextEligible         time.Time               `json:"next_eligible"`
-	Failure              *Failure                `json:"failure,omitempty"`
+	ProtocolVersion uint16                  `json:"protocol_version"`
+	ProfileID       string                  `json:"profile_id"`
+	AttemptID       string                  `json:"attempt_id"`
+	StateVersion    uint64                  `json:"state_version"`
+	State           State                   `json:"state"`
+	ProviderKind    string                  `json:"provider_kind"`
+	Settings        *simplefin.ImportConfig `json:"settings,omitempty"`
+	// Bound reports that the profile already has a SimpleFIN connection. Settings are then the
+	// connection's own, and a connect action keeps them.
+	Bound                bool              `json:"bound"`
+	Progress             provider.Progress `json:"progress"`
+	ImportedTransactions int               `json:"imported_transactions"`
+	NextEligible         time.Time         `json:"next_eligible"`
+	Failure              *Failure          `json:"failure,omitempty"`
 }
 
 // StartRequest selects the profile and its presenter.

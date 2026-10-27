@@ -122,9 +122,4 @@ func TestShellProfileNameAndSettingsShowEditableCursor(t *testing.T) {
 		snapshot: formSnapshot(onboarding.StateSettingsRequired),
 	})
 	require.NotNil(t, shell.View().Cursor)
-	y := shell.View().Cursor.Y
-	shell = updateShell(t, shell, keyMessage("tab"))
-	require.NotNil(t, shell.View().Cursor)
-	assert.Greater(t, shell.View().Cursor.Y, y)
-	assert.Contains(t, strings.Join(shell.RenderScreen().Frame.PlainLines(), "\n"), "Decimal places")
 }

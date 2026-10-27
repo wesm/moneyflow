@@ -17,11 +17,45 @@ var (
 // Currency is an ISO currency identifier at a data boundary.
 type Currency string
 
+// StandardScale reports how many decimal places ISO 4217 gives the currency's minor unit.
+func StandardScale(currency Currency) uint8 {
+	if scale, ok := nonCentScales[currency]; ok {
+		return scale
+	}
+	return 2
+}
+
+// ponytail: a fixed copy of ISO 4217; add a currency when ISO gives a new one other than 2 places.
+var nonCentScales = map[Currency]uint8{
+	"BIF": 0, "CLP": 0, "DJF": 0, "GNF": 0, "ISK": 0, "JPY": 0, "KMF": 0, "KRW": 0, "PYG": 0,
+	"RWF": 0, "UGX": 0, "UYI": 0, "VND": 0, "VUV": 0, "XAF": 0, "XOF": 0, "XPF": 0,
+	"BHD": 3, "IQD": 3, "JOD": 3, "KWD": 3, "LYD": 3, "OMR": 3, "TND": 3,
+	"CLF": 4, "UYW": 4,
+}
+
 // Money is an exact signed minor-unit value.
 type Money struct {
 	Minor    int64
 	Currency Currency
 	Scale    uint8
+}
+
+// TrimExactZeroPrecision drops fraction digits beyond scale when they are all zeros, so a provider's
+// "100.00" reads as 100 in a currency without minor units. A nonzero digit beyond scale stays, and
+// ParseMoney rejects it.
+func TrimExactZeroPrecision(decimal string, scale uint8) string {
+	point := strings.IndexByte(decimal, '.')
+	if point < 0 || strings.LastIndexByte(decimal, '.') != point {
+		return decimal
+	}
+	fraction := decimal[point+1:]
+	if len(fraction) <= int(scale) || strings.Trim(fraction[scale:], "0") != "" {
+		return decimal
+	}
+	if scale == 0 {
+		return decimal[:point]
+	}
+	return decimal[:point+1+int(scale)]
 }
 
 // ParseMoney parses a decimal without using floating-point arithmetic.

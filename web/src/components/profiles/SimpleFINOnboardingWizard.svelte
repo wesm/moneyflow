@@ -13,12 +13,14 @@
   }
   let { controller, oncomplete, oncancel, onoffline, chrome = true }: Props = $props()
   let currency = $state('USD')
-  let scale = $state('2')
   let settingsReady = $state(false)
   let input = $state('')
   let validation = $state('')
   let elapsed = $state(0)
   const snapshot = $derived(controller.state.snapshot)
+  // A connected profile keeps its currency and decimal places, so setup asks only for its credential.
+  const bound = $derived(snapshot?.bound ? snapshot.settings : undefined)
+  const askCurrency = $derived(!bound && !settingsReady)
   const needsInput = $derived(
     snapshot?.state === 'credentials_required' || snapshot?.failure?.can_reenter,
   )
@@ -37,13 +39,13 @@
     }
   })
   async function submit(): Promise<void> {
-    const code = currency.trim().toUpperCase()
-    if (!/^[A-Z]{3}$/.test(code) || !/^[0-9]$/.test(scale)) {
-      validation = 'Use a three-letter currency code and 0–9 decimal places.'
+    const code = bound?.currency ?? currency.trim().toUpperCase()
+    if (!/^[A-Z]{3}$/.test(code)) {
+      validation = 'Enter a three-letter currency code, such as USD.'
       return
     }
     validation = ''
-    if (!settingsReady) {
+    if (askCurrency) {
       currency = code
       settingsReady = true
       return
@@ -54,7 +56,10 @@
     }
     const credential = input
     input = ''
-    await controller.connect(credential, { currency: code, scale: Number(scale) })
+    await controller.connect(
+      credential,
+      bound ? { currency: bound.currency, scale: bound.scale } : { currency: code },
+    )
   }
 </script>
 
@@ -94,8 +99,7 @@
             void submit()
           }}
         >
-          {#if !settingsReady}
-            <p>Use the currency of the accounts connected through SimpleFIN.</p>
+          {#if askCurrency}
             <label for="simplefin-currency">Currency</label>
             <TextInput
               id="simplefin-currency"
@@ -103,12 +107,13 @@
               block
               autofocus
               autocomplete="off"
+              ariaDescribedby="simplefin-currency-hint"
             />
-            <label for="simplefin-scale">Decimal places</label>
-            <TextInput id="simplefin-scale" bind:value={scale} block />
-            <p>For USD: 2 decimal places, e.g. 12.34.</p>
+            <p id="simplefin-currency-hint" class="profile-hint">
+              Use the currency of the accounts connected through SimpleFIN.
+            </p>
           {:else}
-            <p>Import as {currency} with {scale} decimal places.</p>
+            <p>Import as {bound?.currency ?? currency}.</p>
             <label for="simplefin-input">Setup token or Access URL</label>
             <TextInput
               id="simplefin-input"
@@ -129,11 +134,12 @@
               disabled={controller.state.busy}
               onclick={() => void controller.cancel()}>Cancel</Button
             >
-            {#if settingsReady}<Button type="button" onclick={() => (settingsReady = false)}
-                >Back</Button
+            {#if settingsReady && !bound}<Button
+                type="button"
+                onclick={() => (settingsReady = false)}>Back</Button
               >{/if}
             <Button type="submit" tone="info" surface="solid" disabled={controller.state.busy}
-              >{settingsReady ? 'Connect' : 'Continue'}</Button
+              >{askCurrency ? 'Continue' : 'Connect'}</Button
             >
           </div>
         </form>

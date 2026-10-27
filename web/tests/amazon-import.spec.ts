@@ -20,7 +20,7 @@ test('@smoke Amazon import preserves committed edits through reimport and reload
     await page.getByLabel('Profile name').fill('Amazon Orders')
     await page.getByLabel('Profile name').press('Enter')
 
-    await expect(page.getByRole('heading', { name: 'Confirm import settings' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Choose a currency' })).toBeVisible()
     await page.getByRole('button', { name: 'Continue' }).click()
     await page.getByLabel('Amazon CSV files').setInputFiles({
       name: 'Retail.OrderHistory.1.csv',

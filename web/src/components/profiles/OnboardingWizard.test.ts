@@ -159,11 +159,27 @@ describe('onboarding wizard', () => {
       settings: { currency: 'EUR', scale: 2 },
     }
     render(OnboardingWizard, { controller, oncomplete: vi.fn(), oncancel: vi.fn() })
+    expect(screen.getByText('This budget uses EUR.')).not.toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    // The budget's own decimal places go back unchanged, so the import matches YNAB exactly.
+    expect(controller.confirmSettings).toHaveBeenCalledWith({ currency: 'EUR', scale: 2 })
+  })
+
+  it('asks Monarch setup only for a currency and leaves its decimal places to the server', async () => {
+    const controller = stubController('settings_required')
+    render(OnboardingWizard, { controller, oncomplete: vi.fn(), oncancel: vi.fn() })
+
     const currency = screen.getByLabelText('Currency') as HTMLInputElement
-    expect(currency.readOnly).toBe(true)
-    expect(currency.value).toBe('EUR')
-    await fireEvent.click(screen.getByRole('button', { name: 'Continue with EUR / 2' }))
-    expect(controller.confirmSettings).toHaveBeenCalledWith('EUR', 2)
+    expect(currency.value).toBe('USD')
+    expect(description(currency)).toMatch(/can't change it after setup/)
+    await fireEvent.input(currency, { target: { value: 'us' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByRole('alert').textContent).toMatch(/three-letter currency code/)
+    expect(controller.confirmSettings).not.toHaveBeenCalled()
+
+    await fireEvent.input(currency, { target: { value: ' cad ' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(controller.confirmSettings).toHaveBeenCalledWith({ currency: 'CAD' })
   })
 
   it('waits for the canceled coordinator state before leaving the wizard', async () => {

@@ -8,10 +8,10 @@ and terminal setup, credential recovery, refresh timing, and history limits.
 
 ```bash
 # First connection in an empty data folder; paste at the masked prompt
-moneyflow provider connect simplefin --currency USD --scale 2
+moneyflow provider connect simplefin --currency USD
 
 # Retry import using a saved connection in an existing profile
-moneyflow provider connect simplefin --profile "Example SimpleFIN" --currency USD --scale 2
+moneyflow provider connect simplefin --profile "Example SimpleFIN" --currency USD
 
 # Open an existing profile by its exact name or ID
 moneyflow tui --profile "Example SimpleFIN"
@@ -22,7 +22,7 @@ moneyflow mcp --profile "Example SimpleFIN"
 | Flag | Meaning |
 | --- | --- |
 | `--currency` | Three-letter import currency |
-| `--scale` | Decimal places, 0 to 9; `2` stores `12.34` exactly |
+| `--scale` | Decimal places, 0 to 9, for a new profile; defaults to the currency's, such as `2` for USD. A connected profile keeps its own |
 | `--profile` | Existing profile name or ID |
 
 - In an empty data folder (`~/.moneyflow`, or the folder `MONEYFLOW_HOME` names), the connect
@@ -30,9 +30,10 @@ moneyflow mcp --profile "Example SimpleFIN"
   `moneyflow profile rename --profile SimpleFIN --name "Example SimpleFIN"`.
 - `--profile` selects an existing profile; it does not create a named one. To create one with
   your own name, use **Add profile** in `moneyflow web` or `moneyflow tui`.
-- At a terminal, the command prompts for omitted settings and reads the credential without echo.
-- With redirected input, pass both settings flags and send the credential through stdin from
-  your password manager.
+- At a terminal, the command prompts for an omitted currency and reads the credential without
+  echo.
+- With redirected input, pass `--currency` and send the credential through stdin from your
+  password manager.
 - Already saved settings stay authoritative on retry.
 - Local files are owner-private, not encrypted.
 

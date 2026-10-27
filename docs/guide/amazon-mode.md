@@ -28,7 +28,7 @@ The browser and the terminal use the same steps:
 2. Choose **Add profile** (`a`), then **Amazon orders** in the browser or **Amazon order
    history** in the terminal (`a`).
 3. Enter a profile name.
-4. Confirm the currency and decimal places. `USD` and `2` are preselected.
+4. Choose the currency. `USD` is preselected.
 5. Choose the source:
    - In the browser, select the order-history CSV files, or the unzipped export directory.
    - In the terminal, enter the path of the unzipped export directory.
@@ -40,7 +40,7 @@ From the command line, `provider import amazon` takes the unzipped directory. It
 named profile when it does not exist:
 
 ```bash
-moneyflow provider import amazon ~/Downloads/"Your Orders" --profile "Amazon Orders" --currency USD --scale 2
+moneyflow provider import amazon ~/Downloads/"Your Orders" --profile "Amazon Orders" --currency USD
 moneyflow tui --profile "Amazon Orders"
 ```
 
@@ -107,7 +107,8 @@ convert currencies.
 Required columns are `Order ID`, `Order Date`, `Product Name`, `Quantity`, `Total Owed`,
 `Order Status`, and `Shipment Status`. Optional columns include `ASIN`, `Unit Price`, and
 `Currency`. A blank quantity means 1. A missing ASIN gets a derived item identity. Amounts are
-parsed exactly; values Moneyflow cannot represent are rejected.
+parsed exactly; values Moneyflow cannot represent are rejected. Zeros beyond the currency's
+decimal places are dropped, so `1,000.00` reads as `1000` in JPY.
 
 | Limit | Maximum |
 | --- | --- |

@@ -12,7 +12,7 @@ describe('onboarding controller', () => {
     const controller = createOnboardingController({ profileID, transport })
 
     await controller.start()
-    await controller.confirmSettings('USD', 2)
+    await controller.confirmSettings({ currency: 'USD' })
 
     expect(transport.submit).toHaveBeenCalledWith(
       profileID,
@@ -21,7 +21,7 @@ describe('onboarding controller', () => {
         protocol_version: 2,
         expected_state_version: 1,
         action: 'confirm_settings',
-        settings: { currency: 'USD', scale: 2 },
+        settings: { currency: 'USD' },
       }),
     )
   })
@@ -132,7 +132,7 @@ describe('onboarding controller', () => {
     const controller = createOnboardingController({ profileID, transport })
 
     await controller.start()
-    await controller.confirmSettings('USD', 2)
+    await controller.confirmSettings({ currency: 'USD' })
 
     expect(transport.status).toHaveBeenCalledWith(profileID, 'attempt_synthetic')
     expect(controller.state.snapshot).toEqual(current)

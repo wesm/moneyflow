@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/provider/simplefin"
 	"github.com/wesm/moneyflow/internal/simplefinonboarding"
 )
@@ -33,16 +32,8 @@ func simplefinNeedsInput(snapshot simplefinonboarding.Snapshot) bool {
 }
 
 func (form *simplefinForm) importSettings() (simplefin.ImportConfig, bool) {
-	request, ok := form.settings.submit(onboarding.Snapshot{})
-	if !ok {
-		return simplefin.ImportConfig{}, false
-	}
-	settings := simplefin.ImportConfig{Currency: request.Settings.Currency, Scale: request.Settings.Scale}
-	if settings.Validate() != nil {
-		form.settings.status = "Use a three-letter currency code and 0–9 decimal places."
-		return settings, false
-	}
-	return settings, true
+	settings, ok := form.settings.settings()
+	return simplefin.ImportConfig{Currency: settings.Currency, Scale: settings.Scale}, ok
 }
 
 func (shell Shell) renderSimpleFINOnboarding(frame *Frame, content Rect) *tea.Cursor {
@@ -58,12 +49,8 @@ func (shell Shell) renderSimpleFINOnboarding(frame *Frame, content Rect) *tea.Cu
 		field := Rect{X: content.X, Y: y + 3, Width: content.Width}
 		if !shell.simplefin.settingsReady {
 			cursor = drawSetupInput(frame, field, "Currency", shell.simplefin.settings.currency, shell.palette)
-			field.Y += 3
-			if next := drawSetupInput(frame, field, "Decimal places", shell.simplefin.settings.scale, shell.palette); next != nil {
-				cursor = next
-			}
-			frame.PutText(x, y+8, "For USD: 2 decimal places, e.g. 12.34", shell.palette.Muted)
-			footer = "Tab/↑/↓ Move   Enter Continue   Esc Cancel"
+			frame.PutText(x, y+6, Truncate("Use the currency of your SimpleFIN accounts.", width), shell.palette.Muted)
+			footer = "Enter Continue   Esc Cancel"
 		} else {
 			cursor = drawSetupInput(frame, field, "Setup token or Access URL", shell.simplefin.input.input, shell.palette)
 			frame.PutText(x, y+6, "Paste from SimpleFIN Bridge. Input is masked.", shell.palette.Muted)

@@ -70,15 +70,15 @@ standard error and exits non-zero on failure.
 | `moneyflow openapi --format json` | Prints the HTTP API contract; the default format is `yaml` |
 | `moneyflow provider import list` | Lists bank CSV mappings, such as `chase_credit` |
 | `moneyflow provider import institution chase_credit PATH --profile NAME` | Imports Chase CSV files into a CSV profile; an unused name creates one. See [bank CSV](bank-csv.md) |
-| `moneyflow provider import amazon DIRECTORY --profile NAME --currency USD --scale 2` | Imports Amazon order-history files. See [Amazon](amazon-mode.md) |
+| `moneyflow provider import amazon DIRECTORY --profile NAME --currency USD` | Imports Amazon order-history files. See [Amazon](amazon-mode.md) |
 | `moneyflow profile export --profile NAME_OR_ID --output FILE` | Writes the whole profile to a new JSONL file |
 | `moneyflow profile import --input FILE --name NAME` | Creates a new profile from a JSONL file |
 | `moneyflow profile rename --profile NAME_OR_ID --name NAME` | [Renames a profile](../getting-started/go.md#rename-a-profile) in place |
 | `moneyflow mcp --profile NAME_OR_ID` | Serves MCP over standard input and output |
 | `moneyflow web --demo --open=false` | Serves the synthetic demo and prints its address |
 
-A new Amazon profile asks for its currency and scale unless you pass both `--currency` and
-`--scale`. Passing only one of them is an error. An existing profile keeps its saved values.
+A new Amazon profile asks for its currency unless you pass `--currency`. Its decimal places
+follow the currency unless you also pass `--scale`. An existing profile keeps its saved values.
 
 No command only lists profiles. Pass a name that does not exist and the error lists them, for
 example `no profile named "Unknown". Profiles: Example CSV, Example Copy`.

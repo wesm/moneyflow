@@ -5,7 +5,6 @@ import (
 	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -44,21 +43,23 @@ func newAmazonImportCommand(streams IOStreams) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			currencySet := command.Flags().Changed("currency")
-			scaleSet := command.Flags().Changed("scale")
-			if currencySet != scaleSet {
-				return errors.New("import Amazon: --currency and --scale must be provided together")
+			if command.Flags().Changed("scale") && !currencySet {
+				return errors.New("import Amazon: --scale needs --currency")
 			}
+			settingsCurrency := domain.Currency(strings.ToUpper(currency))
 			options := AmazonCommandOptions{
 				Directory: arguments[0], Profile: profile,
-				Settings:           amazon.Settings{Currency: domain.Currency(strings.ToUpper(currency)), Scale: scale},
-				SettingsConfigured: currencySet && scaleSet, CloneTaxonomyFrom: clone,
+				Settings: amazon.Settings{
+					Currency: settingsCurrency, Scale: flagScale(command, settingsCurrency, scale),
+				},
+				SettingsConfigured: currencySet, CloneTaxonomyFrom: clone,
 			}
 			return runAmazonImportCommand(command, streams, options)
 		},
 	}
 	command.Flags().StringVar(&profile, "profile", "", "profile name or ID (created when absent)")
 	command.Flags().StringVar(&currency, "currency", "", "three-letter import currency")
-	command.Flags().Uint8Var(&scale, "scale", 0, "currency minor-unit scale (0-9)")
+	command.Flags().Uint8Var(&scale, "scale", 0, scaleFlagUsage)
 	command.Flags().StringVar(&clone, "clone-taxonomy-from", "", "profile name or ID to clone taxonomy from on creation")
 	return command
 }
@@ -249,16 +250,10 @@ func resolveAmazonCommandSettings(
 	if currency == "" {
 		currency = "USD"
 	}
-	scaleText, err := promptCLI(command, streams, "Minor-unit scale [2]", false)
-	if err != nil {
-		return amazon.Settings{}, err
+	if !domain.IsValidCurrency(domain.Currency(currency)) {
+		return amazon.Settings{}, errors.New("enter a three-letter currency code, such as USD")
 	}
-	if strings.TrimSpace(scaleText) == "" {
-		scaleText = "2"
-	}
-	scale, err := strconv.ParseUint(strings.TrimSpace(scaleText), 10, 8)
-	if err != nil || scale > 9 || !domain.IsValidCurrency(domain.Currency(currency)) {
-		return amazon.Settings{}, errors.New("currency must have three letters and scale must be between 0 and 9")
-	}
-	return amazon.Settings{Currency: domain.Currency(currency), Scale: uint8(scale)}, nil
+	return amazon.Settings{
+		Currency: domain.Currency(currency), Scale: domain.StandardScale(domain.Currency(currency)),
+	}, nil
 }

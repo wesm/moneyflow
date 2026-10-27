@@ -173,7 +173,6 @@ components:
       required:
         - version
         - currency
-        - scale
       type: object
     AmazonImportStatusResponse:
       additionalProperties: false
@@ -1336,6 +1335,18 @@ components:
           type: integer
       required:
         - currency
+      type: object
+    OnboardingSettingsResponse:
+      additionalProperties: false
+      properties:
+        currency:
+          type: string
+        scale:
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+        - currency
         - scale
       type: object
     OnboardingStartBody:
@@ -1377,7 +1388,7 @@ components:
             - array
             - "null"
         settings:
-          $ref: "#/components/schemas/OnboardingSettingsInput"
+          $ref: "#/components/schemas/OnboardingSettingsResponse"
         state:
           type: string
         state_version:
@@ -2467,6 +2478,18 @@ components:
         - can_retry
         - can_reenter
       type: object
+    SimpleFINOnboardingSettingsInput:
+      additionalProperties: false
+      properties:
+        currency:
+          type: string
+        scale:
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+        - currency
+      type: object
     SimpleFINOnboardingSettingsResponse:
       additionalProperties: false
       properties:
@@ -2495,6 +2518,8 @@ components:
       properties:
         attempt_id:
           type: string
+        bound:
+          type: boolean
         failure:
           $ref: "#/components/schemas/SimpleFINOnboardingFailureResponse"
         imported_transactions:
@@ -2529,6 +2554,7 @@ components:
         - state
         - provider_kind
         - progress
+        - bound
         - imported_transactions
       type: object
     SimpleFINOnboardingSubmitBody:
@@ -2548,7 +2574,7 @@ components:
           minimum: 0
           type: integer
         settings:
-          $ref: "#/components/schemas/SimpleFINOnboardingSettingsResponse"
+          $ref: "#/components/schemas/SimpleFINOnboardingSettingsInput"
       required:
         - protocol_version
         - expected_state_version

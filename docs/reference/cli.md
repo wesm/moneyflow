@@ -129,20 +129,24 @@ running provider operation. Rename keeps the profile's ID, data, and credentials
 
 | Command | Flags |
 | --- | --- |
-| `provider connect monarch` | `--profile NAME_OR_ID`, `--currency CODE` (three-letter import currency), `--scale N` (minor-unit scale, 0–9), `--mtd` (load month-to-date transactions, from the 1st of the current month) |
+| `provider connect monarch` | `--profile NAME_OR_ID`, `--currency CODE` (three-letter import currency), `--scale N` (decimal places, 0–9), `--mtd` (load month-to-date transactions, from the 1st of the current month) |
 | `provider connect ynab` | `--profile NAME_OR_ID` |
-| `provider connect simplefin` | `--profile NAME_OR_ID`, `--currency CODE`, `--scale N` (decimal places; `2` stores 12.34 exactly; 0–9) |
+| `provider connect simplefin` | `--profile NAME_OR_ID`, `--currency CODE`, `--scale N` (decimal places, 0–9) |
 | `provider disconnect monarch` | `--profile NAME_OR_ID` |
 | `provider disconnect ynab` | `--profile NAME_OR_ID` |
-| `provider import amazon DIRECTORY` | `--profile NAME_OR_ID` (created when absent), `--currency CODE`, `--scale N` (0–9), `--clone-taxonomy-from NAME_OR_ID` (copy categories and groups from another profile when this one is created) |
+| `provider import amazon DIRECTORY` | `--profile NAME_OR_ID` (created when absent), `--currency CODE`, `--scale N` (decimal places, 0–9), `--clone-taxonomy-from NAME_OR_ID` (copy categories and groups from another profile when this one is created) |
 | `provider import list` | None |
 | `provider import institution MAPPING FILE_OR_DIRECTORY` | `--profile NAME_OR_ID` (required; an unused name creates a CSV profile), `--account LABEL` (card label, default `Chase Credit Card`; reuse it for repeat imports), `--force` (reparse unchanged files without overwriting local edits) |
 
 `provider import list` prints each mapping's name and description, such as
 `chase_credit  Chase credit-card exports (USD, 2 decimal places)`. Pass that name as `MAPPING`.
 
-When standard input is not a terminal, `provider connect simplefin` needs both `--currency` and
-`--scale`. Without them it stops with `provide --currency and --scale with standard input`.
+Without `--scale`, amounts use the currency's ISO 4217 decimal places, such as 2 for USD and 0
+for JPY. `--scale` needs `--currency`. A connected SimpleFIN profile keeps its own decimal places
+when it reconnects.
+
+When standard input is not a terminal, `provider connect simplefin` needs `--currency`. Without
+it the command stops with `provide --currency with standard input`.
 
 ## Other commands
 

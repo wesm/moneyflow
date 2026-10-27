@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -341,6 +343,32 @@ func TestSavedSessionRestartAndBindingGuards(t *testing.T) {
 	s = submitInput(t, h, s, ActionConnect, "https://other:credential@example.com/access")
 	require.Equal(t, StateIdentityMismatch, s.State)
 	require.Equal(t, []string{"claim", "save", "fetch", "fetch"}, h.events)
+}
+
+// A profile bound with decimal places other than its currency's ISO 4217
+// places keeps them when it reconnects after losing its saved Access URL, as
+// after a profile transfer.
+func TestReconnectKeepsTheBoundCurrencyAndScale(t *testing.T) {
+	h := newHarness(t)
+	bound := simplefin.ImportConfig{Currency: "JPY", Scale: 2}
+	s := startInput(t, h)
+	next, err := h.coordinator.Submit(t.Context(), SubmitRequest{ProfileID: s.ProfileID, AttemptID: s.AttemptID, ExpectedStateVersion: s.StateVersion, Action: ActionConnect, Input: []byte("synthetic-token"), Settings: bound})
+	require.NoError(t, err)
+	waitState(t, h.coordinator, next, StateComplete)
+	require.NoError(t, h.coordinator.Shutdown(t.Context()))
+	require.NoError(t, os.Remove(filepath.Join(h.paths.Root, "providers", "simplefin", "session.json")))
+	h.now = h.now.Add(time.Hour)
+	h.coordinator, err = NewCoordinator(h.coordinator.config)
+	require.NoError(t, err)
+
+	s = startInput(t, h)
+	require.True(t, s.Bound)
+	require.Equal(t, &bound, s.Settings)
+	inferred := simplefin.ImportConfig{Currency: "JPY", Scale: domain.StandardScale("JPY")}
+	next, err = h.coordinator.Submit(t.Context(), SubmitRequest{ProfileID: s.ProfileID, AttemptID: s.AttemptID, ExpectedStateVersion: s.StateVersion, Action: ActionConnect, Input: []byte(syntheticAccess), Settings: inferred})
+	require.NoError(t, err)
+	s = waitState(t, h.coordinator, next, StateComplete)
+	require.Equal(t, &bound, s.Settings)
 }
 
 type missingSessions struct{ *harness }

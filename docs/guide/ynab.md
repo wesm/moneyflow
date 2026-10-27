@@ -33,8 +33,7 @@ Developer Settings. The browser and the terminal use the same steps:
 4. Enter the personal access token, then create and confirm a Moneyflow account password. The
    password encrypts the token in the local vault.
 5. Choose the budget. YNAB's API calls it a plan.
-6. Check the currency and decimal scale. Moneyflow derives them from the budget, so you cannot
-   edit them.
+6. Check the budget currency. Moneyflow takes it from the budget, so you cannot edit it.
 7. Wait for the first import to finish.
 
 The budget's currency and scale bind the profile. Reconnecting cannot silently point the same

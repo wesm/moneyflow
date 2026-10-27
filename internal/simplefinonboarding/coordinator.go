@@ -139,11 +139,11 @@ func (c *Coordinator) Submit(ctx context.Context, request SubmitRequest) (Snapsh
 		if input == "" || len(input) > 8192 || request.Settings.Validate() != nil {
 			return Snapshot{}, &Error{Code: "input_invalid"}
 		}
-		if f.connection.Bound && !matchesBinding(f.connection, simplefin.Session{Version: 1, AccessURL: input, Import: request.Settings}) {
+		settings := connectSettings(f.connection, request.Settings)
+		if f.connection.Bound && !matchesBinding(f.connection, simplefin.Session{Version: 1, AccessURL: input, Import: settings}) {
 			c.transition(a, StateIdentityMismatch, &Failure{Code: string(provider.CodeIdentityMismatch), Message: "Use the original Access URL, or create a new profile for a new connection.", CanReenter: true})
 			return a.view(), nil
 		}
-		settings := request.Settings
 		a.snapshot.Settings = &settings
 		f.session, f.saved = nil, false
 		c.transition(a, StateClaiming, nil)
@@ -239,6 +239,12 @@ func (c *Coordinator) inspect(ctx context.Context, a *attempt) {
 		c.fail(a, "input_invalid", "Create a new profile for this SimpleFIN connection.", false, false)
 		return
 	}
+	if connection.Bound {
+		c.mu.Lock()
+		a.snapshot.Bound = true
+		a.snapshot.Settings = &simplefin.ImportConfig{Currency: connection.Currency, Scale: connection.Scale}
+		c.mu.Unlock()
+	}
 	session, _, err := runtime.Sessions.Load()
 	if err != nil || session.Validate() != nil {
 		c.setState(a, StateCredentialsRequired, nil)
@@ -328,6 +334,17 @@ func (c *Coordinator) importSaved(ctx context.Context, a *attempt) {
 		c.transition(a, StateComplete, nil)
 	}
 }
+
+// connectSettings returns the settings of a connect action. A connected profile keeps the decimal
+// places of its currency, so a client that inferred the currency's ISO 4217 places can reconnect a
+// profile bound with others. Only a new profile takes the scale that the request names.
+func connectSettings(connection app.ProviderConnectionState, settings simplefin.ImportConfig) simplefin.ImportConfig {
+	if connection.Bound && settings.Currency == connection.Currency {
+		settings.Scale = connection.Scale
+	}
+	return settings
+}
+
 func matchesBinding(connection app.ProviderConnectionState, session simplefin.Session) bool {
 	if session.Validate() != nil {
 		return false

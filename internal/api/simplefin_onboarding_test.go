@@ -88,7 +88,7 @@ func TestSimpleFINOnboardingAPILifecycle(t *testing.T) {
 		require.Equal(t, state, snapshot.State, "last status: %+v", &snapshot)
 	}
 	wait(simplefinonboarding.StateCredentialsRequired)
-	body := SimpleFINOnboardingSubmitBody{ProtocolVersion: 1, ExpectedStateVersion: snapshot.StateVersion, Action: simplefinonboarding.ActionConnect, Input: "synthetic-token", Settings: SimpleFINOnboardingSettingsResponse{Currency: "USD", Scale: 2}}
+	body := SimpleFINOnboardingSubmitBody{ProtocolVersion: 1, ExpectedStateVersion: snapshot.StateVersion, Action: simplefinonboarding.ActionConnect, Input: "synthetic-token", Settings: SimpleFINOnboardingSettingsInput{Currency: "USD"}}
 	wrongOrigin := requestScopedMutation(t, server, otherProfileID, statusPath+"/submit", body)
 	require.Equal(t, 403, wrongOrigin.Code)
 	issued, err := server.security.Issue(testProfileID)
@@ -163,7 +163,7 @@ func TestProfileCancelKeepsAProfileWhoseSimpleFINClaimBegan(t *testing.T) {
 				submitted := requestScopedMutation(t, server, testProfileID, statusPath+"/submit", SimpleFINOnboardingSubmitBody{
 					ProtocolVersion: 1, ExpectedStateVersion: snapshot.StateVersion,
 					Action: simplefinonboarding.ActionConnect, Input: "synthetic-token",
-					Settings: SimpleFINOnboardingSettingsResponse{Currency: "USD", Scale: 2},
+					Settings: SimpleFINOnboardingSettingsInput{Currency: "USD"},
 				})
 				require.Equal(t, http.StatusOK, submitted.Code, submitted.Body.String())
 				waitSimpleFINState(t, server, statusPath, simplefinonboarding.StateFailed)
@@ -236,4 +236,27 @@ func waitSimpleFINState(t *testing.T, server *Server, statusPath string, state s
 		}
 		time.Sleep(time.Millisecond)
 	}
+}
+
+func TestSimpleFINConnectWithoutAScaleUsesTheCurrencyDecimalPlaces(t *testing.T) {
+	t.Parallel()
+	server, _ := newLostClaimServer(t)
+	startPath, err := ProfileAPIPath("/", testProfileID, "simplefin-onboarding/start")
+	require.NoError(t, err)
+	started := requestScopedMutation(t, server, testProfileID, startPath, SimpleFINOnboardingStartBody{ProtocolVersion: 1})
+	require.Equal(t, http.StatusOK, started.Code, started.Body.String())
+	var snapshot SimpleFINOnboardingStatusResponse
+	require.NoError(t, json.Unmarshal(started.Body.Bytes(), &snapshot))
+	statusPath, err := ProfileAPIPath("/", testProfileID, "simplefin-onboarding/"+snapshot.AttemptID)
+	require.NoError(t, err)
+	snapshot = waitSimpleFINState(t, server, statusPath, simplefinonboarding.StateCredentialsRequired)
+
+	submitted := requestScopedMutation(t, server, testProfileID, statusPath+"/submit", SimpleFINOnboardingSubmitBody{
+		ProtocolVersion: 1, ExpectedStateVersion: snapshot.StateVersion,
+		Action: simplefinonboarding.ActionConnect, Input: "synthetic-token",
+		Settings: SimpleFINOnboardingSettingsInput{Currency: "KWD"},
+	})
+	require.Equal(t, http.StatusOK, submitted.Code, submitted.Body.String())
+	snapshot = waitSimpleFINState(t, server, statusPath, simplefinonboarding.StateFailed)
+	require.Equal(t, &SimpleFINOnboardingSettingsResponse{Currency: "KWD", Scale: 3}, snapshot.Settings)
 }

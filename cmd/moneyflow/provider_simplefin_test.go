@@ -51,7 +51,7 @@ func TestProviderConnectSimpleFINAndCachedStartup(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	streams := IOStreams{In: strings.NewReader("synthetic-token\n"), Out: &stdout, Err: &stderr, OpenSimpleFIN: factory}
 	command := newRootCommand(streams)
-	command.SetArgs([]string{"provider", "connect", "simplefin", "--currency", "USD", "--scale", "2"})
+	command.SetArgs([]string{"provider", "connect", "simplefin", "--currency", "USD"})
 	require.NoError(t, command.Execute())
 	require.Equal(t, 1, claims)
 	require.Equal(t, 13, requests)

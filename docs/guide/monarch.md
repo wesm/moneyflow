@@ -35,7 +35,8 @@ The browser and the terminal use the same steps:
 1. Run `moneyflow web` or `moneyflow tui`.
 2. Choose **Add profile** (`a`), then **Monarch Money** (`m`).
 3. Enter a profile name.
-4. Confirm the three-letter currency and its number of decimal places, such as `USD` and `2`.
+4. Choose the three-letter currency, such as `USD`. Monarch does not report one, and you cannot
+   change it after setup.
 5. Enter your Monarch email, password, and authenticator setup key.
 6. Create and confirm a Moneyflow account password. It encrypts the local credential vault.
 7. Wait for authentication and the first import to finish.
@@ -49,7 +50,7 @@ household and its money settings; it cannot silently switch to another provider 
 ### Connect from the command line
 
 ```bash
-moneyflow provider connect monarch --currency USD --scale 2
+moneyflow provider connect monarch --currency USD
 moneyflow provider connect monarch --profile "Example Profile"
 ```
 

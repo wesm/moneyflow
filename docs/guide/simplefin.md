@@ -20,8 +20,7 @@ same steps:
 1. Run `moneyflow web` or `moneyflow tui`.
 2. Choose **Add profile** (`a`), then **SimpleFIN (experimental)** (`s`).
 3. Enter a profile name.
-4. Confirm the three-letter currency and the decimal places. For USD, choose `USD` and `2`:
-   `12.34` becomes exactly `1234` minor units.
+4. Choose the three-letter currency of the connected accounts, such as `USD`.
 5. Paste the setup token or Access URL into the masked field.
 6. Wait for the first import to finish.
 
@@ -30,8 +29,9 @@ before it fetches transactions. SimpleFIN in Go uses no encryption password, and
 `moneyflow simplefin` command does not exist. The [SimpleFIN CLI reference](simplefin-cli.md)
 covers command-line setup and an optional public-demo check.
 
-Moneyflow never rounds an unrepresentable amount or uses floating point. Mixed currencies,
-custom currency identifiers, and partial-account errors stop the import.
+Moneyflow never rounds an unrepresentable amount or uses floating point. It drops zeros beyond
+the currency's decimal places, so `100.00` imports as `100` in JPY, but `100.50` stops the
+import. Mixed currencies, custom currency identifiers, and partial-account errors stop it too.
 
 ## Storage and recovery
 
@@ -41,8 +41,9 @@ either. Keep both on storage your account controls. Do not share the session fil
 backup.
 
 A connected profile stays bound to its original Access URL and money settings. If the local file
-is lost, restore that same Access URL. Replacement credentials need a **new profile**; they
-cannot silently rebind existing transaction identities. Cached data and local editing stay
+is lost, restore that same Access URL. Setup then keeps the profile's currency and decimal places
+and asks only for the Access URL. Replacement credentials need a **new profile**; they cannot
+silently rebind existing transaction identities. Cached data and local editing stay
 available when credentials are absent, revoked, or temporarily unavailable.
 
 ## Import and refresh

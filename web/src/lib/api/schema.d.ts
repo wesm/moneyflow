@@ -803,7 +803,7 @@ export interface components {
     AmazonImportStartBody: {
       currency: string
       /** Format: int32 */
-      scale: number
+      scale?: number
       taxonomy_source_id?: string
       version: string
     }
@@ -1217,6 +1217,11 @@ export interface components {
     OnboardingSettingsInput: {
       currency: string
       /** Format: int32 */
+      scale?: number
+    }
+    OnboardingSettingsResponse: {
+      currency: string
+      /** Format: int32 */
       scale: number
     }
     OnboardingStartBody: {
@@ -1234,7 +1239,7 @@ export interface components {
       protocol_version: number
       provider_kind: string
       remote_profiles?: components['schemas']['OnboardingRemoteProfileResponse'][] | null
-      settings?: components['schemas']['OnboardingSettingsInput']
+      settings?: components['schemas']['OnboardingSettingsResponse']
       state: string
       /** Format: int64 */
       state_version: number
@@ -1646,6 +1651,11 @@ export interface components {
       code: string
       message: string
     }
+    SimpleFINOnboardingSettingsInput: {
+      currency: string
+      /** Format: int32 */
+      scale?: number
+    }
     SimpleFINOnboardingSettingsResponse: {
       currency: string
       /** Format: int32 */
@@ -1657,6 +1667,7 @@ export interface components {
     }
     SimpleFINOnboardingStatusResponse: {
       attempt_id: string
+      bound: boolean
       failure?: components['schemas']['SimpleFINOnboardingFailureResponse']
       /** Format: int64 */
       imported_transactions: number
@@ -1679,7 +1690,7 @@ export interface components {
       input?: string
       /** Format: int32 */
       protocol_version: number
-      settings: components['schemas']['SimpleFINOnboardingSettingsResponse']
+      settings: components['schemas']['SimpleFINOnboardingSettingsInput']
     }
     StagedValues: {
       category?: string

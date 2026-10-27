@@ -62,7 +62,7 @@ func TestAmazonImportCommandShowsActionableCoordinateOnlyToInitiator(t *testing.
 	assert.NotContains(t, err.Error(), "Retail.OrderHistory")
 }
 
-func TestAmazonImportCommandRequiresCurrencyAndScaleTogether(t *testing.T) {
+func TestAmazonImportCommandRefusesAScaleWithoutACurrency(t *testing.T) {
 	called := false
 	command := newRootCommand(IOStreams{
 		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
@@ -71,11 +71,35 @@ func TestAmazonImportCommandRequiresCurrencyAndScaleTogether(t *testing.T) {
 			return amazonimport.Snapshot{}, errors.New("unexpected")
 		},
 	})
-	command.SetArgs([]string{"provider", "import", "amazon", "/orders", "--currency", "USD"})
+	command.SetArgs([]string{"provider", "import", "amazon", "/orders", "--scale", "2"})
 
 	err := command.Execute()
-	require.ErrorContains(t, err, "--currency and --scale must be provided together")
+	require.ErrorContains(t, err, "--scale needs --currency")
 	assert.False(t, called)
+}
+
+func TestAmazonImportCommandTakesTheCurrencyDecimalPlacesUnlessScaleIsGiven(t *testing.T) {
+	for _, test := range []struct {
+		args []string
+		want amazon.Settings
+	}{
+		{args: []string{"--currency", "kwd"}, want: amazon.Settings{Currency: "KWD", Scale: 3}},
+		{args: []string{"--currency", "KWD", "--scale", "2"}, want: amazon.Settings{Currency: "KWD", Scale: 2}},
+	} {
+		var got AmazonCommandOptions
+		command := newRootCommand(IOStreams{
+			In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+			ImportAmazon: func(_ context.Context, options AmazonCommandOptions, _ func(amazonimport.Progress)) (amazonimport.Snapshot, error) {
+				got = options
+				return amazonimport.Snapshot{State: amazonimport.StateComplete}, nil
+			},
+		})
+		command.SetArgs(append([]string{"provider", "import", "amazon", "/orders"}, test.args...))
+
+		require.NoError(t, command.Execute())
+		assert.Equal(t, test.want, got.Settings)
+		assert.True(t, got.SettingsConfigured)
+	}
 }
 
 func TestAmazonImportCommandCreatesAndInstallsProfile(t *testing.T) {
@@ -112,7 +136,7 @@ func TestAmazonImportCommandCreatesAndInstallsProfile(t *testing.T) {
 func TestAmazonImportCommandPromptsForCreationSettings(t *testing.T) {
 	t.Setenv("MONEYFLOW_HOME", t.TempDir())
 	source := writeAmazonCommandSource(t)
-	prompt := &recordingPrompt{answers: []string{"EUR", "2"}}
+	prompt := &recordingPrompt{answers: []string{"EUR"}}
 	command := newRootCommand(IOStreams{
 		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{}, Prompt: prompt.Prompt,
 	})
@@ -121,7 +145,6 @@ func TestAmazonImportCommandPromptsForCreationSettings(t *testing.T) {
 	require.NoError(t, command.Execute())
 	assert.Equal(t, []promptCall{
 		{label: "Import currency [USD]", secret: false},
-		{label: "Minor-unit scale [2]", secret: false},
 	}, prompt.calls)
 }
 

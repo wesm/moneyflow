@@ -247,8 +247,7 @@ func submitCLISettings(
 			return snapshot, errors.New("selected YNAB budget has no money interpretation")
 		}
 		answer, err := promptCLI(command, streams, fmt.Sprintf(
-			"Use %s with minor-unit scale %d? [Y/n]",
-			snapshot.Settings.Currency, snapshot.Settings.Scale,
+			"Use the budget currency, %s? [Y/n]", snapshot.Settings.Currency,
 		), false)
 		if err != nil {
 			return snapshot, err
@@ -273,22 +272,12 @@ func submitCLISettings(
 	if currency == "" {
 		currency = "USD"
 	}
-	scaleText, err := promptCLI(command, streams, "Minor-unit scale [2]", false)
-	if err != nil {
-		return snapshot, err
-	}
-	scaleText = strings.TrimSpace(scaleText)
-	if scaleText == "" {
-		scaleText = "2"
-	}
-	scale, err := strconv.ParseUint(scaleText, 10, 8)
-	if err != nil || scale > 9 {
-		return snapshot, errors.New("minor-unit scale must be between 0 and 9")
-	}
 	return coordinator.Submit(command.Context(), onboarding.SubmitRequest{
 		ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
 		ExpectedStateVersion: snapshot.StateVersion, Action: onboarding.ActionConfirmSettings,
-		Settings: &onboarding.SettingsInput{Currency: domain.Currency(currency), Scale: uint8(scale)},
+		Settings: &onboarding.SettingsInput{
+			Currency: domain.Currency(currency), Scale: domain.StandardScale(domain.Currency(currency)),
+		},
 	})
 }
 

@@ -86,11 +86,11 @@ func TestProviderOutputIsCredentialBlindOnFailure(t *testing.T) {
 	}
 }
 
-func TestProviderConnectPromptsToConfirmUSD2WhenConfigIsAbsent(t *testing.T) {
+func TestProviderConnectPromptsForTheCurrencyWhenConfigIsAbsent(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "profile")
 	t.Setenv("MONEYFLOW_HOME", root)
 	now := time.Date(2026, time.August, 15, 21, 59, 0, 0, time.UTC)
-	prompts := &recordingPrompt{answers: append([]string{"", ""}, commandCredentialSetupAnswers()...)}
+	prompts := &recordingPrompt{answers: append([]string{""}, commandCredentialSetupAnswers()...)}
 	stdout, stderr, err := executeProviderCommandRaw(
 		t,
 		&fakeMonarchConnector{session: testMonarchSession(now, "subscription-example")},
@@ -103,7 +103,6 @@ func TestProviderConnectPromptsToConfirmUSD2WhenConfigIsAbsent(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Contains(t, stderr, "Import currency [USD]")
-	assert.Contains(t, stderr, "Minor-unit scale [2]")
 	assert.Equal(t, "Imported 1 posted transaction.\n", stdout)
 }
 
@@ -828,7 +827,7 @@ func executeProviderCommand(
 	args ...string,
 ) (string, string, error) {
 	if len(args) >= 3 && args[0] == "provider" && args[1] == "connect" && args[2] == "monarch" {
-		args = append(args, "--currency", "USD", "--scale", "2")
+		args = append(args, "--currency", "USD")
 	}
 	return executeProviderCommandRaw(t, connector, source, prompt, args...)
 }

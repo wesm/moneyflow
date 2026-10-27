@@ -38,7 +38,6 @@
 
   let { controller, oncomplete, oncancel, onoffline, chrome = true }: Props = $props()
   let currency = $state('USD')
-  let scale = $state('2')
   let accountPassword = $state('')
   let email = $state('')
   let password = $state('')
@@ -52,10 +51,7 @@
   const provider = $derived(providerName(snapshot?.provider_kind))
 
   $effect(() => {
-    if (snapshot?.settings) {
-      currency = snapshot.settings.currency
-      scale = snapshot.settings.scale.toString(10)
-    }
+    if (snapshot?.settings) currency = snapshot.settings.currency
     if (snapshot?.state === 'complete') oncomplete()
     if (snapshot?.state === 'canceled') oncancel()
   })
@@ -65,20 +61,14 @@
     return () => controller.destroy()
   })
 
-  async function submitSettings(): Promise<void> {
-    const parsed = Number(scale)
+  async function submitCurrency(): Promise<void> {
     const normalizedCurrency = currency.trim().toUpperCase()
-    if (
-      !/^[A-Z]{3}$/.test(normalizedCurrency) ||
-      !Number.isInteger(parsed) ||
-      parsed < 0 ||
-      parsed > 9
-    ) {
-      validation = 'Enter a three-letter currency and 0 to 9 decimal places.'
+    if (!/^[A-Z]{3}$/.test(normalizedCurrency)) {
+      validation = 'Enter a three-letter currency code, such as USD.'
       return
     }
     validation = ''
-    await controller.confirmSettings(normalizedCurrency, parsed)
+    await controller.confirmSettings({ currency: normalizedCurrency })
   }
 
   async function submitUnlock(): Promise<void> {
@@ -184,17 +174,24 @@
           <p>Looking for a reusable encrypted session before asking for credentials.</p>
         </div>
         {#if snapshot}<Button onclick={() => void cancel()}>Cancel</Button>{/if}
+      {:else if snapshot.state === 'settings_required' && snapshot.provider_kind === 'ynab' && snapshot.settings}
+        {@const settings = snapshot.settings}
+        <h1 id="onboarding-title">Budget currency</h1>
+        <p>This budget uses {settings.currency}.</p>
+        <div class="profile-actions">
+          <Button onclick={() => void cancel()}>Cancel</Button><Button
+            tone="info"
+            surface="solid"
+            onclick={() => void controller.confirmSettings(settings)}>Continue</Button
+          >
+        </div>
       {:else if snapshot.state === 'settings_required'}
-        <h1 id="onboarding-title">Confirm import settings</h1>
-        <p>
-          Confirm the currency and how many decimal places its amounts use, such as USD and 2. They
-          cannot change after setup.
-        </p>
+        <h1 id="onboarding-title">Choose a currency</h1>
         <form
           class="profile-form"
           onsubmit={(event) => {
             event.preventDefault()
-            void submitSettings()
+            void submitCurrency()
           }}
         >
           <label for="onboarding-currency">Currency</label>
@@ -202,23 +199,19 @@
             id="onboarding-currency"
             bind:value={currency}
             block
-            readonly={snapshot.provider_kind === 'ynab'}
+            autofocus
             autocomplete="off"
+            ariaDescribedby="onboarding-currency-hint"
           />
-          <label for="onboarding-scale">Decimal places</label>
-          <TextInput
-            id="onboarding-scale"
-            bind:value={scale}
-            block
-            readonly={snapshot.provider_kind === 'ynab'}
-            autocomplete="off"
-          />
+          <p id="onboarding-currency-hint" class="profile-hint">
+            {provider} doesn't report a currency. You can't change it after setup.
+          </p>
           {#if validation}<p role="alert" class="editing-error">{validation}</p>{/if}
           <div class="profile-actions">
             <Button type="button" onclick={() => void cancel()}>Cancel</Button><Button
               type="submit"
               tone="info"
-              surface="solid">Continue with {currency || 'USD'} / {scale || '2'}</Button
+              surface="solid">Continue</Button
             >
           </div>
         </form>

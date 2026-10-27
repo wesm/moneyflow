@@ -58,6 +58,8 @@ local journal or committed data.
 - A cancelled empty addition can roll back. A profile with durable session, vault, or import
   state stays recoverable.
 - YNAB presents attempt-scoped plan choices and derives currency and scale from the chosen plan.
+- Monarch, SimpleFIN, and Amazon setup ask only for a currency. The scale is its ISO 4217 decimal
+  places, such as 2 for USD and 0 for JPY. An API or CLI caller can still name a scale.
 - Amazon uses explicit currency confirmation, optional one-time taxonomy cloning, and file
   source selection.
 - Recovery ends with a pristine database and preserved credential files. Reconnect is the normal

@@ -41,7 +41,7 @@ export interface OnboardingState {
 export interface OnboardingController {
   readonly state: OnboardingState
   start(settings?: OnboardingSettings): Promise<void>
-  confirmSettings(currency: string, scale: number): Promise<void>
+  confirmSettings(settings: OnboardingSettings): Promise<void>
   unlock(accountPassword: string): Promise<void>
   submitCredentials(credentials: OnboardingCredentials): Promise<void>
   submitYNABCredentials(credentials: OnboardingYNABCredentials): Promise<void>
@@ -251,8 +251,7 @@ export function createOnboardingController(options: {
       return state
     },
     start,
-    confirmSettings: (currency, scale) =>
-      submit('confirm_settings', { settings: { currency, scale } }),
+    confirmSettings: (settings) => submit('confirm_settings', { settings }),
     unlock: (accountPassword) =>
       submit('unlock', { unlock: { account_password: accountPassword } }),
     submitCredentials: (credentials) => submit('submit_credentials', { credentials }),
@@ -285,7 +284,8 @@ function announcementFor(snapshot: OnboardingStatus): string {
   const names: Record<string, string> = {
     inspect: 'Inspecting profile…',
     validate_session: 'Checking saved session…',
-    settings_required: 'Confirm import settings.',
+    settings_required:
+      snapshot.provider_kind === 'ynab' ? 'Confirm the budget currency.' : 'Choose a currency.',
     unlock_required: `Unlock saved ${provider} credentials.`,
     credentials_required: `Enter ${provider} credentials.`,
     remote_profile_required: 'Choose a YNAB budget.',

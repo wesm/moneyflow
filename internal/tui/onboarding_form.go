@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -14,22 +13,16 @@ import (
 
 type settingsForm struct {
 	currency textinput.Model
-	scale    textinput.Model
-	focused  int
 	status   string
-	readonly bool
+	// budget holds a YNAB budget's own money settings, which the form shows and confirms unchanged.
+	budget *onboarding.Settings
 }
 
 func newSettingsForm() (settingsForm, tea.Cmd) {
 	currency := textinput.New()
-	currency.Prompt = "Import currency: "
 	currency.SetValue("USD")
 	currency.SetWidth(16)
-	scale := textinput.New()
-	scale.Prompt = "Decimal places: "
-	scale.SetValue("2")
-	scale.SetWidth(8)
-	form := settingsForm{currency: currency, scale: scale}
+	form := settingsForm{currency: currency}
 	return form, form.currency.Focus()
 }
 
@@ -38,54 +31,48 @@ func newSettingsFormForSnapshot(snapshot onboarding.Snapshot) (settingsForm, tea
 	if snapshot.ProviderKind != "ynab" || snapshot.Settings == nil {
 		return form, command
 	}
-	form.currency.SetValue(string(snapshot.Settings.Currency))
-	form.scale.SetValue(strconv.Itoa(int(snapshot.Settings.Scale)))
+	budget := *snapshot.Settings
+	form.budget = &budget
+	form.currency.SetValue(string(budget.Currency))
 	form.currency.Blur()
-	form.scale.Blur()
-	form.readonly = true
 	return form, nil
 }
 
 func (form *settingsForm) submit(snapshot onboarding.Snapshot) (onboarding.SubmitRequest, bool) {
-	currency := strings.ToUpper(strings.TrimSpace(form.currency.Value()))
-	scale, err := strconv.ParseUint(strings.TrimSpace(form.scale.Value()), 10, 8)
-	if currency == "" || err != nil || scale > 9 {
-		form.status = "Enter a currency and decimal places from 0 to 9."
+	settings, ok := form.settings()
+	if !ok {
 		return onboarding.SubmitRequest{}, false
 	}
-	form.status = ""
 	return onboarding.SubmitRequest{
 		ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
 		ExpectedStateVersion: snapshot.StateVersion, Action: onboarding.ActionConfirmSettings,
-		Settings: &onboarding.SettingsInput{Currency: domain.Currency(currency), Scale: uint8(scale)},
+		Settings: &settings,
 	}, true
 }
 
+// settings reads the chosen currency, whose amounts use its ISO 4217 decimal places.
+func (form *settingsForm) settings() (onboarding.SettingsInput, bool) {
+	if form.budget != nil {
+		return onboarding.SettingsInput{Currency: form.budget.Currency, Scale: form.budget.Scale}, true
+	}
+	currency := domain.Currency(strings.ToUpper(strings.TrimSpace(form.currency.Value())))
+	if !domain.IsValidCurrency(currency) {
+		form.status = "Enter a three-letter currency code, such as USD."
+		return onboarding.SettingsInput{}, false
+	}
+	form.status = ""
+	return onboarding.SettingsInput{Currency: currency, Scale: domain.StandardScale(currency)}, true
+}
+
 func (form settingsForm) update(message tea.KeyPressMsg) (settingsForm, *onboarding.SubmitRequest, tea.Cmd) {
-	if form.readonly {
-		if message.Keystroke() == "enter" {
-			return form, &onboarding.SubmitRequest{}, nil
-		}
-		return form, nil, nil
-	}
-	if message.Keystroke() == "tab" || message.Keystroke() == "shift+tab" ||
-		message.Keystroke() == "up" || message.Keystroke() == "down" {
-		step := 1
-		if message.Keystroke() == "shift+tab" || message.Keystroke() == "up" {
-			step = -1
-		}
-		form.focused = (form.focused + step + 2) % 2
-		return form, nil, form.focus()
-	}
 	if message.Keystroke() == "enter" {
 		return form, &onboarding.SubmitRequest{}, nil
 	}
-	var command tea.Cmd
-	if form.focused == 0 {
-		form.currency, command = form.currency.Update(message)
-	} else {
-		form.scale, command = form.scale.Update(message)
+	if form.budget != nil {
+		return form, nil, nil
 	}
+	var command tea.Cmd
+	form.currency, command = form.currency.Update(message)
 	return form, nil, command
 }
 
@@ -223,15 +210,6 @@ func (form *remoteProfileForm) submit(snapshot onboarding.Snapshot) (onboarding.
 		ExpectedStateVersion: snapshot.StateVersion, Action: onboarding.ActionSelectRemoteProfile,
 		RemoteProfileChoiceID: form.choices[form.cursor].ChoiceID,
 	}, true
-}
-
-func (form *settingsForm) focus() tea.Cmd {
-	form.currency.Blur()
-	form.scale.Blur()
-	if form.focused == 0 {
-		return form.currency.Focus()
-	}
-	return form.scale.Focus()
 }
 
 type unlockForm struct {

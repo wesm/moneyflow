@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
@@ -30,36 +29,26 @@ func newSimpleFINConnectCommand(streams IOStreams) *cobra.Command {
 	var scale uint8
 	command := &cobra.Command{Use: "simplefin", Short: "Connect SimpleFIN (experimental; edits stay in Moneyflow)", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			settings := simplefin.ImportConfig{Currency: domain.Currency(currency), Scale: scale}
-			if !command.Flags().Changed("currency") || !command.Flags().Changed("scale") {
+			if command.Flags().Changed("scale") && !command.Flags().Changed("currency") {
+				return errors.New("SimpleFIN: --scale needs --currency")
+			}
+			settingsCurrency := domain.Currency(currency)
+			if !command.Flags().Changed("currency") {
 				if streams.Prompt == nil && !cliInputIsTerminal(command) {
-					return errors.New("SimpleFIN: provide --currency and --scale with standard input")
+					return errors.New("SimpleFIN: provide --currency with standard input")
 				}
-				if !command.Flags().Changed("currency") {
-					value, err := promptCLI(command, streams, "Currency [USD]", false)
-					if err != nil {
-						return err
-					}
-					value = strings.ToUpper(strings.TrimSpace(value))
-					if value == "" {
-						value = "USD"
-					}
-					settings.Currency = domain.Currency(value)
+				value, err := promptCLI(command, streams, "Currency [USD]", false)
+				if err != nil {
+					return err
 				}
-				if !command.Flags().Changed("scale") {
-					value, err := promptCLI(command, streams, "Decimal places [2, for example 12.34; 0 for whole units]", false)
-					if err != nil {
-						return err
-					}
-					if value == "" {
-						value = "2"
-					}
-					number, err := strconv.ParseUint(value, 10, 8)
-					if err != nil {
-						return errors.New("enter decimal places from 0 to 9")
-					}
-					settings.Scale = uint8(number)
+				value = strings.ToUpper(strings.TrimSpace(value))
+				if value == "" {
+					value = "USD"
 				}
+				settingsCurrency = domain.Currency(value)
+			}
+			settings := simplefin.ImportConfig{
+				Currency: settingsCurrency, Scale: flagScale(command, settingsCurrency, scale),
 			}
 			if err := settings.Validate(); err != nil {
 				return err
@@ -75,7 +64,7 @@ func newSimpleFINConnectCommand(streams IOStreams) *cobra.Command {
 			return runCLISimpleFINOnboarding(command, streams, opened, settings)
 		}}
 	command.Flags().StringVar(&currency, "currency", "", "three-letter import currency")
-	command.Flags().Uint8Var(&scale, "scale", 0, "decimal places (2 stores 12.34 exactly; 0-9)")
+	command.Flags().Uint8Var(&scale, "scale", 0, scaleFlagUsage)
 	command.Flags().StringVar(&profile, "profile", "", "profile name or ID")
 	return command
 }

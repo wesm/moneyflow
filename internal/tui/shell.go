@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -1065,7 +1064,6 @@ func (shell Shell) startFinanceAmazonImport() (tea.Model, tea.Cmd) {
 	shell.amazon.allowTaxonomy = false
 	shell.amazon.settings = amazon.Settings{Currency: settings.Currency, Scale: settings.Scale}
 	shell.amazon.currency.SetValue(string(settings.Currency))
-	shell.amazon.scale.SetValue(strconv.Itoa(int(settings.Scale)))
 	shell.amazon.phase = amazonImportSource
 	shell.amazon.focused = 0
 	shell.status = "Choose another Amazon order-history export."

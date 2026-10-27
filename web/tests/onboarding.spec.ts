@@ -17,8 +17,9 @@ test('keyboard onboarding creates, connects, imports, and opens one profile', as
     await name.pressSequentially('Household')
     await name.press('Enter')
 
-    await expect(page.getByRole('heading', { name: 'Confirm import settings' })).toBeVisible()
-    await page.getByRole('button', { name: 'Continue with USD / 2' }).press('Enter')
+    await expect(page.getByRole('heading', { name: 'Choose a currency' })).toBeVisible()
+    await expect(page.getByLabel('Currency', { exact: true })).toHaveValue('USD')
+    await page.getByRole('button', { name: 'Continue' }).press('Enter')
     await expect(page.getByRole('heading', { name: 'Connect Monarch Money' })).toBeVisible()
     await page.getByLabel('Monarch email').fill('user@example.test')
     await page.getByLabel('Monarch password').fill('synthetic-password')
@@ -46,7 +47,7 @@ test('canceling a newly added profile leaves no orphan in the catalog', async ({
     await page.getByRole('button', { name: /Monarch Money/ }).click()
     await page.getByLabel('Profile name').fill('Canceled Setup')
     await page.getByRole('button', { name: 'Create profile' }).click()
-    await expect(page.getByRole('heading', { name: 'Confirm import settings' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Choose a currency' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Cancel' }).click()
 
@@ -78,11 +79,9 @@ test('@smoke YNAB setup, category clear, w Enter, and refresh preserve committed
 
     await expect(page.getByRole('heading', { name: 'Choose a YNAB budget' })).toBeVisible()
     await page.getByRole('button', { name: /Example Budget/ }).press('Enter')
-    await expect(page.getByRole('heading', { name: 'Confirm import settings' })).toBeVisible()
-    await expect(page.getByLabel('Currency')).toHaveValue('USD')
-    await expect(page.getByLabel('Currency')).toHaveAttribute('readonly', '')
-    await expect(page.getByLabel('Decimal places')).toHaveValue('2')
-    await page.getByRole('button', { name: 'Continue with USD / 2' }).press('Enter')
+    await expect(page.getByRole('heading', { name: 'Budget currency' })).toBeVisible()
+    await expect(page.getByText('This budget uses USD.')).toBeVisible()
+    await page.getByRole('button', { name: 'Continue' }).press('Enter')
 
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
     await expect(page).toHaveURL(/\/moneyflow\/p\/profile_[a-z2-7]{26}\/\?cur=USD%3A2&v=1$/)
