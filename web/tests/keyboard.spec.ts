@@ -664,7 +664,9 @@ test('help traps shortcuts and restores the grid', async ({ page, server }) => {
   await page.keyboard.press('?')
   const help = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
   await expect(help).toBeVisible()
-  await expect(help).toContainText('Quit application · TUI only')
+  await expect(help.getByRole('listitem').filter({ hasText: 'All transactions' })).toContainText(
+    'd',
+  )
   await page.keyboard.press('g')
   await expect(breadcrumb(page)).toHaveText('Merchants')
   await expect(page).toHaveURL(viewBefore)

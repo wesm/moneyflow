@@ -8,6 +8,7 @@ import { testProjection } from '../../test/projection'
 const hintCapabilities = [
   'view.drill',
   'view.cycle-grouping',
+  'view.show-detail',
   'overlay.search',
   'time.toggle-granularity',
   'time.choose',
@@ -44,10 +45,11 @@ function projection(overrides: Partial<ViewProjection> = {}): ViewProjection {
 }
 
 describe('keyHints', () => {
-  it('offers open, group, time, search, period, and help in a grouped view', () => {
+  it('offers open, group, all transactions, time, search, period, and help in a grouped view', () => {
     expect(keyHints(projection({ view: view('aggregate') }), false)).toEqual([
       { key: '↵', label: 'Open' },
       { key: 'g', label: 'Group' },
+      { key: 'd', label: 'All transactions' },
       { key: 't', label: 'Time' },
       { key: '/', label: 'Search' },
       { key: 'p', label: 'Period' },
@@ -110,7 +112,7 @@ describe('keyHints', () => {
       view: view('aggregate'),
       capabilities: capabilities(['view.drill']).filter(({ id }) => id !== 'time.choose'),
     })
-    expect(keyHints(grouped, false).map(({ key }) => key)).toEqual(['g', 't', '/', '?'])
+    expect(keyHints(grouped, false).map(({ key }) => key)).toEqual(['g', 'd', 't', '/', '?'])
 
     const selected = projection({
       view: view('aggregate'),
@@ -145,7 +147,7 @@ describe('keyHints', () => {
         },
         statistics: [],
       })
-      expect(keyHints(empty, false).map(({ key }) => key)).toEqual(['g', 't', '/', 'p', '?'])
+      expect(keyHints(empty, false).map(({ key }) => key)).toEqual(['g', 'd', 't', '/', 'p', '?'])
     }
   })
 

@@ -27,13 +27,12 @@ function timeHint(projection: ViewProjection): string {
 }
 
 function groupedHints(projection: ViewProjection): CandidateHint[] {
+  const breakdown = Boolean(projection.view.sub_grouping)
   return [
     { capability: 'view.drill', key: '↵', label: 'Open' },
-    {
-      capability: 'view.cycle-grouping',
-      key: 'g',
-      label: projection.view.sub_grouping ? 'Break down' : 'Group',
-    },
+    { capability: 'view.cycle-grouping', key: 'g', label: breakdown ? 'Break down' : 'Group' },
+    // A host can keep its view list far from the workspace, so the key names the way out.
+    ...(breakdown ? [] : [{ capability: 'view.show-detail', key: 'd', label: 'All transactions' }]),
     { capability: 'time.toggle-granularity', key: 't', label: timeHint(projection) },
     { capability: 'overlay.search', key: '/', label: 'Search' },
     { capability: 'time.choose', key: 'p', label: 'Period' },

@@ -1236,36 +1236,46 @@
     color: var(--text-secondary);
   }
 
+  /* Sections flow down two columns and never split, so short sections leave no gaps. */
   .help-groups {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-6);
-    overflow: auto;
+    columns: 2 300px;
+    column-gap: var(--space-8);
+  }
+  .help-groups section {
+    margin-bottom: var(--space-5);
+    break-inside: avoid;
   }
   .help-groups h2 {
-    margin: 0 0 var(--space-3);
-    font-size: var(--font-size-sm);
+    margin: 0 0 var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
   }
   .help-list {
     display: flex;
     margin: 0;
     padding: 0;
     flex-direction: column;
-    gap: var(--space-3);
+    gap: var(--space-2);
     list-style: none;
   }
   .help-list li {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: var(--space-3);
-    color: var(--text-secondary);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
   }
-  .help-list li > :first-child {
-    flex: 1;
+  .help-list__keys {
+    display: flex;
+    flex-shrink: 0;
+    gap: var(--space-1);
   }
   .help-list__unavailable {
     color: var(--text-muted);
-    text-decoration: line-through;
   }
   .mf-lock-banner {
     padding-bottom: var(--space-4);
