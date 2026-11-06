@@ -1,7 +1,8 @@
 import { cleanup, render, screen, within } from '@testing-library/svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import HelpDialog from './HelpDialog.svelte'
+import HelpDialog, { describedActionIDs } from './HelpDialog.svelte'
+import { browserShortcutIDs } from '../lib/shortcuts'
 
 type Capability = {
   id: string
@@ -70,13 +71,9 @@ describe('HelpDialog', () => {
     expect(screen.queryByText('Unavailable')).toBeNull()
   })
 
-  it('lists a keyed capability it has no entry for under its server description', () => {
-    render(HelpDialog, {
-      capabilities: [capability('view.future-thing', 'z')],
-      onclose: () => undefined,
-    })
-    expect(screen.getByRole('heading', { name: 'More' })).not.toBeNull()
-    expect(within(row('server text for view.future-thing')).getByLabelText('z')).not.toBeNull()
+  it('describes every browser shortcut', () => {
+    const missing = browserShortcutIDs.filter((id) => !describedActionIDs.has(id))
+    expect(missing).toEqual([])
   })
 
   it('lists only capabilities that have a key', () => {

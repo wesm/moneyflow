@@ -1,13 +1,4 @@
-<script lang="ts">
-  import { KbdBadge, Modal } from '@kenn-io/kit-ui'
-
-  import type { ViewProjection } from '../lib/api/client'
-
-  type Capability = NonNullable<ViewProjection['capabilities']>[number]
-  interface Props {
-    capabilities: Capability[]
-    onclose: () => void
-  }
+<script module lang="ts">
   /** One help row: the capabilities it describes and the browser keys that reach them. */
   interface Entry {
     ids: string[]
@@ -15,14 +6,6 @@
     /** The browser's wording; without one the row uses the server's description. */
     label?: string
   }
-  interface Row {
-    id: string
-    label: string
-    keys: string[][]
-    available: boolean
-    reason: string | undefined
-  }
-
   // The browser's own help, written for the browser's keys. The server's descriptions and
   // categories serve the terminal, whose layout and wording do not fit here.
   const sections: Array<{ title: string; entries: Entry[] }> = [
@@ -115,7 +98,29 @@
       ],
     },
   ]
-  const described = new Set(sections.flatMap((section) => section.entries.flatMap((e) => e.ids)))
+  /** The actions this help describes; every browser shortcut must be one of them. */
+  export const describedActionIDs: ReadonlySet<string> = new Set(
+    sections.flatMap((section) => section.entries.flatMap((entry) => entry.ids)),
+  )
+</script>
+
+<script lang="ts">
+  import { KbdBadge, Modal } from '@kenn-io/kit-ui'
+
+  import type { ViewProjection } from '../lib/api/client'
+
+  type Capability = NonNullable<ViewProjection['capabilities']>[number]
+  interface Props {
+    capabilities: Capability[]
+    onclose: () => void
+  }
+  interface Row {
+    id: string
+    label: string
+    keys: string[][]
+    available: boolean
+    reason: string | undefined
+  }
 
   let { capabilities, onclose }: Props = $props()
 
@@ -134,15 +139,12 @@
         reason: offered.find((c) => c.reason)?.reason,
       }
     }
-    const listed = sections.map((section) => ({
-      title: section.title,
-      rows: section.entries.flatMap((entry) => rowFor(entry) ?? []),
-    }))
-    // A key the server adds before this table knows it still appears, in the server's words.
-    const more = [...keyed.values()]
-      .filter((c) => !described.has(c.id))
-      .map((c) => rowFor({ ids: [c.id], keys: [[c.key_display!]] })!)
-    return [...listed, { title: 'More', rows: more }].filter((group) => group.rows.length > 0)
+    return sections
+      .map((section) => ({
+        title: section.title,
+        rows: section.entries.flatMap((entry) => rowFor(entry) ?? []),
+      }))
+      .filter((group) => group.rows.length > 0)
   })
 </script>
 

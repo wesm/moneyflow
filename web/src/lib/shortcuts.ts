@@ -166,6 +166,9 @@ const bindings = [
   },
 ] as const
 
+/** The capability behind each browser shortcut. */
+export const browserShortcutIDs: readonly string[] = bindings.map((binding) => binding.id)
+
 export function validateCapabilities(capabilities: Capability[]): void {
   const byID = new Map(capabilities.map((capability) => [capability.id, capability]))
   for (const binding of bindings) {
