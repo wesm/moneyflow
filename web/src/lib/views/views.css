@@ -1274,7 +1274,7 @@
     flex-shrink: 0;
     gap: var(--space-1);
   }
-  .help-list__unavailable {
+  .help-list li.help-list__unavailable {
     color: var(--text-muted);
   }
   .mf-lock-banner {
