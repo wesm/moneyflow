@@ -35,6 +35,7 @@ earlier views but don't restore a selection.
 | --- | --- | --- |
 | Change the grouping | `g`, `1`–`5` | An **Explore** entry in the sidebar |
 | Group by Time; cycle year, month, day | `t` | **Time** in the sidebar |
+| List every transaction | `d` | **All transactions** in the sidebar |
 | Open a group | Enter | Double-click the row; on a phone, tap it |
 | Go back | Esc | Click an earlier breadcrumb |
 | Break a group down by another grouping | `g`, `t` | **Break down by** |
@@ -220,4 +221,4 @@ entered. Re-enter passwords, tokens, and Access URLs.
 - No currency conversion.
 - Charts, totals, Trend, and vs prior use committed values.
 - The In, Out, Share, Trend, and vs prior columns can't be sorted.
-- No command palette; `?` lists the actions for the current view.
+- No command palette; `?` lists the browser's keys and dims those the current view can't use.

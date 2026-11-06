@@ -664,7 +664,16 @@ test('help traps shortcuts and restores the grid', async ({ page, server }) => {
   await page.keyboard.press('?')
   const help = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
   await expect(help).toBeVisible()
-  await expect(help).toContainText('Quit application · TUI only')
+  await expect(help.getByRole('listitem').filter({ hasText: 'All transactions' })).toContainText(
+    'd',
+  )
+  // A grouped view cannot delete, so its key is dimmed next to one it can use.
+  const color = (label: string) =>
+    help
+      .getByRole('listitem')
+      .filter({ hasText: label })
+      .evaluate((row) => getComputedStyle(row).color)
+  expect(await color('Delete transaction')).not.toBe(await color('All transactions'))
   await page.keyboard.press('g')
   await expect(breadcrumb(page)).toHaveText('Merchants')
   await expect(page).toHaveURL(viewBefore)

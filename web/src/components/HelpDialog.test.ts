@@ -1,67 +1,97 @@
-import { cleanup, render, screen } from '@testing-library/svelte'
+import { cleanup, render, screen, within } from '@testing-library/svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import HelpDialog from './HelpDialog.svelte'
+import HelpDialog, { describedActionIDs } from './HelpDialog.svelte'
+import { browserShortcutIDs } from '../lib/shortcuts'
+
+type Capability = {
+  id: string
+  key_display?: string
+  description: string
+  category: string
+  available: boolean
+}
+
+function capability(id: string, key: string, available = true): Capability {
+  return {
+    id,
+    key_display: key,
+    description: `server text for ${id}`,
+    category: 'Views',
+    available,
+  }
+}
+
+function row(label: string): HTMLElement {
+  const item = screen.getByText(label).closest('li')
+  if (!item) throw new Error(`no row for ${label}`)
+  return item
+}
 
 describe('HelpDialog', () => {
   afterEach(cleanup)
 
-  it('groups server capabilities, marks unavailable actions, and identifies TUI-only keys', () => {
+  it('lists browser shortcuts under browser sections with their browser keys', () => {
     render(HelpDialog, {
       capabilities: [
-        {
-          id: 'overlay.search',
-          key_display: '/',
-          description: 'Search transactions',
-          category: 'Filters',
-          available: true,
-        },
-        {
-          id: 'transaction.edit-merchant',
-          key_display: 'm',
-          description: 'Edit merchant name',
-          category: 'Actions',
-          available: false,
-        },
+        capability('cursor.up', '↑/k'),
+        capability('view.show-detail', 'd'),
+        capability('view.find-duplicates', 'D'),
+        capability('selection.toggle-all', 'ctrl+a'),
+        capability('overlay.search', '/'),
       ],
       onclose: () => undefined,
     })
-    expect(screen.getByRole('heading', { name: 'Filters' })).not.toBeNull()
-    expect(screen.getByText('Edit merchant name').closest('li')?.textContent).toContain(
-      'Unavailable',
-    )
-    expect(screen.getByLabelText('q').closest('li')?.textContent).toContain('TUI only')
-    expect(screen.getByLabelText('Ctrl+C').closest('li')?.textContent).toContain('TUI only')
+    const views = screen.getByRole('heading', { name: 'Views' }).closest('section')!
+    expect(within(views).getByText('All transactions')).not.toBeNull()
+    expect(within(row('All transactions')).getByLabelText('d')).not.toBeNull()
+    expect(within(row('Duplicates')).getByLabelText('Shift D')).not.toBeNull()
+    expect(within(row('Select all')).getByLabelText('Ctrl A')).not.toBeNull()
+    expect(within(row('Previous row')).getByLabelText('↑')).not.toBeNull()
+    expect(within(row('Previous row')).getByLabelText('k')).not.toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Sort' })).toBeNull()
+  })
+
+  it('leaves out terminal-only keys and the separate close button', () => {
+    render(HelpDialog, {
+      capabilities: [capability('overlay.search', '/')],
+      onclose: () => undefined,
+    })
+    expect(screen.queryByText(/TUI only/)).toBeNull()
+    expect(screen.queryByLabelText('Ctrl+C')).toBeNull()
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+
+  it('keeps an unavailable shortcut in its place without striking it out', () => {
+    render(HelpDialog, {
+      capabilities: [capability('changes.undo', 'u', false)],
+      onclose: () => undefined,
+    })
+    expect(row('Undo')).not.toBeNull()
+    expect(screen.queryByText('Unavailable')).toBeNull()
+  })
+
+  it('describes every browser shortcut', () => {
+    const missing = browserShortcutIDs.filter((id) => !describedActionIDs.has(id))
+    expect(missing).toEqual([])
   })
 
   it('lists only capabilities that have a key', () => {
     render(HelpDialog, {
       capabilities: [
-        {
-          id: 'overlay.search',
-          key_display: '/',
-          description: 'Search transactions',
-          category: 'Filters',
-          available: true,
-        },
+        capability('overlay.search', '/'),
         {
           id: 'view.set-currency',
           description: 'Show one currency',
           category: '',
           available: true,
         },
-        {
-          id: 'sort.set',
-          description: 'Sort by a column',
-          category: '',
-          available: false,
-        },
+        { id: 'sort.set', description: 'Sort by a column', category: '', available: false },
       ],
       onclose: () => undefined,
     })
-    expect(screen.getByText('Search transactions')).not.toBeNull()
+    expect(screen.getByText('Search')).not.toBeNull()
     expect(screen.queryByText('Show one currency')).toBeNull()
     expect(screen.queryByText('Sort by a column')).toBeNull()
-    expect(screen.queryByRole('heading', { name: 'Navigation' })).toBeNull()
   })
 })
