@@ -37,6 +37,11 @@ const views: ViewInfo[] = [
   { id: 'amazon', label: 'Import Amazon orders', group: 'maintain' },
 ]
 
+/** Whether a string names one of moneyflow's views. */
+export function isViewID(value: string): value is ViewID {
+  return views.some((view) => view.id === value)
+}
+
 /** The views a profile of this kind offers, in the order moneyflow's sidebar lists them. */
 export function viewsFor(kind: ProviderKind): ViewInfo[] {
   return views.filter((view) => view.id !== 'amazon' || kind === 'amazon')
