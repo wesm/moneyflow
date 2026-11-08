@@ -100,7 +100,7 @@ describe('FinanceGrid', () => {
     expect(row.getAttribute('aria-selected')).toBe('true')
     expect(row.getAttribute('aria-rowindex')).toBe('2')
     expect(row.id).toBe('moneyflow-row-row-0')
-    expect(headers()).toEqual(['', 'Date', 'Merchant', 'Category', 'Account', 'Amount', 'Flags'])
+    expect(headers()).toEqual(['', 'Date', 'Merchant', 'Category', 'Account', 'Flags', 'Amount'])
     expect(cell(row, 'amount')?.textContent?.trim()).toBe('-$12.34')
     expect(cell(row, 'merchant')?.textContent?.trim()).toBe('Example Merchant')
     expect(screen.getByRole('columnheader', { name: 'Date' }).getAttribute('aria-sort')).toBe(

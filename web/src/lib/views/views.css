@@ -949,7 +949,7 @@
   .mf-table__editable {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: var(--space-2);
     min-width: 0;
   }
@@ -1661,8 +1661,28 @@
   .mf-calendar--weeks .mf-calendar__days {
     grid-column: 2;
     grid-template-columns: none;
+    grid-template-rows: repeat(7, auto);
     grid-auto-flow: column;
     grid-auto-columns: minmax(0, 1fr);
+  }
+  /* A year of weeks leaves each column a few pixels wide; the days stay square at that width and
+     the weekday initials share their rows. */
+  .mf-calendar--weeks .mf-day {
+    aspect-ratio: 1;
+    padding: 0;
+  }
+  .mf-calendar--weeks .mf-calendar__rows {
+    grid-template-rows: repeat(7, minmax(0, 1fr));
+    align-items: center;
+  }
+  .mf-calendar--weeks .mf-calendar__weekday {
+    line-height: 0;
+  }
+  .mf-calendar--weeks .mf-day--in::after {
+    inset: 0;
+    width: 3px;
+    height: 3px;
+    margin: auto;
   }
   /* Levels mix one hue; the darkest stays light enough for the day number to read in both themes. */
   .mf-day,
@@ -1710,6 +1730,10 @@
   }
   .mf-day--cursor {
     outline: 2px solid var(--text-primary);
+  }
+  /* A ring as thick as a few-pixel day would cover it and pass the panel's edge. */
+  .mf-calendar--weeks .mf-day--cursor {
+    outline-width: 1px;
   }
   .mf-legend,
   .mf-legend__in {

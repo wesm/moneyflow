@@ -422,3 +422,24 @@ test('duplicate review shows every column without scrolling on a desktop', async
   const amount = await insets(dialog, dialog.getByRole('columnheader', { name: 'Amount' }))
   expect(amount.right).toBeGreaterThanOrEqual(12)
 })
+
+test('a year of daily spending draws square days that stay inside the panel', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  const calendar = page.locator('.mf-calendar--weeks')
+  await expect(calendar).toBeVisible()
+  const days = await calendar.locator('.mf-day').evaluateAll((elements) =>
+    elements.map((element) => {
+      const box = element.getBoundingClientRect()
+      return { width: box.width, height: box.height, right: box.right }
+    }),
+  )
+  expect(days.length).toBeGreaterThan(300)
+  for (const day of days) expect(Math.abs(day.width - day.height)).toBeLessThan(1)
+  const panel = await calendar.evaluate((element) => element.getBoundingClientRect().right)
+  expect(Math.max(...days.map((day) => day.right))).toBeLessThanOrEqual(panel + 0.5)
+})

@@ -163,12 +163,12 @@ function timeColumns(): Column[] {
     metric('in', 'In', undefined, 4),
     metric('out', 'Out', undefined, 4),
     metric('net', 'Net', 'amount'),
-    // The bar takes the room the columns leave, ahead of the short period labels.
+    // The bar grows to a readable length; Period takes the rest, so the figures stay together.
     {
       key: 'net_bar',
       label: 'Net bar',
       align: 'start',
-      width: 'minmax(8rem, 1fr)',
+      width: 'minmax(8rem, 20rem)',
       min: 8,
       dropOrder: 1,
     },
@@ -207,8 +207,9 @@ function transactionColumns(projection: ViewProjection): Column[] {
     { ...text('merchant', 1), label: amazon ? 'Product' : 'Merchant', min: 10 },
     { ...text('category', 2), label: 'Category', min: 8, dropOrder: 4 },
     { ...text('account', 3), label: amazon ? 'Order' : 'Account', min: 8, dropOrder: 1 },
-    metric('amount', 'Amount', 'amount'),
+    // Flags sit before Amount, so the amounts end at the table's right edge as in a ledger.
     { key: 'flags', label: 'Flags', align: 'start', width: '6.5rem', min: 6.5, dropOrder: 2 },
+    metric('amount', 'Amount', 'amount'),
   ]
 }
 

@@ -41,8 +41,8 @@ test('@smoke Amazon import preserves committed edits through reimport and reload
       'Product',
       'Category',
       'Order',
-      'Amount',
       'Flags',
+      'Amount',
     ])
     await page.keyboard.press('i')
     await expect(page.getByRole('dialog', { name: 'Transaction information' })).toContainText(

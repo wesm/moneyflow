@@ -181,21 +181,22 @@ describe('columnsFor', () => {
       'merchant',
       'category',
       'account',
-      'amount',
       'flags',
+      'amount',
     ])
-    expect(labels(detail()).slice(1, 6)).toEqual([
+    expect(labels(detail()).slice(1)).toEqual([
       'Date',
       'Merchant',
       'Category',
       'Account',
+      'Flags',
       'Amount',
     ])
   })
 
   it('relabels Merchant as Product and Account as Order in Amazon profiles', () => {
     const amazon = labels(detail({ profile_kind: 'amazon' }))
-    expect(amazon.slice(1, 6)).toEqual(['Date', 'Product', 'Category', 'Order', 'Amount'])
+    expect(amazon.slice(1)).toEqual(['Date', 'Product', 'Category', 'Order', 'Flags', 'Amount'])
   })
 })
 
@@ -244,11 +245,14 @@ describe('columnTracks', () => {
     expect(slackTaker(narrow)).toEqual(['category'])
   })
 
-  it('gives the room in Time to the Net bar, and to Period once the bar drops', () => {
+  it('caps the Net bar in Time and gives the rest of the room to Period', () => {
     const time = columnsFor(
       grouped({ grouping: 'time', sort_fields: ['time_period', 'count', 'amount'] }),
     )
-    expect(tracks(time)).toMatchObject({ period: 'minmax(0, auto)', net_bar: 'minmax(8rem, 1fr)' })
+    expect(tracks(time)).toMatchObject({
+      period: 'minmax(0, auto)',
+      net_bar: 'minmax(8rem, 20rem)',
+    })
     const narrow = time.filter((column) => column.key !== 'net_bar')
     expect(columnTracks(narrow).join(' ')).not.toContain('fr')
     expect(slackTaker(narrow)).toEqual(['period'])
@@ -301,11 +305,11 @@ describe('columnsThatFit', () => {
   })
 
   it('drops Account, Flags, Date, and Category from transactions, never Merchant or Amount', () => {
-    // ☐ 2, Date 6, Merchant 10, Category 8, Account 8, Amount and Flags 6.5 each.
+    // ☐ 2, Date 6, Merchant 10, Category 8, Account 8, Flags and Amount 6.5 each.
     const transactions = columnsFor(detail(dated))
     const shown = (rem: number) => columnsThatFit(transactions, rem).map((column) => column.key)
     expect(shown(47.25)).toEqual(transactions.map((column) => column.key))
-    expect(shown(47)).toEqual(['select', 'date', 'merchant', 'category', 'amount', 'flags'])
+    expect(shown(47)).toEqual(['select', 'date', 'merchant', 'category', 'flags', 'amount'])
     expect(shown(38)).toEqual(['select', 'date', 'merchant', 'category', 'amount'])
     expect(shown(32)).toEqual(['select', 'merchant', 'category', 'amount'])
     expect(shown(10)).toEqual(['select', 'merchant', 'amount'])
