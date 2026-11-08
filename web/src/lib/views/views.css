@@ -124,6 +124,28 @@
     color: var(--text-secondary);
   }
 
+  /* Import result counts: label, then its count right-aligned beside it. */
+  .editing-summary {
+    display: grid;
+    grid-template-columns: max-content max-content;
+    gap: var(--space-3) var(--space-7);
+    margin: 0;
+  }
+
+  .editing-summary div {
+    display: contents;
+  }
+
+  .editing-summary dt {
+    color: var(--text-muted);
+  }
+
+  .editing-summary dd {
+    margin: 0;
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+  }
+
   .moneyflow-message {
     max-width: 32rem;
   }
