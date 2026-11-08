@@ -347,3 +347,78 @@ test('the views style only what sits inside their root', async ({ page, server }
   })
   expect(display).toEqual({ inside: 'flex', outside: 'block' })
 })
+
+/** How far `inner` sits inside `outer` on each side, in CSS pixels. */
+async function insets(
+  outer: Locator,
+  inner: Locator,
+): Promise<{ left: number; right: number; top: number }> {
+  const [o, i] = await Promise.all([outer.boundingBox(), inner.boundingBox()])
+  if (!o || !i) throw new Error('both boxes must be on screen')
+  return { left: i.x - o.x, right: o.x + o.width - (i.x + i.width), top: i.y - o.y }
+}
+
+for (const viewport of viewports) {
+  test(`the workspace keeps a side gutter at ${viewport.name} width`, async ({ page, server }) => {
+    await page.setViewportSize(viewport)
+    await openMoneyflow(page, server)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const gutter = await insets(page.locator('main').last(), grid)
+    expect(gutter.left).toBeGreaterThanOrEqual(12)
+    expect(gutter.right).toBeGreaterThanOrEqual(12)
+  })
+
+  test(`transaction information is padded and fits at ${viewport.name} width`, async ({
+    page,
+    server,
+  }) => {
+    await page.setViewportSize(viewport)
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('i')
+    const drawer = page.getByRole('dialog', { name: 'Transaction information' })
+    await expectFullyWithinViewport(drawer, viewport)
+    const label = drawer.getByText('Merchant', { exact: true })
+    expect((await insets(drawer, label)).left).toBeGreaterThanOrEqual(12)
+    // A label and its value share a line instead of stacking with a browser indent.
+    const [labelBox, valueBox] = await Promise.all([
+      label.boundingBox(),
+      label.locator('xpath=following-sibling::dd[1]').boundingBox(),
+    ])
+    expect(Math.abs(labelBox!.y - valueBox!.y)).toBeLessThan(4)
+  })
+
+  test(`export controls stay inside the dialog at ${viewport.name} width`, async ({
+    page,
+    server,
+  }) => {
+    await page.setViewportSize(viewport)
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Shift+E')
+    const dialog = page.getByRole('dialog', { name: 'Export transactions' })
+    await expectFullyWithinViewport(dialog, viewport)
+    for (const name of ['Export format', 'Export scope']) {
+      const control = dialog.getByRole('radiogroup', { name }).or(dialog.getByLabel(name)).first()
+      const inset = await insets(dialog, control)
+      expect(inset.left).toBeGreaterThanOrEqual(8)
+      expect(inset.right).toBeGreaterThanOrEqual(8)
+    }
+  })
+}
+
+test('duplicate review shows every column without scrolling on a desktop', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openMoneyflow(page, server)
+  await page.keyboard.press('Shift+D')
+  const dialog = page.getByRole('dialog', { name: 'Duplicate transactions' })
+  const grid = dialog.getByRole('grid', { name: 'Likely duplicate transactions' })
+  await expect(grid).toBeVisible()
+  const overflow = await grid.evaluate((element) => element.scrollWidth - element.clientWidth)
+  expect(overflow, `grid overflows by ${overflow}px`).toBe(0)
+  const amount = await insets(dialog, dialog.getByRole('columnheader', { name: 'Amount' }))
+  expect(amount.right).toBeGreaterThanOrEqual(12)
+})

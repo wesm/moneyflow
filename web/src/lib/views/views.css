@@ -162,7 +162,9 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-4);
-    padding: var(--space-4);
+    /* The workspace body reaches var(--space-2) past this for focus rings, so content sits
+       var(--space-6) in, level with the command bar. */
+    padding: calc(var(--space-5) + var(--space-2)) calc(var(--space-6) + var(--space-2));
   }
   .app-shell__table {
     min-width: 0;
@@ -1223,8 +1225,8 @@
   .editing-actions {
     display: flex;
     justify-content: flex-end;
-    gap: var(--space-2);
-    margin-top: var(--space-3);
+    gap: var(--space-4);
+    margin-top: var(--space-5);
   }
 
   .editing-error {
@@ -1310,7 +1312,7 @@
   }
   .mf-workspace .mf-chart-states {
     gap: var(--space-4);
-    padding: var(--space-2);
+    padding: var(--space-5) var(--space-6);
   }
   .mf-chart-states--stale {
     opacity: var(--opacity-disabled);
@@ -1758,7 +1760,7 @@
     /* Phone frame: two command bar rows, with 44 px touch targets. */
     .mf-command-bar {
       gap: 0;
-      padding: var(--space-1) var(--space-2);
+      padding: var(--space-1) var(--space-6);
     }
     .mf-command-bar__leading,
     .mf-command-bar__controls {

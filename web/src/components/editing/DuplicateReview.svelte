@@ -83,7 +83,12 @@
     oncancel={() => controller.cancelDelete()}
   />
 {:else}
-  <Modal title="Duplicate transactions" closeLabel="Close duplicate review" onclose={close}>
+  <Modal
+    title="Duplicate transactions"
+    closeLabel="Close duplicate review"
+    maxWidth="min(960px, calc(100vw - 32px))"
+    onclose={close}
+  >
     <p>
       {duplicateState.projection?.total_groups ?? 0} duplicate
       {(duplicateState.projection?.total_groups ?? 0) === 1 ? 'group' : 'groups'} ·
@@ -177,30 +182,46 @@
   .duplicate-grid__row {
     display: grid;
     grid-template-columns: 4rem 7rem minmax(10rem, 1.4fr) minmax(9rem, 1fr) minmax(9rem, 1fr) 7rem;
+    box-sizing: border-box;
     inline-size: 100%;
-    gap: var(--kit-space-2);
+    gap: var(--space-4);
     align-items: center;
     text-align: start;
   }
   .duplicate-grid__header {
     font-weight: 700;
-    padding: var(--kit-space-2);
+    padding: var(--space-4);
   }
   .duplicate-grid__row {
     border: 0;
-    border-block-start: 1px solid var(--kit-border-subtle);
+    border-block-start: 1px solid var(--border-muted);
     background: transparent;
     color: inherit;
-    padding: var(--kit-space-2);
+    padding: var(--space-4);
   }
-  .duplicate-grid__row:hover,
+  .duplicate-grid__row:hover {
+    background: var(--bg-surface-hover);
+  }
   .duplicate-grid__row--focused {
-    background: var(--kit-surface-raised);
+    background: color-mix(in srgb, var(--accent-blue) 16%, transparent);
+  }
+  .duplicate-grid__row[aria-selected='true'] {
+    background: color-mix(in srgb, var(--accent-blue) 30%, transparent);
+  }
+  .duplicate-grid__header {
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+  }
+  .duplicate-grid__header > :last-child,
+  .duplicate-grid__row > :last-child {
+    text-align: end;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
   dl {
     display: grid;
     grid-template-columns: max-content 1fr;
-    gap: var(--kit-space-2) var(--kit-space-4);
+    gap: var(--space-4) var(--space-6);
   }
   dt {
     font-weight: 700;
