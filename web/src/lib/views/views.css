@@ -184,9 +184,8 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-4);
-    /* The workspace body reaches var(--space-2) past this for focus rings, so content sits
-       var(--space-6) in, level with the command bar. */
-    padding: calc(var(--space-5) + var(--space-2)) calc(var(--space-6) + var(--space-2));
+    /* Level with the command bar's side padding. Wider costs the 960 px table its insight columns. */
+    padding: calc(var(--space-5) + var(--space-2)) var(--space-5);
   }
   .app-shell__table {
     min-width: 0;
@@ -213,7 +212,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-3) var(--space-6);
-    padding: var(--space-3) var(--space-6);
+    padding: var(--space-3) var(--space-5);
     border-bottom: 1px solid var(--border-default);
     background: var(--bg-surface);
   }
@@ -1334,7 +1333,7 @@
   }
   .mf-workspace .mf-chart-states {
     gap: var(--space-4);
-    padding: var(--space-5) var(--space-6);
+    padding: var(--space-5);
   }
   .mf-chart-states--stale {
     opacity: var(--opacity-disabled);
@@ -1806,7 +1805,7 @@
     /* Phone frame: two command bar rows, with 44 px touch targets. */
     .mf-command-bar {
       gap: 0;
-      padding: var(--space-1) var(--space-6);
+      padding: var(--space-1) var(--space-5);
     }
     .mf-command-bar__leading,
     .mf-command-bar__controls {
