@@ -890,3 +890,18 @@ test('a staged duplicate deletion whose reload fails says it was staged and offe
     await server.stop()
   }
 })
+
+test('a sidebar link opened in a new tab shows its view', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const link = page.getByRole('link', { name: 'All transactions' })
+  const href = await link.getAttribute('href')
+  expect(href).toBe('#detail')
+
+  // A new tab, or a pasted link, loads the page with only the hash to go on.
+  const tab = await page.context().newPage()
+  await tab.goto(new URL(href!, page.url()).toString())
+
+  await expect(tab.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  await expect(tab).toHaveURL(/[?&]mode=detail(?:&|$)/)
+  expect(new URL(tab.url()).hash).toBe('')
+})

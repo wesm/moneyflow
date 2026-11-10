@@ -65,7 +65,12 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<Modal title="Export transactions" closeLabel="Cancel export" onclose={close}>
+<Modal
+  title="Export transactions"
+  closeLabel="Cancel export"
+  width="min(480px, calc(100vw - 32px))"
+  onclose={close}
+>
   <div class="export-dialog" bind:this={container}>
     <fieldset>
       <legend class="editing-label">Format</legend>
@@ -90,7 +95,9 @@
       />
     </fieldset>
     <p>{exportState.count} committed {exportState.count === 1 ? 'transaction' : 'transactions'}</p>
-    <p class="export-dialog__estimate">The completed file records the authoritative row count.</p>
+    <p class="export-dialog__estimate">
+      If transactions change before the export finishes, the file has the final count.
+    </p>
     {#if (exportState.preview?.active_operations ?? 0) > 0}
       <p role="note">
         {exportState.preview?.active_operations} pending
@@ -107,7 +114,7 @@
       </p>
     {/if}
     {#if exportState.preview?.temporary_profile}
-      <p role="note">This temporary profile will download the export through your browser.</p>
+      <p role="note">This profile isn't saved on disk, so the file downloads in your browser.</p>
     {/if}
     {#if exportState.announcement}
       <p role="status" aria-live="polite">{exportState.announcement}</p>
@@ -129,12 +136,11 @@
 <style>
   .export-dialog {
     display: grid;
-    gap: var(--kit-space-3);
-    min-inline-size: min(30rem, calc(100vw - 3rem));
+    gap: var(--space-6);
   }
   .export-dialog fieldset {
     display: grid;
-    gap: var(--kit-space-2);
+    gap: var(--space-4);
     margin: 0;
     padding: 0;
     border: 0;
@@ -143,6 +149,6 @@
     margin: 0;
   }
   .export-dialog__estimate {
-    color: var(--kit-text-muted);
+    color: var(--text-muted);
   }
 </style>

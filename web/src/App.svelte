@@ -13,6 +13,7 @@
   import { historyViewState, type ViewStateAdapter } from './lib/controller/view-state'
   import MoneyflowSetup from './lib/views/MoneyflowSetup.svelte'
   import MoneyflowWorkspace from './lib/views/MoneyflowWorkspace.svelte'
+  import { isViewID, type ViewID } from './lib/views/views'
   import { createTokenFetch } from './standalone/token-fetch'
 
   type SetupProvider = 'monarch' | 'ynab' | 'simplefin' | 'amazon'
@@ -32,6 +33,20 @@
     catalog: suppliedCatalog,
     onnavigate,
   }: Props = $props()
+  /**
+   * The sidebar's links name a view in the URL's hash, such as `#detail`. A link opened in a new
+   * tab or pasted shows that view. Read before the controller rewrites the URL without the hash.
+   */
+  const hash = globalThis.location.hash.slice(1)
+  let linkedView = $state<ViewID | undefined>(isViewID(hash) ? hash : undefined)
+  let workspace = $state<MoneyflowWorkspace>()
+  $effect(() => {
+    if (!workspace || !linkedView) return
+    workspace.open(linkedView)
+    linkedView = undefined
+    const { pathname, search } = globalThis.location
+    history.replaceState(history.state, '', `${pathname}${search}`)
+  })
   const tokenFetch = standaloneFetch()
   const viewState = profileViewState()
   const controller = resolveController()
@@ -238,6 +253,7 @@
     />
   {:else if controller && profileID && viewState}
     <MoneyflowWorkspace
+      bind:this={workspace}
       {controller}
       apiBase={basePath}
       fetch={tokenFetch}

@@ -23,7 +23,7 @@ describe('ExportDialog', () => {
     expect(screen.getByText('12 committed transactions')).not.toBeNull()
     expect(screen.getByText(/2 pending operations are excluded/)).not.toBeNull()
     expect(screen.getByText(/Commit them first/)).not.toBeNull()
-    expect(screen.getByText(/temporary profile/)).not.toBeNull()
+    expect(screen.getByText(/downloads in your browser/)).not.toBeNull()
 
     const full = screen.getByRole('radio', { name: 'Full' })
     full.focus()

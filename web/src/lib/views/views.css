@@ -124,6 +124,28 @@
     color: var(--text-secondary);
   }
 
+  /* Import result counts: label, then its count right-aligned beside it. */
+  .editing-summary {
+    display: grid;
+    grid-template-columns: max-content max-content;
+    gap: var(--space-3) var(--space-7);
+    margin: 0;
+  }
+
+  .editing-summary div {
+    display: contents;
+  }
+
+  .editing-summary dt {
+    color: var(--text-muted);
+  }
+
+  .editing-summary dd {
+    margin: 0;
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+  }
+
   .moneyflow-message {
     max-width: 32rem;
   }
@@ -162,7 +184,8 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-4);
-    padding: var(--space-4);
+    /* Level with the command bar's side padding. Wider costs the 960 px table its insight columns. */
+    padding: calc(var(--space-5) + var(--space-2)) var(--space-5);
   }
   .app-shell__table {
     min-width: 0;
@@ -189,7 +212,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-3) var(--space-6);
-    padding: var(--space-3) var(--space-6);
+    padding: var(--space-3) var(--space-5);
     border-bottom: 1px solid var(--border-default);
     background: var(--bg-surface);
   }
@@ -947,7 +970,7 @@
   .mf-table__editable {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: var(--space-2);
     min-width: 0;
   }
@@ -1223,8 +1246,8 @@
   .editing-actions {
     display: flex;
     justify-content: flex-end;
-    gap: var(--space-2);
-    margin-top: var(--space-3);
+    gap: var(--space-4);
+    margin-top: var(--space-5);
   }
 
   .editing-error {
@@ -1310,7 +1333,7 @@
   }
   .mf-workspace .mf-chart-states {
     gap: var(--space-4);
-    padding: var(--space-2);
+    padding: var(--space-5);
   }
   .mf-chart-states--stale {
     opacity: var(--opacity-disabled);
@@ -1659,8 +1682,28 @@
   .mf-calendar--weeks .mf-calendar__days {
     grid-column: 2;
     grid-template-columns: none;
+    grid-template-rows: repeat(7, auto);
     grid-auto-flow: column;
     grid-auto-columns: minmax(0, 1fr);
+  }
+  /* A year of weeks leaves each column a few pixels wide; the days stay square at that width and
+     the weekday initials share their rows. */
+  .mf-calendar--weeks .mf-day {
+    aspect-ratio: 1;
+    padding: 0;
+  }
+  .mf-calendar--weeks .mf-calendar__rows {
+    grid-template-rows: repeat(7, minmax(0, 1fr));
+    align-items: center;
+  }
+  .mf-calendar--weeks .mf-calendar__weekday {
+    line-height: 0;
+  }
+  .mf-calendar--weeks .mf-day--in::after {
+    inset: 0;
+    width: 3px;
+    height: 3px;
+    margin: auto;
   }
   /* Levels mix one hue; the darkest stays light enough for the day number to read in both themes. */
   .mf-day,
@@ -1708,6 +1751,10 @@
   }
   .mf-day--cursor {
     outline: 2px solid var(--text-primary);
+  }
+  /* A ring as thick as a few-pixel day would cover it and pass the panel's edge. */
+  .mf-calendar--weeks .mf-day--cursor {
+    outline-width: 1px;
   }
   .mf-legend,
   .mf-legend__in {
@@ -1758,7 +1805,7 @@
     /* Phone frame: two command bar rows, with 44 px touch targets. */
     .mf-command-bar {
       gap: 0;
-      padding: var(--space-1) var(--space-2);
+      padding: var(--space-1) var(--space-5);
     }
     .mf-command-bar__leading,
     .mf-command-bar__controls {

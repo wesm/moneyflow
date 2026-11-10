@@ -359,3 +359,45 @@ test('a pointer alone can start, leave, and confirm a manager step', async ({ pa
     await server.stop()
   }
 })
+
+test('manager rows keep the group, Protected mark, and count in fixed columns', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await openMoneyflow(page, server)
+    const measure = async (key: string, name: string) => {
+      await page.keyboard.press(key)
+      const manager = page.getByRole('dialog', { name })
+      const rows = manager.getByRole('option')
+      await expect(rows.first()).toBeVisible()
+      const edges = await rows.evaluateAll((items) =>
+        items.map((item) => ({
+          mark: item.querySelector('.mf-manager-list__badge')?.getBoundingClientRect().left,
+          group: item.querySelector('.mf-manager-list__secondary')?.getBoundingClientRect().left,
+          count: item.querySelector('.mf-manager-list__count')!.getBoundingClientRect().right,
+        })),
+      )
+      await page.keyboard.press('Escape')
+      await expect(manager).toBeHidden()
+      return edges
+    }
+    const categories = await measure('Shift+C', 'Manage categories')
+    const groups = await measure('Shift+G', 'Manage category groups')
+    const present = (values: (number | undefined)[]) =>
+      values.filter((value) => value !== undefined)
+
+    // A category's group starts at one x on every row.
+    expect(new Set(present(categories.map((row) => row.group))).size).toBe(1)
+    // The Protected mark has its own column: the same x whether or not a group name sits
+    // before it, so a group manager row (no group) matches a category manager row.
+    const marks = present([...categories, ...groups].map((row) => row.mark))
+    expect(present(groups.map((row) => row.mark)).length).toBeGreaterThan(0)
+    expect(present(categories.map((row) => row.mark)).length).toBeGreaterThan(0)
+    expect(new Set(marks).size).toBe(1)
+    expect(new Set([...categories, ...groups].map((row) => row.count)).size).toBe(1)
+  } finally {
+    await server.stop()
+  }
+})

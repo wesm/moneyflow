@@ -100,7 +100,7 @@ describe('FinanceGrid', () => {
     expect(row.getAttribute('aria-selected')).toBe('true')
     expect(row.getAttribute('aria-rowindex')).toBe('2')
     expect(row.id).toBe('moneyflow-row-row-0')
-    expect(headers()).toEqual(['', 'Date', 'Merchant', 'Category', 'Account', 'Amount', 'Flags'])
+    expect(headers()).toEqual(['', 'Date', 'Merchant', 'Category', 'Account', 'Flags', 'Amount'])
     expect(cell(row, 'amount')?.textContent?.trim()).toBe('-$12.34')
     expect(cell(row, 'merchant')?.textContent?.trim()).toBe('Example Merchant')
     expect(screen.getByRole('columnheader', { name: 'Date' }).getAttribute('aria-sort')).toBe(
@@ -550,6 +550,23 @@ describe('FinanceGrid', () => {
         name: 'Open Example Merchant',
       })
       expect(open.getAttribute('tabindex')).toBe('-1')
+    })
+
+    it('leaves In and Out off a phone row that has only one of them', () => {
+      const spending = grouped({
+        aggregate_rows: [
+          testAggregateRow({ in: testMoney('0', '+0.00'), total: testMoney('-500', '-5.00') }),
+        ],
+      })
+      render(FinanceGrid, { projection: spending, cursorIndex: 0, compact: true, ...callbacks() })
+      const row = screen.getByRole('row', { name: /Example Merchant/ })
+      expect(texts(row)).toEqual([
+        ['select', ''],
+        ['name', 'Example Merchant'],
+        ['net', '-5.00'],
+        ['count', '2 txns'],
+        ['actions', ''],
+      ])
     })
 
     it('shows only the select-all control and the current sort field in the header', () => {

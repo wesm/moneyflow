@@ -58,9 +58,9 @@
       aria-label={rowName(row)}
       onmousedown={() => (activeID = row.id)}
     >
-      <span>{row.label}</span>
-      {#if row.secondary}<span class="mf-quiet">{row.secondary}</span>{/if}
-      {#if row.protected}<span class="mf-quiet">Protected</span>{/if}
+      <span class="mf-manager-list__label">{row.label}</span>
+      {#if row.secondary}<span class="mf-quiet mf-manager-list__secondary">{row.secondary}</span>{/if}
+      {#if row.protected}<span class="mf-manager-list__badge">Protected</span>{/if}
       <span class="mf-quiet mf-manager-list__count">{row.count}</span>
     </li>
   {/each}
@@ -77,15 +77,37 @@
     list-style: none;
     outline: none;
   }
+  /* Name, then the group a category belongs to, then a Protected mark, then the count: each
+     sits in its own column, so a row without one of them leaves the others aligned. */
   li {
-    display: flex;
-    gap: var(--space-3);
-    padding: var(--space-2) var(--space-3);
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) 5.5rem 3.5rem;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
     border-radius: var(--radius-sm);
     cursor: pointer;
   }
-  li > :first-child {
-    width: 40%;
+  .mf-manager-list__label,
+  .mf-manager-list__secondary {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mf-manager-list__label {
+    grid-column: 1;
+  }
+  .mf-manager-list__secondary {
+    grid-column: 2;
+  }
+  .mf-manager-list__badge {
+    grid-column: 3;
+    justify-self: start;
+    padding: 0 var(--space-3);
+    border: var(--border-width) solid var(--border-default);
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
   }
   li[aria-selected='true'] {
     background: var(--bg-surface-hover);
@@ -96,12 +118,14 @@
   }
   @media (max-width: 640px) {
     li {
+      box-sizing: border-box;
       min-height: 44px;
       align-items: center;
     }
   }
   .mf-manager-list__count {
-    margin-left: auto;
+    grid-column: 4;
+    text-align: end;
     font-variant-numeric: tabular-nums;
   }
 </style>

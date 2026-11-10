@@ -29,6 +29,26 @@ test('@smoke Amazon import preserves committed edits through reimport and reload
     })
     await page.getByRole('button', { name: 'Import' }).click()
     await expect(page.getByRole('heading', { name: 'Amazon import complete' })).toBeVisible()
+    // Each result count sits beside its label, and the counts share one column.
+    const counts = await page.locator('dl').evaluate((list) =>
+      [...list.querySelectorAll('dd')].map((count) => {
+        const label = count.previousElementSibling!.getBoundingClientRect()
+        const box = count.getBoundingClientRect()
+        return {
+          label: count.previousElementSibling!.textContent,
+          beside: box.top === label.top,
+          right: box.right,
+        }
+      }),
+    )
+    expect(counts.map((count) => count.label)).toEqual([
+      'Inserted',
+      'Updated',
+      'Restored',
+      'Retired',
+    ])
+    expect(counts.every((count) => count.beside)).toBe(true)
+    expect(new Set(counts.map((count) => count.right)).size).toBe(1)
     await page.getByRole('button', { name: 'Open profile' }).click()
 
     const grid = page.getByRole('grid', { name: 'Financial results' })
@@ -41,8 +61,8 @@ test('@smoke Amazon import preserves committed edits through reimport and reload
       'Product',
       'Category',
       'Order',
-      'Amount',
       'Flags',
+      'Amount',
     ])
     await page.keyboard.press('i')
     await expect(page.getByRole('dialog', { name: 'Transaction information' })).toContainText(

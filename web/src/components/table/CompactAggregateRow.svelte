@@ -18,9 +18,11 @@
   const layout = $derived(row.dimension === 'time' ? 'time' : 'aggregate')
   const nameKey = $derived(layout === 'time' ? 'period' : 'name')
   const column = (key: ColumnKey) => compactColumnIndex(layout, key)
+  /** In and Out add to Net only when a row has both; otherwise Net already says the one there is. */
+  const mixed = $derived(moneyCell(row.in, '—') !== '—' && moneyCell(row.out, '—') !== '—')
 </script>
 
-<!-- Two lines: name and Net, then Count, In, and Out. A tap on the row drills. -->
+<!-- Two lines: name and Net, then Count, with In and Out when the row has both. A tap drills. -->
 <div class="mf-compact">
   <div
     class="mf-compact__lead"
@@ -37,14 +39,21 @@
     <span role="gridcell" data-column="count" aria-colindex={column('count')}
       >{row.count} {row.count === 1 ? 'txn' : 'txns'}</span
     >
-    <span class="mf-compact__money" role="gridcell" data-column="in" aria-colindex={column('in')}>
-      <span class="mf-compact__label">In</span>
-      {moneyCell(row.in, '—')}
-    </span>
-    <span class="mf-compact__money" role="gridcell" data-column="out" aria-colindex={column('out')}>
-      <span class="mf-compact__label">Out</span>
-      {moneyCell(row.out, '—')}
-    </span>
+    {#if mixed}
+      <span class="mf-compact__money" role="gridcell" data-column="in" aria-colindex={column('in')}>
+        <span class="mf-compact__label">In</span>
+        {moneyCell(row.in, '—')}
+      </span>
+      <span
+        class="mf-compact__money"
+        role="gridcell"
+        data-column="out"
+        aria-colindex={column('out')}
+      >
+        <span class="mf-compact__label">Out</span>
+        {moneyCell(row.out, '—')}
+      </span>
+    {/if}
   </div>
 </div>
 <div
