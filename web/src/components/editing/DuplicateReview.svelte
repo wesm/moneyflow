@@ -232,12 +232,7 @@
   /* A phone stacks each row: merchant and amount, then group, date, category, and account. */
   @media (max-width: 760px) {
     .duplicate-grid__header {
-      position: absolute;
-      inline-size: 1px;
-      block-size: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-      white-space: nowrap;
+      display: none;
     }
     .duplicate-grid__row {
       grid-template-columns: auto auto minmax(0, 1fr) auto;
