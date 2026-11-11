@@ -94,7 +94,7 @@
         block
       />
     </fieldset>
-    <p>{exportState.count} committed {exportState.count === 1 ? 'transaction' : 'transactions'}</p>
+    <p>{exportState.count.toLocaleString('en-US')} committed {exportState.count === 1 ? 'transaction' : 'transactions'}</p>
     <p class="export-dialog__estimate">
       If transactions change before the export finishes, the file has the final count.
     </p>

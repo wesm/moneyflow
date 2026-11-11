@@ -34,6 +34,13 @@ describe('ExportDialog', () => {
     expect(screen.getByText('3 committed transactions')).not.toBeNull()
   })
 
+  it('groups the thousands in the transaction count', async () => {
+    const controller = await readyController({ full_count: 2197 })
+    render(ExportDialog, { controller, onclose: vi.fn() })
+
+    expect(screen.getByText('2,197 committed transactions')).not.toBeNull()
+  })
+
   it('keeps the dialog open after an export error and cancels with Escape', async () => {
     const client = exportClient()
     vi.mocked(client.downloadExport).mockResolvedValue(new Response('failure', { status: 500 }))
