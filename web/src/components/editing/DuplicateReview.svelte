@@ -229,13 +229,41 @@
   dd {
     margin: 0;
   }
+  /* A phone stacks each row: merchant and amount, then group, date, category, and account. */
   @media (max-width: 760px) {
-    .duplicate-grid {
-      overflow-x: auto;
+    .duplicate-grid__header {
+      position: absolute;
+      inline-size: 1px;
+      block-size: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
     }
-    .duplicate-grid__header,
     .duplicate-grid__row {
-      min-inline-size: 54rem;
+      grid-template-columns: auto auto minmax(0, 1fr) auto;
+      gap: var(--space-1) var(--space-3);
+      padding: var(--space-3) var(--space-2);
+    }
+    .duplicate-grid__row > * {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .duplicate-grid__row > :nth-child(3) {
+      grid-area: 1 / 1 / 2 / 4;
+    }
+    .duplicate-grid__row > :last-child {
+      grid-area: 1 / 4;
+    }
+    .duplicate-grid__row > :nth-child(-n + 2),
+    .duplicate-grid__row > :nth-child(4),
+    .duplicate-grid__row > :nth-child(5) {
+      grid-row: 2;
+      color: var(--text-muted);
+      font-size: var(--font-size-sm);
+    }
+    .duplicate-grid__row > :first-child::before {
+      content: '#' / '';
     }
   }
 </style>
