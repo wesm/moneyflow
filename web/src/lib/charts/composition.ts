@@ -6,7 +6,8 @@ import { ratioBasisPoints } from './scale'
 type Summary = NonNullable<InsightsResponse['summary']>
 type ContextPeriod = InsightsResponse['ranges']['context'][number]
 
-/** Spending and Income rankings, each the top seven plus an others entry. */
+/** Spending and Income rankings, each at most eight rows: the top seven, then an others entry
+ * when more than one row is left. */
 export type Composition = NonNullable<Summary['composition']>
 export type CompositionSide = keyof Composition
 

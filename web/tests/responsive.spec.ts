@@ -1097,3 +1097,33 @@ test('641–899 px: the selection bar and header stay inside the workspace', asy
   })
   expect(covering).toBe('columnheader')
 })
+
+test('duplicate review rows fit a phone without sideways scrolling', async ({ page }) => {
+  const server = await startE2EServer({
+    fixturePath: 'testdata/fixtures/duplicate_transactions.json',
+  })
+  try {
+    await page.setViewportSize(phone)
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Shift+D')
+    const review = page.getByRole('dialog', { name: 'Duplicate transactions' })
+    const grid = review.getByRole('grid', { name: 'Likely duplicate transactions' })
+    await expect(grid.getByRole('row')).not.toHaveCount(0)
+    const layout = await grid.evaluate((element) => {
+      const box = element.getBoundingClientRect()
+      const rows = [...element.querySelectorAll<HTMLElement>('.duplicate-grid__row')]
+      return {
+        scrolls: element.scrollWidth > element.clientWidth,
+        outside: rows.flatMap((row) =>
+          [...row.children].filter((cell) => {
+            const rect = cell.getBoundingClientRect()
+            return rect.left < box.left || rect.right > box.right
+          }),
+        ).length,
+      }
+    })
+    expect(layout).toEqual({ scrolls: false, outside: 0 })
+  } finally {
+    await server.stop()
+  }
+})
