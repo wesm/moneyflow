@@ -157,6 +157,28 @@ func TestInsightsCompositionFoldsRowsAfterTheTopSeven(t *testing.T) {
 	}}, result.Summary.Composition.Income)
 }
 
+func TestInsightsCompositionNamesAnEighthRowInsteadOfFoldingIt(t *testing.T) {
+	t.Parallel()
+	var transactions []domain.Transaction
+	for index := range 8 {
+		amount := fmt.Sprintf("-%d.00", (index+1)*10)
+		merchant := fmt.Sprintf("Merchant %c", 'A'+index)
+		transactions = append(transactions,
+			insightsTransaction(
+				t, fmt.Sprint(index), "2026-09-10", amount, merchant, "Shopping", "Shopping",
+			))
+	}
+	result, err := ComputeInsights(transactions, InsightsSpec{
+		Query: insightsQuery(t, domain.DimensionMerchant, "2026-09-01", "2026-09-30"),
+		Today: rangeDate(t, "2026-10-08"), Summary: true,
+	})
+	require.NoError(t, err)
+	spending := result.Summary.Composition.Spending
+	require.Len(t, spending, 8)
+	assert.Equal(t, "Merchant A", spending[7].Label)
+	assert.Zero(t, spending[7].Others)
+}
+
 func TestInsightsTimeGroupingComposesEveryPeriodByGroup(t *testing.T) {
 	t.Parallel()
 	query := insightsQuery(t, domain.DimensionTime, "2026-09-01", "2026-09-30")

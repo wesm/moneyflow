@@ -213,7 +213,8 @@ func rankEntries(entries []netEntry) ([]CompositionEntry, error) {
 	}
 	result := make([]CompositionEntry, 0, min(len(entries), compositionTop+1))
 	for index, entry := range entries {
-		if index == compositionTop {
+		// One leftover row takes the same space as an others entry, so it keeps its name.
+		if index == compositionTop && len(entries) > compositionTop+1 {
 			return appendOthers(result, entries[index:], denominator)
 		}
 		share, err := ratioHalfUp(absMinor(entry.net), denominator, 1000)

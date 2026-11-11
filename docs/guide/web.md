@@ -91,8 +91,8 @@ The columns cover the periods around your choice:
 | A custom range | Days up to 62 days, months up to 36 months, then years |
 | All time | Months from your first to your newest transaction, or years past 60 months |
 
-**Where it went.** The seven rows with the largest share of the period, then the rest. Switch
-between **Spending** and **Income**. Click a bar to move to its row; double-click to open it.
+**Where it went.** Up to eight rows with the largest share of the period. When there are more,
+the last bar adds up the rest. Switch between **Spending** and **Income**. Click a bar to move to its row; double-click to open it.
 In the Time grouping, this panel splits the selected period by category group instead.
 
 **Daily spending.** In transaction views, a calendar shades each day by how much went out and
