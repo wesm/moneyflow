@@ -366,6 +366,7 @@ components:
           type: string
         scale:
           format: int32
+          maximum: 255
           minimum: 0
           type: integer
       required:
@@ -382,6 +383,7 @@ components:
           type: string
         scale:
           format: int32
+          maximum: 255
           minimum: 0
           type: integer
       required:
@@ -992,6 +994,7 @@ components:
           type: string
         scale:
           format: int32
+          maximum: 255
           minimum: 0
           type: integer
         series:
@@ -1127,6 +1130,7 @@ components:
           type: string
         scale:
           format: int32
+          maximum: 255
           minimum: 0
           type: integer
       required:
@@ -1229,6 +1233,7 @@ components:
           type: integer
         protocol_version:
           format: int32
+          maximum: 65535
           minimum: 0
           type: integer
       required:
@@ -1343,6 +1348,7 @@ components:
           type: string
         scale:
           format: int32
+          maximum: 255
           minimum: 0
           type: integer
       required:
@@ -1356,6 +1362,7 @@ components:
           type: boolean
         protocol_version:
           format: int32
+          maximum: 65535
           minimum: 0
           type: integer
         settings:
@@ -1377,6 +1384,7 @@ components:
           $ref: "#/components/schemas/OnboardingProgressResponse"
         protocol_version:
           format: int32
+          maximum: 65535
           minimum: 0
           type: integer
         provider_kind:
@@ -1416,6 +1424,7 @@ components:
           type: integer
         protocol_version:
           format: int32
+          maximum: 65535
           minimum: 0
           type: integer
         remote_profile_choice_id:
@@ -2455,6 +2464,7 @@ components:
           type: integer
         protocol_version:
           format: int32
+          maximum: 65535
           minimum: 0
           type: integer
       required:
@@ -2485,6 +2495,7 @@ components:
           type: string
         scale:
           format: int32
+          maximum: 255
           minimum: 0
           type: integer
       required:
@@ -2497,6 +2508,7 @@ components:
           type: string
         scale:
           format: int32
+          maximum: 255
           minimum: 0
           type: integer
       required:
@@ -2508,6 +2520,7 @@ components:
       properties:
         protocol_version:
           format: int32
+          maximum: 65535
           minimum: 0
           type: integer
       required:
@@ -2534,6 +2547,7 @@ components:
           $ref: "#/components/schemas/ProviderProgress"
         protocol_version:
           format: int32
+          maximum: 65535
           minimum: 0
           type: integer
         provider_kind:
@@ -2571,6 +2585,7 @@ components:
           type: string
         protocol_version:
           format: int32
+          maximum: 65535
           minimum: 0
           type: integer
         settings:
@@ -2613,6 +2628,7 @@ components:
           $ref: "#/components/schemas/Money"
         scale:
           format: int32
+          maximum: 255
           minimum: 0
           type: integer
       required:
