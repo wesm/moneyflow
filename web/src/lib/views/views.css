@@ -1153,6 +1153,11 @@
   .mf-compact__meta > [role='gridcell'] {
     flex: none;
   }
+  /* A grouped row's In and Out move to its third line rather than lose digits at the edge. */
+  .mf-compact__meta--wrap {
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
   .mf-compact__meta > .mf-compact__text {
     flex: 0 1 auto;
     min-width: 0;

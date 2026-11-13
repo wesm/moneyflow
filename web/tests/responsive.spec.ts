@@ -1127,3 +1127,25 @@ test('duplicate review rows fit a phone without sideways scrolling', async ({ pa
     await server.stop()
   }
 })
+
+test('a phone row shows its whole In and Out amounts, at 360 px', async ({ page, server }) => {
+  await page.setViewportSize({ width: 360, height: 780 })
+  for (const group of ['account', 'time']) {
+    await openMoneyflow(page, server, `cur=USD%3A2&group=${group}&v=1`)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await expect(grid.locator('[data-column="out"]').first()).toBeVisible()
+    const cut = await grid.evaluate((element) =>
+      [...element.querySelectorAll<HTMLElement>('[role="row"][aria-rowindex]')].flatMap((row) => {
+        const box = row.getBoundingClientRect()
+        return [...row.querySelectorAll<HTMLElement>('.mf-compact__meta > [role="gridcell"]')]
+          .filter((cell) => {
+            const rect = cell.getBoundingClientRect()
+            const meta = cell.parentElement!.getBoundingClientRect()
+            return rect.right > meta.right + 0.5 || rect.bottom > box.bottom + 0.5
+          })
+          .map((cell) => cell.textContent?.trim())
+      }),
+    )
+    expect(cut, group).toEqual([])
+  }
+})

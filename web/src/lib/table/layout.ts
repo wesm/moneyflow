@@ -1,10 +1,15 @@
+import type { RowKind } from './pointer'
+
 /** Desktop row height in pixels. CSS reads it as `--mf-row-height`, so virtualization agrees. */
 export const ROW_HEIGHT = 30
 /** Two-line phone row height in pixels, at 640 px and narrower. */
 export const COMPACT_ROW_HEIGHT = 52
+/** A grouped phone row has room for a third line, where In and Out go when they do not fit. */
+export const COMPACT_GROUP_ROW_HEIGHT = 56
 
-export function rowHeight(compact: boolean): number {
-  return compact ? COMPACT_ROW_HEIGHT : ROW_HEIGHT
+export function rowHeight(compact: boolean, kind: RowKind): number {
+  if (!compact) return ROW_HEIGHT
+  return kind === 'aggregate' ? COMPACT_GROUP_ROW_HEIGHT : COMPACT_ROW_HEIGHT
 }
 
 /**

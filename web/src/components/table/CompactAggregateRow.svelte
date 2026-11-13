@@ -22,7 +22,8 @@
   const mixed = $derived(moneyCell(row.in, '—') !== '—' && moneyCell(row.out, '—') !== '—')
 </script>
 
-<!-- Two lines: name and Net, then Count, with In and Out when the row has both. A tap drills. -->
+<!-- Name and Net, then Count, with In and Out when the row has both; they wrap to a third line
+     when they do not fit. A tap drills. -->
 <div class="mf-compact">
   <div
     class="mf-compact__lead"
@@ -35,7 +36,7 @@
   <div class="mf-compact__figure" role="gridcell" data-column="net" aria-colindex={column('net')}>
     {moneyCell(row.total, 'unsigned')}
   </div>
-  <div class="mf-compact__meta">
+  <div class="mf-compact__meta mf-compact__meta--wrap">
     <span role="gridcell" data-column="count" aria-colindex={column('count')}
       >{row.count} {row.count === 1 ? 'txn' : 'txns'}</span
     >

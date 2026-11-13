@@ -89,7 +89,6 @@
   }: Props = $props()
   let grid = $state<HTMLDivElement>()
   const NO_ROWS_HINT = 'Change the current refinements to see results.'
-  const height = $derived(rowHeight(compact))
   const wide = $derived((innerWidth.current ?? 0) >= WIDE_COLUMNS_WIDTH)
   const comparison = $derived(insights?.response?.ranges.comparison_label)
   const room = new ColumnRoom(() => scroller)
@@ -101,6 +100,7 @@
   const dimension = $derived(projection.view.sub_grouping ?? projection.view.grouping)
   const windows = $derived([projection, ...neighbors])
   const kind: RowKind = $derived(projection.detail_rows ? 'transaction' : 'aggregate')
+  const height = $derived(rowHeight(compact, kind))
   const dividers = $derived(projection.view.sort_field === 'amount' && kind === 'aggregate')
   const sizer = new ColumnSizer(drawnWidth())
   const sizerRows = $derived(
