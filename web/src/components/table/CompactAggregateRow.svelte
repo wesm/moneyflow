@@ -22,8 +22,8 @@
   const mixed = $derived(moneyCell(row.in, '—') !== '—' && moneyCell(row.out, '—') !== '—')
 </script>
 
-<!-- Name and Net, then Count, with In and Out when the row has both; they wrap to a third line
-     when they do not fit. A tap drills. -->
+<!-- Name and Net, then Count. A row with both In and Out stacks them under Net, so each amount
+     has Net's width and the row never needs more than three lines. A tap drills. -->
 <div class="mf-compact">
   <div
     class="mf-compact__lead"
@@ -36,26 +36,21 @@
   <div class="mf-compact__figure" role="gridcell" data-column="net" aria-colindex={column('net')}>
     {moneyCell(row.total, 'unsigned')}
   </div>
-  <div class="mf-compact__meta mf-compact__meta--wrap">
+  <div class="mf-compact__meta mf-compact__meta--count">
     <span role="gridcell" data-column="count" aria-colindex={column('count')}
       >{row.count} {row.count === 1 ? 'txn' : 'txns'}</span
     >
-    {#if mixed}
-      <span class="mf-compact__money" role="gridcell" data-column="in" aria-colindex={column('in')}>
-        <span class="mf-compact__label">In</span>
-        {moneyCell(row.in, '—')}
-      </span>
-      <span
-        class="mf-compact__money"
-        role="gridcell"
-        data-column="out"
-        aria-colindex={column('out')}
-      >
-        <span class="mf-compact__label">Out</span>
-        {moneyCell(row.out, '—')}
-      </span>
-    {/if}
   </div>
+  {#if mixed}
+    <span class="mf-compact__flow" role="gridcell" data-column="in" aria-colindex={column('in')}>
+      <span class="mf-compact__label">In</span>
+      {moneyCell(row.in, '—')}
+    </span>
+    <span class="mf-compact__flow" role="gridcell" data-column="out" aria-colindex={column('out')}>
+      <span class="mf-compact__label">Out</span>
+      {moneyCell(row.out, '—')}
+    </span>
+  {/if}
 </div>
 <div
   class="mf-compact__action"

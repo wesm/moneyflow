@@ -1131,8 +1131,7 @@
     color: var(--text-primary);
     font-weight: var(--font-weight-medium);
   }
-  .mf-compact__figure,
-  .mf-compact__money {
+  .mf-compact__figure {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
@@ -1153,10 +1152,20 @@
   .mf-compact__meta > [role='gridcell'] {
     flex: none;
   }
-  /* A grouped row's In and Out move to its third line rather than lose digits at the edge. */
-  .mf-compact__meta--wrap {
-    flex-wrap: wrap;
-    row-gap: 0;
+  /* A grouped row's count sits under its name; In and Out stack under Net in the right column. */
+  .mf-compact__meta--count {
+    grid-column: 1;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mf-compact > .mf-compact__flow {
+    grid-column: 2;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
   }
   .mf-compact__meta > .mf-compact__text {
     flex: 0 1 auto;
