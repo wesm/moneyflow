@@ -450,3 +450,22 @@ for (const [colorScheme, width] of [
     })
   })
 }
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`${colorScheme} duplicate review passes axe at phone width`, async ({ page }) => {
+    const server = await startE2EServer({
+      fixturePath: 'testdata/fixtures/duplicate_transactions.json',
+    })
+    try {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
+      await openMoneyflow(page, server)
+      await page.keyboard.press('Shift+D')
+      const review = page.getByRole('dialog', { name: 'Duplicate transactions' })
+      await expect(review.getByRole('row').first()).toBeVisible()
+      await expectNoAxeViolations(page)
+    } finally {
+      await server.stop()
+    }
+  })
+}
