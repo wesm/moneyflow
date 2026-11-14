@@ -1128,42 +1128,54 @@ test('duplicate review rows fit a phone without sideways scrolling', async ({ pa
   }
 })
 
-test('a phone row keeps its whole count, In and Out inside the row in a narrow page', async ({
+test('a phone row keeps its figures inside the row and cuts long text with an ellipsis', async ({
   page,
   server,
 }) => {
   // With a host page's 36 px margins at 320 px, neither the count and In nor In and Out fit
-  // on one line.
+  // on one line. A phone's touch type scale makes every line taller and wider.
   for (const [width, margin] of [
     [360, 0],
     [320, 36],
   ] as const) {
     await page.setViewportSize({ width, height: 780 })
-    for (const group of ['account', 'time']) {
-      await openMoneyflow(page, server, `cur=USD%3A2&group=${group}&v=1`)
-      await page.addStyleTag({
-        content: `body { box-sizing: border-box; padding-inline: ${margin}px; }`,
-      })
-      const grid = page.getByRole('grid', { name: 'Financial results' })
-      await expect(grid.locator('[data-column="out"]').first()).toBeVisible()
-      const misplaced = await grid.evaluate((element) =>
-        [...element.querySelectorAll<HTMLElement>('[role="row"][aria-rowindex]')].flatMap((row) => {
-          const box = row.getBoundingClientRect()
-          const content = row.querySelector('.mf-compact')!.getBoundingClientRect()
-          return [...row.querySelectorAll<HTMLElement>('.mf-compact [role="gridcell"]')]
-            .filter((cell) => {
-              const rect = cell.getBoundingClientRect()
-              return (
-                cell.scrollWidth > cell.clientWidth ||
-                rect.right > content.right + 0.5 ||
-                rect.top < box.top - 0.5 ||
-                rect.bottom > box.bottom + 0.5
-              )
-            })
-            .map((cell) => `${cell.dataset['column']}: ${cell.textContent?.trim()}`)
-        }),
-      )
-      expect(misplaced, `${group} at ${width} px with ${margin} px margins`).toEqual([])
+    for (const touch of [false, true]) {
+      for (const query of ['group=account', 'group=time', 'mode=detail']) {
+        await openMoneyflow(page, server, `cur=USD%3A2&${query}&v=1`)
+        await page.addStyleTag({
+          content: `body { box-sizing: border-box; padding-inline: ${margin}px; }`,
+        })
+        if (touch)
+          await page.evaluate(() => document.documentElement.classList.add('kit-type-touch'))
+        const grid = page.getByRole('grid', { name: 'Financial results' })
+        await expect(grid.locator('.mf-compact').first()).toBeVisible()
+        // A transaction's merchant, category or account may be cut short, but only with an ellipsis.
+        const misplaced = await grid.evaluate(
+          (element, grouped) =>
+            [...element.querySelectorAll<HTMLElement>('[role="row"][aria-rowindex]')].flatMap(
+              (row) => {
+                const box = row.getBoundingClientRect()
+                const content = row.querySelector('.mf-compact')!.getBoundingClientRect()
+                return [...row.querySelectorAll<HTMLElement>('.mf-compact [role="gridcell"]')]
+                  .filter((cell) => {
+                    const rect = cell.getBoundingClientRect()
+                    const clipped = cell.scrollWidth > cell.clientWidth
+                    return (
+                      (clipped &&
+                        (grouped || getComputedStyle(cell).textOverflow !== 'ellipsis')) ||
+                      rect.right > content.right + 0.5 ||
+                      rect.top < box.top - 0.5 ||
+                      rect.bottom > box.bottom + 0.5
+                    )
+                  })
+                  .map((cell) => `${cell.dataset['column']}: ${cell.textContent?.trim()}`)
+              },
+            ),
+          query.startsWith('group='),
+        )
+        const where = `${query} at ${width} px with ${margin} px margins${touch ? ', touch type' : ''}`
+        expect(misplaced, where).toEqual([])
+      }
     }
   }
 })

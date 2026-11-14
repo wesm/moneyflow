@@ -532,10 +532,10 @@ describe('FinanceGrid', () => {
         .getAllByRole('gridcell')
         .map((gridcell) => [gridcell.dataset['column'], gridcell.textContent?.trim()])
 
-    it('draws a grouped row in a 56 px height, with room for a third line, and a drill button', () => {
+    it('draws a grouped row in a 64 px height, with room for a third line, and a drill button', () => {
       render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: true, ...callbacks() })
       const grid = screen.getByRole('grid', { name: 'Financial results' })
-      expect(grid.style.getPropertyValue('--mf-row-height')).toBe('56px')
+      expect(grid.style.getPropertyValue('--mf-row-height')).toBe('64px')
       const row = screen.getByRole('row', { name: /Example Merchant/ })
       expect(texts(row)).toEqual([
         ['select', ''],

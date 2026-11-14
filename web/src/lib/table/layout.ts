@@ -4,8 +4,8 @@ import type { RowKind } from './pointer'
 export const ROW_HEIGHT = 30
 /** Two-line phone row height in pixels, at 640 px and narrower. */
 export const COMPACT_ROW_HEIGHT = 52
-/** A grouped phone row has room for a third line, where In and Out go when they do not fit. */
-export const COMPACT_GROUP_ROW_HEIGHT = 56
+/** A grouped phone row has room for a third line, where In and Out go, at a phone's touch type size. */
+export const COMPACT_GROUP_ROW_HEIGHT = 64
 
 export function rowHeight(compact: boolean, kind: RowKind): number {
   if (!compact) return ROW_HEIGHT
