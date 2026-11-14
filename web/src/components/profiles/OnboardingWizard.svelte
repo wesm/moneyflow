@@ -149,7 +149,7 @@
   {/if}
   <svelte:element
     this={chrome ? 'main' : 'div'}
-    class="profile-main"
+    class={['profile-main', !chrome && 'profile-main--framed']}
     aria-label={chrome ? 'Profile onboarding' : undefined}
   >
     <section class="profile-panel" aria-labelledby="onboarding-title">

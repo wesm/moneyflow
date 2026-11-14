@@ -61,6 +61,15 @@
     padding: clamp(var(--space-4), 5vw, var(--space-8));
   }
 
+  /* A host that frames setup, as in a dialog, supplies the padding and the title above it. */
+  .profile-main--framed {
+    overflow: visible;
+    padding: 0;
+  }
+  .profile-main--framed .profile-panel > h1 {
+    font-size: var(--font-size-xl);
+  }
+
   .profile-panel {
     width: min(42rem, 100%);
     display: grid;
