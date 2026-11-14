@@ -60,7 +60,7 @@
   {/if}
   <svelte:element
     this={chrome ? 'main' : 'div'}
-    class="profile-main"
+    class={['profile-main', !chrome && 'profile-main--framed']}
     aria-label={chrome ? 'Amazon order-history import' : undefined}
   >
     <section class="profile-panel" aria-labelledby="amazon-import-title">
