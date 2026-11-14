@@ -254,7 +254,8 @@
     .duplicate-grid__row > :nth-child(4),
     .duplicate-grid__row > :nth-child(5) {
       grid-row: 2;
-      color: var(--text-muted);
+      /* Secondary, not muted, so the line stays readable on the highlighted row. */
+      color: var(--text-secondary);
       font-size: var(--font-size-sm);
     }
     .duplicate-grid__row > :first-child::before {
