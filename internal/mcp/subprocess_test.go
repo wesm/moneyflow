@@ -6,6 +6,7 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -121,7 +122,8 @@ func testMCPStdioSubprocess(
 
 	var protocol bytes.Buffer
 	transport := &mcpsdk.IOTransport{
-		Reader: &teeReadCloser{ReadCloser: stdout, writer: &protocol}, Writer: stdin,
+		Reader: &teeReadCloser{ReadCloser: stdout, writer: &protocol, stdin: stdin},
+		Writer: writeOnly{stdin},
 	}
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "subprocess-test", Version: "1"}, nil)
 	session, err := client.Connect(t.Context(), transport, nil)
@@ -413,6 +415,7 @@ func assertMCPStderrAllowlist(t *testing.T, content string, allowStartup bool) {
 type teeReadCloser struct {
 	io.ReadCloser
 	writer io.Writer
+	stdin  io.Closer
 }
 
 func (reader *teeReadCloser) Read(destination []byte) (int, error) {
@@ -422,6 +425,18 @@ func (reader *teeReadCloser) Read(destination []byte) (int, error) {
 	}
 	return count, err
 }
+
+// Close ends the child's stdin before its stdout. On Windows, closing a pipe
+// waits for a read pending on it, and that read ends only when the child sees
+// end of input and exits.
+func (reader *teeReadCloser) Close() error {
+	return errors.Join(reader.stdin.Close(), reader.ReadCloser.Close())
+}
+
+// writeOnly leaves closing stdin to teeReadCloser.
+type writeOnly struct{ io.Writer }
+
+func (writeOnly) Close() error { return nil }
 
 type subprocessBearerRoundTripper struct {
 	base  http.RoundTripper
