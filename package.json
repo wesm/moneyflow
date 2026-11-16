@@ -17,7 +17,7 @@
   },
   "peerDependencies": {
     "svelte": "^5.57.3",
-    "@lucide/svelte": "^1.66.0",
+    "@lucide/svelte": "^1.70.0",
     "@kenn-io/kit-ui": "*"
   },
   "dependencies": {
