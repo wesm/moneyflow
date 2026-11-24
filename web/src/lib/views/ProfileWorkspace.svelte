@@ -103,6 +103,11 @@
     reviewRequested = true
   }
 
+  /** Gives the table focus unless a dialog or the search field has it. */
+  export function focus(): void {
+    shell?.focus()
+  }
+
   function importAmazon(): void {
     const settings = controller.projection?.amazon_settings
     if (settings) onamazonimport?.({ currency: settings.currency, scale: settings.scale })

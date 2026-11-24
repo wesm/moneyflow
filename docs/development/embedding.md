@@ -324,7 +324,7 @@ including `--edge-highlight`, `--shadow-raised`, `--shadow-sunken`, `--shadow-pa
 | `profileName` | none | Names the profile on the page shown when it cannot load, which otherwise says "this profile" |
 | `viewState` | required | Where the view query and history state live |
 | `readOnly` | `false` | `true` makes every edit, review, refresh, export, and commit control unavailable |
-| `shortcuts` | `true` | `false` makes Moneyflow's keys act only while focus is inside its views, so they cannot collide with the host's shortcuts. Keys inside the views keep working, because the grid cannot be used without them |
+| `shortcuts` | `true` | `false` makes Moneyflow's keys act only while focus is inside its views, so they cannot collide with the host's shortcuts. Keys inside the views keep working, because the grid cannot be used without them. See [Keep keys working](#keep-keys-working) |
 | `autoRefresh` | `false` | `true` lets the page start a refresh that the server reports as due; leave it off when the host runs `RunScheduler` |
 | `initialView` | none | The view to open when the history entry has no view of its own, such as the view a host's link names |
 | `chrome` | `false` | `true` adds Moneyflow's own sidebar and page landmarks |
@@ -368,6 +368,24 @@ including `--edge-highlight`, `--shadow-raised`, `--shadow-sunken`, `--shadow-pa
   a provider write to show. The status line leaves out the profile revision.
 - Answer `onamazonimport` with `MoneyflowSetup`, `provider="amazon"`, the profile's ID, and the
   settings it received as `amazonSettings`.
+
+### Keep keys working
+
+With `shortcuts={false}`, Moneyflow's keys act only while focus is inside its views. The
+workspace keeps focus there for the user:
+
+- When the first view loads, the table takes focus from the page body or from the control that
+  had focus when the workspace mounted, such as the host link that opened it. A host control the
+  user moves to while the view loads keeps focus, and so does a host text field.
+- A press inside the workspace that leaves nothing focused, such as one on a chart label or the
+  space around the table, returns focus to the table. A press that selects text does not.
+- A press outside an open editor, confirmation, or period chooser closes it. When that press
+  leaves nothing focused, the table takes focus once the press ends.
+
+A press on the host's own page, outside the workspace, leaves focus where the browser puts it.
+Call `focus()` when a press on a part of the host page that belongs with the workspace, such as
+its page title, leaves nothing focused. `focus()` gives the table focus unless a Moneyflow dialog
+or the search field has it, and does nothing while the first view loads.
 
 ### Keep the view in the host's history
 

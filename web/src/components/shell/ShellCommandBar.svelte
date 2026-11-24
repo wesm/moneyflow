@@ -131,7 +131,7 @@
     {projection}
     chooserOpen={overlays.current === 'period'}
     onchoose={() => overlays.open('period')}
-    onclose={(focus) => overlays.close(focus)}
+    onclose={(focus) => (focus === 'keep' ? overlays.dismiss() : overlays.close())}
     onapply={queue.apply}
     segments={!compact}
   />

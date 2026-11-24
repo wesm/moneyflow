@@ -69,7 +69,7 @@
     id="mf-editor"
     {overlays}
     oncancel={onclose}
-    ondismiss={() => overlays.close('keep')}
+    ondismiss={() => overlays.dismiss()}
   >
     {@render editor(overlay, onclose)}
   </AnchoredEditor>
@@ -105,7 +105,7 @@
     {suspended}
     onconfirm={onconfirmdelete}
     oncancel={onclose}
-    ondismiss={() => overlays.close('keep')}
+    ondismiss={() => overlays.dismiss()}
   />
 {:else if overlay === 'export'}
   <ExportDialog controller={controller.export} {suspended} {onclose} />

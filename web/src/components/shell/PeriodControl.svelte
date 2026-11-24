@@ -20,7 +20,7 @@
     projection: ViewProjection
     chooserOpen: boolean
     onchoose: () => void
-    /** Closes the chooser; 'keep' leaves focus where a pointer press put it. */
+    /** Closes the chooser; 'keep' is a press outside it, which keeps focus where the press put it. */
     onclose: (focus?: 'keep') => void
     onapply: (change: ViewChange) => void
     /** Shows the Day, Month, Year, and All segments; at phone width they move to the View sheet. */

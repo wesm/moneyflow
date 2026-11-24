@@ -75,6 +75,45 @@ describe('OverlayState', () => {
     expect(host.focusGrid).not.toHaveBeenCalled()
   })
 
+  it('leaves focus on the control a dismissing press focused', async () => {
+    const { overlays, host, opener, elsewhere, popScope } = setup()
+    opener.focus()
+    overlays.open('merchant')
+    overlays.dismiss()
+    expect(overlays.current).toBeUndefined()
+    expect(popScope).toHaveBeenCalledTimes(1)
+    elsewhere.focus()
+    document.dispatchEvent(new MouseEvent('mouseup'))
+    await afterRestore()
+    expect(document.activeElement).toBe(elsewhere)
+    expect(host.focusGrid).not.toHaveBeenCalled()
+  })
+
+  it('returns focus to the grid when a dismissing press leaves nothing focused', async () => {
+    const { overlays, host, opener } = setup()
+    opener.focus()
+    overlays.open('merchant')
+    overlays.dismiss()
+    opener.blur()
+    await afterRestore()
+    expect(host.focusGrid).not.toHaveBeenCalled()
+    document.dispatchEvent(new MouseEvent('mouseup'))
+    await afterRestore()
+    expect(host.focusGrid).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves focus alone after a dismissing press if another overlay opened', async () => {
+    const { overlays, host, opener } = setup()
+    opener.focus()
+    overlays.open('merchant')
+    overlays.dismiss()
+    overlays.open('help')
+    opener.blur()
+    document.dispatchEvent(new MouseEvent('mouseup'))
+    await afterRestore()
+    expect(host.focusGrid).not.toHaveBeenCalled()
+  })
+
   it('opens from an effect without making the effect depend on the grid or the overlay', () => {
     let grid = $state<HTMLElement | undefined>(document.createElement('div'))
     const popScope = vi.fn()

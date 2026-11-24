@@ -68,6 +68,8 @@ export class OverlayState {
   #layers: symbol[] = []
   #popScope: (() => void) | undefined
   #restoreFrame: number | undefined
+  /** Waits for the end of the press that dismissed the overlay. */
+  #dismissEnd: (() => void) | undefined
 
   constructor(host: OverlayHost) {
     this.#host = host
@@ -118,6 +120,27 @@ export class OverlayState {
   }
 
   /**
+   * Closes the open overlay after a press outside it, as `close('keep')` does. Focus stays where
+   * the press put it, but a press on a spot that takes no focus leaves focus on the page body,
+   * where an embedded workspace takes no keys; once that press ends, the grid takes focus.
+   */
+  dismiss(): void {
+    this.close('keep')
+    this.#cancelDismiss()
+    const ended = () => {
+      this.#dismissEnd = undefined
+      this.#restoreFrame = requestAnimationFrame(() => {
+        this.#restoreFrame = undefined
+        const nothingFocused = document.activeElement === document.body
+        const selecting = window.getSelection()?.isCollapsed === false
+        if (this.current === undefined && nothingFocused && !selecting) this.#host.focusGrid()
+      })
+    }
+    this.#dismissEnd = ended
+    document.addEventListener('mouseup', ended, { capture: true, once: true })
+  }
+
+  /**
    * Attaches to an overlay panel that takes Escape itself. While the panel is the innermost
    * layer, an Escape inside it that no control claimed calls `onescape`. An Escape on a control
    * with an open popup belongs to that popup. So does any Escape while a kit popup is open in the
@@ -164,8 +187,14 @@ export class OverlayState {
   }
 
   #cancelRestore(): void {
+    this.#cancelDismiss()
     if (this.#restoreFrame !== undefined) cancelAnimationFrame(this.#restoreFrame)
     this.#restoreFrame = undefined
+  }
+
+  #cancelDismiss(): void {
+    if (this.#dismissEnd) document.removeEventListener('mouseup', this.#dismissEnd, true)
+    this.#dismissEnd = undefined
   }
 
   #openerOutsideGrid(): HTMLElement | undefined {
