@@ -18,7 +18,6 @@
     label,
     rows,
     activeIndex,
-    // eslint-disable-next-line no-useless-assignment -- Writes update the parent's bind:activeID.
     activeID = $bindable(),
     element = $bindable(),
     onleave,

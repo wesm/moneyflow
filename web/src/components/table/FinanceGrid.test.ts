@@ -776,10 +776,12 @@ describe('FinanceGrid', () => {
 
   it('drops the columns that overflow the scroller instead of scrolling, below 900 px too', () => {
     const scroller = document.createElement('div')
+    document.body.append(scroller)
     // 56 rem at a 16 px root: Context drops, Trend and vs prior still fit.
     Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: 56 * 16 })
     const rootFontSize = document.documentElement.style.fontSize
     onTestFinished(() => {
+      scroller.remove()
       document.documentElement.style.fontSize = rootFontSize
     })
     document.documentElement.style.fontSize = '16px'
