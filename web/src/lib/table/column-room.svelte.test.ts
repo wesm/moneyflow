@@ -1,5 +1,5 @@
 import { flushSync } from 'svelte'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import { ColumnRoom } from './column-room.svelte'
 
@@ -27,13 +27,20 @@ describe('ColumnRoom', () => {
     )
     resizeTo(700)
     const scroller = document.createElement('div')
+    document.body.append(scroller)
     Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: 640 })
     scroller.style.padding = '0px'
+    const rootFontSize = document.documentElement.style.fontSize
     document.documentElement.style.fontSize = '16px'
     let room: ColumnRoom | undefined
     const stop = $effect.root(() => {
       room = new ColumnRoom(() => scroller)
       $effect(() => void room?.rem)
+    })
+    onTestFinished(() => {
+      stop()
+      scroller.remove()
+      document.documentElement.style.fontSize = rootFontSize
     })
     flushSync()
     // 640 px at a 16 px root font size, at a window narrower than 900 px.
@@ -42,7 +49,5 @@ describe('ColumnRoom', () => {
 
     for (const width of [1100, 820, 641, 1000]) resizeTo(width)
     expect(observe).toHaveBeenCalledTimes(1)
-    stop()
-    document.documentElement.style.fontSize = ''
   })
 })
