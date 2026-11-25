@@ -226,15 +226,26 @@
    * The grid takes focus once, when the first view arrives. In a host page it takes focus from
    * the page body or from the control that had focus when the workspace mounted, such as the
    * host link that opened it. A host control the user moved to while the view loaded keeps
-   * focus, and so does a host text field.
+   * focus, even when the user then moved back to the opener, and so does a host text field.
    */
   const focusedAtMount = document.activeElement
+  /** Whether focus went to another element while the view loaded. */
+  let movedWhileLoading = false
   const loaded = $derived(projection !== undefined)
+  $effect(() => {
+    if (loaded) return
+    // Leaving the window and coming back refocuses the opener itself, which is not a move.
+    const moved = (event: FocusEvent) => {
+      if (event.target !== focusedAtMount) movedWhileLoading = true
+    }
+    document.addEventListener('focusin', moved, true)
+    return () => document.removeEventListener('focusin', moved, true)
+  })
   $effect(() => {
     if (!loaded) return
     untrack(() => {
       const active = document.activeElement
-      const opener = active === focusedAtMount && !isTextEntry(active)
+      const opener = active === focusedAtMount && !movedWhileLoading && !isTextEntry(active)
       if (chrome || active === document.body || opener) focusGrid()
     })
   })

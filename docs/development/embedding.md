@@ -375,12 +375,14 @@ With `shortcuts={false}`, Moneyflow's keys act only while focus is inside its vi
 workspace keeps focus there for the user:
 
 - When the first view loads, the table takes focus from the page body or from the control that
-  had focus when the workspace mounted, such as the host link that opened it. A host control the
-  user moves to while the view loads keeps focus, and so does a host text field.
+  had focus when the workspace mounted, such as the host link that opened it. Once the user
+  moves focus while the view loads, focus stays where the user leaves it, even back on that link.
+  A host text field keeps focus too.
 - A press inside the workspace that leaves nothing focused, such as one on a chart label or the
   space around the table, returns focus to the table. A press that selects text does not.
 - A press outside an open editor, confirmation, or period chooser closes it. When that press
-  leaves nothing focused, the table takes focus once the press ends.
+  leaves nothing focused, the table takes focus once the press ends. Tab or Escape out of the
+  period chooser leaves focus on the control it moves to.
 
 A press on the host's own page, outside the workspace, leaves focus where the browser puts it.
 Call `focus()` when a press on a part of the host page that belongs with the workspace, such as

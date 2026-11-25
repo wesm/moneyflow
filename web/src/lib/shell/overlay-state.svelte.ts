@@ -123,6 +123,9 @@ export class OverlayState {
    * Closes the open overlay after a press outside it, as `close('keep')` does. Focus stays where
    * the press put it, but a press on a spot that takes no focus leaves focus on the page body,
    * where an embedded workspace takes no keys; once that press ends, the grid takes focus.
+   *
+   * Tab and Escape can dismiss an overlay too. They move focus to a control, which ends the wait
+   * for a press, so a later press does not give the grid focus.
    */
   dismiss(): void {
     this.close('keep')
@@ -138,6 +141,12 @@ export class OverlayState {
     }
     this.#dismissEnd = ended
     document.addEventListener('mouseup', ended, { capture: true, once: true })
+    document.addEventListener('focusin', this.#focusLanded, { capture: true, once: true })
+  }
+
+  /** Focus that lands on an element is where the user put it, so nothing is restored. */
+  #focusLanded = (): void => {
+    this.#cancelDismiss()
   }
 
   /**
@@ -194,6 +203,7 @@ export class OverlayState {
 
   #cancelDismiss(): void {
     if (this.#dismissEnd) document.removeEventListener('mouseup', this.#dismissEnd, true)
+    document.removeEventListener('focusin', this.#focusLanded, true)
     this.#dismissEnd = undefined
   }
 

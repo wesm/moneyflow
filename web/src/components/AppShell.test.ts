@@ -1607,6 +1607,28 @@ describe('AppShell inside a host page', () => {
     expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' }))
   })
 
+  it('leaves the opening link focused when the user moved away and back while loading', async () => {
+    const link = document.body.appendChild(document.createElement('a'))
+    link.href = '#spending'
+    const other = document.body.appendChild(document.createElement('button'))
+    onTestFinished(() => {
+      link.remove()
+      other.remove()
+    })
+    link.focus()
+    const loaded = stubController()
+    const rendered = render(AppShell, {
+      controller: { ...loaded, projection: undefined, loading: true },
+      chrome: false,
+    })
+    await tick()
+    other.focus()
+    link.focus()
+
+    rendered.rerender({ controller: loaded })
+    expect(document.activeElement).toBe(link)
+  })
+
   it('leaves a host text field focused before the workspace mounted', () => {
     const field = document.body.appendChild(document.createElement('input'))
     onTestFinished(() => field.remove())

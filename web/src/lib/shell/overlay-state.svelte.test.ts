@@ -102,6 +102,20 @@ describe('OverlayState', () => {
     expect(host.focusGrid).toHaveBeenCalledTimes(1)
   })
 
+  it('gives the grid nothing on a later press after Tab or Escape dismissed the overlay', async () => {
+    const { overlays, host, opener, elsewhere } = setup()
+    opener.focus()
+    overlays.open('period')
+    // Tab out, or Escape back to the label button: focus lands on a control.
+    overlays.dismiss()
+    elsewhere.focus()
+    // Later, a press on a spot that takes no focus.
+    elsewhere.blur()
+    document.dispatchEvent(new MouseEvent('mouseup'))
+    await afterRestore()
+    expect(host.focusGrid).not.toHaveBeenCalled()
+  })
+
   it('leaves focus alone after a dismissing press if another overlay opened', async () => {
     const { overlays, host, opener } = setup()
     opener.focus()
