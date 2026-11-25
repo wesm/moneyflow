@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import FinanceGrid from './FinanceGrid.svelte'
@@ -187,6 +188,57 @@ describe('FinanceGrid', () => {
     const name = cell(screen.getByRole('row', { name: /Example Merchant/ }), 'name')!
     expect(await fireEvent.mouseDown(name, { detail: 1 })).toBe(true)
     expect(await fireEvent.mouseDown(name, { detail: 2 })).toBe(false)
+  })
+
+  describe('a press outside the grid', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+      onTestFinished(() => {
+        vi.useRealTimers()
+      })
+    })
+    const focusedGrid = () => {
+      render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: false, ...callbacks() })
+      const grid = screen.getByRole('grid')
+      grid.focus()
+      return grid
+    }
+
+    it('keeps the ring while a press on nothing focusable holds focus off the grid', async () => {
+      const grid = focusedGrid()
+      await fireEvent.pointerDown(document.body)
+      grid.blur()
+      await tick()
+      expect(grid.hasAttribute('data-resting')).toBe(true)
+
+      // The workspace gives the grid focus back when the press ends.
+      await fireEvent.pointerUp(document.body)
+      grid.focus()
+      vi.advanceTimersToNextFrame()
+      await tick()
+      expect(document.activeElement).toBe(grid)
+      expect(grid.hasAttribute('data-resting')).toBe(false)
+    })
+
+    it('drops the ring when the press ends with focus still off the grid', async () => {
+      const grid = focusedGrid()
+      await fireEvent.pointerDown(document.body)
+      grid.blur()
+      await fireEvent.pointerUp(document.body)
+      vi.advanceTimersToNextFrame()
+      await tick()
+      expect(grid.hasAttribute('data-resting')).toBe(false)
+    })
+
+    it('drops the ring at once when the press focuses a control', async () => {
+      const grid = focusedGrid()
+      const control = document.body.appendChild(document.createElement('button'))
+      onTestFinished(() => control.remove())
+      await fireEvent.pointerDown(control)
+      control.focus()
+      await tick()
+      expect(grid.hasAttribute('data-resting')).toBe(false)
+    })
   })
 
   it('double-clicks a grouped row to drill from any cell but the box', async () => {
