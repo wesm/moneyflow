@@ -66,8 +66,13 @@ Esc cancels.
 
 ### Edit in the browser
 
-The browser editor works the same way and shows how many transactions the change affects before
-you stage it.
+The category list opens with the editor. When the change is to one transaction or one category,
+the current category is marked and highlighted. Type to filter the list, then press Enter or click
+a category to stage it.
+
+A merchant takes the name you type, so there is no `Create "…"` choice. Existing names that match
+are suggested; to use one, move to it with Down or Up, or click it. Before you stage, the editor
+shows how many transactions the change affects.
 
 ### Open the editor
 
@@ -90,10 +95,13 @@ merchant. Changing only the capitalization of a merchant's own name is not a mer
 | --- | --- |
 | Type | Filter the names |
 | Down / Up | Move through the names |
-| Enter | Use the highlighted name. A category stages at once; a merchant stages on a second Enter, so you can choose the scope first |
-| `Ctrl+Enter` / `Cmd+Enter` | Use the highlighted name and stage the change |
+| Enter | Stage the change, with the highlighted name if there is one |
+| `Ctrl+Enter` / `Cmd+Enter` | The same as Enter |
 | Tab | Move to the next control. Tab does not change the scope in the browser |
-| Esc | Close the list, or cancel the editor |
+| Esc | Close the list after typing, or cancel the editor |
+
+Choose a merchant's scope before you press Enter in the name field. Enter on the scope stages the
+change too.
 
 For a new category, Enter opens the group list and `Ctrl+Enter` stages the change. Esc returns
 to the name.

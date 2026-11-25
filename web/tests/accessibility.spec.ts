@@ -108,6 +108,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await editor.getByRole('combobox', { name: 'Merchant' }).pressSequentially('Co')
     const list = editor.getByRole('listbox', { name: 'Merchant' })
     await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowDown')
     await expect(list.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true')
     await list.getByRole('option').nth(3).hover()
     await expectNoAxeViolations(page)

@@ -694,7 +694,6 @@ test('the editor keeps its draft when the window crosses the phone width', async
     const name = editor.getByRole('combobox', { name: 'Merchant' })
     const whole = editor.getByRole('radio', { name: 'Whole merchant · 34 transactions' })
     await name.fill('Maple Court Homes')
-    await name.press('Enter')
     await whole.click()
     await expect(whole).toBeChecked()
 
@@ -933,7 +932,6 @@ test.describe('phone rows: drilling, keys, and the sheet', () => {
       expect(reachable).toBe(true)
     }
     await name.fill('Renamed Example')
-    await name.press('Enter')
     await expect(
       editor.getByRole('button', { name: 'Stage change to 1 transaction' }),
     ).toBeEnabled()

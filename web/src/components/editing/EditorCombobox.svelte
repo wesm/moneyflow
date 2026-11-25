@@ -15,6 +15,15 @@
     valid: boolean
     /** Whether a plain Enter on the open list stages the choice it accepts; see `editorKey`. */
     acceptStages?: boolean
+    /** Shows the list as soon as it has options, before any key. */
+    startOpen?: boolean
+    /** The value being changed. Its option is marked, and is highlighted while the field is empty. */
+    current?: string | undefined
+    /**
+     * Highlights the first option as the list opens. Off, nothing is highlighted until an arrow
+     * key, so Enter keeps the typed text.
+     */
+    highlightFirst?: boolean
     onaccept: (option: EditorOption) => void
     /**
      * Receives `stage`, `accept-and-stage` (after `onaccept`), and `cancel`, with the key event.
@@ -29,6 +38,9 @@
     value = $bindable(),
     valid,
     acceptStages = false,
+    startOpen = false,
+    current,
+    highlightFirst = true,
     onaccept,
     onkeyaction,
   }: Props = $props()
@@ -38,12 +50,20 @@
   // kit types `inputEl` without `| undefined`, so the binding casts the unmounted field.
   let input = $state<HTMLInputElement>()
   let list = $state<HTMLElement>()
-  let open = $state(false)
-  let active = $state(0)
+  // svelte-ignore state_referenced_locally
+  let open = $state(startOpen)
+  /** The option an arrow key moved to; until then, the default below. */
+  let active = $state<number>()
+  const currentIndex = $derived(
+    current === undefined ? -1 : options.findIndex((option) => option.label === current),
+  )
+  const defaultIndex = $derived(
+    value.trim() === '' && currentIndex >= 0 ? currentIndex : highlightFirst ? 0 : -1,
+  )
+  const activeIndex = $derived(Math.min(active ?? defaultIndex, options.length - 1))
   const expanded = $derived(open && options.length > 0)
-  const activeIndex = $derived(Math.min(active, options.length - 1))
   const activeOption = $derived(
-    expanded ? { ariaActivedescendant: `${listId}-${activeIndex}` } : {},
+    expanded && activeIndex >= 0 ? { ariaActivedescendant: `${listId}-${activeIndex}` } : {},
   )
 
   // A listener on the input itself runs before any ancestor's keydown listener, so a claimed
@@ -56,11 +76,21 @@
   })
 
   $effect(() => {
-    if (expanded) list?.children[activeIndex]?.scrollIntoView({ block: 'nearest' })
+    if (expanded && activeIndex >= 0) {
+      list?.children[activeIndex]?.scrollIntoView({ block: 'nearest' })
+    }
   })
 
   function handleKey(event: KeyboardEvent): void {
-    const action = editorKey(event, { listOpen: expanded, valid, focus: 'combobox', acceptStages })
+    let action = editorKey(event, {
+      listOpen: expanded,
+      highlighted: activeIndex >= 0,
+      valid,
+      focus: 'combobox',
+      acceptStages,
+    })
+    // With nothing typed, the list is all there is to close, so Escape cancels at once.
+    if (action === 'close-list' && value.trim() === '') action = 'cancel'
     if (action === 'none') return
     if (action === 'cancel') {
       onkeyaction(action, event)
@@ -77,7 +107,8 @@
     } else if (action === 'move-next') {
       active = (activeIndex + 1) % options.length
     } else if (action === 'move-prev') {
-      active = (activeIndex - 1 + options.length) % options.length
+      active =
+        activeIndex < 0 ? options.length - 1 : (activeIndex - 1 + options.length) % options.length
     } else if (action === 'close-list') {
       open = false
     } else if (action === 'accept') {
@@ -99,13 +130,14 @@
 
   function reopen(): void {
     open = true
-    active = 0
+    active = undefined
   }
 
   function optionName(option: EditorOption): string {
     if (option.create) return `Create "${option.label}"`
     const count = `${option.count} ${option.count === 1 ? 'transaction' : 'transactions'}`
-    return [option.label, option.secondary, count].filter(Boolean).join(', ')
+    const mark = option.label === current ? 'current' : ''
+    return [option.label, option.secondary, count, mark].filter(Boolean).join(', ')
   }
 </script>
 
@@ -122,6 +154,7 @@
     {:else}
       <span class="mf-combobox-label">{option.label}</span>
       {#if option.secondary}<span class="mf-combobox-quiet">{option.secondary}</span>{/if}
+      {#if option.label === current}<span class="mf-combobox-current">Current</span>{/if}
       <span class="mf-combobox-quiet mf-combobox-count">{option.count}</span>
     {/if}
   </li>
@@ -200,6 +233,11 @@
   .mf-combobox-quiet {
     flex-shrink: 0;
     color: var(--text-secondary);
+  }
+  .mf-combobox-current {
+    flex-shrink: 0;
+    color: var(--accent-blue);
+    font-size: var(--font-size-xs);
   }
   .mf-combobox-count {
     margin-left: auto;

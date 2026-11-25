@@ -89,6 +89,23 @@
     const pending = controller.editing.state.pending
     return pending.active_operations > 0 || pending.inactive_operations > 0 || !!write || lastWrite
   })
+  /** Whether the view offers the merchant or category editor. */
+  const editable = $derived.by(() => {
+    if (!projection) return false
+    const offered = availableCapabilities(projection)
+    return offered.has('transaction.edit-merchant') || offered.has('transaction.edit-category')
+  })
+  const revision = $derived(controller.editing.state.revision)
+  // The editors' choices load once the view has settled at each revision, so an editor opens
+  // with them instead of waiting for its own request.
+  $effect(() => {
+    void revision
+    if (!editable) return
+    const timer = window.setTimeout(() => {
+      controller.editing.catalog().catch(() => undefined)
+    }, 250)
+    return () => window.clearTimeout(timer)
+  })
   const entries = $derived(projection ? navItems(projection) : undefined)
   const location = $derived(
     entries?.explore.find((entry) => entry.active)?.id as ViewID | undefined,
