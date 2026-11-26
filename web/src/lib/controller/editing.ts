@@ -76,6 +76,7 @@ export interface EditingController {
   undo(): Promise<boolean>
   redo(): Promise<boolean>
   commit(reviewedRevision: bigint): Promise<boolean>
+  /** The merchants, categories, and groups the editors offer. One request serves a revision. */
   catalog(): Promise<EditorCatalog>
   previewMerchant(
     target: { kind: string; identity: string },
@@ -243,11 +244,23 @@ export function createEditingController(options: EditingControllerOptions): Edit
     return await mutate('api/v1/commit', body, 'Changes saved in Moneyflow.')
   }
 
-  async function catalog(): Promise<EditorCatalog> {
-    return await requestProfileJSON<EditorCatalog>(options.transport, 'api/v1/editor-catalog', {
+  // The catalog changes only with the revision, so every editor opened at one revision shares it.
+  let catalogCache: { revision: bigint; request: Promise<EditorCatalog> } | undefined
+
+  function catalog(): Promise<EditorCatalog> {
+    const revision = state.revision
+    if (catalogCache?.revision === revision) return catalogCache.request
+    const request = requestProfileJSON<EditorCatalog>(options.transport, 'api/v1/editor-catalog', {
       version: '1',
-      expected_revision: state.revision.toString(10),
+      expected_revision: revision.toString(10),
     })
+    const entry = { revision, request }
+    catalogCache = entry
+    // A failed request is not kept, so the next editor asks again.
+    request.catch(() => {
+      if (catalogCache === entry) catalogCache = undefined
+    })
+    return request
   }
 
   async function previewMerchant(

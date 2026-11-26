@@ -628,6 +628,30 @@ describe('browser editing controller', () => {
     expect(JSON.parse(rawBody)).toEqual({ version: '1', expected_revision: '6' })
   })
 
+  it('asks for editor choices once per revision, and again after a failed request', async () => {
+    const choices = { version: '1', revision: '6', merchants: [], categories: [], groups: [] }
+    const request = vi
+      .fn<MutationFetch['request']>()
+      .mockResolvedValueOnce(jsonResponse(choices))
+      .mockResolvedValueOnce(problemResponse('stale_revision', '7'))
+      .mockResolvedValue(jsonResponse({ ...choices, revision: '7' }))
+    const controller = createEditingController({
+      transport: { request },
+      host: editingHost(testProjection({ revision: '6' })),
+    })
+    const first = controller.catalog()
+    expect(controller.catalog()).toBe(first)
+    await first
+    await controller.catalog()
+    expect(request).toHaveBeenCalledTimes(1)
+
+    controller.sync(testProjection({ revision: '7' }))
+    await expect(controller.catalog()).rejects.toThrow()
+    await expect(controller.catalog()).resolves.toMatchObject({ revision: '7' })
+    const revisions = request.mock.calls.map(([, body]) => JSON.parse(body).expected_revision)
+    expect(revisions).toEqual(['6', '7', '7'])
+  })
+
   it('requests merchant preview with the full selection and view, independent of loaded rows', async () => {
     const projection = testProjection({
       revision: '6',

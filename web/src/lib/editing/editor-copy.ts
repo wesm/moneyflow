@@ -21,6 +21,19 @@ export function countLine(projection: ViewProjection, identity: string): string 
 }
 
 /**
+ * The category the editor's target has now, counting a pending change: a transaction's own, or a
+ * category row's. A selection, another group, or a category row with pending edits has none, as
+ * its transactions can differ.
+ */
+export function currentCategory(projection: ViewProjection, identity: string): string | undefined {
+  if (projection.selection_count > 0) return undefined
+  const detail = projection.detail_rows?.find((row) => row.identity === identity)
+  if (detail) return detail.staged?.category ?? detail.category
+  const row = projection.aggregate_rows?.find((candidate) => candidate.identity === identity)
+  return row?.dimension === 'category' && !row.flags.pending ? row.label : undefined
+}
+
+/**
  * The merchant scope choices. Counts appear once their previews arrive. The whole merchant stays
  * listed when unavailable, disabled, with the reason as its title.
  */

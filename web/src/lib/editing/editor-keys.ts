@@ -31,13 +31,14 @@ export interface KeyLike {
 
 export interface EditorKeyState {
   listOpen: boolean
+  /**
+   * Whether the open list has a highlighted choice. Without one, Enter stages the typed text as if
+   * the list were closed. Defaults to true.
+   */
+  highlighted?: boolean
   valid: boolean
   focus: EditorFocus
-  /**
-   * Whether a plain Enter on the open list stages the accepted choice too. Set it where nothing is
-   * left to choose after the choice, as for a category; leave it off where a choice still follows,
-   * as a merchant's scope does.
-   */
+  /** Whether a plain Enter on the open list stages the accepted choice too. */
   acceptStages?: boolean
 }
 
@@ -48,8 +49,9 @@ export interface EditorKeyState {
  * focused control handles natively (typing into an open list, arrows in the scope group, Enter
  * on a button) also return `none`, as do keys during an input method composition, arrows with
  * Ctrl, Cmd, or Alt, Enter with Shift or Alt, and a held Enter's repeats. A plain Enter on the
- * open list accepts the active choice, and stages it too only with `acceptStages`; otherwise
- * staging takes a second press, which a held Enter's repeats never make.
+ * open list accepts the highlighted choice, and stages it too only with `acceptStages`;
+ * otherwise staging takes a second press, which a held Enter's repeats never make. With nothing
+ * highlighted, Enter stages the typed text.
  */
 export function editorKey(event: KeyLike, state: EditorKeyState): EditorKeyAction {
   if (event.isComposing || event.keyCode === 229) return 'none'
@@ -72,7 +74,9 @@ export function editorKey(event: KeyLike, state: EditorKeyState): EditorKeyActio
 function enterAction(event: KeyLike, state: EditorKeyState, listOpen: boolean): EditorKeyAction {
   if (event.repeat || event.shiftKey || event.altKey) return 'none'
   const staging = event.ctrlKey === true || event.metaKey === true
-  if (listOpen) return staging || state.acceptStages ? 'accept-and-stage' : 'accept'
+  if (listOpen && state.highlighted !== false) {
+    return staging || state.acceptStages ? 'accept-and-stage' : 'accept'
+  }
   if (!state.valid) return 'none'
   if (staging || state.focus === 'combobox' || state.focus === 'scope') return 'stage'
   return 'none'

@@ -21,8 +21,6 @@ test('every editing workflow starts from its TUI key and restores the table', as
     const merchantName = merchant.getByRole('combobox', { name: 'Merchant' })
     await expect(merchantName).toBeFocused()
     await merchantName.fill('Browser Merchant')
-    await expect(merchant.getByRole('option', { name: 'Create "Browser Merchant"' })).toBeVisible()
-    await merchantName.press('Enter')
     await merchantName.press('Enter')
     await expect(merchant).toBeHidden()
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
@@ -154,8 +152,6 @@ async function renameThenEscape(page: Page): Promise<{ release(): void }> {
   await expect(editor).toBeVisible()
   const name = editor.getByRole('combobox', { name: 'Merchant' })
   await name.fill('Browser Merchant')
-  await expect(editor.getByRole('option', { name: 'Create "Browser Merchant"' })).toBeVisible()
-  await name.press('Enter')
   await expect(editor.getByRole('button', { name: /^Stage change/ })).toBeEnabled()
   const rename = await holdRequest(page, 'mutations')
   await name.press('Enter')
@@ -448,8 +444,6 @@ test('a staged rename shows inline in gold while the grouped Net stays committed
     const name = editor.getByRole('combobox', { name: 'Merchant' })
     await expect(name).toBeFocused()
     await name.fill('Renamed Example')
-    await expect(editor.getByRole('option', { name: 'Create "Renamed Example"' })).toBeVisible()
-    await name.press('Enter')
     const stage = editor.getByRole('button', { name: 'Stage change to 1 transaction' })
     await expect(stage).toBeEnabled()
     await name.press('Enter')
@@ -505,8 +499,6 @@ test('the hover pencil and double-click open editors for the pointed row', async
     await expect(merchant).toBeVisible()
     const name = merchant.getByRole('combobox', { name: 'Merchant' })
     await name.fill('Pointer Merchant')
-    await expect(merchant.getByRole('option', { name: 'Create "Pointer Merchant"' })).toBeVisible()
-    await name.press('Enter')
     await expect(
       merchant.getByRole('button', { name: 'Stage change to 1 transaction' }),
     ).toBeEnabled()
@@ -562,8 +554,6 @@ test('a bulk rename keeps whole-merchant scope off and clears the selection', as
       .toBeLessThanOrEqual(barTop)
     const name = editor.getByRole('combobox', { name: 'Merchant' })
     await name.fill('Normalized Merchant')
-    await expect(editor.getByRole('option', { name: 'Create "Normalized Merchant"' })).toBeVisible()
-    await name.press('Enter')
     await expect(
       editor.getByRole('button', { name: `Stage change to ${affected} transactions` }),
     ).toBeEnabled()
@@ -639,11 +629,9 @@ test('a merchant row renames the whole merchant through review and commit', asyn
     )
     const name = editor.getByRole('combobox', { name: 'Merchant' })
     await name.fill('Maple Court Homes')
-    await expect(editor.getByRole('option', { name: 'Create "Maple Court Homes"' })).toBeVisible()
-    await name.press('Enter')
     const stage = editor.getByRole('button', { name: 'Stage change to 34 transactions' })
     await expect(stage).toBeEnabled()
-    await stage.click()
+    await name.press('Enter')
     await expect(editor).toBeHidden()
     await expect(grid).toBeFocused()
     await expect(page.getByText(/1 pending edit · 34 transactions/)).toBeVisible()
@@ -703,7 +691,7 @@ test('a new category asks for its group, and Esc there returns to the field', as
   }
 })
 
-test('Enter accepts then stages, and Esc closes the list then cancels', async ({ page }) => {
+test('Enter stages the merchant name, and Esc closes the list then cancels', async ({ page }) => {
   const server = await startE2EServer()
   try {
     await openMoneyflow(page, server)
@@ -723,16 +711,14 @@ test('Enter accepts then stages, and Esc closes the list then cancels', async ({
     await expect(grid).toBeFocused()
     await expect(page.getByText(/0 pending edit/)).toBeVisible()
 
+    // A suggestion is used only once an arrow key moves to it.
     await page.keyboard.press('m')
     await field.pressSequentially('Corner Gro')
     const first = list.getByRole('option').first()
     await expect(first).toHaveAccessibleName(/^Corner Grocery, /)
+    await expect(first).toHaveAttribute('aria-selected', 'false')
+    await page.keyboard.press('ArrowDown')
     await expect(first).toHaveAttribute('aria-selected', 'true')
-    await page.keyboard.press('Enter')
-    await expect(list).toBeHidden()
-    await expect(field).toHaveValue('Corner Grocery')
-    await expect(editor).toContainText('Merges into Corner Grocery')
-    await expect(page.getByText(/0 pending edit/)).toBeVisible()
     await page.keyboard.press('Enter')
     await expect(editor).toBeHidden()
     await expect(grid).toBeFocused()
@@ -762,7 +748,7 @@ test('one Enter stages the highlighted category from the open list', async ({ pa
   }
 })
 
-test('a held Enter accepts the suggestion but does not stage it', async ({ page }) => {
+test('a held Enter stages the merchant name once', async ({ page }) => {
   const server = await startE2EServer()
   try {
     await openMoneyflow(page, server)
@@ -772,14 +758,12 @@ test('a held Enter accepts the suggestion but does not stage it', async ({ page 
     const editor = page.getByRole('dialog', { name: 'Edit merchant' })
     const field = editor.getByRole('combobox', { name: 'Merchant' })
     await field.fill('Browser Merchant')
-    await expect(editor.getByRole('option', { name: 'Create "Browser Merchant"' })).toBeVisible()
+    await expect(editor.getByRole('button', { name: /^Stage change to / })).toBeEnabled()
     await page.keyboard.down('Enter')
     await page.keyboard.down('Enter')
     await page.keyboard.up('Enter')
-    await expect(field).toHaveValue('Browser Merchant')
-    await expect(editor.getByRole('listbox', { name: 'Merchant' })).toBeHidden()
-    await expect(editor).toBeVisible()
-    await expect(page.getByText(/0 pending edit/)).toBeVisible()
+    await expect(editor).toBeHidden()
+    await expect(page.getByText(/1 pending edit/)).toBeVisible()
   } finally {
     await server.stop()
   }

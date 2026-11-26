@@ -9,6 +9,7 @@
   import type { EditorDraft } from '../../lib/editing/draft.svelte'
   import {
     countLine,
+    currentCategory,
     editorIntent,
     impactLines,
     matchChoice,
@@ -46,6 +47,8 @@
   const selecting = view.selection_count > 0
   const rule = merchantScope(view, opened.cursorIndex, view.selection_count)
   const count = countLine(view, opened.target.identity)
+  const merchant = opened.kind === 'merchant'
+  const current = merchant ? undefined : currentCategory(view, opened.target.identity)
   const currency = view.view.currency?.currency
   let catalog = $state<EditorCatalog>()
   const previews = new ScopePreviews((scope, signal) =>
@@ -56,18 +59,21 @@
   let field = $state<HTMLElement>()
   let groupStep = $state<HTMLElement>()
 
-  const merchant = opened.kind === 'merchant'
   const choices = $derived((merchant ? catalog?.merchants : catalog?.categories) ?? [])
   const groups = $derived(catalog?.groups ?? [])
-  // Until the choices load, a typed name could duplicate one that exists, so nothing is offered.
-  const options = $derived(editorOptions(choices, draft.text, !!catalog, merchant ? [] : groups))
+  // A typed merchant name is the new name, so it needs no Create option. A new category does,
+  // which waits for the choices, as until then the name could duplicate one that exists.
+  const options = $derived(
+    editorOptions(choices, draft.text, !merchant && !!catalog, merchant ? [] : groups),
+  )
   const match = $derived(matchChoice(choices, draft.text))
   const creating = $derived(!merchant && !match && draft.created === draft.text.trim())
   const preview = $derived(previews.byScope[draft.scope])
   const named = $derived(merchant ? draft.text.trim() !== '' : match !== undefined || creating)
   /** Whether Enter may ask to stage; a request made while loading waits for `valid`. */
   const stageable = $derived(!submitting && named && (!creating || !!draft.groupId))
-  const valid = $derived(stageable && !!catalog && !!preview)
+  // Only a merchant edit previews its effect, which a category edit's count line already gives.
+  const valid = $derived(stageable && !!catalog && (!merchant || !!preview))
   const queue = new StageQueue()
   const impact = $derived(merchant ? impactLines(preview, draft.scope, match, currency) : [])
 
@@ -86,8 +92,8 @@
 
   // Every scope change re-requests its preview, aborting the earlier request.
   $effect(() => {
-    const current = draft.scope
-    return untrack(() => previews.load(current))
+    const scope = draft.scope
+    return merchant ? untrack(() => previews.load(scope)) : undefined
   })
 
   $effect(() => {
@@ -96,8 +102,10 @@
 
   async function stage(): Promise<void> {
     if (!stageable) return
-    if (!catalog || !preview) return queue.request({ text: draft.text, scope: draft.scope })
-    if (BigInt(preview.revision) !== controller.state.revision) {
+    if (!valid) return queue.request({ text: draft.text, scope: draft.scope })
+    // Choosing the category the target already has changes nothing.
+    if (current !== undefined && match?.label === current) return oncancel()
+    if (preview && BigInt(preview.revision) !== controller.state.revision) {
       error = 'The profile changed. Reopen this editor to review affected transactions.'
       return
     }
@@ -123,9 +131,13 @@
     if (!error && mounted) onstage() // Not after Esc closed the editor during the request.
   }
 
-  /** Accepting Create for a category opens the group step; a merchant name needs no group. */
+  /**
+   * Accepting a category stages it, from a key or a click alike; accepting Create opens the group
+   * step instead. A merchant name a click accepts waits, so its scope can still change.
+   */
   function onaccept(option: EditorOption): void {
-    if (merchant || !option.create) return
+    if (merchant) return
+    if (!option.create) return void stage()
     draft.created = option.label
     draft.groupId ||= groups[0]?.id ?? ''
     void tick().then(() => groupStep?.querySelector('button')?.focus())
@@ -139,8 +151,8 @@
       oncancel()
       return
     }
-    // A new category still needs its group, so accepting Create leads to the group step.
-    if (action === 'accept-and-stage' && creating) return
+    // An accepted category staged as it was accepted, or still needs the group of a new one.
+    if (action === 'accept-and-stage' && !merchant) return
     void stage()
   }
 
@@ -181,7 +193,10 @@
       {options}
       bind:value={draft.text}
       valid={stageable}
-      acceptStages={!merchant}
+      acceptStages
+      startOpen={!merchant}
+      {current}
+      highlightFirst={!merchant}
       {onaccept}
       {onkeyaction}
     />
@@ -207,11 +222,11 @@
     />
     {#if rule.reason}<p class="mf-editor__quiet">{rule.reason}</p>{/if}
   {/if}
-  <EditorPreview {impact} {preview} error={previews.error} />
+  {#if merchant}<EditorPreview {impact} {preview} error={previews.error} />{/if}
   {#if error}<p class="editing-error" role="alert">{error}</p>{/if}
   <div class="mf-editor__actions">
     <Button tone="info" surface="solid" disabled={!valid} onclick={() => void stage()}>
-      {stageLabel(preview?.affected_transactions)}
+      {stageLabel(merchant ? preview?.affected_transactions : undefined)}
     </Button>
     <Button onclick={oncancel}>Cancel</Button>
   </div>

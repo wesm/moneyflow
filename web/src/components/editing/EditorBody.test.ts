@@ -103,6 +103,15 @@ const twoGroups = [
 const stageButton = (count: string) =>
   screen.findByRole('button', { name: `Stage change to ${count}` })
 
+/** The category list, which opens with the editor once the choices load. */
+const categoryList = () => screen.findByRole('listbox', { name: 'Category' })
+
+/** A transaction list whose one row has no category yet. */
+const uncategorized = testProjection({
+  revision: '1',
+  detail_rows: testProjection().detail_rows!.map((row) => ({ ...row, category: 'Uncategorized' })),
+})
+
 describe('EditorBody', () => {
   beforeEach(() => {
     Element.prototype.scrollIntoView = vi.fn()
@@ -143,17 +152,38 @@ describe('EditorBody', () => {
     )
   })
 
-  it('accepts and stages a new merchant name on Ctrl+Enter from the open list', async () => {
+  it('stages the typed merchant name with one Enter while suggestions show', async () => {
     const { editing, input, onstage } = setup()
     await stageButton('5 transactions')
-    await type(input, 'Renamed Example')
-    expect(screen.getByRole('option', { name: /Create "Renamed Example"/ })).toBeTruthy()
-    await fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+    await type(input, 'Example')
+    // A suggestion, not a Create option, and none highlighted, so Enter keeps the typed text.
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      expect.stringContaining('Example Merchant'),
+    ])
+    expect(input.getAttribute('aria-expanded')).toBe('true')
+    expect(input.hasAttribute('aria-activedescendant')).toBe(false)
+    await fireEvent.keyDown(input, { key: 'Enter' })
     await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    expect(input.value).toBe('Example')
     expect(editing.submit).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'transaction.edit-merchant',
-        input: expect.objectContaining({ label: 'Renamed Example' }),
+        input: expect.objectContaining({ label: 'Example' }),
+      }),
+    )
+  })
+
+  it('stages a suggestion an arrow key moved to with one Enter', async () => {
+    const { editing, input, onstage } = setup()
+    await stageButton('5 transactions')
+    await type(input, 'example')
+    await fireEvent.keyDown(input, { key: 'ArrowDown' })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    expect(input.value).toBe('Example Merchant')
+    await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    expect(editing.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ destination_id: 'merchant-a' }),
       }),
     )
   })
@@ -209,14 +239,12 @@ describe('EditorBody', () => {
     expect(input.getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('stages an Enter pressed after accepting a name but before the preview', async () => {
+  it('stages an Enter pressed before the preview once it arrives', async () => {
     const { editing, input, onstage, catalog, previewed } = loading()
     catalog.resolve(testCatalog)
     await type(input, 'Local Merchant')
-    await screen.findByRole('option', { name: 'Create "Local Merchant"' })
     await fireEvent.keyDown(input, { key: 'Enter' })
     expect(input.getAttribute('aria-expanded')).toBe('false')
-    await fireEvent.keyDown(input, { key: 'Enter' })
     expect(editing.submit).not.toHaveBeenCalled()
     previewed.resolve(preview())
     await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
@@ -290,7 +318,7 @@ describe('EditorBody', () => {
     })
     const draft = new EditorDraft()
     const first = setup({ kind: 'category', controller: editing, draft })
-    await stageButton('5 transactions')
+    await categoryList()
     await type(first.input, 'Pet Care')
     await fireEvent.keyDown(first.input, { key: 'Enter' })
     await fireEvent.click(await screen.findByRole('combobox', { name: /Category group/ }))
@@ -303,7 +331,7 @@ describe('EditorBody', () => {
     expect(
       await screen.findByRole('combobox', { name: 'Category group: Second Group' }),
     ).toBeTruthy()
-    await fireEvent.click(await stageButton('5 transactions'))
+    await fireEvent.click(screen.getByRole('button', { name: 'Stage change' }))
     await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
     expect(vi.mocked(editing.submit).mock.calls[0]?.[0].input).toMatchObject({
       label: 'Pet Care',
@@ -380,11 +408,48 @@ describe('EditorBody', () => {
     expect(onstage).not.toHaveBeenCalled()
   })
 
+  it('opens the category list at once on the current category, without a merchant preview', async () => {
+    const { editing, input } = setup({ kind: 'category' })
+    const list = await categoryList()
+    expect(input.getAttribute('aria-expanded')).toBe('true')
+    const current = within(list).getByRole('option', { name: /Example Category.*current/ })
+    expect(input.getAttribute('aria-activedescendant')).toBe(current.id)
+    expect(within(list).getAllByRole('option')).toHaveLength(testCatalog.categories!.length)
+    expect(editing.previewMerchant).not.toHaveBeenCalled()
+    expect(screen.queryByText('Loading affected transactions…')).toBeNull()
+  })
+
+  it('stages a category clicked in the list', async () => {
+    const { editing, onstage } = setup({ kind: 'category', projection: uncategorized })
+    const list = await categoryList()
+    await fireEvent.mouseDown(within(list).getByRole('option', { name: /^Example Category/ }))
+    await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
+    expect(editing.submit).toHaveBeenCalledTimes(1)
+    expect(editing.submit).toHaveBeenCalledWith(
+      expect.objectContaining({ input: { scope: 'transactions', destination_id: 'category-a' } }),
+    )
+  })
+
+  it('closes without staging when Enter picks the current category', async () => {
+    const { editing, input, oncancel } = setup({ kind: 'category' })
+    await categoryList()
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    await vi.waitFor(() => expect(oncancel).toHaveBeenCalledTimes(1))
+    expect(editing.submit).not.toHaveBeenCalled()
+  })
+
+  it('cancels on one Escape while the category list shows and nothing is typed', async () => {
+    const { input, oncancel } = setup({ kind: 'category' })
+    await categoryList()
+    await fireEvent.keyDown(input, { key: 'Escape' })
+    expect(oncancel).toHaveBeenCalledTimes(1)
+  })
+
   it('moves transactions to an existing category with one Enter, with no scope choice', async () => {
-    const { editing, input, onstage } = setup({ kind: 'category' })
+    const { editing, input, onstage } = setup({ kind: 'category', projection: uncategorized })
     expect(screen.getByRole('heading', { name: 'Change category' })).toBeTruthy()
     expect(screen.queryByRole('radiogroup')).toBeNull()
-    await stageButton('5 transactions')
+    await categoryList()
     await type(input, 'example')
     expect(screen.getByRole('option', { name: /Example Category, Example Group/ })).toBeTruthy()
     await fireEvent.keyDown(input, { key: 'Enter' })
@@ -400,7 +465,7 @@ describe('EditorBody', () => {
 
   it('asks for a group after Create, and Escape there returns to the field', async () => {
     const { editing, input, oncancel, onstage } = setup({ kind: 'category' })
-    await stageButton('5 transactions')
+    await categoryList()
     await type(input, 'Pet Care')
     await fireEvent.keyDown(input, { key: 'Enter' })
     const group = await screen.findByRole('combobox', { name: /Category group/ })
@@ -414,7 +479,7 @@ describe('EditorBody', () => {
     await fireEvent.keyDown(input, { key: 'ArrowDown' })
     await fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
     expect(onstage).not.toHaveBeenCalled()
-    await fireEvent.click(screen.getByRole('button', { name: 'Stage change to 5 transactions' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Stage change' }))
     await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
     expect(vi.mocked(editing.submit).mock.calls[0]?.[0].input).toEqual({
       scope: 'transactions',
@@ -423,29 +488,9 @@ describe('EditorBody', () => {
       group_id: testCatalog.groups?.[0]?.id,
     })
   })
-  it('drops a stage queued on the group step once Escape leaves it', async () => {
-    const previewed = deferred<MerchantPreview>()
-    const controller = testEditingController({ previewMerchant: vi.fn(() => previewed.promise) })
-    const { editing, input, onstage } = setup({ kind: 'category', controller })
-    await type(input, 'Pet Care')
-    await screen.findByRole('option', { name: 'Create "Pet Care"' })
-    await fireEvent.keyDown(input, { key: 'Enter' })
-    const group = await screen.findByRole('combobox', { name: /Category group/ })
-    await fireEvent.keyDown(input, { key: 'Enter' })
-    await fireEvent.keyDown(group, { key: 'Escape' })
-    await vi.waitFor(() => expect(document.activeElement).toBe(input))
-    await fireEvent.keyDown(input, { key: 'ArrowDown' })
-    await fireEvent.keyDown(input, { key: 'Enter' })
-    await screen.findByRole('combobox', { name: /Category group/ })
-    previewed.resolve(preview())
-    await stageButton('5 transactions')
-    expect(editing.submit).not.toHaveBeenCalled()
-    expect(onstage).not.toHaveBeenCalled()
-  })
-
   it('closes only the open group list on Escape and keeps the editor open', async () => {
     const { input, oncancel } = setup({ kind: 'category' })
-    await stageButton('5 transactions')
+    await categoryList()
     await type(input, 'Pet Care')
     await fireEvent.keyDown(input, { key: 'Enter' })
     const group = await screen.findByRole('combobox', { name: /Category group/ })
@@ -463,7 +508,7 @@ describe('EditorBody', () => {
       catalog: vi.fn(async () => ({ ...testCatalog, groups: twoGroups })),
     })
     const { input, onstage } = setup({ kind: 'category', controller: editing })
-    await stageButton('5 transactions')
+    await categoryList()
     await type(input, 'Pet Care')
     await fireEvent.keyDown(input, { key: 'Enter' })
     await fireEvent.click(await screen.findByRole('combobox', { name: /Category group/ }))
@@ -477,7 +522,7 @@ describe('EditorBody', () => {
     expect(
       await screen.findByRole('combobox', { name: 'Category group: Second Group' }),
     ).toBeTruthy()
-    await fireEvent.click(screen.getByRole('button', { name: 'Stage change to 5 transactions' }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Stage change' }))
     await vi.waitFor(() => expect(onstage).toHaveBeenCalledTimes(1))
     expect(vi.mocked(editing.submit).mock.calls[0]?.[0].input).toMatchObject({
       group_id: 'group-b',

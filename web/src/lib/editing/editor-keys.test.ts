@@ -30,6 +30,15 @@ describe('editorKey with the list open', () => {
     expect(editorKey(key('Enter'), { ...open, valid: false })).toBe('accept')
   })
 
+  it('stages the typed text on Enter when no option is highlighted, and still moves and closes', () => {
+    const unhighlighted = { ...open, highlighted: false, acceptStages: true }
+    expect(editorKey(key('Enter'), unhighlighted)).toBe('stage')
+    expect(editorKey(key('Enter', ctrl), unhighlighted)).toBe('stage')
+    expect(editorKey(key('Enter'), { ...unhighlighted, valid: false })).toBe('none')
+    expect(editorKey(key('ArrowDown'), unhighlighted)).toBe('move-next')
+    expect(editorKey(key('Escape'), unhighlighted)).toBe('close-list')
+  })
+
   it('accepts and stages on Ctrl+Enter and Cmd+Enter', () => {
     expect(editorKey(key('Enter', ctrl), open)).toBe('accept-and-stage')
     expect(editorKey(key('Enter', meta), open)).toBe('accept-and-stage')
