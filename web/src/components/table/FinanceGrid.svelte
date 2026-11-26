@@ -191,7 +191,40 @@
     else if (action === 'information') oninformation(identity)
     else if (action) onedit(identity, action)
   }
+
+  /*
+   * A press on nothing focusable leaves focus on no element until the workspace gives the grid
+   * focus back when the press ends. A grid showing its ring keeps it meanwhile, so it does not flash.
+   */
+  let ringAtPress = false
+  let resting = $state(false)
+  let restFrame: number | undefined
+
+  function pressEnded(): void {
+    ringAtPress = false
+    if (!resting) return
+    if (restFrame !== undefined) cancelAnimationFrame(restFrame)
+    // After the press's click handlers, which give the grid focus back.
+    restFrame = requestAnimationFrame(() => {
+      restFrame = undefined
+      resting = false
+    })
+  }
+
+  function blurred(event: FocusEvent): void {
+    resting = ringAtPress && event.relatedTarget === null && document.hasFocus()
+  }
+
+  $effect(() => () => {
+    if (restFrame !== undefined) cancelAnimationFrame(restFrame)
+  })
 </script>
+
+<svelte:window
+  onpointerdowncapture={() => (ringAtPress = grid?.matches(':focus-visible') ?? false)}
+  onpointerupcapture={pressEnded}
+  onpointercancelcapture={pressEnded}
+/>
 
 {#if projection.total_rows === 0}
   <div class="mf-table-empty" tabindex="-1">
@@ -213,7 +246,10 @@
     aria-colcount={layout && compactColumnCount(layout)}
     aria-activedescendant={scroll.activeID ? `moneyflow-row-${scroll.activeID}` : undefined}
     tabindex="0"
+    data-resting={resting || undefined}
     bind:this={grid}
+    onblur={blurred}
+    onfocus={() => (resting = false)}
     onkeydown={keydown}
     onclick={click}
     ondblclick={doubleClick}

@@ -1592,6 +1592,89 @@ describe('AppShell inside a host page', () => {
     expect(document.activeElement).toBe(control)
   })
 
+  it('takes focus with the first view from the host link that opened the workspace', () => {
+    const link = document.body.appendChild(document.createElement('a'))
+    link.href = '#spending'
+    onTestFinished(() => link.remove())
+    link.focus()
+    const loaded = stubController()
+    const rendered = render(AppShell, {
+      controller: { ...loaded, projection: undefined, loading: true },
+      chrome: false,
+    })
+
+    rendered.rerender({ controller: loaded })
+    expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Financial results' }))
+  })
+
+  it('leaves the opening link focused when the user moved away and back while loading', async () => {
+    const link = document.body.appendChild(document.createElement('a'))
+    link.href = '#spending'
+    const other = document.body.appendChild(document.createElement('button'))
+    onTestFinished(() => {
+      link.remove()
+      other.remove()
+    })
+    link.focus()
+    const loaded = stubController()
+    const rendered = render(AppShell, {
+      controller: { ...loaded, projection: undefined, loading: true },
+      chrome: false,
+    })
+    await tick()
+    other.focus()
+    link.focus()
+
+    rendered.rerender({ controller: loaded })
+    expect(document.activeElement).toBe(link)
+  })
+
+  it('leaves a host text field focused before the workspace mounted', () => {
+    const field = document.body.appendChild(document.createElement('input'))
+    onTestFinished(() => field.remove())
+    field.focus()
+    const loaded = stubController()
+    const rendered = render(AppShell, {
+      controller: { ...loaded, projection: undefined, loading: true },
+      chrome: false,
+    })
+
+    rendered.rerender({ controller: loaded })
+    expect(document.activeElement).toBe(field)
+  })
+
+  it('returns focus to the grid after a press in the workspace leaves nothing focused', async () => {
+    render(AppShell, { controller: stubController(), chrome: false, globalKeys: false })
+    const grid = screen.getByRole('grid', { name: 'Financial results' })
+    grid.blur()
+    expect(document.activeElement).toBe(document.body)
+
+    await fireEvent.click(screen.getByRole('region', { name: 'Moneyflow workspace' }))
+    expect(document.activeElement).toBe(grid)
+  })
+
+  it('leaves focus on the workspace control a press focused', async () => {
+    render(AppShell, { controller: stubController(), chrome: false, globalKeys: false })
+    const workspace = screen.getByRole('region', { name: 'Moneyflow workspace' })
+    const control = workspace.appendChild(document.createElement('button'))
+    control.focus()
+
+    await fireEvent.click(control)
+    expect(document.activeElement).toBe(control)
+  })
+
+  it('leaves a text selection made in the workspace alone', async () => {
+    render(AppShell, { controller: stubController(), chrome: false, globalKeys: false })
+    screen.getByRole('grid', { name: 'Financial results' }).blur()
+    const workspace = screen.getByRole('region', { name: 'Moneyflow workspace' })
+    const selection = window.getSelection()
+    selection?.selectAllChildren(workspace)
+    onTestFinished(() => selection?.removeAllRanges())
+
+    await fireEvent.click(workspace)
+    expect(document.activeElement).toBe(document.body)
+  })
+
   it('opens views by ID and reports the active explore view', async () => {
     const controller = stubController()
     const onlocation = vi.fn()

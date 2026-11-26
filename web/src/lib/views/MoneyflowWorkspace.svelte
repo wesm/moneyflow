@@ -26,6 +26,14 @@
     else earlyReview = true
   }
 
+  /**
+   * Gives the table focus, so Moneyflow's keys act, unless a Moneyflow dialog or the search field
+   * has it. Does nothing while the workspace loads; the table takes focus when it arrives.
+   */
+  export function focus(): void {
+    workspace?.focus()
+  }
+
   $effect(() => {
     if (!workspace || early === undefined) return
     workspace.open(early)

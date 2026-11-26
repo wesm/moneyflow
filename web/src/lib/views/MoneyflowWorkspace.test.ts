@@ -78,6 +78,33 @@ describe('MoneyflowWorkspace', () => {
     }
   })
 
+  it('gives the grid focus when the host asks', async () => {
+    const hostFetch = vi.fn<typeof fetch>(async (input, init) => {
+      const path = new Request(input, init).url.replace(`${api}profiles/${profileID}/`, '')
+      if (path === 'view') return Response.json(testProjection())
+      return Response.json(
+        { status: 404, code: 'not_found', detail: 'Not found.' },
+        { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+    })
+    const { component } = render(MoneyflowWorkspace, {
+      apiBase: '/embedded/moneyflow/',
+      fetch: hostFetch,
+      profileID,
+      viewState: memoryViewState(),
+      shortcuts: false,
+    })
+    // Asked for while the workspace loads, focus does nothing.
+    component.focus()
+    const grid = await appears(() => screen.queryByRole('grid', { name: 'Financial results' }))
+    const host = document.body.appendChild(document.createElement('button'))
+    host.focus()
+
+    component.focus()
+    expect(document.activeElement).toBe(grid)
+    host.remove()
+  })
+
   it('opens a view asked for before the workspace has mounted', async () => {
     const categories = testProjection({
       canonical_query: 'group=category&v=1',

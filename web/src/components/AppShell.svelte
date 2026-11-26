@@ -135,6 +135,10 @@
     }
     run(entry.run)
   }
+  /** Gives the table focus unless a dialog or the search field has it. */
+  export function focus(): void {
+    focusGrid()
+  }
   /** Opens the review of pending edits as the Review button does. */
   export function review(): void {
     local('edit.review')
@@ -219,16 +223,52 @@
     if (writeStarted) status.clear()
   })
   /**
-   * The grid takes focus once, when the first view arrives. In a host page it takes focus only
-   * from the page body, so a host control the user moved to while the view loaded keeps it.
+   * The grid takes focus once, when the first view arrives. In a host page it takes focus from
+   * the page body or from the control that had focus when the workspace mounted, such as the
+   * host link that opened it. A host control the user moved to while the view loaded keeps
+   * focus, even when the user then moved back to the opener, and so does a host text field.
    */
+  const focusedAtMount = document.activeElement
+  /** Whether focus went to another element while the view loaded. */
+  let movedWhileLoading = false
   const loaded = $derived(projection !== undefined)
+  $effect(() => {
+    if (loaded) return
+    // Leaving the window and coming back refocuses the opener itself, which is not a move.
+    const moved = (event: FocusEvent) => {
+      if (event.target !== focusedAtMount) movedWhileLoading = true
+    }
+    document.addEventListener('focusin', moved, true)
+    return () => document.removeEventListener('focusin', moved, true)
+  })
   $effect(() => {
     if (!loaded) return
     untrack(() => {
-      if (chrome || document.activeElement === document.body) focusGrid()
+      const active = document.activeElement
+      const opener = active === focusedAtMount && !movedWhileLoading && !isTextEntry(active)
+      if (chrome || active === document.body || opener) focusGrid()
     })
   })
+
+  function isTextEntry(element: Element | null): boolean {
+    return (
+      element instanceof HTMLInputElement ||
+      element instanceof HTMLTextAreaElement ||
+      element instanceof HTMLSelectElement ||
+      (element instanceof HTMLElement && element.isContentEditable)
+    )
+  }
+
+  /**
+   * A press on a part of the workspace that takes no focus, such as a chart label or the space
+   * around the table, leaves focus on the page body, where an embedded workspace takes no keys.
+   * Focus returns to the grid then, unless the press selected text.
+   */
+  function keepFocus(): void {
+    if (document.activeElement !== document.body) return
+    if (window.getSelection()?.isCollapsed === false) return
+    focusGrid()
+  }
   onMount(() => {
     const keydown = (event: KeyboardEvent) => {
       const inViews = event.target instanceof Element && event.target.closest('.mf-views')
@@ -247,7 +287,9 @@
   })
 </script>
 
-<div class="app-shell" inert={refreshing}>
+<!-- Pointer users have the grid's keys; keyboard users never leave focus on the page body. -->
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+<div class="app-shell" inert={refreshing} onclick={keepFocus}>
   {#if chrome && projection}
     <Sidebar
       {projection}
